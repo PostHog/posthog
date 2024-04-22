@@ -10,8 +10,8 @@ function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
     return `${value}-${unit}`
 }
 
-function getTimeElement(
-    parent: HTMLDivElement | null,
+export function getTimeElement(
+    parent: HTMLElement | null,
     props: GetLemonButtonTimePropsOpts
 ): HTMLDivElement | undefined | null {
     return parent?.querySelector(`[data-attr="${timeDataAttr(props)}"]`)
@@ -44,7 +44,7 @@ export function LemonCalendarSelect({
 
     const onDateClick = (date: dayjs.Dayjs | null): void => {
         if (showTime && selectValue === null && date != null) {
-            date = date.hour(dayjs().hour()).minute(dayjs().minute())
+            date = date.startOf('minute')
         }
         setSelectValue(date)
     }
@@ -56,15 +56,12 @@ export function LemonCalendarSelect({
 
         let date = selectValue
         if (date === null) {
-            date = dayjs()
+            date = dayjs().startOf('day')
             if (unit === 'h') {
-                date = date.minute(0)
                 scrollElements.minute = 0
             } else if (unit === 'm') {
-                date = date.hour(0)
                 scrollElements.hour = 0
             } else if (unit === 'a') {
-                date = date.hour(0).minute(0)
                 scrollElements.hour = 0
                 scrollElements.minute = 0
             }
