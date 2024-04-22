@@ -29,14 +29,9 @@ beforeEach(() => {
     cy.intercept('**/decide/*', (req) =>
         req.reply(
             decideResponse({
-                // set feature flags here e.g.
+                // Feature flag to be treated as rolled out in E2E tests, e.g.:
                 // 'toolbar-launch-side-action': true,
-                'surveys-new-creation-flow': true,
-                'auto-redirect': true,
-                hogql: true,
                 'hogql-insights-preview': true,
-                'data-exploration-insights': true,
-                notebooks: true,
             })
         )
     )
