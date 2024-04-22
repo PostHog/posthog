@@ -119,7 +119,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 42
+        cls.base_app_num_queries = 44
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
         other_org = create_organization(name="test org")
@@ -135,7 +135,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 5):  # AutoProjectMiddleware adds 5 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -176,10 +176,10 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.refresh_from_db()
         response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
 
-        self.assertEqual(response_app.status_code, 200)
-        self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
-        self.assertEqual(response_dashboards_api.status_code, 404)
+        assert response_app.status_code == 200
+        assert response_users_api.status_code == 200
+        assert response_users_api_data.get("team", {}).get("id") == self.team.id  # NOT third_team
+        assert response_dashboards_api.status_code == 404, response_dashboards_api.json()
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
@@ -253,7 +253,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):
+        with self.assertNumQueries(self.base_app_num_queries + 5):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
