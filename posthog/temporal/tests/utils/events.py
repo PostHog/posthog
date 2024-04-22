@@ -139,7 +139,7 @@ async def generate_test_events_in_clickhouse(
     person_properties: dict | None = None,
     inserted_at: str | dt.datetime | None = "_timestamp",
     duplicate: bool = False,
-    batch_size: int = 1000,
+    batch_size: int = 10000,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
     """Insert test events into the sharded_events table.
 
