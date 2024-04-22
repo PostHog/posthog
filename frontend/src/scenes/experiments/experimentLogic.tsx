@@ -299,8 +299,21 @@ export const experimentLogic = kea<experimentLogicType>([
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
+            const { experiment, experimentInsightType } = values
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
+
+            if (
+                experimentInsightType === InsightType.FUNNELS &&
+                (!experiment.filters.events?.length || experiment.filters.events.length < 2)
+            ) {
+                return lemonToast.error(
+                    `Please make sure there are at least two funnel steps before ${
+                        isUpdate ? 'updating' : 'creating'
+                    } this experiment.`
+                )
+            }
+
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -396,7 +409,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // the new query with any existing query and that causes validation problems when there are
             // unsupported properties in the now merged query.
             const newQuery = filtersToQueryNode(newInsightFilters)
-            if (filters?.insight === InsightType.FUNNELS) {
+            if (newInsightFilters?.insight === InsightType.FUNNELS) {
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
