@@ -93,6 +93,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             },
         })
     }
+
     return (
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
@@ -123,7 +124,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         )}
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
+                <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
                     {addon.docs_url && (
                         <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
                     )}
@@ -151,15 +152,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         </LemonTag>
                     ) : (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                disableClientSideRouting
-                                onClick={() => {
-                                    toggleIsPricingModalOpen()
-                                }}
-                            >
-                                View pricing
-                            </LemonButton>
+                            {addon.flat_rate ? (
+                                <h4 className="leading-5 font-bold mb-0 space-x-0.5">
+                                    <span>${Number(currentAndUpgradePlans?.upgradePlan?.unit_amount_usd)}</span>
+                                    <span>/</span>
+                                    <span>{currentAndUpgradePlans?.upgradePlan?.unit}</span>
+                                </h4>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        toggleIsPricingModalOpen()
+                                    }}
+                                >
+                                    View pricing
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 type="primary"
                                 icon={<IconPlus />}
