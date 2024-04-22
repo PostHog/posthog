@@ -2,7 +2,7 @@ import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { GetLemonButtonTimePropsOpts, LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Popover } from '../Popover'
 
@@ -16,8 +16,16 @@ export function getTimeElement(
 ): HTMLDivElement | undefined | null {
     return parent?.querySelector(`[data-attr="${timeDataAttr(props)}"]`)
 }
-function scrollToTimeElement(calendarEl: HTMLDivElement | null, props: GetLemonButtonTimePropsOpts): void {
-    getTimeElement(calendarEl, props)?.scrollIntoView({ block: 'start', inline: 'nearest' })
+function scrollToTimeElement(
+    calendarEl: HTMLDivElement | null,
+    props: GetLemonButtonTimePropsOpts,
+    skipAnimation: boolean
+): void {
+    getTimeElement(calendarEl, props)?.scrollIntoView({
+        block: 'start',
+        inline: 'nearest',
+        behavior: skipAnimation ? 'instant' : 'smooth',
+    })
 }
 
 export interface LemonCalendarSelectProps {
@@ -38,6 +46,7 @@ export function LemonCalendarSelect({
     fromToday,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
+    const [firstRender, setFirstRender] = useState<boolean>(true)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
         value ? (showTime ? value : value.startOf('day')) : null
     )
@@ -49,40 +58,25 @@ export function LemonCalendarSelect({
         setSelectValue(date)
     }
 
+    useEffect(() => {
+        const calendarEl = calendarRef.current
+        if (calendarEl && selectValue) {
+            scrollToTimeElement(calendarEl, { unit: 'h', value: selectValue.hour() }, firstRender)
+            scrollToTimeElement(calendarEl, { unit: 'm', value: selectValue.minute() }, firstRender)
+            setFirstRender(false)
+        }
+    }, [selectValue, calendarRef])
+
     const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
         const { value, unit } = props
-        const calendarEl = calendarRef.current
-        const scrollElements: { hour: number | null; minute: number | null } = { hour: null, minute: null }
 
-        let date = selectValue
-        if (date === null) {
-            date = dayjs().startOf('day')
-            if (unit === 'h') {
-                scrollElements.minute = 0
-            } else if (unit === 'm') {
-                scrollElements.hour = 0
-            } else if (unit === 'a') {
-                scrollElements.hour = 0
-                scrollElements.minute = 0
-            }
-        }
-
+        let date = selectValue || dayjs().startOf('day')
         if (unit === 'h') {
             date = date.hour(Number(value))
-            scrollElements.hour = Number(value)
-            getTimeElement(calendarEl, { value, unit: 'h' })?.scrollIntoView(true)
         } else if (unit === 'm') {
             date = date.minute(Number(value))
-            scrollElements.minute = Number(value)
         } else if (unit === 'a') {
             date = value === 'am' ? date.subtract(12, 'hour') : date.add(12, 'hour')
-        }
-
-        if (scrollElements.hour) {
-            scrollToTimeElement(calendarEl, { unit: 'h', value: scrollElements.hour })
-        }
-        if (scrollElements.minute) {
-            scrollToTimeElement(calendarEl, { unit: 'm', value: scrollElements.minute })
         }
 
         setSelectValue(date)
