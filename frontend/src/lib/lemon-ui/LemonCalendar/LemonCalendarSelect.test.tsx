@@ -58,6 +58,8 @@ describe('LemonCalendarSelect', () => {
         const onChange = jest.fn()
         window.HTMLElement.prototype.scrollIntoView = jest.fn()
 
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+
         function TestSelect(): JSX.Element {
             const [value, setValue] = useState<dayjs.Dayjs | null>(null)
             return (
@@ -75,8 +77,16 @@ describe('LemonCalendarSelect', () => {
         }
         const { container } = render(<TestSelect />)
 
-        async function clickOn(props: GetLemonButtonTimePropsOpts): Promise<void> {
-            const element = getTimeElement(container, props)
+        async function clickOnDate(day: string): Promise<void> {
+            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
+            if (element) {
+                userEvent.click(await within(element).findByText(day))
+                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            }
+        }
+
+        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
+            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
             if (element) {
                 userEvent.click(element)
                 userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
@@ -84,21 +94,23 @@ describe('LemonCalendarSelect', () => {
         }
 
         // click on hour 8
-        await clickOn({ unit: 'h', value: 8 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2024-04-22T08:00:00.000Z'))
-        // scrolls to both the hour and minute as date was previously set
-        expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(2)
+        await clickOnDate('15')
+        // sets the date to 15, hour and minutes to current time, and seconds to 0
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:22:00.000Z'))
 
         // click on minute 42
-        await clickOn({ unit: 'm', value: 42 })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2024-04-22T08:42:00.000Z'))
-        // scrolls to the new minute, hour does not scroll because it is already set
-        expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(3)
+        await clickOnTime({ unit: 'm', value: 42 })
+        // sets the minutes but leaves all other values unchanged
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T17:42:00.000Z'))
 
-        // click on 'pm'
-        await clickOn({ unit: 'a', value: 'pm' })
-        expect(onChange).toHaveBeenCalledWith(dayjs('2024-04-22T20:42:00.000Z'))
-        // no scrolls
-        expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(3)
+        // click on 'am'
+        await clickOnTime({ unit: 'a', value: 'am' })
+        // subtracts 12 hours from the time
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T05:42:00.000Z'))
+
+        // click on hour 8
+        await clickOnTime({ unit: 'h', value: 8 })
+        // only changes the hour
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
     })
 })
