@@ -251,6 +251,14 @@ class FeatureFlagSerializer(
                             detail=f"Invalid date value: {prop.value}", code="invalid_date"
                         )
 
+                # make sure regex and icontains properties have string values
+                if prop.operator in ["regex", "icontains", "not_regex", "not_icontains"] and not isinstance(
+                    prop.value, str
+                ):
+                    raise serializers.ValidationError(
+                        detail=f"Invalid value for operator {prop.operator}: {prop.value}", code="invalid_value"
+                    )
+
         payloads = filters.get("payloads", {})
 
         if not isinstance(payloads, dict):
