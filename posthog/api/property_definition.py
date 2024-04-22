@@ -478,7 +478,7 @@ class PropertyDefinitionViewSet(
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator
 
-    def get_queryset(self):
+    def filter_queryset(self, queryset):
         queryset = PropertyDefinition.objects
 
         property_definition_fields = ", ".join(

@@ -73,6 +73,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
     scope_object = "dashboard_template"
     permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
+    queryset = DashboardTemplate.objects.all()
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
     @action(methods=["GET"], detail=False)
@@ -80,7 +81,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)
 
-    def get_queryset(self, *args, **kwargs):
+    def filter_queryset(self, queryset):
         filters = self.request.GET.dict()
         scope = filters.pop("scope", None)
         search = filters.pop("search", None)
@@ -100,4 +101,4 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 Q(template_name__search=search) | Q(dashboard_description__search=search) | Q(tags__contains=[search])
             )
 
-        return DashboardTemplate.objects.filter(query_condition)
+        return queryset.filter(query_condition)

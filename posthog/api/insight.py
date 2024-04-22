@@ -576,6 +576,7 @@ class InsightViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     sharing_enabled_actions = ["retrieve", "list"]
+    queryset = Insight.objects_including_soft_deleted.all()
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -595,22 +596,22 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def get_queryset(self) -> QuerySet:
-        queryset: QuerySet
+    def filter_queryset(self, queryset) -> QuerySet:
+        include_deleted = False
+
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             queryset = Insight.objects.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset = Insight.objects_including_soft_deleted.all()
-        else:
-            queryset = Insight.objects.all()
+            include_deleted = True
+
+        if not include_deleted:
+            queryset = queryset.filter(deleted=False)
 
         # Optimize tag retrieval
         queryset = self.prefetch_tagged_items_if_available(queryset)
-        # Disallow access to other teams' insights
-        queryset = self.filter_queryset_by_parents_lookups(queryset)
 
         queryset = queryset.prefetch_related(
             Prefetch(

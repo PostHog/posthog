@@ -75,11 +75,12 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
+    queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
     ordering_fields = ["name", "last_seen_at"]
 
-    def get_queryset(self):
+    def filter_queryset(self, queryset):
         # `type` = 'all' | 'event' | 'action_event'
         # Allows this endpoint to return lists of event definitions, actions, or both.
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))

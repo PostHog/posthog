@@ -1,6 +1,7 @@
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -60,6 +61,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        protected_methods = {
+            "get_queryset": "Use filter_queryset instead",
+            # "get_object": "Use foo instead" # TODO: We don't want overriding get object if possible...
+        }
+
+        for method, message in protected_methods.items():
+            if method in cls.__dict__:
+                raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
@@ -97,9 +109,20 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         return [auth() for auth in authentication_classes]
 
+    # TODO: This needs to be named differently as it is also used...
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        """
+        We don't want to ever allow overriding the get_queryset as the filtering is an important security aspect.
+        Instead we provide this method to override and provide additional queryset filtering.
+        """
+        return queryset
+
     def get_queryset(self):
         queryset = super().get_queryset()
-        return self.filter_queryset_by_parents_lookups(queryset)
+        # First of all make sure we do the custom filters before applying our own
+        queryset = self.filter_queryset(queryset)
+
+        return self._filter_queryset_by_parents_lookups(queryset)
 
     @property
     def is_team_view(self):
@@ -155,7 +178,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except Organization.DoesNotExist:
             raise NotFound(detail="Organization not found.")
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def _filter_queryset_by_parents_lookups(self, queryset):
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():

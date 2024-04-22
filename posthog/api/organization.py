@@ -165,7 +165,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
         return super().get_permissions()
 
-    def get_queryset(self) -> QuerySet:
+    def filter_queryset(self, queryset) -> QuerySet:
         return cast(User, self.request.user).organizations.all()
 
     def get_object(self):

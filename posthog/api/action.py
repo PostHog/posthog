@@ -166,13 +166,12 @@ class ActionViewSet(
 ):
     scope_object = "action"
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
-    queryset = Action.objects.all()
+    queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
-    def get_queryset(self):
-        queryset = super().get_queryset().select_related("created_by")
+    def filter_queryset(self, queryset):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 

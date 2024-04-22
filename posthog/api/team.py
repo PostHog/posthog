@@ -401,10 +401,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_queryset(self):
+    def filter_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        return super().get_queryset().filter(id__in=visible_teams_ids)
+        return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
         if self.action == "list":

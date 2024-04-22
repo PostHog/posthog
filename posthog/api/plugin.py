@@ -311,8 +311,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PluginOwnershipPermission,
     ]
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         queryset = queryset.select_related("organization")
 
         if self.action == "get" or self.action == "list":
@@ -332,7 +331,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied(f"Plugin {reason} is not available for the current organization!")
         return plugin
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def _filter_queryset_by_parents_lookups(self, queryset):
         try:
             return queryset.filter(
                 Q(**self.parents_query_dict)
@@ -723,10 +722,9 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
-    def get_queryset(self):
+    def filter_queryset(self, queryset):
         if not can_configure_plugins(self.team.organization_id):
-            return self.queryset.none()
-        queryset = super().get_queryset()
+            return queryset.none()
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("order", "plugin_id")
@@ -879,22 +877,19 @@ class LegacyPluginConfigViewSet(PluginConfigViewSet):
 
 
 class PipelineTransformationsViewSet(PluginViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
 
 
 class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
         )
 
 
 class PipelineDestinationsViewSet(PluginViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.filter(
             Q(capabilities__has_key="methods")
             & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
@@ -902,8 +897,7 @@ class PipelineDestinationsViewSet(PluginViewSet):
 
 
 class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods")
             & (
@@ -914,22 +908,19 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
 
 
 class PipelineFrontendAppsViewSet(PluginViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.exclude(Q(capabilities__has_key="methods") | Q(capabilities__has_key="scheduled_tasks"))
 
 
 class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.exclude(
             Q(plugin__capabilities__has_key="methods") | Q(plugin__capabilities__has_key="scheduled_tasks")
         )
 
 
 class PipelineImportAppsViewSet(PluginViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         # All the plugins, that are not on the other pages
         return queryset.filter(
             Q(Q(capabilities__has_key="scheduled_tasks") & ~Q(capabilities__scheduled_tasks=[]))
@@ -943,8 +934,7 @@ class PipelineImportAppsViewSet(PluginViewSet):
 
 
 class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def filter_queryset(self, queryset):
         return queryset.filter(
             Q(Q(plugin__capabilities__has_key="scheduled_tasks") & ~Q(plugin__capabilities__scheduled_tasks=[]))
             | Q(
