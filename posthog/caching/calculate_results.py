@@ -1,6 +1,5 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from posthog.api.services.query import ExecutionMode
 import structlog
 from sentry_sdk import capture_exception
 
@@ -30,16 +29,16 @@ from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import generate_insight_cache_key
-from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels import (
+    ClickhouseFunnelTimeToConvert,
+    ClickhouseFunnelTrends,
+)
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
-
-if TYPE_CHECKING:
-    from posthog.caching.fetch_from_cache import InsightResult
 
 CACHE_TYPE_TO_INSIGHT_CLASS = {
     CacheType.TRENDS: Trends,
@@ -55,7 +54,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     insight = target if isinstance(target, Insight) else target.insight
     dashboard = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or not insight.filters:
+    if insight is None or (not insight.filters and insight.query is None):
         return None
 
     return generate_insight_cache_key(insight, dashboard)
@@ -107,57 +106,57 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
         raise Exception("Could not determine cache type. Must provide a filter or a query")
 
 
-def calculate_for_query_based_insight(
-    insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
-) -> "InsightResult":
-    from posthog.api.services.query import process_query
-    from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
-
-    tag_queries(team_id=insight.team_id, insight_id=insight.pk)
-    if dashboard:
-        tag_queries(dashboard_id=dashboard.pk)
-
-    effective_query = insight.get_effective_query(dashboard=dashboard)
-    assert effective_query is not None
-
-    response = process_query(
-        insight.team,
-        effective_query,
-        execution_mode=ExecutionMode.CALCULATION_REQUESTED if refresh_requested else ExecutionMode.CACHE_ONLY,
-    )
-
-    if "results" not in response:
-        # Translating `CacheMissResponse` to legacy insights shape
-        return NothingInCacheResult(cache_key=response.get("cache_key"))
-
-    return InsightResult(
-        # Translating `QueryResponse` to legacy insights shape
-        # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`
-        result=response["results"],
-        last_refresh=response.get("last_refresh"),
-        cache_key=response.get("cache_key"),
-        is_cached=response.get("is_cached", False),
-        timezone=response.get("timezone"),
-        next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
-        timings=response.get("timings"),
-    )
-
-
-def calculate_for_filter_based_insight(
-    insight: Insight, dashboard: Optional[Dashboard]
+def calculate_result_by_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
 ) -> Tuple[str, str, List | Dict]:
-    filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
+    """
+    Calculates the result for an insight. If the insight is query based,
+    it will use the query to calculate the result. Even if there is a filter present on the insight
+
+    Eventually there will be no filter-based insights left and calculate_for_query_based_insight will be
+    in-lined into this function
+    """
+    if insight.query is not None:
+        return calculate_for_query_based_insight(team, insight, dashboard)
+    else:
+        return calculate_for_filter_based_insight(team, insight, dashboard)
+
+
+def calculate_for_query_based_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List | Dict]:
     cache_key = generate_insight_cache_key(insight, dashboard)
-    cache_type = get_cache_type(filter)
+    cache_type = get_cache_type(insight.query)
 
     tag_queries(
-        team_id=insight.team_id,
+        team_id=team.pk,
         insight_id=insight.pk,
         cache_type=cache_type,
         cache_key=cache_key,
     )
 
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.team)
+    # local import to avoid circular reference
+    from posthog.api.services.query import process_query
+
+    # TODO need to properly check that hogql is enabled?
+    return cache_key, cache_type, process_query(team, insight.query, True)
+
+
+def calculate_for_filter_based_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List | Dict]:
+    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
+    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_type = get_cache_type(filter)
+
+    tag_queries(
+        team_id=team.pk,
+        insight_id=insight.pk,
+        cache_type=cache_type,
+        cache_key=cache_key,
+    )
+
+    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
 
 
 def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
