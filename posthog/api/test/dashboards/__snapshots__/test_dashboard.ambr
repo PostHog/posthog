@@ -2615,8 +2615,8 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
-  WHERE ("posthog_dashboard"."team_id" = 2
-         AND NOT "posthog_dashboard"."deleted")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."team_id" = 2)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.55
@@ -2738,8 +2738,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE ("posthog_dashboard"."team_id" = 2
-         AND NOT "posthog_dashboard"."deleted")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."team_id" = 2)
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 300
   '''
