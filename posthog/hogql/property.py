@@ -34,6 +34,7 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
     RetentionEntity,
+    EmptyPropertyFilter,
 )
 
 
@@ -118,12 +119,13 @@ def property_to_expr(
             return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
+    elif isinstance(property, EmptyPropertyFilter):
+        return ast.Constant(value=True)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            # TODO: revert this when removing legacy insights?
             return ast.Constant(value=True)
     else:
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")

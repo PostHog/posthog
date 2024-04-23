@@ -24,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity, EmptyPropertyFilter
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -157,6 +157,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._parse_expr("1"),
             self._property_to_expr({}),  # incomplete event
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
         )
 
     def test_property_to_expr_boolean(self):
