@@ -885,8 +885,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
     Use this mixin to make sure you completely destroy the tables between tests.
     """
 
-    def setUp(self):
-        super().setUp()
+    def _table_operations(self):
         run_clickhouse_statement_in_parallel(
             [
                 DROP_EVENTS_TABLE_SQL(),
@@ -929,45 +928,13 @@ class ClickhouseDestroyTablesMixin(BaseTest):
             ]
         )
 
+    def setUp(self):
+        super().setUp()
+        self._table_operations()
+
     def tearDown(self):
         super().tearDown()
-
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-            ]
-        )
-
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
-                SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                SESSIONS_VIEW_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL,
-            ]
-        )
+        self._table_operations()
 
 
 def snapshot_clickhouse_queries(fn):
