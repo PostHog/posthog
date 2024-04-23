@@ -418,6 +418,8 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
+        # The default logic below applies to all insights and a lot of other queries
+        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
             query_update: Dict[str, Any] = {}
             if dashboard_filter.properties:

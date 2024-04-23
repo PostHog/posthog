@@ -814,8 +814,8 @@ class TrendsQueryRunner(QueryRunner):
         return TrendsDisplay(display)
 
     def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
+        updated_query = super().apply_dashboard_filters(*args, **kwargs)
         # Remove any set breakdown limit for display on the dashboard
-        if self.query.breakdownFilter:
-            self.query.breakdownFilter.breakdown_limit = None
-
-        return self.query
+        if updated_query.breakdownFilter:
+            updated_query.breakdownFilter.breakdown_limit = None
+        return updated_query
