@@ -1,7 +1,7 @@
 from typing import Optional
 
 from django.utils import timezone
-from rest_framework import exceptions, mixins, viewsets
+from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 

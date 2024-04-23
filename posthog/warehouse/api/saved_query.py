@@ -2,7 +2,6 @@ from typing import Any, List
 
 from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -12,7 +11,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models import User
 from posthog.warehouse.models import DataWarehouseSavedQuery
 
 

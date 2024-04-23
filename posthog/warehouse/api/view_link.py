@@ -1,12 +1,10 @@
 from typing import Optional
 
 from rest_framework import filters, serializers, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import create_hogql_database
-from posthog.models import User
 from posthog.warehouse.models import DataWarehouseJoin
 
 

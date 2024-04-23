@@ -1,12 +1,10 @@
 from typing import Any, List, Dict
 
 from rest_framework import filters, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
-from posthog.models import User
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,

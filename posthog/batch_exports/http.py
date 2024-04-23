@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,

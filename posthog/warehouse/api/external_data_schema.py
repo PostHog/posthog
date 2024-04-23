@@ -3,8 +3,6 @@ from posthog.warehouse.models import ExternalDataSchema
 from typing import Optional, Dict, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters
-from rest_framework.exceptions import NotAuthenticated
-from posthog.models import User
 from posthog.hogql.database.database import create_hogql_database
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
