@@ -66,7 +66,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         protected_methods = {
             "get_queryset": "Use safely_get_queryset instead",
             "get_object": "Use safely_get_object instead",
-            "get_permissions": "Use dangerously_get_permissions instead",
+            "get_permissions": "Add additional 'permisson_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead",
             "get_authenticators": "Add additional 'authentication_classes' via the class attribute instead",
         }
 
