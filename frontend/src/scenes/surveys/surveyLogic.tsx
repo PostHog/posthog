@@ -173,6 +173,18 @@ export const surveyLogic = kea<surveyLogicType>([
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
             },
+            launchSurvey: async () => {
+                const startDate = dayjs()
+                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+            },
+            stopSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+            },
+            resumeSurvey: async () => {
+                return await api.surveys.update(props.id, { end_date: null })
+            },
+        },
+        duplicatedSurvey: {
             duplicateSurvey: async () => {
                 const { survey } = values
                 const payload = duplicateExistingSurvey(survey)
@@ -190,16 +202,6 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 return survey
-            },
-            launchSurvey: async () => {
-                const startDate = dayjs()
-                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
-            },
-            stopSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
-            },
-            resumeSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: null })
             },
         },
         surveyUserStats: {
