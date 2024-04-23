@@ -417,26 +417,25 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        common_permissions: list = [
+        permissions: list = [
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]
 
-        base_permissions = [permission() for permission in common_permissions]
-
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    base_permissions.append(OrganizationAdminWritePermissions())
+                    permissions.append(OrganizationAdminWritePermissions)
                 else:
-                    base_permissions.append(OrganizationMemberPermissions())
+                    permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-                base_permissions.append(TeamMemberLightManagementPermission())
-        return base_permissions
+                permissions.append(TeamMemberLightManagementPermission)
+
+        return [permission() for permission in permissions]
 
     def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
