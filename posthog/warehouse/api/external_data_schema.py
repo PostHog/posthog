@@ -1,15 +1,24 @@
 from rest_framework import serializers
+import structlog
+import temporalio
 from posthog.warehouse.models import ExternalDataSchema
 from typing import Optional, Dict, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, status
+from rest_framework.decorators import action
+from rest_framework.request import Request
+from rest_framework.response import Response
 from posthog.hogql.database.database import create_hogql_database
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
+    is_any_external_data_job_paused,
     sync_external_data_job_workflow,
     pause_external_data_schedule,
+    trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -18,7 +27,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
 
-        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error"]
+        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error", "status"]
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer
@@ -66,3 +75,27 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").order_by(self.ordering)
+
+    @action(methods=["POST"], detail=True)
+    def reload(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
+        try:
+            trigger_external_data_workflow(instance)
+
+        except temporalio.service.RPCError as e:
+            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+
+        except Exception as e:
+            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
+            raise
+
+        instance.status = ExternalDataSchema.Status.RUNNING
+        instance.save()
+        return Response(status=status.HTTP_200_OK)
