@@ -30,19 +30,26 @@ export function Timestamp(): JSX.Element {
             }
             active
         >
-            {timestampFormat === TimestampFormat.Relative ? (
-                <>
-                    {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
-                    {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
-                </>
-            ) : (
-                <>
-                    {currentTimestamp
-                        ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
-                        : '--/--/----, 00:00:00'}{' '}
-                    UTC
-                </>
-            )}
+            <span
+                className={clsx(
+                    'text-center',
+                    timestampFormat === TimestampFormat.Relative ? 'w-[132px]' : 'w-[168px]'
+                )}
+            >
+                {timestampFormat === TimestampFormat.Relative ? (
+                    <>
+                        {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
+                        {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
+                    </>
+                ) : (
+                    <>
+                        {currentTimestamp
+                            ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
+                            : '--/--/----, 00:00:00'}{' '}
+                        UTC
+                    </>
+                )}
+            </span>
         </LemonButton>
     )
 }
