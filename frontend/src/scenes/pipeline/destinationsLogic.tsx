@@ -35,7 +35,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
-        archiveBatchExport: (destination: BatchExportDestination) => ({ destination }),
+        deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -104,6 +104,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     captureBatchExportEvent(`batch export ${enabled ? 'enabled' : 'disabled'}`, batchExport)
                     return { ...values.batchExportConfigs, [destination.id]: { ...batchExport, paused: !enabled } }
                 },
+                deleteNodeBatchExport: async ({ destination }) => {
+                    await api.batchExports.delete(destination.id)
+                    return Object.fromEntries(
+                        Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
+                    )
+                },
             },
         ],
     })),
@@ -142,7 +148,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, asyncActions, values }) => ({
         toggleNode: ({ destination, enabled }) => {
             if (!values.canConfigurePlugins) {
                 lemonToast.error("You don't have permission to enable or disable destinations")
@@ -159,19 +165,18 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             }
         },
         deleteNode: async ({ destination }) => {
-            await deleteWithUndo({
-                endpoint: `projects/${teamLogic.values.currentTeamId}/${
-                    destination.backend === PipelineBackend.BatchExport ? 'batch_exports' : 'plugin_config'
-                }`,
-                object: {
-                    id: destination.id,
-                    name: destination.name,
-                },
-                callback:
-                    destination.backend === PipelineBackend.BatchExport
-                        ? actions.loadBatchExports
-                        : actions.loadPluginConfigs,
-            })
+            if (destination.backend === PipelineBackend.BatchExport) {
+                await asyncActions.deleteNodeBatchExport(destination)
+            } else {
+                await deleteWithUndo({
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
+                    object: {
+                        id: destination.id,
+                        name: destination.name,
+                    },
+                    callback: actions.loadPluginConfigs,
+                })
+            }
         },
     })),
     afterMount(({ actions }) => {
