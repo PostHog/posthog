@@ -168,7 +168,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset) -> QuerySet:
         return cast(User, self.request.user).organizations.all()
 
-    def safely_get_object(self):
+    def safely_get_object(self, queryset):
         return self.organization
 
     # Override base view as the "parent_query_dict" for an organization is the same as the organization itself

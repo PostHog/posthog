@@ -583,7 +583,7 @@ class PropertyDefinitionViewSet(
                 serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
-    def safely_get_object(self):
+    def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
