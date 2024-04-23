@@ -154,7 +154,7 @@ export const DestinationMoreOverlay = ({
                     label: destination.enabled ? 'Pause destination' : 'Unpause destination',
                     onClick: () => toggleNode(destination, !destination.enabled),
                     disabledReason: !canConfigurePlugins
-                        ? 'You do not have permission to enable/disable destinations.'
+                        ? 'You do not have permission to toggle destinations.'
                         : !canEnableNewDestinations && !destination.enabled
                         ? 'Data pipelines add-on is required for enabling new destinations'
                         : undefined,

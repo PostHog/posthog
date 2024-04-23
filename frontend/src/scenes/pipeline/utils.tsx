@@ -328,7 +328,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                     enabled: !node.enabled,
                     id: node.id,
                 }),
-            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to enable/disable.',
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
         },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
