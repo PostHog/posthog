@@ -1,6 +1,6 @@
 import { ElementRect } from '~/toolbar/types'
 
-interface HeatmapElementProps {
+interface AutocaptureElementProps {
     rect?: ElementRect
     style: Record<string, any>
     onClick: (event: React.MouseEvent) => void
@@ -8,13 +8,13 @@ interface HeatmapElementProps {
     onMouseOut: (event: React.MouseEvent) => void
 }
 
-export function HeatmapElement({
+export function AutocaptureElement({
     rect,
     style = {},
     onClick,
     onMouseOver,
     onMouseOut,
-}: HeatmapElementProps): JSX.Element | null {
+}: AutocaptureElementProps): JSX.Element | null {
     if (!rect) {
         return null
     }
