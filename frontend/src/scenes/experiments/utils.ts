@@ -41,7 +41,16 @@ export function getMinimumDetectableEffect(
             return null
         }
 
-        const currentConversionRate = conversionMetrics.totalRate * 100
+        let currentConversionRate = conversionMetrics.totalRate * 100
+        // 40% should have the same MDE as 60% -> perform a flip above 50%
+        if (currentConversionRate > 50) {
+            currentConversionRate = 100 - currentConversionRate
+        }
+
+        // Multiplication would result in 0; return MDE = 1
+        if (currentConversionRate === 0) {
+            return 1
+        }
 
         // CR = 50% requires a high running time
         // CR = 1% or 99% requires a low running time
