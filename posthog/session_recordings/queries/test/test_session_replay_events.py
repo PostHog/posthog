@@ -39,7 +39,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_metadata(self) -> None:
         metadata = SessionReplayEvents().get_metadata(session_id="1", team=self.team)
-        assert metadata == {
+        assert metadata.__dict__ == {
             "active_seconds": 25.0,
             "click_count": 2,
             "console_error_count": 0,

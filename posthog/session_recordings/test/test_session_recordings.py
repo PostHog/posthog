@@ -42,11 +42,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # TODO this is pretty slow, we should change assertions so that we don't need it
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
-    def create_snapshot(
+    def produce_replay_event(
         self,
         distinct_id,
         session_id,
         timestamp,
+        snapshot_source: str | None = None,
         team_id=None,
     ):
         if team_id is None:
@@ -58,6 +59,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_id=distinct_id,
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            snapshot_source=snapshot_source,
         )
 
     @snapshot_postgres_queries
@@ -80,11 +82,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1"
-        self.create_snapshot("user_one_0", session_id_one, base_time)
-        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
-        self.create_snapshot("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
+        self.produce_replay_event("user_one_0", session_id_one, base_time)
+        self.produce_replay_event("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
+        self.produce_replay_event("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
         session_id_two = f"test_get_session_recordings-2"
-        self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
+        self.produce_replay_event("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -147,11 +149,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         session_id_one = f"test_get_session_recordings-1"
-        self.create_snapshot("user_one_0", session_id_one, base_time)
-        self.create_snapshot("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
-        self.create_snapshot("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
+        self.produce_replay_event("user_one_0", session_id_one, base_time)
+        self.produce_replay_event("user_one_1", session_id_one, base_time + relativedelta(seconds=10))
+        self.produce_replay_event("user_one_2", session_id_one, base_time + relativedelta(seconds=30))
         session_id_two = f"test_get_session_recordings-2"
-        self.create_snapshot("user2", session_id_two, base_time + relativedelta(seconds=20))
+        self.produce_replay_event("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -201,8 +203,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        self.create_snapshot(distinct_id, session_id, base_time)
-        self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
+        self.produce_replay_event(distinct_id, session_id, base_time)
+        self.produce_replay_event(distinct_id, session_id, base_time + relativedelta(seconds=10))
         flush_persons_and_events()
 
     def test_session_recordings_dont_leak_teams(self) -> None:
@@ -219,14 +221,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.create_snapshot("user", "1", base_time, team_id=another_team.pk)
-        self.create_snapshot("user", "2", base_time)
+        self.produce_replay_event("user", "1", base_time, team_id=another_team.pk)
+        self.produce_replay_event("user", "2", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["id"], "2")
+        assert len(response_data["results"]) == 1
+        assert response_data["results"][0]["id"] == "2"
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
@@ -235,8 +237,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["d1", "d2"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        self.create_snapshot("d1", "1", base_time)
-        self.create_snapshot("d2", "2", base_time + relativedelta(seconds=30))
+        self.produce_replay_event("d1", "1", base_time)
+        self.produce_replay_event("d2", "2", base_time + relativedelta(seconds=30))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
@@ -251,8 +253,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="1")
-        self.create_snapshot("u1", "1", base_time)
-        self.create_snapshot("u1", "2", base_time + relativedelta(seconds=30))
+        self.produce_replay_event("u1", "1", base_time)
+        self.produce_replay_event("u1", "2", base_time + relativedelta(seconds=30))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
@@ -272,8 +274,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id_two = "2"
 
         SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id=session_id_one)
-        self.create_snapshot("u1", session_id_one, base_time)
-        self.create_snapshot("u1", session_id_two, base_time + relativedelta(seconds=30))
+        self.produce_replay_event("u1", session_id_one, base_time)
+        self.produce_replay_event("u1", session_id_two, base_time + relativedelta(seconds=30))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         response_data = response.json()
@@ -338,6 +340,36 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # In the metadata response too
         self.assertEqual(response_data["viewed"], True)
 
+    def test_setting_viewed_state_of_session_recording_includes_snapshot_source(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["u1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        produce_replay_summary(
+            session_id="1",
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=base_time.isoformat(),
+            distinct_id="u1",
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=50 * 1000 * 0.5,
+            snapshot_source="mobile",
+        )
+
+        # can set it to viewed
+        save_as_viewed_response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1?save_view=True")
+        assert save_as_viewed_response.status_code == 200
+        assert save_as_viewed_response.json()["viewed"] is True
+
+        viewed_record = SessionRecordingViewed.objects.get(team=self.team, user=self.user, session_id="1")
+        assert viewed_record.snapshot_source == "mobile"
+
     def test_get_single_session_recording_metadata(self):
         with freeze_time("2023-01-01T12:00:00.000Z"):
             p = Person.objects.create(
@@ -383,11 +415,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "snapshot_source": "web",  # default is web
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
-        self.create_snapshot(
+        self.produce_replay_event(
             "user",
             "id_no_team_leaking",
             now() - relativedelta(days=1),
@@ -422,7 +455,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_request_to_another_teams_endpoint_returns_401(self):
         org = Organization.objects.create(name="Separate Org")
         another_team = Team.objects.create(organization=org)
-        self.create_snapshot(
+        self.produce_replay_event(
             "user",
             "id_no_team_leaking",
             now() - relativedelta(days=1),
@@ -444,17 +477,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            self.create_snapshot(
+            self.produce_replay_event(
                 "user",
                 "1",
                 now() - relativedelta(days=1),
             )
-            self.create_snapshot(
+            self.produce_replay_event(
                 "user",
                 "2",
                 now() - relativedelta(days=2),
             )
-            self.create_snapshot(
+            self.produce_replay_event(
                 "user",
                 "3",
                 now() - relativedelta(days=3),
@@ -478,9 +511,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_ids=["user"],
                 properties={"$some_prop": "something", "email": "bob@bob.com"},
             )
-            self.create_snapshot("user", "1", now() - relativedelta(days=1))
-            self.create_snapshot("user", "2", now() - relativedelta(days=2))
-            self.create_snapshot("user", "3", now() - relativedelta(days=3))
+            self.produce_replay_event("user", "1", now() - relativedelta(days=1))
+            self.produce_replay_event("user", "2", now() - relativedelta(days=2))
+            self.produce_replay_event("user", "3", now() - relativedelta(days=3))
 
             # Fetch playlist
             params_string = urlencode({"session_ids": "[]"})
@@ -491,7 +524,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             self.assertEqual(len(response_data["results"]), 0)
 
     def test_delete_session_recording(self):
-        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+        self.produce_replay_event("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         # Trying to delete same recording again returns 404
@@ -503,7 +536,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=2,
     )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
-        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+        self.produce_replay_event("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
         assert response.status_code == status.HTTP_200_OK
@@ -827,7 +860,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         session_id = str(uuid.uuid4())
         with freeze_time("2023-01-01T12:00:00Z"):
-            self.create_snapshot(
+            self.produce_replay_event(
                 "user",
                 session_id,
                 now() - relativedelta(days=1),
@@ -866,7 +899,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
         # now create a snapshot record that doesn't have a fixed date, as it needs to be within TTL for the request below to complete
-        self.create_snapshot(
+        self.produce_replay_event(
             "user",
             session_id,
             now(),
@@ -877,6 +910,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version=2"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand(["web", "mobile", None])
+    def test_can_store_and_read_snapshot_source(self, source: str | None) -> None:
+        self.produce_replay_event(
+            "user", "1", now() - relativedelta(days=1), team_id=self.team.pk, snapshot_source=source
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["snapshot_source"] == source or "web"
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
@@ -936,7 +979,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # the matching session
         session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
-        self.create_snapshot("user", session_id, base_time)
+        self.produce_replay_event("user", session_id, base_time)
         event_id = _create_event(
             event="$pageview",
             properties={"$session_id": session_id},
@@ -946,7 +989,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # a non-matching session
         non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
-        self.create_snapshot("user", non_matching_session_id, base_time)
+        self.produce_replay_event("user", non_matching_session_id, base_time)
         _create_event(
             event="$pageview",
             properties={"$session_id": non_matching_session_id},

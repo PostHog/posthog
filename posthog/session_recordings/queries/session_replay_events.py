@@ -58,7 +58,8 @@ class SessionReplayEvents:
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
-                sum(console_error_count) as console_error_count
+                sum(console_error_count) as console_error_count,
+                argMinMerge(snapshot_source) as snapshot_source
             FROM
                 session_replay_events
             PREWHERE
@@ -102,6 +103,7 @@ class SessionReplayEvents:
             console_log_count=replay[9],
             console_warn_count=replay[10],
             console_error_count=replay[11],
+            snapshot_source=replay[12],
         )
 
     def get_events(
@@ -126,8 +128,8 @@ class SessionReplayEvents:
             values={
                 # add some wiggle room to the timings, to ensure we get all the events
                 # the time range is only to stop CH loading too much data to find the session
-                "start_time": metadata["start_time"] - timedelta(seconds=100),
-                "end_time": metadata["end_time"] + timedelta(seconds=100),
+                "start_time": metadata.start_time - timedelta(seconds=100),
+                "end_time": metadata.end_time + timedelta(seconds=100),
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
             },

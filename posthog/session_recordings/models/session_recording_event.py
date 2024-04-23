@@ -33,3 +33,6 @@ class SessionRecordingViewed(models.Model):
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     session_id: models.CharField = models.CharField(max_length=200)
+    # practically this is only Literal["web", "mobile"]
+    # but let's not have a migration if we want to change to a different list of strings
+    snapshot_source: models.CharField = models.CharField(blank=True, null=True, max_length=20)

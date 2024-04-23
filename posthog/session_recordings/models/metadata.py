@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, TypedDict, Union
+from typing import Dict, List, Optional, TypedDict, Union, Literal
 
 SnapshotData = Dict
 WindowId = Optional[str]
@@ -38,7 +39,8 @@ class DecompressedRecordingData(TypedDict):
     snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
 
 
-class RecordingMetadata(TypedDict):
+@dataclass
+class RecordingMetadata:
     distinct_id: str
     start_time: datetime
     end_time: datetime
@@ -51,6 +53,7 @@ class RecordingMetadata(TypedDict):
     first_url: str
     duration: int
     active_seconds: int
+    snapshot_source: Literal["web", "mobile"] | None
 
 
 class RecordingMatchingEvents(TypedDict):

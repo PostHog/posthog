@@ -70,12 +70,12 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
 
     # convert session_metadata to a Dict from a TypedDict
     # so that we can amend its values freely
-    session_metadata_dict = dict(session_metadata)
+    session_metadata_dict = session_metadata.__dict__
 
     del session_metadata_dict["distinct_id"]
-    start_time = session_metadata["start_time"]
-    session_metadata_dict["start_time"] = start_time.isoformat()
-    session_metadata_dict["end_time"] = session_metadata["end_time"].isoformat()
+    start_time = session_metadata_dict["start_time"]
+    session_metadata_dict["start_time"] = session_metadata.start_time.isoformat()
+    session_metadata_dict["end_time"] = session_metadata.end_time.isoformat()
 
     with timer("generate_prompt"):
         prompt_data = deduplicate_urls(

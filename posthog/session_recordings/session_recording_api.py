@@ -134,6 +134,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "snapshot_source",
         ]
 
         read_only_fields = [
@@ -153,6 +154,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "snapshot_source",
         ]
 
 
@@ -266,7 +268,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if not request.user.is_anonymous:
             save_viewed = request.GET.get("save_view") is not None and not is_impersonated_session(request)
-            recording.check_viewed_for_user(request.user, save_viewed=save_viewed)
+            recording.check_viewed_for_user(
+                request.user, save_viewed=save_viewed, snapshot_source=recording.snapshot_source
+            )
 
         serializer = self.get_serializer(recording)
 

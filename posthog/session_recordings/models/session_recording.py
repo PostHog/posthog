@@ -50,6 +50,10 @@ class SessionRecording(UUIDModel):
 
     start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
+    # practically this is only Literal["web", "mobile"]
+    # but let's not have a migration if we want to change to a different list of strings
+    snapshot_source: models.CharField = models.CharField(blank=True, null=True, max_length=20)
+
     # we can't store storage version in the stored content
     # as we might need to know the version before knowing how to load the data
     storage_version: models.CharField = models.CharField(blank=True, null=True, max_length=20)
@@ -84,19 +88,20 @@ class SessionRecording(UUIDModel):
             self._metadata = metadata
 
             # Some fields of the metadata are persisted fully in the model
-            self.distinct_id = metadata["distinct_id"]
-            self.start_time = metadata["start_time"]
-            self.end_time = metadata["end_time"]
-            self.duration = metadata["duration"]
-            self.click_count = metadata["click_count"]
-            self.keypress_count = metadata["keypress_count"]
-            self.set_start_url_from_urls(first_url=metadata["first_url"])
-            self.mouse_activity_count = metadata["mouse_activity_count"]
-            self.active_seconds = metadata["active_seconds"]
-            self.inactive_seconds = metadata["duration"] - metadata["active_seconds"]
-            self.console_log_count = metadata["console_log_count"]
-            self.console_warn_count = metadata["console_warn_count"]
-            self.console_error_count = metadata["console_error_count"]
+            self.distinct_id = metadata.distinct_id
+            self.start_time = metadata.start_time
+            self.end_time = metadata.end_time
+            self.duration = metadata.duration
+            self.click_count = metadata.click_count
+            self.keypress_count = metadata.keypress_count
+            self.set_start_url_from_urls(first_url=metadata.first_url)
+            self.mouse_activity_count = metadata.mouse_activity_count
+            self.active_seconds = metadata.active_seconds
+            self.inactive_seconds = metadata.duration - metadata.active_seconds
+            self.console_log_count = metadata.console_log_count
+            self.console_warn_count = metadata.console_warn_count
+            self.console_error_count = metadata.console_error_count
+            self.snapshot_source = metadata.snapshot_source or "web"
 
         return True
 
@@ -121,13 +126,15 @@ class SessionRecording(UUIDModel):
         except Person.DoesNotExist:
             return None
 
-    def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
+    def check_viewed_for_user(self, user: Any, save_viewed=False, snapshot_source=str | None) -> None:
         if not save_viewed:
             self.viewed = SessionRecordingViewed.objects.filter(
                 team=self.team, user=user, session_id=self.session_id
             ).exists()
         else:
-            SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
+            SessionRecordingViewed.objects.get_or_create(
+                team=self.team, user=user, session_id=self.session_id, snapshot_source=snapshot_source
+            )
             self.viewed = True
 
     def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
