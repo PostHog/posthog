@@ -11,10 +11,6 @@ argcomplete==2.0.0
     # via datamodel-code-generator
 asgiref==3.7.2
     # via django
-async-timeout==4.0.2
-    # via
-    #   aiohttp
-    #   redis
 attrs==23.2.0
     # via
     #   aiohttp
@@ -25,8 +21,6 @@ black==23.9.1
 boto3-stubs==1.34.84
 botocore-stubs==1.34.84
     # via boto3-stubs
-build==0.10.0
-    # via pip-tools
 certifi==2019.11.28
     # via requests
 chardet==5.2.0
@@ -34,9 +28,7 @@ chardet==5.2.0
 charset-normalizer==2.1.0
     # via requests
 click==8.1.7
-    # via
-    #   black
-    #   pip-tools
+    # via black
 colorama==0.4.4
     # via pytest-watch
 coreapi==2.3.3
@@ -61,8 +53,6 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
-exceptiongroup==1.2.1
-    # via pytest
 faker==17.5.0
 fakeredis==2.11.0
 flaky==3.7.0
@@ -129,7 +119,6 @@ openapi-spec-validator==0.7.1
 packaging==23.1
     # via
     #   black
-    #   build
     #   datamodel-code-generator
     #   prance
     #   pytest
@@ -138,9 +127,6 @@ pathable==0.4.3
     # via jsonschema-path
 pathspec==0.12.1
     # via black
-pip==24.0
-    # via pip-tools
-pip-tools==7.3.0
 platformdirs==3.11.0
     # via black
 pluggy==0.13.1
@@ -152,8 +138,6 @@ pydantic==2.5.3
     # via datamodel-code-generator
 pydantic-core==2.14.6
     # via pydantic
-pyproject-hooks==1.0.0
-    # via build
 pytest==7.4.4
     # via
     #   pytest-asyncio
@@ -208,8 +192,6 @@ ruamel-yaml==0.18.6
 ruamel-yaml-clib==0.2.8
     # via ruamel-yaml
 ruff==0.3.7
-setuptools==69.5.1
-    # via pip-tools
 six==1.16.0
     # via
     #   prance
@@ -221,17 +203,7 @@ sqlparse==0.4.4
     # via django
 syrupy==4.6.0
 toml==0.10.1
-    # via
-    #   coverage
-    #   datamodel-code-generator
-tomli==2.0.1
-    # via
-    #   black
-    #   build
-    #   mypy
-    #   pip-tools
-    #   pyproject-hooks
-    #   pytest
+    # via coverage
 types-awscrt==0.20.9
     # via botocore-stubs
 types-freezegun==1.1.10
@@ -249,14 +221,10 @@ types-s3transfer==0.10.1
 types-tzlocal==5.1.0.1
 typing-extensions==4.7.1
     # via
-    #   asgiref
-    #   black
-    #   boto3-stubs
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
     #   mypy
-    #   mypy-boto3-s3
     #   pydantic
     #   pydantic-core
 uritemplate==4.1.1
@@ -267,7 +235,5 @@ urllib3==1.26.18
     #   responses
 watchdog==2.1.8
     # via pytest-watch
-wheel==0.42.0
-    # via pip-tools
 yarl==1.7.2
     # via aiohttp
