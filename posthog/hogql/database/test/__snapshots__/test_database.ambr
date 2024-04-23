@@ -220,24 +220,25 @@
                   "session_id",
                   "team_id",
                   "distinct_id",
-                  "min_timestamp",
-                  "max_timestamp",
-                  "urls",
-                  "entry_url",
-                  "exit_url",
-                  "initial_utm_source",
-                  "initial_utm_campaign",
-                  "initial_utm_medium",
-                  "initial_utm_term",
-                  "initial_utm_content",
-                  "initial_referring_domain",
-                  "initial_gclid",
-                  "initial_gad_source",
-                  "event_count_map",
-                  "pageview_count",
-                  "autocapture_count",
-                  "duration",
-                  "channel_type"
+                  "$start_timestamp",
+                  "$end_timestamp",
+                  "$urls",
+                  "$entry_url",
+                  "$exit_url",
+                  "$initial_utm_source",
+                  "$initial_utm_campaign",
+                  "$initial_utm_medium",
+                  "$initial_utm_term",
+                  "$initial_utm_content",
+                  "$initial_referring_domain",
+                  "$initial_gclid",
+                  "$initial_gad_source",
+                  "$event_count_map",
+                  "$pageview_count",
+                  "$autocapture_count",
+                  "$channel_type",
+                  "$session_duration",
+                  "duration"
               ]
           }
       ],
@@ -602,32 +603,76 @@
               "type": "string"
           },
           {
-              "key": "min_timestamp",
+              "key": "$start_timestamp",
               "type": "datetime"
           },
           {
-              "key": "max_timestamp",
+              "key": "$end_timestamp",
               "type": "datetime"
           },
           {
-              "key": "urls",
+              "key": "$urls",
               "type": "array"
           },
           {
-              "key": "pageview_count",
+              "key": "$entry_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_source",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_campaign",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_medium",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_term",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_content",
+              "type": "string"
+          },
+          {
+              "key": "$initial_referring_domain",
+              "type": "string"
+          },
+          {
+              "key": "$initial_gclid",
+              "type": "string"
+          },
+          {
+              "key": "$initial_gad_source",
+              "type": "string"
+          },
+          {
+              "key": "$pageview_count",
               "type": "integer"
           },
           {
-              "key": "autocapture_count",
+              "key": "$autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "$channel_type",
+              "type": "string"
+          },
+          {
+              "key": "$session_duration",
               "type": "integer"
           },
           {
               "key": "duration",
               "type": "integer"
-          },
-          {
-              "key": "channel_type",
-              "type": "string"
           }
       ],
       "heatmaps": [
@@ -1203,24 +1248,25 @@
                   "session_id",
                   "team_id",
                   "distinct_id",
-                  "min_timestamp",
-                  "max_timestamp",
-                  "urls",
-                  "entry_url",
-                  "exit_url",
-                  "initial_utm_source",
-                  "initial_utm_campaign",
-                  "initial_utm_medium",
-                  "initial_utm_term",
-                  "initial_utm_content",
-                  "initial_referring_domain",
-                  "initial_gclid",
-                  "initial_gad_source",
-                  "event_count_map",
-                  "pageview_count",
-                  "autocapture_count",
-                  "duration",
-                  "channel_type"
+                  "$start_timestamp",
+                  "$end_timestamp",
+                  "$urls",
+                  "$entry_url",
+                  "$exit_url",
+                  "$initial_utm_source",
+                  "$initial_utm_campaign",
+                  "$initial_utm_medium",
+                  "$initial_utm_term",
+                  "$initial_utm_content",
+                  "$initial_referring_domain",
+                  "$initial_gclid",
+                  "$initial_gad_source",
+                  "$event_count_map",
+                  "$pageview_count",
+                  "$autocapture_count",
+                  "$channel_type",
+                  "$session_duration",
+                  "duration"
               ]
           }
       ],
@@ -1585,32 +1631,76 @@
               "type": "string"
           },
           {
-              "key": "min_timestamp",
+              "key": "$start_timestamp",
               "type": "datetime"
           },
           {
-              "key": "max_timestamp",
+              "key": "$end_timestamp",
               "type": "datetime"
           },
           {
-              "key": "urls",
+              "key": "$urls",
               "type": "array"
           },
           {
-              "key": "pageview_count",
+              "key": "$entry_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_source",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_campaign",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_medium",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_term",
+              "type": "string"
+          },
+          {
+              "key": "$initial_utm_content",
+              "type": "string"
+          },
+          {
+              "key": "$initial_referring_domain",
+              "type": "string"
+          },
+          {
+              "key": "$initial_gclid",
+              "type": "string"
+          },
+          {
+              "key": "$initial_gad_source",
+              "type": "string"
+          },
+          {
+              "key": "$pageview_count",
               "type": "integer"
           },
           {
-              "key": "autocapture_count",
+              "key": "$autocapture_count",
+              "type": "integer"
+          },
+          {
+              "key": "$channel_type",
+              "type": "string"
+          },
+          {
+              "key": "$session_duration",
               "type": "integer"
           },
           {
               "key": "duration",
               "type": "integer"
-          },
-          {
-              "key": "channel_type",
-              "type": "string"
           }
       ],
       "heatmaps": [

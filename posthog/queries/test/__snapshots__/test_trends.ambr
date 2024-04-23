@@ -5112,14 +5112,14 @@
           FROM events
           WHERE team_id = 2
             AND event = '$pageview'
-            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -5137,14 +5137,14 @@
           FROM events
           WHERE team_id = 2
             AND event = '$pageview'
-            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
+            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC'))
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
   WHERE team_id = 2
     AND event = '$pageview'
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily

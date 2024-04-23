@@ -141,6 +141,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
+        changeExperimentStartDate: (startDate: string) => ({ startDate }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -238,6 +239,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 updateExperimentGoal: () => true,
                 updateExperimentExposure: () => true,
+                changeExperimentStartDate: () => true,
                 loadExperimentResults: () => false,
             },
         ],
@@ -394,7 +396,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // the new query with any existing query and that causes validation problems when there are
             // unsupported properties in the now merged query.
             const newQuery = filtersToQueryNode(newInsightFilters)
-            if (filters?.insight === InsightType.FUNNELS) {
+            if (newInsightFilters?.insight === InsightType.FUNNELS) {
                 ;(newQuery as TrendsQuery).trendsFilter = undefined
             } else {
                 ;(newQuery as FunnelsQuery).funnelsFilter = undefined
@@ -445,6 +447,10 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
+        },
+        changeExperimentStartDate: async ({ startDate }) => {
+            actions.updateExperiment({ start_date: startDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()

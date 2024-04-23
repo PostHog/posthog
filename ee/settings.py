@@ -1,6 +1,7 @@
 """
 Django settings for PostHog Enterprise Edition.
 """
+
 import os
 from typing import Dict, List
 
@@ -15,7 +16,8 @@ HOOK_EVENTS: Dict[str, str] = {
 }
 
 # SSO
-AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [
+AUTHENTICATION_BACKENDS = [
+    *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
     "social_core.backends.google.GoogleOAuth2",
 ]

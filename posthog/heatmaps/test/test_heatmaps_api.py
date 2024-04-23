@@ -6,12 +6,42 @@ from django.http import HttpResponse
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.heatmaps.sql import INSERT_SINGLE_HEATMAP_EVENT
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models import Organization, Team
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
+
+
+INSERT_SINGLE_HEATMAP_EVENT = """
+INSERT INTO sharded_heatmaps (
+    session_id,
+    team_id,
+    distinct_id,
+    timestamp,
+    x,
+    y,
+    scale_factor,
+    viewport_width,
+    viewport_height,
+    pointer_target_fixed,
+    current_url,
+    type
+)
+SELECT
+    %(session_id)s,
+    %(team_id)s,
+    %(distinct_id)s,
+    %(timestamp)s,
+    %(x)s,
+    %(y)s,
+    %(scale_factor)s,
+    %(viewport_width)s,
+    %(viewport_height)s,
+    %(pointer_target_fixed)s,
+    %(current_url)s,
+    %(type)s
+"""
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
