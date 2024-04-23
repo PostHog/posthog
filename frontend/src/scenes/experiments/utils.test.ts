@@ -35,7 +35,7 @@ describe('utils', () => {
         expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(3)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.5 }
-        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(6)
+        expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(5)
 
         conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.8 }
         expect(getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)).toEqual(16)

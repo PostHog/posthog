@@ -56,7 +56,7 @@ export function getMinimumDetectableEffect(
             targetConversionRateIncrease = 0.5
         }
 
-        const targetConversionRate = currentConversionRate * (1 + targetConversionRateIncrease)
+        const targetConversionRate = Math.round(currentConversionRate * (1 + targetConversionRateIncrease))
         const mde = Math.ceil(targetConversionRate - currentConversionRate)
 
         return mde || 5
