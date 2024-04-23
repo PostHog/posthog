@@ -114,14 +114,17 @@ class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
 
     def dangerously_get_permissions(self):
+        permissions_classes = self.permission_classes
+
         if (
             self.action == "destroy"
             and self.request.user.is_authenticated
             and self.kwargs.get("parent_membership__user__uuid") == str(self.request.user.uuid)
         ):
             # Special case: allow already authenticated users to leave projects
-            return []
-        return [permission() for permission in self.permission_classes]
+            permissions_classes = [IsAuthenticated]
+
+        return [permission() for permission in permissions_classes]
 
     def safely_get_object(self, queryset) -> ExplicitTeamMembership:
         lookup_value = self.kwargs[self.lookup_field]
