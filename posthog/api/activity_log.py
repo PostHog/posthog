@@ -80,7 +80,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     # def _filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
     #     return queryset.filter(team_id=self.team.id)
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         if params.get("user"):

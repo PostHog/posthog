@@ -404,7 +404,7 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data

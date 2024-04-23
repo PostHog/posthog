@@ -93,7 +93,7 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
 
     def lowercase_email_domain(self, email: str):

@@ -596,7 +596,7 @@ class InsightViewSet(
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         include_deleted = False
 
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):

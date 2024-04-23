@@ -99,7 +99,7 @@ class RoleViewSet(
     serializer_class = RoleSerializer
     queryset = Role.objects.all()
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         return queryset.filter(**self.request.GET.dict())
 
 

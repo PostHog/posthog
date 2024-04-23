@@ -82,5 +82,5 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)

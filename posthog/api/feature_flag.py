@@ -387,7 +387,7 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)

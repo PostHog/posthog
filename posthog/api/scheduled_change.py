@@ -46,7 +46,7 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         model_name = self.request.query_params.get("model_name")
         record_id = self.request.query_params.get("record_id")
 

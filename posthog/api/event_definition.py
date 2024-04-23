@@ -80,7 +80,7 @@ class EventDefinitionViewSet(
     search_fields = ["name"]
     ordering_fields = ["name", "last_seen_at"]
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         # `type` = 'all' | 'event' | 'action_event'
         # Allows this endpoint to return lists of event definitions, actions, or both.
         event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))

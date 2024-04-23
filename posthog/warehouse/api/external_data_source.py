@@ -125,7 +125,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:

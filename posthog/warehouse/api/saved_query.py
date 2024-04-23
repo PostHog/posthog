@@ -104,5 +104,5 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)

@@ -479,7 +479,7 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
-    def carefully_get_queryset(self):
+    def dangerously_get_queryset(self):
         queryset = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [

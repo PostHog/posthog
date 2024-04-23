@@ -136,7 +136,7 @@ class ExportedAssetViewSet(
     queryset = ExportedAsset.objects.order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         if self.action == "list":
             return queryset.filter(created_by=self.request.user)
         return queryset

@@ -97,7 +97,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
 
-    def safe_get_queryset(self, queryset):
+    def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", "-7d")
         before = self.request.GET.get("before", None)
         after_datetime = relative_date_parse(after, self.team.timezone_info)

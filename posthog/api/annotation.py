@@ -72,7 +72,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":

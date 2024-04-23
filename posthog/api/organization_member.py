@@ -116,7 +116,7 @@ class OrganizationMemberViewSet(
         self.check_object_permissions(self.request, obj)
         return obj
 
-    def safe_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
 

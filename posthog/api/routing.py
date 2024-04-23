@@ -109,14 +109,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         return [auth() for auth in authentication_classes]
 
-    def safe_get_queryset(self, queryset: QuerySet) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """
         We don't want to ever allow overriding the get_queryset as the filtering is an important security aspect.
         Instead we provide this method to override and provide additional queryset filtering.
         """
         return queryset
 
-    def carefully_get_queryset(self) -> Optional[QuerySet]:
+    def dangerously_get_queryset(self) -> Optional[QuerySet]:
         """
         WARNING: This should be used very carefully. It bypasses all common filtering logic such as team and org filtering.
         It is so named to make it clear that this should be checked whenever changes to access control logic changes.
@@ -124,14 +124,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         pass
 
     def get_queryset(self):
-        queryset_override = self.carefully_get_queryset()
+        queryset_override = self.dangerously_get_queryset()
 
         if queryset_override:
             return queryset_override
 
         queryset = super().get_queryset()
         # First of all make sure we do the custom filters before applying our own
-        queryset = self.safe_get_queryset(queryset)
+        queryset = self.safely_get_queryset(queryset)
 
         return self._filter_queryset_by_parents_lookups(queryset)
 
