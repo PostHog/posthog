@@ -161,6 +161,7 @@ async def validate_schema_and_update_table(
                 else:
                     table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
+                table_created.row_count = F("row_count")
 
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)

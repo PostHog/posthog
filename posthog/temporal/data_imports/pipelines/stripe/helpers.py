@@ -117,6 +117,7 @@ async def stripe_pagination(
 
                 # currently scrolling from past to present
                 if _ending_before is not None:
+                    _ending_before_state["last_value"] = response["data"][0]["id"]
                     _ending_before = response["data"][0]["id"]
                 # otherwise scrolling from present to past
                 else:
