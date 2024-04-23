@@ -287,9 +287,12 @@ def get_query_runner(
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
-class QueryRunner(ABC):
-    query: RunnableQueryNode
-    query_type: Type[RunnableQueryNode]
+Q = TypeVar("Q", bound=RunnableQueryNode)
+
+
+class QueryRunner(ABC, Generic[Q]):
+    query: Q
+    query_type: Type[Q]
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -297,7 +300,7 @@ class QueryRunner(ABC):
 
     def __init__(
         self,
-        query: RunnableQueryNode | BaseModel | Dict[str, Any],
+        query: Q | BaseModel | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -314,7 +317,7 @@ class QueryRunner(ABC):
         assert isinstance(query, self.query_type)
         self.query = query
 
-    def is_query_node(self, data) -> TypeGuard[RunnableQueryNode]:
+    def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
     @abstractmethod
@@ -417,7 +420,7 @@ class QueryRunner(ABC):
     def _refresh_frequency(self):
         raise NotImplementedError()
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> Q:
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
@@ -439,6 +442,6 @@ class QueryRunner(ABC):
                     query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
                 else:
                     query_update["dateRange"] = DateRange(**date_range_update)
-            return self.query.model_copy(update=query_update)  # Shallow copy!
+            return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
 
         raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")
