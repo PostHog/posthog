@@ -61,7 +61,11 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     }, [props.leftmostMonth])
 
     return (
-        <div ref={ref} className="LemonCalendar flex items-start gap-4" data-attr="lemon-calendar">
+        <div
+            ref={ref}
+            className={clsx('LemonCalendar relative flex items-start gap-4', showTime && 'LemonCalendar--with-time')}
+            data-attr="lemon-calendar"
+        >
             {range(0, months).map((month) => {
                 const startOfMonth = leftmostMonth.add(month, 'month').startOf('month')
                 const endOfMonth = startOfMonth.endOf('month')
@@ -166,7 +170,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                 )
             })}
             {showTime && (
-                <div className="LemonCalendar__time flex divide-x border-l">
+                <div className="LemonCalendar__time absolute top-0 bottom-0 right-0 flex divide-x border-l">
                     <ScrollableShadows direction="vertical">
                         {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
@@ -198,10 +202,10 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                     </ScrollableShadows>
                     <div>
                         <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
-                            AM
+                            <span className="w-full text-center">AM</span>
                         </LemonButton>
                         <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'pm' })}>
-                            PM
+                            <span className="w-full text-center">PM</span>
                         </LemonButton>
                     </div>
                 </div>

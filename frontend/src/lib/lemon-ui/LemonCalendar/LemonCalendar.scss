@@ -2,6 +2,7 @@
     --lemon-calendar-row-gap: 2px;
     --lemon-calendar-day-width: 40px;
     --lemon-calendar-today-radius: 2px;
+    --lemon-calendar-time-column-width: 50px;
 
     .LemonCalendar__month > thead > tr:first-child > th,
     .LemonCalendar__month > tbody > tr > td {
@@ -51,12 +52,14 @@
         background-color: var(--glass-border-3000);
     }
 
-    .LemonCalendar__time {
-        height: 266px;
+    &--with-time {
+        padding-right: calc(3 * var(--lemon-calendar-time-column-width));
+    }
 
-        & .ScrollableShadows {
-            width: unset;
+    .LemonCalendar__time > div {
+        width: var(--lemon-calendar-time-column-width);
 
+        &.ScrollableShadows {
             & .ScrollableShadows__inner {
                 scrollbar-width: none;
                 scroll-behavior: smooth;
