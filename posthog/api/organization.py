@@ -123,8 +123,11 @@ class OrganizationSerializer(
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         # Support new access control system
-        visible_teams = self.user_access_control.filter_queryset_by_access_level(
-            instance.teams, include_all_if_admin=True
+
+        visible_teams = (
+            self.user_access_control.filter_queryset_by_access_level(instance.teams, include_all_if_admin=True)
+            if self.user_access_control
+            else instance.teams.none()
         )
         # Support old access control system
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
