@@ -1,6 +1,6 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
-from typing import Optional, Union
+from typing import Optional, Union, List  # noqa: UP035
 from collections.abc import Iterable
 from sqlalchemy import MetaData, Table
 from sqlalchemy.engine import Engine
@@ -36,7 +36,7 @@ def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,
     metadata: Optional[MetaData] = None,
-    table_names: Optional[list[str]] = dlt.config.value,
+    table_names: Optional[List[str]] = dlt.config.value,  # noqa: UP006
 ) -> Iterable[DltResource]:
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
