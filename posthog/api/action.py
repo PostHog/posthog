@@ -171,7 +171,7 @@ class ActionViewSet(
     authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 

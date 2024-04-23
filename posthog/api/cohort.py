@@ -295,7 +295,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     serializer_class = CohortSerializer
     scope_object = "cohort"
 
-    def filter_queryset(self, queryset) -> QuerySet:
+    def safe_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 

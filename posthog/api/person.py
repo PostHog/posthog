@@ -233,7 +233,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset

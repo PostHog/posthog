@@ -114,7 +114,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)

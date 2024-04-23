@@ -311,7 +311,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PluginOwnershipPermission,
     ]
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         queryset = queryset.select_related("organization")
 
         if self.action == "get" or self.action == "list":
@@ -722,7 +722,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = PluginConfig.objects.all()
     serializer_class = PluginConfigSerializer
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         if not can_configure_plugins(self.team.organization_id):
             return queryset.none()
         if self.action == "list":
@@ -877,19 +877,19 @@ class LegacyPluginConfigViewSet(PluginConfigViewSet):
 
 
 class PipelineTransformationsViewSet(PluginViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
 
 
 class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
         )
 
 
 class PipelineDestinationsViewSet(PluginViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(
             Q(capabilities__has_key="methods")
             & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
@@ -897,7 +897,7 @@ class PipelineDestinationsViewSet(PluginViewSet):
 
 
 class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods")
             & (
@@ -908,19 +908,19 @@ class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
 
 
 class PipelineFrontendAppsViewSet(PluginViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.exclude(Q(capabilities__has_key="methods") | Q(capabilities__has_key="scheduled_tasks"))
 
 
 class PipelineFrontendAppsConfigsViewSet(PluginConfigViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.exclude(
             Q(plugin__capabilities__has_key="methods") | Q(plugin__capabilities__has_key="scheduled_tasks")
         )
 
 
 class PipelineImportAppsViewSet(PluginViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         # All the plugins, that are not on the other pages
         return queryset.filter(
             Q(Q(capabilities__has_key="scheduled_tasks") & ~Q(capabilities__scheduled_tasks=[]))
@@ -934,7 +934,7 @@ class PipelineImportAppsViewSet(PluginViewSet):
 
 
 class PipelineImportAppsConfigsViewSet(PluginConfigViewSet):
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(
             Q(Q(plugin__capabilities__has_key="scheduled_tasks") & ~Q(plugin__capabilities__scheduled_tasks=[]))
             | Q(

@@ -404,7 +404,7 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    def filter_queryset(self, queryset) -> QuerySet:
+    def safe_get_queryset(self, queryset) -> QuerySet:
         include_deleted = (
             self.action == "partial_update"
             and "deleted" in self.request.data
@@ -414,7 +414,7 @@ class DashboardsViewSet(
 
         if not include_deleted:
             # a dashboard can be un-deleted by patching {"deleted": False}
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",

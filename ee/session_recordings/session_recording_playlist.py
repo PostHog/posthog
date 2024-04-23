@@ -171,7 +171,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
 
-    def filter_queryset(self, queryset) -> QuerySet:
+    def safe_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted insights can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)

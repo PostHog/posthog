@@ -60,7 +60,7 @@ class ClickhouseGroupsView(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewse
     queryset = Group.objects.all()
     pagination_class = GroupCursorPagination
 
-    def filter_queryset(self, queryset):
+    def safe_get_queryset(self, queryset):
         return queryset.filter(
             group_type_index=self.request.GET["group_type_index"],
             group_key__icontains=self.request.GET.get("group_key", ""),

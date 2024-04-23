@@ -243,7 +243,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Model
     def get_serializer_class(self) -> Type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
-    def filter_queryset(self, queryset) -> QuerySet:
+    def safe_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted notebooks can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
