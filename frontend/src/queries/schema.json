@@ -1200,8 +1200,7 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator",
-                    "default": "exact"
+                    "$ref": "#/definitions/PropertyOperator"
                 },
                 "type": {
                     "const": "event",
