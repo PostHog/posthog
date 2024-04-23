@@ -812,3 +812,10 @@ class TrendsQueryRunner(QueryRunner):
             display = self.query.trendsFilter.display
 
         return TrendsDisplay(display)
+
+    def apply_dashboard_filters(self, dashboard_filter: dict) -> TrendsQuery:
+        # Remove any set breakdown limit for display on the dashboard
+        if self.query.breakdownFilter:
+            self.query.breakdownFilter.breakdown_limit = None
+
+        return self.query
