@@ -1250,6 +1250,7 @@ export interface SessionRecordingType {
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
+    snapshot_source: 'web' | 'mobile'
 }
 
 export interface SessionRecordingPropertiesType {

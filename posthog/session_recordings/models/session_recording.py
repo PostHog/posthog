@@ -107,6 +107,12 @@ class SessionRecording(UUIDModel):
 
         return "object_storage_lts"
 
+    @property
+    def snapshot_source(self) -> Optional[str]:
+        if self._metadata:
+            return self._metadata["snapshot_source"] or "web"
+        return "web"
+
     def load_person(self) -> Optional[Person]:
         if self.person:
             return self.person

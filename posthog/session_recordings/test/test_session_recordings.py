@@ -383,6 +383,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "snapshot_source": "web",
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):

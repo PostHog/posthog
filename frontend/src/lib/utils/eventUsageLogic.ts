@@ -43,6 +43,7 @@ import {
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
+    SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
 } from '~/types'
@@ -100,7 +101,7 @@ interface RecordingViewedProps {
     page_change_events_length: number
     recording_width?: number
     loadedFromBlobStorage: boolean
-
+    snapshot_source: 'web' | 'mobile'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
@@ -355,8 +356,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
+            metadata: SessionRecordingType,
             delay?: number
-        ) => ({ playerData, durations, type, delay }),
+        ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -847,7 +849,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, metadata }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -862,6 +864,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                snapshot_source: metadata.snapshot_source,
             }
             posthog.capture(`recording ${type}`, payload)
         },
