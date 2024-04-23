@@ -32,7 +32,6 @@ from asgiref.sync import sync_to_async
 from typing import Dict, Type
 from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from django.db.models.expressions import F
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -157,12 +156,10 @@ async def validate_schema_and_update_table(
             else:
                 table_created.url_pattern = new_url_pattern
                 if incremental:
-                    table_created.row_count = F("row_count") + row_count
+                    table_created.row_count = await sync_to_async(table_created.get_count)()
                 else:
                     table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
-                # make sure any farther saves don't overwrite the row_count
-                table_created.row_count = F("row_count")
 
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
