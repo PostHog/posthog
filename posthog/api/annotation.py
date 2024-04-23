@@ -82,7 +82,6 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return queryset
 
-    # TODO: We don't want this to be overridden
     def _filter_queryset_by_parents_lookups(self, queryset):
         team = self.team
         return queryset.filter(

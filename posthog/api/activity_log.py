@@ -77,9 +77,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
 
-    # def _filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-    #     return queryset.filter(team_id=self.team.id)
-
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
