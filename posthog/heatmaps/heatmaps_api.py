@@ -121,9 +121,6 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     authentication_classes = [TemporaryTokenAuthentication]
 
-    def get_queryset(self):
-        return None
-
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
