@@ -5,6 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { useCallback } from 'react'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
@@ -22,18 +23,26 @@ export function Timestamp(): JSX.Element {
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
+    const rotateTimestampFormat = useCallback(() => {
+        setTimestampFormat(
+            timestampFormat === 'relative'
+                ? TimestampFormat.UTC
+                : timestampFormat === TimestampFormat.UTC
+                ? TimestampFormat.Device
+                : TimestampFormat.Relative
+        )
+    }, [timestampFormat])
+
     return (
-        <LemonButton
-            data-attr="recording-timestamp"
-            onClick={() =>
-                setTimestampFormat(timestampFormat === 'relative' ? TimestampFormat.Absolute : TimestampFormat.Relative)
-            }
-            active
-        >
+        <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
             <span
                 className={clsx(
                     'text-center',
-                    timestampFormat === TimestampFormat.Relative ? 'w-[132px]' : 'w-[168px]'
+                    timestampFormat === TimestampFormat.Relative
+                        ? 'w-[132px]'
+                        : timestampFormat === TimestampFormat.UTC
+                        ? 'w-[190px]'
+                        : 'w-[168px]'
                 )}
             >
                 {timestampFormat === TimestampFormat.Relative ? (
@@ -44,9 +53,9 @@ export function Timestamp(): JSX.Element {
                 ) : (
                     <>
                         {currentTimestamp
-                            ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')
+                            ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss A')
                             : '--/--/----, 00:00:00'}{' '}
-                        UTC
+                        {timestampFormat === TimestampFormat.UTC && 'UTC'}
                     </>
                 )}
             </span>
