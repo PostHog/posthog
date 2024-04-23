@@ -419,7 +419,9 @@ class DashboardsViewSet(
             and not self.request.data.get("deleted")
             and len(self.request.data) == 1
         )
+
         if not include_deleted:
+            # a dashboard can be un-deleted by patching {"deleted": False}
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(

@@ -364,10 +364,80 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+         "posthog_organization"."available_features",
+         "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
+         AND "posthog_dashboard"."id" = 2)
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.18
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.19
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
+                                                          2,
+                                                          3,
+                                                          4,
+                                                          5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.2
@@ -2694,9 +2764,17 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.54
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboard"
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.57
@@ -2852,8 +2930,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 300
   '''
@@ -7782,60 +7860,55 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config",
-         T6."id",
-         T6."password",
-         T6."last_login",
-         T6."first_name",
-         T6."last_name",
-         T6."is_staff",
-         T6."is_active",
-         T6."date_joined",
-         T6."uuid",
-         T6."current_organization_id",
-         T6."current_team_id",
-         T6."email",
-         T6."pending_email",
-         T6."temporary_token",
-         T6."distinct_id",
-         T6."is_email_verified",
-         T6."requested_password_reset_at",
-         T6."has_seen_product_intro_for",
-         T6."strapi_id",
-         T6."email_opt_in",
-         T6."theme_mode",
-         T6."partial_notification_settings",
-         T6."anonymize_data",
-         T6."toolbar_mode",
-         T6."events_column_config",
-         "posthog_text"."id",
-         "posthog_text"."body",
-         "posthog_text"."created_by_id",
-         "posthog_text"."last_modified_at",
-         "posthog_text"."last_modified_by_id",
-         "posthog_text"."team_id"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_dashboardtile"."insight_id" = "posthog_dashboarditem"."id")
-  LEFT OUTER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
-  LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
-  LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND NOT ("posthog_dashboard"."deleted"
-                  AND "posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND (NOT "posthog_dashboarditem"."deleted"
-              OR "posthog_dashboardtile"."insight_id" IS NULL)
-         AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND "posthog_dashboardtile"."dashboard_id" IN (1,
-                                                        2,
-                                                        3,
-                                                        4,
-                                                        5 /* ... */))
-  ORDER BY "posthog_dashboarditem"."order" ASC
+         "posthog_user"."events_column_config"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
+         AND "posthog_dashboard"."id" = 2)
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.253
+  '''
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_tag"."id",
+         "posthog_tag"."name",
+         "posthog_tag"."team_id"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
+                                                2,
+                                                3,
+                                                4,
+                                                5 /* ... */)
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.254
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
+                                                          2,
+                                                          3,
+                                                          4,
+                                                          5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.27
@@ -11436,9 +11509,39 @@
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+         "posthog_organization"."available_features",
+         "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
+  LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted"
+         AND "posthog_dashboard"."id" = 2)
   LIMIT 21
   '''
 # ---
@@ -12753,8 +12856,8 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.36
@@ -12876,8 +12979,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboard"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT "posthog_dashboard"."deleted"
-         AND "posthog_dashboard"."team_id" = 2)
+  WHERE ("posthog_dashboard"."team_id" = 2
+         AND NOT "posthog_dashboard"."deleted")
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 100
   '''
