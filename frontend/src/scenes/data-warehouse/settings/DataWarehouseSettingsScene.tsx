@@ -181,7 +181,7 @@ interface SchemaTableProps {
 }
 
 const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
-    const { updateSchema, reloadSchema } = useActions(dataWarehouseSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -308,6 +308,20 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                                 >
                                                     Reload
                                                 </LemonButton>
+                                                {schema.incremental && (
+                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            key={`resync-data-warehouse-schema-${schema.id}`}
+                                                            onClick={() => {
+                                                                resyncSchema(schema)
+                                                            }}
+                                                            status="danger"
+                                                        >
+                                                            Resync
+                                                        </LemonButton>
+                                                    </Tooltip>
+                                                )}
                                             </>
                                         }
                                     />
