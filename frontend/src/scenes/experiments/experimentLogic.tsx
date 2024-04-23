@@ -814,7 +814,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
-                mde = mde || 5
+                if (!mde) {
+                    return 0
+                }
+
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
@@ -919,7 +922,10 @@ export const experimentLogic = kea<experimentLogicType>([
             (mde) =>
                 (baseCountData: number): number => {
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
-                    mde = mde || 5
+                    if (!mde) {
+                        return 0
+                    }
+
                     const minCountData = (baseCountData * mde) / 100
                     const lambda1 = baseCountData
                     const lambda2 = minCountData + baseCountData
