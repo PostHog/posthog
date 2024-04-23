@@ -125,15 +125,17 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         product = request.GET.get("products", None)
         if not product:
             raise ValidationError("Products must be specified")
-
         try:
             BillingManager(license).deactivate_products(organization, product)
         except Exception as e:
-            detail_object = e.args[2]
-            return Response(
-                {"statusText": e.args[0], "detail": detail_object.get("error_message", detail_object)},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                return Response(
+                    {"statusText": e.args[0], "detail": detail_object.get("error_message", detail_object)},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise e
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PATCH"], detail=False)

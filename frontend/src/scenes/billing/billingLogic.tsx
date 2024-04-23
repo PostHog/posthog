@@ -1,9 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
+import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -31,6 +32,11 @@ export interface BillingAlertConfig {
     action?: LemonBannerAction
     pathName?: string
     onClose?: () => void
+}
+
+export interface UnsubscribeError {
+    detail: string | JSX.Element
+    link: JSX.Element
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -70,8 +76,8 @@ export const billingLogic = kea<billingLogicType>([
         setRedirectPath: true,
         setIsOnboarding: true,
         determineBillingAlert: true,
-        setBillingError: (billingError: string | null) => ({ billingError }),
-        resetBillingError: true,
+        setUnsubscribeError: (error: null | UnsubscribeError) => ({ error }),
+        resetUnsubscribeError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
     }),
     connect(() => ({
@@ -85,6 +91,8 @@ export const billingLogic = kea<billingLogicType>([
             ['resetDismissKey as resetUsageLimitExceededKey'],
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
+            supportLogic,
+            ['openSupportForm'],
         ],
     })),
     reducers({
@@ -128,20 +136,25 @@ export const billingLogic = kea<billingLogicType>([
                 setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
+        unsubscribeError: [
+            null as null | UnsubscribeError,
+            {
+                resetUnsubscribeError: () => null,
+                setUnsubscribeError: (_, { error }) => error,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
             null as BillingV2Type | null,
             {
                 loadBilling: async () => {
-                    actions.resetBillingError()
                     const response = await api.get('api/billing-v2')
 
                     return parseBillingResponse(response)
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
-                    actions.resetBillingError()
                     const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
@@ -149,7 +162,7 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 deactivateProduct: async (key: string) => {
-                    actions.resetBillingError()
+                    actions.resetUnsubscribeError()
                     try {
                         const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
                         const jsonRes = await getJSONOrNull(response)
@@ -157,15 +170,20 @@ export const billingLogic = kea<billingLogicType>([
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        lemonToast.error(`${error.detail}`, {
-                            button: {
-                                label: 'See Invoices',
-                                action: () =>
-                                    (window.location.href = values.billing?.stripe_portal_url || window.location.href),
-                            },
-                        })
-                        // This is a bit of a hack to prevent the page from re-rendering and only showing the
-                        // top level error banner.
+                        if (error.detail && error.detail.includes('open invoice')) {
+                            actions.setUnsubscribeError({
+                                detail: error.detail,
+                                link: <Link to={values.billing?.stripe_portal_url}>See Invoices</Link>,
+                            } as UnsubscribeError)
+                        } else {
+                            actions.setUnsubscribeError({
+                                detail:
+                                    error.detail ||
+                                    `We encountered a problem. Please try again or submit a support ticket.`,
+                            } as UnsubscribeError)
+                        }
+                        console.error(error)
+                        // This is a bit of a hack to prevent the page from re-rendering.
                         return values.billing
                     }
                 },
