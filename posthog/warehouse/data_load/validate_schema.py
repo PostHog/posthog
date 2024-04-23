@@ -23,6 +23,8 @@ from posthog.warehouse.models import (
     get_table_by_schema_id,
     aget_schema_by_id,
 )
+
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
@@ -30,6 +32,7 @@ from asgiref.sync import sync_to_async
 from typing import Dict, Type
 from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from django.db.models.expressions import F
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
@@ -125,9 +128,11 @@ async def validate_schema_and_update_table(
 
     _schema_id = external_data_schema.id
     _schema_name: str = external_data_schema.name
+    incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+
     row_count = table_row_counts.get(_schema_name.lower(), 0)
 
     # Check
@@ -151,8 +156,13 @@ async def validate_schema_and_update_table(
                 table_created = None
             else:
                 table_created.url_pattern = new_url_pattern
-                table_created.row_count = row_count
+                if incremental:
+                    table_created.row_count = F("row_count") + row_count
+                else:
+                    table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
+                # make sure any farther saves don't overwrite the row_count
+                table_created.row_count = F("row_count")
 
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
@@ -201,7 +211,10 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
 
-    if last_successful_job:
+    if (
+        last_successful_job
+        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    ):
         try:
             last_successful_job.delete_data_in_bucket()
         except Exception as e:

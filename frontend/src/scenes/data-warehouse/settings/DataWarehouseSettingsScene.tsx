@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -192,7 +192,22 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     title: 'Schema Name',
                     key: 'name',
                     render: function RenderName(_, schema) {
-                        return schema.name
+                        return <span>{schema.name}</span>
+                    },
+                },
+                {
+                    title: 'Refresh Type',
+                    key: 'incremental',
+                    render: function RenderIncremental(_, schema) {
+                        return schema.incremental ? (
+                            <Tooltip title="Each run will only pull data that has since been added" placement="top">
+                                <LemonTag type="primary">Incremental</LemonTag>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title="Each run will pull all data from the source" placement="top">
+                                <LemonTag type="default">Full Refresh</LemonTag>
+                            </Tooltip>
+                        )
                     },
                 },
                 {
