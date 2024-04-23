@@ -1784,19 +1784,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.day,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_limit=3),
         )
 
         response = runner.to_actors_query_options()
 
+        assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
-
         assert response.breakdown == [
-            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"),
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),
-            BreakdownItem(label="Edge", value="Edge"),
         ]
 
     def test_to_actors_query_options_breakdowns_boolean(self):
@@ -1904,7 +1903,30 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
 
         assert response.breakdown == [
-            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label="Chrome", value="Chrome"),
+            BreakdownItem(label="Firefox", value="Firefox"),
+            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+        ]
+
+    def test_to_actors_query_options_bar_value(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsBarValue),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.day is None
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),
