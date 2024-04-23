@@ -5,12 +5,11 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    ClickhouseDestroyTablesMixin,
 )
 
 
-class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = True
-
+class TestReferringDomainType(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def test_select_star(self):
         session_id = "session_test_select_star"
 
