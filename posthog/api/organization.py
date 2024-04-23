@@ -148,21 +148,23 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ordering = "-created_by"
 
     def dangerously_get_permissions(self):
-        permission_classes = self.permission_classes
-
-        # When listing there is no individual object to check for
         if self.action == "list":
-            permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-        elif self.action == "create":
+            return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
+
+        if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneeded anyways because permissions are organization-based
-            permission_classes = [
-                permissions.IsAuthenticated,
-                PremiumMultiorganizationPermissions,
-                APIScopePermission,
+            return [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    PremiumMultiorganizationPermissions,
+                    APIScopePermission,
+                ]
             ]
 
-        return [permission() for permission in permission_classes]
+        # We don't override for other actions
+        raise NotImplementedError()
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         return cast(User, self.request.user).organizations.all()
