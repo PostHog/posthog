@@ -34,7 +34,7 @@ export interface LemonCalendarSelectProps {
     months?: number
     onClose?: () => void
     showTime?: boolean
-    fromToday?: boolean
+    onlyAllowUpcoming?: boolean
 }
 
 export function LemonCalendarSelect({
@@ -43,7 +43,7 @@ export function LemonCalendarSelect({
     months,
     onClose,
     showTime,
-    fromToday,
+    onlyAllowUpcoming,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
@@ -130,7 +130,7 @@ export function LemonCalendarSelect({
                     }
                 }}
                 showTime={showTime}
-                fromToday={fromToday}
+                onlyAllowUpcoming={onlyAllowUpcoming}
             />
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
