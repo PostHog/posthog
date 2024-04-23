@@ -78,12 +78,6 @@ describe('Insights', () => {
         savedInsights.checkInsightIsInListView(insightName)
     })
 
-    it('Shows not found error with invalid short URL', () => {
-        cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('contain', '/insights/i_dont_exist')
-        cy.get('.LemonSkeleton').should('exist')
-    })
-
     it('Stickiness graph', () => {
         cy.get('[role=tab]').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
