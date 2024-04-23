@@ -34,6 +34,7 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelect> = (props: LemonCalendar
                             setValue(value)
                             setVisible(false)
                         }}
+                        showTime
                         onClose={() => setVisible(false)}
                     />
                 }

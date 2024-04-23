@@ -3598,6 +3598,7 @@ export interface ExternalDataSourceSyncSchema {
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    status?: string
 }
 
 export interface SimpleDataWarehouseTable {
