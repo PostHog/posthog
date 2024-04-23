@@ -1,10 +1,14 @@
-from typing import Any
+import datetime as dt
 import uuid
+from typing import Any
 
+from django.db.models import Sum
+from django.db.models.functions import Coalesce, TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
     AppMetricsErrorDetailsQuery,
@@ -19,6 +23,7 @@ from posthog.queries.app_metrics.serializers import (
     AppMetricsErrorsRequestSerializer,
     AppMetricsRequestSerializer,
 )
+from posthog.utils import relative_date_parse
 
 
 class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -27,28 +32,24 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
-            # probe if we have a valid uuid, and thus are requesting metrics for a batch export
-            uuid.UUID(kwargs["pk"])
+            rows = self.get_batch_export_runs_app_metrics_queryset(batch_export_id=kwargs["pk"])
+
+            dates = [row["dates"].strftime("%Y-%m-%d") for row in rows]
+            successes = [row["successes"] for row in rows]
+            failures = [row["failures"] for row in rows]
             return response.Response(
                 {
-                    "metrics": [
-                        {
-                            "dates": [
-                                "2024-01-04",
-                                "2024-01-05",
-                                "2024-01-06",
-                                "2024-01-07",
-                                "2024-01-08",
-                                "2024-01-09",
-                                "2024-01-10",
-                                "2024-01-11",
-                            ],
-                            "successes": [0, 0, 0, 0, 0, 0, 9379, 6237],
-                            "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
-                            "failures": [0, 0, 0, 0, 0, 0, 665, 0],
-                            "totals": {"successes": 15616, "successes_on_retry": 0, "failures": 665},
-                        }
-                    ],
+                    "metrics": {
+                        "dates": dates,
+                        "successes": successes,
+                        "successes_on_retry": [0] * len(dates),
+                        "failures": failures,
+                        "totals": {
+                            "successes": sum(successes),
+                            "successes_on_retry": 0,
+                            "failures": sum(failures),
+                        },
+                    },
                     "errors": None,
                 }
             )
@@ -73,6 +74,50 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
 
         error_details = AppMetricsErrorDetailsQuery(self.team, plugin_config.pk, filter).run()
         return response.Response({"result": error_details})
+
+    def get_batch_export_runs_app_metrics_queryset(self, batch_export_id: str):
+        """Use the Django ORM to fetch app metrics for batch export runs.
+
+        Attempts to (roughly) match the following (much more readable) query:
+        ```
+        select
+            date_trunc('day', last_updated_at) as dates,
+            sum(coalesce(records_completed, 0)) as successes,
+            sum(coalesce(records_total_count, 0)) - sum(coalesce(records_completed, 0)) as failures
+        from
+            posthog_batchexportrun
+        where
+            batch_export_id = :batch_export_id
+            and last_updated_at between :date_from and :date_to
+        group by
+            date_trunc('day', last_updated_at)
+        order by
+            dates
+        ```
+
+        Raises:
+            ValueError: If provided 'batch_export_id' is not a valid UUID.
+        """
+        batch_export_uuid = uuid.UUID(batch_export_id)
+
+        after = self.request.GET.get("date_from", "-30d")
+        before = self.request.GET.get("date_to", None)
+        after_datetime = relative_date_parse(after, self.team.timezone_info)
+        before_datetime = (
+            relative_date_parse(before, self.team.timezone_info) if before else dt.datetime.now(dt.timezone.utc)
+        )
+        date_range = (after_datetime, before_datetime)
+        return (
+            BatchExportRun.objects.filter(batch_export_id=batch_export_uuid, last_updated_at__range=date_range)
+            .annotate(dates=TruncDay("last_updated_at"))
+            .values("dates")
+            .annotate(
+                successes=Sum(Coalesce("records_completed", 0)),
+                failures=Sum(Coalesce("records_total_count", 0)) - Sum(Coalesce("records_completed", 0)),
+            )
+            .order_by("dates")
+            .all()
+        )
 
 
 class HistoricalExportsAppMetricsViewSet(
