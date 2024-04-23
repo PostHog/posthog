@@ -180,7 +180,7 @@ class ActionViewSet(
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
+        actions = self.filter_queryset(self.get_queryset())
         actions_list: List[Dict[Any, Any]] = self.serializer_class(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
