@@ -123,12 +123,10 @@ class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return []
         return [permission() for permission in self.permission_classes]
 
-    def get_object(self) -> ExplicitTeamMembership:
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset) -> ExplicitTeamMembership:
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return queryset.get(user=self.request.user)
         filter_kwargs = {self.lookup_field: lookup_value}
         obj = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, obj)
         return obj

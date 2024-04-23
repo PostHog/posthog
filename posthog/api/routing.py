@@ -114,31 +114,37 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         We don't want to ever allow overriding the get_queryset as the filtering is an important security aspect.
         Instead we provide this method to override and provide additional queryset filtering.
         """
-        return queryset
+        raise NotImplementedError()
 
-    def dangerously_get_queryset(self) -> Optional[QuerySet]:
+    def dangerously_get_queryset(self) -> QuerySet:
         """
         WARNING: This should be used very carefully. It bypasses all common filtering logic such as team and org filtering.
         It is so named to make it clear that this should be checked whenever changes to access control logic changes.
         """
-        pass
+        raise NotImplementedError()
 
-    def get_queryset(self):
-        queryset_override = self.dangerously_get_queryset()
-
-        if queryset_override:
-            return queryset_override
+    def get_queryset(self) -> QuerySet:
+        try:
+            return self.dangerously_get_queryset()
+        except NotImplementedError:
+            pass
 
         queryset = super().get_queryset()
         # First of all make sure we do the custom filters before applying our own
-        queryset = self.safely_get_queryset(queryset)
+        try:
+            queryset = self.safely_get_queryset(queryset)
+        except NotImplementedError:
+            pass
 
         return self._filter_queryset_by_parents_lookups(queryset)
 
+    def dangerously_get_object(self) -> Any:
+        """
+        WARNING: This should be used very carefully. It bypasses common security access control checks.
+        """
+        raise NotImplementedError()
+
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        """
-        Provides the pre-filtered queryet
-        """
         raise NotImplementedError()
 
     def get_object(self):
@@ -146,6 +152,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         We don't want to allow generic overriding of get_object as under the hood it does
         check_object_permissions which if not called is a security issue
         """
+
+        try:
+            return self.dangerously_get_object()
+        except NotImplementedError:
+            pass
+
         queryset = self.filter_queryset(self.get_queryset())
 
         try:

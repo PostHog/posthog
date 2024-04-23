@@ -438,20 +438,19 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
-    def get_object(self):
+    def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
             return team
-        queryset = self.filter_queryset(self.get_queryset())
+
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
             team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, team)
         return team
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.

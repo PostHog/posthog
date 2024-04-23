@@ -215,13 +215,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             return SessionRecordingSerializer
 
-    def get_object(self) -> SessionRecording:
+    def safely_get_object(self, queryset) -> SessionRecording:
         recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
-
-        self.check_object_permissions(self.request, recording)
 
         return recording
 

@@ -134,7 +134,7 @@ class EventDefinitionViewSet(
 
         return order, order_direction
 
-    def get_object(self):
+    def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY
