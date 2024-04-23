@@ -62,11 +62,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     sharing_enabled_actions: list[str] = []
 
     def __init_subclass__(cls, **kwargs):
+        """
+        This class plays a crucial role in ensuring common permissions, authentication and filtering.
+        As such, we use this clever little trick to ensure that the user of it doesn't accidentally override the important methods.
+        """
         super().__init_subclass__(**kwargs)
         protected_methods = {
             "get_queryset": "Use safely_get_queryset instead",
             "get_object": "Use safely_get_object instead",
-            "get_permissions": "Add additional 'permisson_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead",
+            "get_permissions": "Add additional 'permission_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead",
             "get_authenticators": "Add additional 'authentication_classes' via the class attribute instead",
         }
 

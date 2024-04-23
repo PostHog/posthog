@@ -2,9 +2,6 @@ import pytest
 
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.test.base import (
-    APIBaseTest,
-)
 
 
 class TestRouting:
@@ -17,7 +14,7 @@ class TestRouting:
 
         assert (
             str(e.value)
-            == "Method get_permissions is protected and should not be overridden. Add additional 'permisson_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead"
+            == "Method get_permissions is protected and should not be overridden. Add additional 'permission_classes' via the class attribute instead. Or in exceptional use cases use dangerously_get_permissions instead"
         )
 
         with pytest.raises(Exception) as e:
