@@ -79,7 +79,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'apps',
                 'data-attr': `support-form-target-area-apps`,
-                label: 'Apps',
+                label: 'Data pipelines',
             },
             {
                 value: 'login',
