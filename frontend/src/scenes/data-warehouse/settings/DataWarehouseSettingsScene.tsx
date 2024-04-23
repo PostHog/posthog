@@ -181,7 +181,8 @@ interface SchemaTableProps {
 }
 
 const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
-    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+    const { updateSchema, reloadSchema } = useActions(dataWarehouseSettingsLogic)
+    const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
         <LemonTable
@@ -252,6 +253,17 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     },
                 },
                 {
+                    title: 'Status',
+                    key: 'status',
+                    render: function RenderStatus(_, schema) {
+                        if (!schema.status) {
+                            return null
+                        }
+
+                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                    },
+                },
+                {
                     title: 'Last Synced At',
                     key: 'last_synced_at',
                     render: function Render(_, schema) {
@@ -267,6 +279,41 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     key: 'rows_synced',
                     render: function Render(_, schema) {
                         return schema.table?.row_count ?? ''
+                    },
+                },
+                {
+                    key: 'actions',
+                    width: 0,
+                    render: function RenderActions(_, schema) {
+                        if (schemaReloadingById[schema.id]) {
+                            return (
+                                <div>
+                                    <Spinner />
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <div className="flex flex-row justify-end">
+                                <div>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    key={`reload-data-warehouse-schema-${schema.id}`}
+                                                    onClick={() => {
+                                                        reloadSchema(schema)
+                                                    }}
+                                                >
+                                                    Reload
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        )
                     },
                 },
             ]}

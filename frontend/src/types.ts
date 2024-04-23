@@ -148,7 +148,7 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
-    DATA_PIPELINE_TRANSFORMATIONS = 'data_pipeline_transformations',
+    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -3599,6 +3599,7 @@ export interface ExternalDataSourceSyncSchema {
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental?: boolean
+    status?: string
 }
 
 export interface SimpleDataWarehouseTable {

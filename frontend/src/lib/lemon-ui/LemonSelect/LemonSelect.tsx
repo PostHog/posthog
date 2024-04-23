@@ -62,6 +62,7 @@ export interface LemonSelectPropsBase<T>
         | 'onClick'
         | 'tabIndex'
         | 'type'
+        | 'tooltip'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */

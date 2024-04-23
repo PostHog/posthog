@@ -34,7 +34,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         window.parent?.postMessage({ event: 'posthog:dimensions', name: window.name, height, width }, '*')
     }, [height, width])
 
-    useThemedHtml()
+    useThemedHtml(false)
 
     return (
         <div
