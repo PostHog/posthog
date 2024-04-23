@@ -126,6 +126,7 @@
         "fflate": "^0.7.4",
         "fs-extra": "^10.0.0",
         "fuse.js": "^6.6.2",
+        "heatmap.js": "^2.0.5",
         "husky": "^7.0.4",
         "image-blob-reduce": "^4.1.0",
         "kea": "^3.1.5",
@@ -146,7 +147,7 @@
         "postcss": "^8.4.31",
         "postcss-preset-env": "^9.3.0",
         "posthog-js": "1.128.3",
-        "posthog-js-lite": "2.5.0",
+        "posthog-js-lite": "3.0.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
@@ -217,6 +218,7 @@
         "@types/d3": "^7.4.0",
         "@types/d3-sankey": "^0.12.1",
         "@types/dompurify": "^3.0.3",
+        "@types/heatmap.js": "^2.0.41",
         "@types/image-blob-reduce": "^4.1.1",
         "@types/jest": "^29.2.3",
         "@types/jest-image-snapshot": "^6.1.0",
@@ -307,7 +309,8 @@
             "playwright": "1.41.2"
         },
         "patchedDependencies": {
-            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch"
+            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch",
+            "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch"
         }
     },
     "lint-staged": {
