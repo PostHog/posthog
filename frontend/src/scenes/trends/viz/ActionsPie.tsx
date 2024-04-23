@@ -10,13 +10,7 @@ import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import {
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_OTHER_DISPLAY,
-    formatBreakdownLabel,
-    isNullBreakdown,
-    isOtherBreakdown,
-} from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -77,16 +71,11 @@ export function ActionsPie({
         setData([
             {
                 id: 0,
-                labels: _data.map((item) =>
-                    isOtherBreakdown(item.label)
-                        ? BREAKDOWN_OTHER_DISPLAY
-                        : isNullBreakdown(item.label)
-                        ? BREAKDOWN_NULL_DISPLAY
-                        : item.label
-                ),
+                labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
-                breakdownValues: _data.map((item) => {
+                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
@@ -96,6 +85,7 @@ export function ActionsPie({
                         false
                     )
                 }),
+                compareLabels: _data.map((item) => item.compare_label),
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,

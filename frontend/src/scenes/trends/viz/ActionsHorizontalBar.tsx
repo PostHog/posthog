@@ -6,13 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import {
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_OTHER_DISPLAY,
-    formatBreakdownLabel,
-    isNullBreakdown,
-    isOtherBreakdown,
-} from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -47,17 +41,12 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
         setData([
             {
-                labels: _data.map((item) =>
-                    isOtherBreakdown(item.label)
-                        ? BREAKDOWN_OTHER_DISPLAY
-                        : isNullBreakdown(item.label)
-                        ? BREAKDOWN_NULL_DISPLAY
-                        : item.label
-                ),
+                labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
-                breakdownValues: _data.map((item) => {
+                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
