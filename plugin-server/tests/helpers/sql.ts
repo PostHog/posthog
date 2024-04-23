@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { defaultConfig } from '../../src/config/config'
 import {
     Hub,
-    Person,
+    InternalPerson,
     Plugin,
     PluginAttachmentDB,
     PluginConfig,
@@ -403,6 +403,6 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
-            } as Person)
+            } as InternalPerson)
     )
 }
