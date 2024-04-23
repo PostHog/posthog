@@ -189,13 +189,17 @@ class TrendsQueryRunner(QueryRunner):
         res_compare: List[CompareItem] | None = None
 
         # Days
-        res_days: list[DayItem] = [
-            DayItem(
-                label=format_label_date(value, self.query_date_range.interval_name),
-                value=value,
-            )
-            for value in self.query_date_range.all_values()
-        ]
+        res_days: Optional[list[DayItem]] = (
+            None
+            if self._trends_display.should_aggregate_values()
+            else [
+                DayItem(
+                    label=format_label_date(value, self.query_date_range.interval_name),
+                    value=value,
+                )
+                for value in self.query_date_range.all_values()
+            ]
+        )
 
         # Series
         for index, series in enumerate(self.query.series):

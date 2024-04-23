@@ -3114,11 +3114,13 @@ export type GraphDataset = ChartDataset<ChartType> &
         id: number
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownValues?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+        breakdownLabels?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         compareLabels?: (CompareLabelType | undefined)[]
-        /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
+        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
