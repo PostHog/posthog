@@ -87,6 +87,19 @@ export interface QuestionResultsReady {
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
+function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
+    return {
+        ...survey,
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (copy)`,
+        archived: false,
+        start_date: null,
+        end_date: null,
+        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+    }
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -169,6 +182,26 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             resumeSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: null })
+            },
+        },
+        duplicatedSurvey: {
+            duplicateSurvey: async () => {
+                const { survey } = values
+                const payload = duplicateExistingSurvey(survey)
+                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+
+                lemonToast.success('Survey duplicated.', {
+                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            router.actions.push(urls.survey(createdSurvey.id))
+                        },
+                    },
+                })
+
+                actions.reportSurveyCreated(createdSurvey, true)
+                return survey
             },
         },
         surveyUserStats: {
@@ -411,6 +444,9 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
             actions.reportSurveyEdited(survey)
+            actions.loadSurveys()
+        },
+        duplicateSurveySuccess: () => {
             actions.loadSurveys()
         },
         launchSurveySuccess: ({ survey }) => {
