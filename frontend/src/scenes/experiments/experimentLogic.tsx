@@ -794,6 +794,9 @@ export const experimentLogic = kea<experimentLogicType>([
         minimumDetectableChange: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
             (newexperiment, experimentInsightType, conversionMetrics, trendResults): number => {
+                // ALWAYS RETURN A NEW ONE FROM HERE
+                // THIS ONE SHOULD ONLY BE CALLED FOR CALCULATING NEW ONE AND SETTING IT
+                // Update
                 if (newexperiment?.parameters?.minimum_detectable_effect) {
                     return newexperiment?.parameters?.minimum_detectable_effect
                 }

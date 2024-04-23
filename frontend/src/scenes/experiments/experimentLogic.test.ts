@@ -1,8 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { InsightType } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
 
@@ -15,6 +20,33 @@ describe('experimentLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
+                '/api/projects/:team/insights/trend/': {
+                    result: [
+                        {
+                            action: {
+                                id: '$pageview',
+                                type: 'events',
+                                order: 0,
+                                name: '$pageview',
+                                custom_name: null,
+                                math: 'total',
+                                math_property: null,
+                                math_hogql: null,
+                                math_group_type_index: null,
+                                properties: {},
+                            },
+                            label: '$pageview',
+                            count: 3149.0,
+                            data: [
+                                598.0, 353.0, 0.0, 455.0, 0.0, 0.0, 0.0, 4.0, 405.0, 311.0, 7.0, 328.0, 0.0, 0.0, 688.0,
+                            ],
+                        },
+                    ],
+                    timezone: 'UTC',
+                    last_refresh: '2024-04-22T12:30:24.138988Z',
+                    is_cached: false,
+                    next: null,
+                },
                 '/api/projects/:team/experiments': {
                     count: 1,
                     next: null,
@@ -121,6 +153,38 @@ describe('experimentLogic', () => {
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
+        })
+
+        // Trends
+        it('given baseline count, calculates correct MDE', async () => {
+            // const _insightLogic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+            // _insightLogic.mount()
+
+            // const _insightDataLogic = insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+            // _insightDataLogic.mount()
+
+            // const _insightVizDataLogic = insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
+            // _insightVizDataLogic.mount()
+
+            const filters = {
+                events: [{ id: 'user signup', name: 'user signup', type: 'events', order: 0 }],
+                insight: InsightType.TRENDS,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({ filters })
+                logic.actions.setNewExperimentInsight(filters)
+            })
+                .toDispatchActions(['setExperiment', 'setNewExperimentInsight', 'updateQuerySource'])
+                .toFinishAllListeners()
+                .toMatchValues({ trendResults: ['value'] })
+
+            // await expectLogic(_insightLogic, () => {
+            //     _insightLogic.actions.setFilters(filters)
+            // })
+            // .toDispatchActions(['loadResults', 'loadResultsSuccess'])
+
+            console.log('trendResults', logic.values.trendResults)
         })
     })
 })
