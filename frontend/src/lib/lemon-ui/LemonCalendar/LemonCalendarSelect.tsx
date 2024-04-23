@@ -30,14 +30,15 @@ function scrollToTimeElement(
 
 function proposedDate(target: dayjs.Dayjs | null, { value, unit }: GetLemonButtonTimePropsOpts): dayjs.Dayjs {
     let date = target || dayjs().startOf('day')
-    if (unit === 'h') {
-        date = date.hour(date.format('a') === 'am' ? Number(value) : Number(value) + 12)
-    } else if (unit === 'm') {
-        date = date.minute(Number(value))
-    } else if (unit === 'a') {
-        date = value === 'am' ? date.subtract(12, 'hour') : date.add(12, 'hour')
+    if (value != date.format(unit)) {
+        if (unit === 'h') {
+            date = date.hour(date.format('a') === 'am' || value === 12 ? Number(value) : Number(value) + 12)
+        } else if (unit === 'm') {
+            date = date.minute(Number(value))
+        } else if (unit === 'a') {
+            date = value === 'am' ? date.subtract(12, 'hour') : date.add(12, 'hour')
+        }
     }
-
     return date
 }
 
