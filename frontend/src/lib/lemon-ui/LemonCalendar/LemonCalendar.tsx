@@ -184,7 +184,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                 </LemonButton>
                             )
                         })}
-                        <div className="h-[229px]" />
+                        <div className="LemonCalendar__time--scroll-spacer" />
                     </ScrollableShadows>
                     <ScrollableShadows direction="vertical">
                         {range(0, 60).map((minute) => {
@@ -198,7 +198,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                 </LemonButton>
                             )
                         })}
-                        <div className="h-[229px]" />
+                        <div className="LemonCalendar__time--scroll-spacer" />
                     </ScrollableShadows>
                     <div>
                         <LemonButton fullWidth {...props.getLemonButtonTimeProps?.({ unit: 'a', value: 'am' })}>
