@@ -16,8 +16,9 @@ export type SharedListMiniFilter = {
 }
 
 export enum TimestampFormat {
-    Absolute = 'absolute',
     Relative = 'relative',
+    UTC = 'utc',
+    Device = 'device',
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
