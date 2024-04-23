@@ -150,7 +150,7 @@ export function SessionsRecordings(): JSX.Element {
                     <LemonBanner
                         type="info"
                         action={{
-                            type: 'secondary',
+                            type: 'primary',
                             icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
