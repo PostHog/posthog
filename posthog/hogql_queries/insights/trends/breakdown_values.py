@@ -228,7 +228,7 @@ class BreakdownValues:
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 if needs_other:
-                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
+                    values = [BREAKDOWN_OTHER_STRING_LABEL, *values]
 
         if len(values) == 0:
             values.insert(0, None)

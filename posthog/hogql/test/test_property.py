@@ -46,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[Dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -185,17 +185,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.unknown_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
                 {"type": "event", "key": "boolean_prop", "value": "false"},
                 team=self.team,
             ),
             self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": "true"},
+                team=self.team,
+            ),
+            self._parse_expr(
+                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
+            ),
         )
 
     def test_property_to_expr_event_list(self):

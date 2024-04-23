@@ -163,7 +163,7 @@ def property_to_expr(
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
-        field = ast.Field(chain=chain + [property.key])
+        field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -279,7 +279,7 @@ def property_to_expr(
             )[0:1].values_list("property_type", flat=True)
             property_type = property_types[0] if property_types else None
 
-            if not property_type or property_type == PropertyType.Boolean:
+            if property_type == PropertyType.Boolean:
                 if value == "true":
                     value = True
                 if value == "false":

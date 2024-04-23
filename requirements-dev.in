@@ -11,7 +11,7 @@
 
 -c requirements.txt
 
-ruff>=0.1.2
+ruff~=0.3.7
 pip-tools==7.3.0
 mypy~=1.8.0
 mypy-baseline~=0.6.1
@@ -24,6 +24,7 @@ fakeredis[lua]==2.11.0
 freezegun==1.2.2
 packaging==23.1
 black~=22.8.0
+boto3-stubs[s3]
 types-markdown==3.3.9
 types-PyYAML==6.0.1
 types-freezegun==1.1.10
@@ -48,3 +49,5 @@ responses==0.23.1
 syrupy~=4.6.0
 flaky==3.7.0
 aioresponses==0.7.6
+prance==23.06.21.0
+openapi-spec-validator==0.7.1 # Needed for prance as a validation backend

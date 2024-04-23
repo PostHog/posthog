@@ -373,6 +373,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_http_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 "NonRetryableResponseError",
             ],

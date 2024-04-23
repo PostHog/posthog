@@ -135,14 +135,22 @@ class FeatureFlagMatcher:
         self,
         feature_flags: List[FeatureFlag],
         distinct_id: str,
-        groups: Dict[GroupTypeName, str] = {},
+        groups: Optional[Dict[GroupTypeName, str]] = None,
         cache: Optional[FlagsMatcherCache] = None,
-        hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, Union[str, int]] = {},
-        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+        hash_key_overrides: Optional[Dict[str, str]] = None,
+        property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+        group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
         skip_database_flags: bool = False,
         cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
     ):
+        if group_property_value_overrides is None:
+            group_property_value_overrides = {}
+        if property_value_overrides is None:
+            property_value_overrides = {}
+        if hash_key_overrides is None:
+            hash_key_overrides = {}
+        if groups is None:
+            groups = {}
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
         self.groups = groups
@@ -712,11 +720,17 @@ def _get_all_feature_flags(
     team_id: int,
     distinct_id: str,
     person_overrides: Optional[Dict[str, str]] = None,
-    groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    groups: Optional[Dict[GroupTypeName, str]] = None,
+    property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     cache = FlagsMatcherCache(team_id)
 
     if feature_flags:
@@ -738,11 +752,17 @@ def _get_all_feature_flags(
 def get_all_feature_flags(
     team_id: int,
     distinct_id: str,
-    groups: Dict[GroupTypeName, str] = {},
+    groups: Optional[Dict[GroupTypeName, str]] = None,
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, Union[str, int]] = {},
-    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    property_value_overrides: Optional[Dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[Dict[str, Dict[str, Union[str, int]]]] = None,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
+    if group_property_value_overrides is None:
+        group_property_value_overrides = {}
+    if property_value_overrides is None:
+        property_value_overrides = {}
+    if groups is None:
+        groups = {}
     property_value_overrides, group_property_value_overrides = add_local_person_and_group_properties(
         distinct_id, groups, property_value_overrides, group_property_value_overrides
     )

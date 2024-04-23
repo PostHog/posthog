@@ -51,7 +51,7 @@ TIMESTAMP_PREDICATES = """
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
 -- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 4 DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 """
 
@@ -593,10 +593,10 @@ async def execute_batch_export_insert_activity(
     inputs,
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
-    start_to_close_timeout_seconds: int = 3600,
+    interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 10,
-    initial_retry_interval_seconds: int = 10,
+    maximum_attempts: int = 15,
+    initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
     """Execute the main insert activity of a batch export handling any errors.
@@ -610,7 +610,7 @@ async def execute_batch_export_insert_activity(
         inputs: The inputs to the activity.
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
         finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
-        start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
+        interval: The interval of the batch export used to set the start to close timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
@@ -624,11 +624,23 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
 
+    if interval == "hour":
+        start_to_close_timeout = dt.timedelta(hours=1)
+    elif interval == "day":
+        start_to_close_timeout = dt.timedelta(days=1)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        # TODO: Consider removing this 10 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
+        start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
+    else:
+        raise ValueError(f"Unsupported interval: '{interval}'")
+
     try:
         records_completed = await workflow.execute_activity(
             activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )
