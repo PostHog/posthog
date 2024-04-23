@@ -116,6 +116,9 @@ export class PersonState {
             if (this.lazyPersonCreation) {
                 const person = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
                 if (person) {
+                    // Ensure person properties don't propagate elsewhere, such as onto the event itself.
+                    person.properties = {}
+
                     return person
                 }
 
