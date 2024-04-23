@@ -65,7 +65,9 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     pointer_target_fixed Bool,
     current_url VARCHAR,
     type LowCardinality(String),
-    _timestamp DateTime
+    _timestamp DateTime,
+    _offset UInt64,
+    _partition UInt64
 ) ENGINE = {engine}
 """
 
@@ -122,7 +124,9 @@ AS SELECT
     pointer_target_fixed,
     current_url,
     type,
-    _timestamp
+    _timestamp,
+    _offset,
+    _partition
 FROM {database}.kafka_heatmaps
 """.format(
         target_table="writable_heatmaps",
