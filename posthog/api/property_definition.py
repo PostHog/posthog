@@ -506,13 +506,8 @@ class PropertyDefinitionViewSet(
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects.prefetch_related(
-                    Prefetch(
-                        "tagged_items",
-                        queryset=TaggedItem.objects.select_related("tag"),
-                        to_attr="prefetched_tags",
-                    )
-                )
+                queryset = EnterprisePropertyDefinition.objects
+
                 order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False

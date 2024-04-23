@@ -98,13 +98,8 @@ class EventDefinitionViewSet(
         if is_enterprise:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            event_definition_object_manager = EnterpriseEventDefinition.objects.prefetch_related(
-                Prefetch(
-                    "tagged_items",
-                    queryset=TaggedItem.objects.select_related("tag"),
-                    to_attr="prefetched_tags",
-                )
-            )
+            event_definition_object_manager = EnterpriseEventDefinition.objects
+
         else:
             event_definition_object_manager = EventDefinition.objects
 
@@ -134,7 +129,7 @@ class EventDefinitionViewSet(
 
         return order, order_direction
 
-    def safely_get_object(self, queryset):
+    def dangerously_get_object(self):
         id = self.kwargs["id"]
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY
