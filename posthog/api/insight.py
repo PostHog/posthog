@@ -610,9 +610,6 @@ class InsightViewSet(
         if not include_deleted:
             queryset = queryset.exclude(deleted=True)
 
-        # Optimize tag retrieval
-        queryset = self.prefetch_tagged_items_if_available(queryset)
-
         queryset = queryset.prefetch_related(
             Prefetch(
                 # TODO deprecate this field entirely
