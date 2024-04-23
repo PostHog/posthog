@@ -1,7 +1,8 @@
 from posthog.models import Survey, Organization, Team, User, FeatureFlag
 from django.test import TestCase
+from typing import Optional
 from dateutil.relativedelta import relativedelta
-from datetime import timedelta
+from datetime import timedelta, datetime
 from django.utils.timezone import now
 from posthog.test.base import _create_event, flush_persons_and_events, ClickhouseTestMixin
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
@@ -23,7 +24,9 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             rollout_percentage=100,
         )
 
-    def _create_event_for_survey(self, survey: Survey, event: str = "survey sent", custom_timestamp=None) -> None:
+    def _create_event_for_survey(
+        self, survey: Survey, event: str = "survey sent", custom_timestamp: Optional[datetime] = None
+    ) -> None:
         timestamp = custom_timestamp or now()
         _create_event(
             distinct_id="0",
