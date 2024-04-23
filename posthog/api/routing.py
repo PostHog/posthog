@@ -66,15 +66,29 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         protected_methods = {
             "get_queryset": "Use safely_get_queryset instead",
             "get_object": "Use safely_get_object instead",
+            "get_permissions": "Use dangerously_get_permissions instead",
+            "get_authenticators": "Add additional 'authentication_classes' via the class attribute instead",
         }
 
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
 
+    def dangerously_get_permissions(self) -> QuerySet:
+        """
+        WARNING: This should be used very carefully. It is only for endpoints with very specific permission needs.
+        If you want to add to the defaults simply set `permission_classes` instead.
+        """
+        raise NotImplementedError()
+
     # We want to try and ensure that the base permission and authentication are always used
     # so we offer a way to add additional classes
     def get_permissions(self):
+        try:
+            return self.dangerously_get_permissions()
+        except NotImplementedError:
+            pass
+
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return [SharingTokenPermission()]
 

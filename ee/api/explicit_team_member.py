@@ -113,7 +113,7 @@ class ExplicitTeamMemberViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     permission_classes = [IsAuthenticated, TeamMemberStrictManagementPermission]
 
-    def get_permissions(self):
+    def dangerously_get_permissions(self):
         if (
             self.action == "destroy"
             and self.request.user.is_authenticated

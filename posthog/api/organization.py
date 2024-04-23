@@ -147,7 +147,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_permissions(self):
+    def dangerously_get_permissions(self):
         # When listing there is no individual object to check for
         if self.action == "list":
             return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
