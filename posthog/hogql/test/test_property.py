@@ -24,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity, EmptyPropertyFilter
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -140,11 +140,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), false)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("ifNull(not(match(properties.a, '.*')), true)"),
+            self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
@@ -157,6 +157,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._parse_expr("1"),
             self._property_to_expr({}),  # incomplete event
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
         )
 
     def test_property_to_expr_boolean(self):
@@ -185,17 +189,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.unknown_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
                 {"type": "event", "key": "boolean_prop", "value": "false"},
                 team=self.team,
             ),
             self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": "true"},
+                team=self.team,
+            ),
+            self._parse_expr(
+                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
+            ),
         )
 
     def test_property_to_expr_event_list(self):
@@ -217,7 +223,9 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, 'b'), false) or ifNull(match(properties.a, 'c'), false)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), false) or ifNull(match(toString(properties.a), 'c'), false)"
+            ),
         )
         # negative
         self.assertEqual(
@@ -245,7 +253,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "ifNull(not(match(properties.a, 'b')), true) and ifNull(not(match(properties.a, 'c')), true)"
+                "ifNull(not(match(toString(properties.a), 'b')), true) and ifNull(not(match(toString(properties.a), 'c')), true)"
             ),
         )
 

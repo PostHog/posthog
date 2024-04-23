@@ -113,6 +113,7 @@ class TestSavedQuery(APIBaseTest):
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
+                    "status": schema.status,
                     "table": schema.table,
                 }
             ],
