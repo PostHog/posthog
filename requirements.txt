@@ -35,7 +35,10 @@ async-generator==1.10
     #   trio
     #   trio-websocket
 async-timeout==4.0.2
-    # via aiokafka
+    # via
+    #   aiohttp
+    #   aiokafka
+    #   redis
 attrs==23.2.0
     # via
     #   aiohttp
@@ -179,6 +182,8 @@ drf-extensions==0.7.0
 drf-spectacular==0.27.1
 et-xmlfile==1.1.0
     # via openpyxl
+exceptiongroup==1.2.1
+    # via anyio
 filelock==3.12.0
     # via snowflake-connector-python
 frozenlist==1.3.0
@@ -292,7 +297,7 @@ mypy-extensions==1.0.0
     # via black
 natsort==8.4.0
 nh3==0.2.14
-numpy==1.26.0
+numpy==1.23.3
     # via
     #   pandas
     #   pyarrow
@@ -387,6 +392,7 @@ python-dateutil==2.8.2
     #   pandas
     #   pendulum
     #   posthoganalytics
+    #   temporalio
 python-dotenv==0.21.0
     # via webdriver-manager
 python-statsd==2.1.0
@@ -506,6 +512,8 @@ threadpoolctl==3.3.0
 tiktoken==0.6.0
     # via sentry-sdk
 token-bucket==0.3.0
+tomli==2.0.1
+    # via black
 tomlkit==0.12.3
     # via
     #   dlt
@@ -525,6 +533,9 @@ types-setuptools==69.0.0.0
     # via requirements-parser
 typing-extensions==4.7.1
     # via
+    #   anyio
+    #   asgiref
+    #   black
     #   dlt
     #   openai
     #   psycopg

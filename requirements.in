@@ -46,7 +46,7 @@ kafka-python==2.0.2
 kombu==5.3.2
 lzstring==1.0.4
 natsort==8.4.0
-numpy==1.26.0
+numpy==1.23.3
 openpyxl==3.1.2
 orjson==3.9.10
 pandas==2.2.0
