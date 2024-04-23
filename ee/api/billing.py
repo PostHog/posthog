@@ -17,8 +17,8 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.models import Organization
 from posthog.event_usage import groups
+from posthog.models import Organization
 
 logger = structlog.get_logger(__name__)
 
@@ -75,9 +75,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         distinct_id,
                         "billing limits updated",
                         properties={**custom_limits_usd},
-                        groups=groups(org, self.request.user.team)
-                        if hasattr(self.request.user, "team")
-                        else groups(org),
+                        groups=(
+                            groups(org, self.request.user.team) if hasattr(self.request.user, "team") else groups(org)
+                        ),
                     )
                     posthoganalytics.group_identify(
                         "organization",
@@ -126,7 +126,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not product:
             raise ValidationError("Products must be specified")
 
-        BillingManager(license).deactivate_products(organization, product)
+        try:
+            BillingManager(license).deactivate_products(organization, product)
+        except Exception as e:
+            detail_object = e.args[2]
+            return Response(
+                {"statusText": e.args[0], "detail": detail_object["error_message"]}, status=status.HTTP_400_BAD_REQUEST
+            )
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PATCH"], detail=False)

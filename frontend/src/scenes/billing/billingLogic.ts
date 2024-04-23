@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getJSONOrNull } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -70,6 +70,8 @@ export const billingLogic = kea<billingLogicType>([
         setRedirectPath: true,
         setIsOnboarding: true,
         determineBillingAlert: true,
+        setBillingError: (billingError: string | null) => ({ billingError }),
+        resetBillingError: true,
         setBillingAlert: (billingAlert: BillingAlertConfig | null) => ({ billingAlert }),
     }),
     connect(() => ({
@@ -126,18 +128,27 @@ export const billingLogic = kea<billingLogicType>([
                 setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
+        billingError: [
+            null as string | null,
+            {
+                setBillingError: (_, { billingError }) => billingError,
+                resetBillingError: () => null,
+            },
+        ],
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         billing: [
             null as BillingV2Type | null,
             {
                 loadBilling: async () => {
+                    actions.resetBillingError()
                     const response = await api.get('api/billing-v2')
 
                     return parseBillingResponse(response)
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: string | null }) => {
+                    actions.resetBillingError()
                     const response = await api.update('api/billing-v2', { custom_limits_usd: limits })
 
                     lemonToast.success('Billing limits updated')
@@ -145,10 +156,20 @@ export const billingLogic = kea<billingLogicType>([
                 },
 
                 deactivateProduct: async (key: string) => {
-                    const response = await api.get('api/billing-v2/deactivate?products=' + key)
-                    lemonToast.success('Product unsubscribed')
-                    actions.reportProductUnsubscribed(key)
-                    return parseBillingResponse(response)
+                    actions.resetBillingError()
+                    try {
+                        const response = await api.getResponse('api/billing-v2/deactivate?products=' + key)
+                        const jsonRes = await getJSONOrNull(response)
+                        lemonToast.success('Product unsubscribed')
+                        actions.reportProductUnsubscribed(key)
+                        return parseBillingResponse(jsonRes)
+                    } catch (error: any) {
+                        lemonToast.error(`${error.detail}`)
+                        actions.setBillingError(error.detail)
+                        // This is a bit of a hack to prevent the page from re-rendering and only showing the
+                        // top level error banner.
+                        return values.billing
+                    }
                 },
             },
         ],
