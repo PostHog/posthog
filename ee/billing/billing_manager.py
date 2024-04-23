@@ -57,6 +57,7 @@ class BillingManager:
         if organization and self.license and self.license.is_v2_license:
             billing_service_response = self._get_billing(organization)
 
+            raise Exception("something is wrong")
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)

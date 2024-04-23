@@ -128,13 +128,6 @@ export const billingLogic = kea<billingLogicType>([
                 setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
-        billingError: [
-            null as string | null,
-            {
-                setBillingError: (_, { billingError }) => billingError,
-                resetBillingError: () => null,
-            },
-        ],
     }),
     loaders(({ actions, values }) => ({
         billing: [
@@ -164,8 +157,13 @@ export const billingLogic = kea<billingLogicType>([
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        lemonToast.error(`${error.detail}`)
-                        actions.setBillingError(error.detail)
+                        lemonToast.error(`${error.detail}`, {
+                            button: {
+                                label: 'See Invoices',
+                                action: () =>
+                                    (window.location.href = values.billing?.stripe_portal_url || window.location.href),
+                            },
+                        })
                         // This is a bit of a hack to prevent the page from re-rendering and only showing the
                         // top level error banner.
                         return values.billing

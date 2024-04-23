@@ -42,7 +42,6 @@ export function Billing(): JSX.Element {
         isUnlicensedDebug,
         over20kAnnual,
         isAnnualPlan,
-        billingError,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -76,12 +75,9 @@ export function Billing(): JSX.Element {
         return (
             <div className="space-y-4">
                 <LemonBanner type="error">
-                    <p>
-                        {billingError
-                            ? billingError
-                            : 'There was an issue retrieving your current billing information.'}
-                    </p>
-                    {'If this message persists, please '}
+                    {
+                        'There was an issue retrieving your current billing information. If this message persists, please '
+                    }
                     {preflight?.cloud ? (
                         <Link onClick={() => openSupportForm({ kind: 'bug', target_area: 'billing' })}>
                             submit a bug report

@@ -131,7 +131,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             detail_object = e.args[2]
             return Response(
-                {"statusText": e.args[0], "detail": detail_object["error_message"]}, status=status.HTTP_400_BAD_REQUEST
+                {"statusText": e.args[0], "detail": detail_object.get("error_message", detail_object)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
         return self.list(request, *args, **kwargs)
 
