@@ -23,13 +23,7 @@ import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import {
-    BatchExportBasedStep,
-    convertToPipelineNode,
-    PipelineBackend,
-    PipelineNode,
-    PluginBasedStepBase,
-} from './types'
+import { BatchExportBasedNode, convertToPipelineNode, PipelineBackend, PipelineNode, PluginBasedNode } from './types'
 
 export interface PipelineNodeLogicProps {
     id: number | string
@@ -37,9 +31,9 @@ export interface PipelineNodeLogicProps {
     stage: PipelineStage | null
 }
 
-export type PluginUpdatePayload = Pick<PluginBasedStepBase, 'name' | 'description' | 'enabled' | 'config'>
+export type PluginUpdatePayload = Pick<PluginBasedNode, 'name' | 'description' | 'enabled' | 'config'>
 export type BatchExportUpdatePayload = Pick<
-    BatchExportBasedStep,
+    BatchExportBasedNode,
     'name' | 'description' | 'enabled' | 'service' | 'interval'
 >
 
