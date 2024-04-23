@@ -427,8 +427,8 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "batch_export"
     serializer_class = BatchExportLogEntrySerializer
 
-    def list(self, request, *args, **kwargs):
-        limit_raw = self.request.GET.get("limit")
+    def list(self, request: request.Request, *args, **kwargs):
+        limit_raw = request.GET.get("limit")
         limit: int | None
         if limit_raw:
             try:
@@ -438,24 +438,24 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             limit = None
 
-        after_raw: str | None = self.request.GET.get("after")
+        after_raw: str | None = request.GET.get("after")
         after: dt.datetime | None = None
         if after_raw is not None:
             after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
 
-        before_raw: str | None = self.request.GET.get("before")
+        before_raw: str | None = request.GET.get("before")
         before: dt.datetime | None = None
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
+        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
         data = fetch_batch_export_log_entries(
             team_id=self.team_id,
             batch_export_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
             after=after,
             before=before,
-            search=self.request.GET.get("search"),
+            search=request.GET.get("search"),
             limit=limit,
             level_filter=level_filter,
         )
