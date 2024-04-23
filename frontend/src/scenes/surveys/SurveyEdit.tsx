@@ -635,7 +635,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     className="w-16"
                                                 />{' '}
                                                 responses are received.
-                                                <Tooltip title="The survey might receive slightly more responses than the limit specifies.">
+                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
                                                     <IconInfo />
                                                 </Tooltip>
                                             </div>
