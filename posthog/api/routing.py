@@ -64,8 +64,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         protected_methods = {
-            "get_queryset": "Use filter_queryset instead",
-            # "get_object": "Use foo instead" # TODO: We don't want overriding get object if possible...
+            "get_queryset": "Use safely_get_queryset instead",
+            "get_object": "Use safely_get_object instead",
         }
 
         for method, message in protected_methods.items():
@@ -134,6 +134,31 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         queryset = self.safely_get_queryset(queryset)
 
         return self._filter_queryset_by_parents_lookups(queryset)
+
+    def safely_get_object(self, queryset: QuerySet) -> Any:
+        """
+        Provides the pre-filtered queryet
+        """
+        raise NotImplementedError()
+
+    def get_object(self):
+        """
+        We don't want to allow generic overriding of get_object as under the hood it does
+        check_object_permissions which if not called is a security issue
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+
+        try:
+            obj = self.safely_get_object(queryset)
+            if not obj:
+                raise NotFound()
+        except NotImplementedError:
+            return super().get_object()
+
+        # Ensure we always check permissions
+        self.check_object_permissions(self.request, obj)
+
+        return obj
 
     @property
     def is_team_view(self):
