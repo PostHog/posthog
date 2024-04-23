@@ -61,7 +61,7 @@ async def stripe_pagination(
     endpoint: str,
     team_id: int,
     job_id: str,
-    source_id: str,
+    schema_id: str,
     starting_after: Optional[Any] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -82,14 +82,14 @@ async def stripe_pagination(
     logger.info(f"Stripe: getting {endpoint}")
 
     if endpoint in INCREMENTAL_ENDPOINTS:
-        _ending_before_state = dlt.current.resource_state(f"team_{team_id}_{source_id}_{endpoint}").setdefault(
-            "ending_before", {"last_value": None}
+        _cursor_state = dlt.current.resource_state(f"team_{team_id}_{schema_id}_{endpoint}").setdefault(
+            "cursors", {"ending_before": None, "starting_after": None}
         )
-        _ending_before = _ending_before_state.get("last_value", None)
-        _starting_after = None
+        _starting_after = _cursor_state.get("starting_after", None)
+        _ending_before = _cursor_state.get("ending_before", None) if _starting_after is None else None
     else:
         _starting_after = starting_after
-        _ending_before = starting_after
+        _ending_before = None
 
     while True:
         if _ending_before is not None:
@@ -110,20 +110,27 @@ async def stripe_pagination(
         )
 
         if len(response["data"]) > 0:
+            latest_value_in_response = response["data"][0]["id"]
+            earliest_value_in_response = response["data"][-1]["id"]
+
             if endpoint in INCREMENTAL_ENDPOINTS:
                 # First pass, store the latest value
                 if _starting_after is None and _ending_before is None:
-                    _ending_before_state["last_value"] = response["data"][0]["id"]
+                    _cursor_state["ending_before"] = latest_value_in_response
 
                 # currently scrolling from past to present
                 if _ending_before is not None:
-                    _ending_before_state["last_value"] = response["data"][0]["id"]
-                    _ending_before = response["data"][0]["id"]
+                    _cursor_state["ending_before"] = latest_value_in_response
+                    _ending_before = latest_value_in_response
                 # otherwise scrolling from present to past
                 else:
-                    _starting_after = response["data"][-1]["id"]
+                    _starting_after = earliest_value_in_response
+                    _cursor_state["starting_after"] = earliest_value_in_response
             else:
-                _starting_after = response["data"][-1]["id"]
+                _starting_after = earliest_value_in_response
+        else:
+            if endpoint in INCREMENTAL_ENDPOINTS:
+                _cursor_state["starting_after"] = None
 
         yield response["data"]
 
@@ -144,7 +151,7 @@ def stripe_source(
     endpoints: Tuple[str, ...],
     team_id,
     job_id,
-    source_id,
+    schema_id,
     starting_after: Optional[str] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -160,7 +167,7 @@ def stripe_source(
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
-            source_id=source_id,
+            schema_id=schema_id,
             starting_after=starting_after,
             start_date=start_date,
             end_date=end_date,
