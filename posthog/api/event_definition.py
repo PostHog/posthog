@@ -1,6 +1,6 @@
 from typing import Any, Literal, Tuple, Type, cast
 
-from django.db.models import Manager, Prefetch
+from django.db.models import Manager
 from rest_framework import (
     mixins,
     serializers,
@@ -18,7 +18,7 @@ from posthog.constants import AvailableFeature, EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventDefinition, TaggedItem
+from posthog.models import EventDefinition
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT

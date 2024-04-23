@@ -3,7 +3,6 @@ import json
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.db import connection
-from django.db.models import Prefetch
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,7 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventProperty, PropertyDefinition, TaggedItem, User
+from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 
