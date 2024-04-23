@@ -45,7 +45,7 @@ export function ProgressBar(): JSX.Element {
                 size="large"
                 percent={experimentProgressPercent}
             />
-            {experimentInsightType === InsightType.TRENDS && experiment.start_date && (
+            {experimentInsightType === InsightType.TRENDS && (
                 <div className="flex justify-between mt-2">
                     {experiment.end_date ? (
                         <div>
@@ -79,7 +79,7 @@ export function ProgressBar(): JSX.Element {
                     </span>
                 </div>
             )}
-            {experimentInsightType === InsightType.FUNNELS && experiment.start_date && (
+            {experimentInsightType === InsightType.FUNNELS && (
                 <div className="flex justify-between mt-2">
                     {experiment.end_date ? (
                         <div>

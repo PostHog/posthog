@@ -59,7 +59,15 @@ export function ExperimentView(): JSX.Element {
                             </>
                         ) : (
                             <>
-                                <Goal />
+                                <div className="xl:flex">
+                                    <div className="w-1/2 pr-2">
+                                        <Goal />
+                                    </div>
+
+                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
+                                        <ProgressBar />
+                                    </div>
+                                </div>
                                 <ExperimentImplementationDetails experiment={experiment} />
                                 {experiment.start_date && (
                                     <div>
