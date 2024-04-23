@@ -356,7 +356,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
-            metadata: SessionRecordingType,
+            metadata: SessionRecordingType | null,
             delay?: number
         ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
@@ -864,7 +864,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
-                snapshot_source: metadata.snapshot_source,
+                // older recordings did not store this and so "null" is equivalent to web
+                // but for reporting we want to distinguish between not loaded and no value to load
+                snapshot_source: metadata?.snapshot_source || 'unknown',
             }
             posthog.capture(`recording ${type}`, payload)
         },
