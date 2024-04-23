@@ -584,6 +584,8 @@ export function LineGraph_({
             },
         }
 
+        const truncateRows = !inSurveyView && !!insightProps.dashboardId
+
         if (type === GraphType.Bar) {
             if (hideXAxis || hideYAxis) {
                 options.layout = { padding: 20 }
@@ -682,17 +684,23 @@ export function LineGraph_({
                         })
 
                         const ROW_HEIGHT = 20
-                        const dynamicHeight = scale.ticks.length * ROW_HEIGHT
-                        const height = dynamicHeight
+                        const height = scale.ticks.length * ROW_HEIGHT
                         const parentNode: any = scale.chart?.canvas?.parentNode
                         parentNode.style.height = `${height}px`
+
+                        if (truncateRows) {
+                            // Display only as many bars, as we can fit labels
+                            // Important: Make sure the query result does not deliver more data than we can display
+                            // See apply_dashboard_filters function in query runners
+                            scale.max = scale.ticks.length
+                        }
                     },
                     beginAtZero: true,
                     ticks: {
                         ...tickOptions,
                         precision,
-                        stepSize: 1,
-                        autoSkip: false,
+                        stepSize: !truncateRows ? 1 : undefined,
+                        autoSkip: !truncateRows ? false : undefined,
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
