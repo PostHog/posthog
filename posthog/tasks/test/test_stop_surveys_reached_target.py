@@ -23,14 +23,15 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             rollout_percentage=100,
         )
 
-    def _create_event_for_survey(self, survey: Survey, event: str = "survey sent") -> None:
+    def _create_event_for_survey(self, survey: Survey, event: str = "survey sent", custom_timestamp=None) -> None:
+        timestamp = custom_timestamp or now()
         _create_event(
             distinct_id="0",
             event=event,
             properties={
                 "$survey_id": str(survey.id),
             },
-            timestamp=now(),
+            timestamp=timestamp,
             team=survey.team,
         )
 
@@ -84,7 +85,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             linked_flag=self.flag,
             responses_limit=3,
-            created_at=now() - relativedelta(hours=12),
+            created_at=now(),
         )
         self._create_event_for_survey(survey)
         flush_persons_and_events()
@@ -101,7 +102,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             team=self.team1,
             created_by=self.user,
             linked_flag=self.flag,
-            created_at=now() - relativedelta(hours=12),
+            created_at=now(),
         )
         self._create_event_for_survey(survey)
         flush_persons_and_events()
@@ -118,7 +119,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             linked_flag=self.flag,
             responses_limit=1,
-            created_at=now() - relativedelta(hours=12),
+            created_at=now(),
         )
         self._create_event_for_survey(survey, event="survey dismissed")
         self._create_event_for_survey(survey, event="survey shown")
@@ -128,3 +129,39 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
 
         survey.refresh_from_db()
         assert not survey.end_date
+
+    def test_do_not_stop_survey_with_events_before_creation_date(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=1,
+            created_at=now(),
+        )
+        self._create_event_for_survey(survey, event="survey sent", custom_timestamp=now() - relativedelta(hours=12))
+        flush_persons_and_events()
+
+        stop_surveys_reached_target()
+
+        survey.refresh_from_db()
+        assert not survey.end_date
+
+    def test_do_not_stop_already_stopped_survey_with_responses_limit(self) -> None:
+        survey = Survey.objects.create(
+            name="1",
+            team=self.team1,
+            created_by=self.user,
+            linked_flag=self.flag,
+            responses_limit=1,
+            end_date=now() - relativedelta(hours=1),
+            created_at=now() - relativedelta(hours=1),
+        )
+        self._create_event_for_survey(survey, event="survey sent")
+        flush_persons_and_events()
+
+        stop_surveys_reached_target()
+
+        survey.refresh_from_db()
+        assert now() - relativedelta(hours=1) - survey.end_date < timedelta(seconds=1)
+        assert survey.responses_limit == 1
