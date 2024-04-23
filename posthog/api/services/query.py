@@ -11,7 +11,7 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
@@ -59,8 +59,9 @@ QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTi
 def process_query(
     team: Team,
     query_json: dict,
+    *,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: Optional[bool] = False,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -68,21 +69,22 @@ def process_query(
         team,
         model.root,
         limit_context=limit_context,
-        refresh_requested=refresh_requested,
+        execution_mode=execution_mode,
     )
 
 
 def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
+    *,
     limit_context: Optional[LimitContext] = None,
-    refresh_requested: Optional[bool] = False,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
     result: dict | BaseModel
 
     if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.run(refresh_requested=refresh_requested)
+        result = query_runner.run(execution_mode=execution_mode)
     elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.calculate()

@@ -10,6 +10,7 @@ from pendulum import DateTime
 from asgiref.sync import sync_to_async
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.data_imports.pipelines.helpers import check_limit
+from posthog.temporal.data_imports.pipelines.stripe.settings import INCREMENTAL_ENDPOINTS
 from posthog.warehouse.models import ExternalDataJob
 
 stripe.api_version = "2022-11-15"
@@ -60,7 +61,8 @@ async def stripe_pagination(
     endpoint: str,
     team_id: int,
     job_id: str,
-    starting_after: Optional[str] = None,
+    source_id: str,
+    starting_after: Optional[Any] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
 ):
@@ -79,9 +81,21 @@ async def stripe_pagination(
     logger = await bind_temporal_worker_logger(team_id)
     logger.info(f"Stripe: getting {endpoint}")
 
+    if endpoint in INCREMENTAL_ENDPOINTS:
+        _ending_before_state = dlt.current.resource_state(f"team_{team_id}_{source_id}_{endpoint}").setdefault(
+            "ending_before", {"last_value": None}
+        )
+        _ending_before = _ending_before_state.get("last_value", None)
+        _starting_after = None
+    else:
+        _starting_after = starting_after
+        _ending_before = starting_after
+
     while True:
-        if starting_after is not None:
-            logger.info(f"Stripe: getting {endpoint} after {starting_after}")
+        if _ending_before is not None:
+            logger.info(f"Stripe: getting {endpoint} before {_ending_before}")
+        elif _starting_after is not None:
+            logger.info(f"Stripe: getting {endpoint} after {_starting_after}")
 
         count = 0
 
@@ -89,13 +103,28 @@ async def stripe_pagination(
             api_key,
             account_id,
             endpoint,
-            starting_after=starting_after,
+            ending_before=_ending_before,
+            starting_after=_starting_after,
             start_date=start_date,
             end_date=end_date,
         )
 
         if len(response["data"]) > 0:
-            starting_after = response["data"][-1]["id"]
+            if endpoint in INCREMENTAL_ENDPOINTS:
+                # First pass, store the latest value
+                if _starting_after is None and _ending_before is None:
+                    _ending_before_state["last_value"] = response["data"][0]["id"]
+
+                # currently scrolling from past to present
+                if _ending_before is not None:
+                    _ending_before_state["last_value"] = response["data"][0]["id"]
+                    _ending_before = response["data"][0]["id"]
+                # otherwise scrolling from present to past
+                else:
+                    _starting_after = response["data"][-1]["id"]
+            else:
+                _starting_after = response["data"][-1]["id"]
+
         yield response["data"]
 
         count, status = await check_limit(
@@ -115,6 +144,7 @@ def stripe_source(
     endpoints: Tuple[str, ...],
     team_id,
     job_id,
+    source_id,
     starting_after: Optional[str] = None,
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
@@ -130,6 +160,7 @@ def stripe_source(
             endpoint=endpoint,
             team_id=team_id,
             job_id=job_id,
+            source_id=source_id,
             starting_after=starting_after,
             start_date=start_date,
             end_date=end_date,
