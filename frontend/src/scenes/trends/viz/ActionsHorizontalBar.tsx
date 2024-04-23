@@ -13,10 +13,10 @@ import {
     isNullBreakdown,
     isOtherBreakdown,
 } from 'scenes/insights/utils'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, GraphType } from '~/types'
 
@@ -121,10 +121,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                           if (isTrendsQueryWithFeatureFlagOn) {
                               openPersonsModal({
                                   title: label || '',
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: query.source,
-                                  },
+                                  query: datasetToActorsQuery({ dataset, query: query.source, index }),
                                   additionalSelect: {
                                       value_at_data_point: 'event_count',
                                       matched_recordings: 'matched_recordings',
