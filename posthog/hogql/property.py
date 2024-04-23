@@ -279,7 +279,7 @@ def property_to_expr(
             )[0:1].values_list("property_type", flat=True)
             property_type = property_types[0] if property_types else None
 
-            if not property_type or property_type == PropertyType.Boolean:
+            if property_type == PropertyType.Boolean:
                 if value == "true":
                     value = True
                 if value == "false":
