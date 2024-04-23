@@ -309,7 +309,9 @@ export const experimentLogic = kea<experimentLogicType>([
             // Terminate if the insight did not manage to load in time
             if (!minimumDetectableChange) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-                lemonToast.error('Failed to load insight. Experiment cannot be saved as this value is required.')
+                lemonToast.error(
+                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+                )
             }
 
             let response: Experiment | null = null
