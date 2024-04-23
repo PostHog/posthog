@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
 import { useCallback } from 'react'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -35,28 +35,21 @@ export function Timestamp(): JSX.Element {
 
     return (
         <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
-            <span
-                className={clsx(
-                    'text-center',
-                    timestampFormat === TimestampFormat.Relative
-                        ? 'w-[132px]'
-                        : timestampFormat === TimestampFormat.UTC
-                        ? 'w-[190px]'
-                        : 'w-[168px]'
-                )}
-            >
+            <span className="text-center whitespace-nowrap">
                 {timestampFormat === TimestampFormat.Relative ? (
                     <>
                         {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
                         {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
                     </>
-                ) : (
+                ) : currentTimestamp ? (
                     <>
-                        {currentTimestamp
-                            ? dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss A')
-                            : '--/--/----, 00:00:00'}{' '}
-                        {timestampFormat === TimestampFormat.UTC && 'UTC'}
+                        {dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')}{' '}
+                        {timestampFormat === TimestampFormat.UTC
+                            ? 'UTC'
+                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())}
                     </>
+                ) : (
+                    '--/--/----, 00:00:00'
                 )}
             </span>
         </LemonButton>
