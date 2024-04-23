@@ -48,7 +48,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
             }}
         >
             <div className="border-b w-full" />
-            <div className="bg-bg-3000 whitespace-nowrap text-default rounded p-2 font-semibold">
+            <div className="bg-border whitespace-nowrap text-default rounded p-2 font-semibold">
                 {rawHeatmapLoading ? (
                     <>Loading...</>
                 ) : heatmapElements.length ? (
