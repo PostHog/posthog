@@ -161,6 +161,7 @@ async def validate_schema_and_update_table(
                 else:
                     table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
+                # make sure any farther saves don't overwrite the row_count
                 table_created.row_count = F("row_count")
 
         if not table_created:
