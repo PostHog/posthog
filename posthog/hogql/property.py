@@ -267,17 +267,30 @@ def property_to_expr(
 
         # For Boolean and untyped properties, treat "true" and "false" as boolean values
         if (
-            op == ast.CompareOperationOp.Eq
-            or op == ast.CompareOperationOp.NotEq
+            (op == ast.CompareOperationOp.Eq or op == ast.CompareOperationOp.NotEq)
             and team is not None
             and (value == "true" or value == "false")
         ):
-            property_types = PropertyDefinition.objects.filter(
-                team=team,
-                name=property.key,
-                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
-            )[0:1].values_list("property_type", flat=True)
-            property_type = property_types[0] if property_types else None
+            if property.type == "person":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.PERSON,
+                )
+            elif property.type == "group":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=property.group_type_index,
+                )
+            else:
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.EVENT,
+                )
+            property_type = property_types[0].property_type if len(property_types) > 0 else None
 
             if property_type == PropertyType.Boolean:
                 if value == "true":
