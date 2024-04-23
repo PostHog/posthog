@@ -25,7 +25,7 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [PluginsAccessLevelPermission, PluginOwnershipPermission]
 
     def list(self, request, *args, **kwargs):
-        limit_raw = self.request.GET.get("limit")
+        limit_raw = request.GET.get("limit")
         limit: Optional[int]
         if limit_raw:
             try:
@@ -35,23 +35,23 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             limit = None
 
-        after_raw: Optional[str] = self.request.GET.get("after")
+        after_raw: Optional[str] = request.GET.get("after")
         after: Optional[timezone.datetime] = None
         if after_raw is not None:
             after = timezone.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
 
-        before_raw: Optional[str] = self.request.GET.get("before")
+        before_raw: Optional[str] = request.GET.get("before")
         before: Optional[timezone.datetime] = None
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        type_filter = [PluginLogEntryType[t] for t in (self.request.GET.getlist("type_filter", []))]
+        type_filter = [PluginLogEntryType[t] for t in (request.GET.getlist("type_filter", []))]
         data = fetch_plugin_log_entries(
             team_id=self.team_id,
             plugin_config_id=self.parents_query_dict["plugin_config_id"],
             after=after,
             before=before,
-            search=self.request.GET.get("search"),
+            search=request.GET.get("search"),
             limit=limit,
             type_filter=type_filter,
         )
@@ -63,36 +63,3 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         serializer = self.get_serializer(data, many=True)
         return Response(serializer.data)
-
-    # # TODO: Change this to a list override
-    # def get_queryset(self):
-    #     limit_raw = self.request.GET.get("limit")
-    #     limit: Optional[int]
-    #     if limit_raw:
-    #         try:
-    #             limit = int(limit_raw)
-    #         except ValueError:
-    #             raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
-    #     else:
-    #         limit = None
-
-    #     after_raw: Optional[str] = self.request.GET.get("after")
-    #     after: Optional[timezone.datetime] = None
-    #     if after_raw is not None:
-    #         after = timezone.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
-
-    #     before_raw: Optional[str] = self.request.GET.get("before")
-    #     before: Optional[timezone.datetime] = None
-    #     if before_raw is not None:
-    #         before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
-
-    #     type_filter = [PluginLogEntryType[t] for t in (self.request.GET.getlist("type_filter", []))]
-    #     return fetch_plugin_log_entries(
-    #         team_id=self.parents_query_dict["team_id"],
-    #         plugin_config_id=self.parents_query_dict["plugin_config_id"],
-    #         after=after,
-    #         before=before,
-    #         search=self.request.GET.get("search"),
-    #         limit=limit,
-    #         type_filter=type_filter,
-    #     )
