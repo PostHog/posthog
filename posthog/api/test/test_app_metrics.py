@@ -79,6 +79,7 @@ class TestAppMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_batch_export_runs_app_metrics(self):
+        """Test batch export metrics returned by app metrics endpoint."""
         destination_data = {
             "type": "S3",
             "config": {

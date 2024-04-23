@@ -95,6 +95,11 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             dates
         ```
 
+        A truncated 'last_updated_at' is used as the grouping date as it reflects when a particular run
+        was last updated. It feels easier to explain to users that if they see metrics for today, those
+        correspond to runs that happened today, even if the runs themselves exported data from a year ago
+        (because it was a backfill).
+
         Raises:
             ValueError: If provided 'batch_export_id' is not a valid UUID.
         """
