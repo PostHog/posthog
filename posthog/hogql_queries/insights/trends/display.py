@@ -12,6 +12,7 @@ class TrendsDisplay:
         else:
             self.display_type = ChartDisplayType.ActionsAreaGraph
 
+    # No time range
     def should_aggregate_values(self) -> bool:
         return (
             self.display_type == ChartDisplayType.BoldNumber
