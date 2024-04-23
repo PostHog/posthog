@@ -189,13 +189,17 @@ class TrendsQueryRunner(QueryRunner):
         res_compare: List[CompareItem] | None = None
 
         # Days
-        res_days: list[DayItem] = [
-            DayItem(
-                label=format_label_date(value, self.query_date_range.interval_name),
-                value=value,
-            )
-            for value in self.query_date_range.all_values()
-        ]
+        res_days: Optional[list[DayItem]] = (
+            None
+            if self._trends_display.should_aggregate_values()
+            else [
+                DayItem(
+                    label=format_label_date(value, self.query_date_range.interval_name),
+                    value=value,
+                )
+                for value in self.query_date_range.all_values()
+            ]
+        )
 
         # Series
         for index, series in enumerate(self.query.series):
@@ -814,8 +818,8 @@ class TrendsQueryRunner(QueryRunner):
         return TrendsDisplay(display)
 
     def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
+        updated_query = super().apply_dashboard_filters(*args, **kwargs)
         # Remove any set breakdown limit for display on the dashboard
-        if self.query.breakdownFilter:
-            self.query.breakdownFilter.breakdown_limit = None
-
-        return self.query
+        if updated_query.breakdownFilter:
+            updated_query.breakdownFilter.breakdown_limit = None
+        return updated_query
