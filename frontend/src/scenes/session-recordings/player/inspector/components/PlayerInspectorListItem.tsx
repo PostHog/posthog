@@ -201,8 +201,13 @@ export function PlayerInspectorListItem({
             {!isExpanded ? (
                 <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
-                        {timestampFormat === TimestampFormat.Absolute ? (
-                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
+                        {timestampFormat != TimestampFormat.Relative ? (
+                            <TZLabel
+                                time={TimestampFormat.UTC ? item.timestamp.tz('utc') : item.timestamp}
+                                formatDate="DD, MMM"
+                                formatTime="HH:mm:ss"
+                                noStyles
+                            />
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (
