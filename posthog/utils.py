@@ -420,7 +420,7 @@ def render_template(
 
     html = template.render(context, request=request)
     response = HttpResponse(html)
-    if not user.request.is_anonymous:
+    if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
     return response
 
