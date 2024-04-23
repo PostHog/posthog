@@ -2,7 +2,7 @@ from django.test.client import Client as TestClient
 from rest_framework import status
 
 
-def create_batch_export(client: TestClient, team_id: int, batch_export_data: dict):
+def create_batch_export(client: TestClient, team_id: int, batch_export_data: dict | str):
     return client.post(
         f"/api/projects/{team_id}/batch_exports",
         batch_export_data,
@@ -10,7 +10,7 @@ def create_batch_export(client: TestClient, team_id: int, batch_export_data: dic
     )
 
 
-def create_batch_export_ok(client: TestClient, team_id: int, batch_export_data: dict):
+def create_batch_export_ok(client: TestClient, team_id: int, batch_export_data: dict | str):
     response = create_batch_export(client, team_id, batch_export_data)
     assert response.status_code == status.HTTP_201_CREATED, response.json()
     return response.json()
