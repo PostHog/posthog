@@ -221,7 +221,7 @@ export function FilterBasedCardContent({
                 ) : !loading && timedOut ? (
                     <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
-                    <InsightErrorState excludeDetail />
+                    <InsightErrorState query={query} excludeDetail />
                 ) : (
                     !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
                 )}
@@ -348,6 +348,7 @@ function InsightCardInternal(
                 ) : (
                     <div className="flex justify-between items-center h-full">
                         <InsightErrorState
+                            query={insight.query}
                             excludeDetail
                             title="Missing 'filters.insight' property, can't display insight"
                         />

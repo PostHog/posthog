@@ -203,7 +203,7 @@ export function PersonsModal({
                             validationError ? (
                                 <InsightValidationError detail={validationError} />
                             ) : (
-                                <InsightErrorState />
+                                <InsightErrorState query={query} />
                             )
                         ) : actors && actors.length > 0 ? (
                             <>

@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, Node } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
@@ -139,10 +139,11 @@ export function InsightTimeoutState({
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    query?: Record<string, any> | Node | null
     queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, query, queryId }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -177,6 +178,13 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                     If this persists, submit a bug report.
                                 </Link>
                             </li>
+                            {query && (
+                                <li>
+                                    <Link data-attr="insight-error-query" to={urls.debugQuery(query)}>
+                                        Open in query debugger
+                                    </Link>
+                                </li>
+                            )}
                         </ol>
                     </div>
                 )}
