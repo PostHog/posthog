@@ -50,6 +50,7 @@ module.exports = {
         'posthog',
         'simple-import-sort',
         'import',
+        "unused-imports"
     ],
     rules: {
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
@@ -73,6 +74,7 @@ module.exports = {
                 html: true,
             },
         ],
+        "unused-imports/no-unused-imports": "error",
         'no-unused-vars': 'off',
         '@typescript-eslint/no-unused-vars': [
             'error',
