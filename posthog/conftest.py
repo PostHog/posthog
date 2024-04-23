@@ -1,51 +1,9 @@
-from typing import Any, Tuple
-
 import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
-from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
-
-
-def create_clickhouse_tables(num_tables: int):
-    # Create clickhouse tables to default before running test
-    # Mostly so that test runs locally work correctly
-    from posthog.clickhouse.schema import (
-        CREATE_DISTRIBUTED_TABLE_QUERIES,
-        CREATE_MERGETREE_TABLE_QUERIES,
-        CREATE_MV_TABLE_QUERIES,
-        CREATE_DATA_QUERIES,
-        CREATE_DICTIONARY_QUERIES,
-        CREATE_VIEW_QUERIES,
-        build_query,
-        CREATE_KAFKA_TABLE_QUERIES,
-    )
-
-    # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    CREATE_TABLE_QUERIES: Tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
-
-    # Check if all the tables have already been created
-    if num_tables == len(CREATE_TABLE_QUERIES):
-        return
-
-    table_queries = list(map(build_query, CREATE_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(table_queries)
-
-    kafka_queries = list(map(build_query, CREATE_KAFKA_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(kafka_queries)
-
-    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
-    run_clickhouse_statement_in_parallel(mv_queries)
-
-    view_queries = list(map(build_query, CREATE_VIEW_QUERIES))
-    run_clickhouse_statement_in_parallel(view_queries)
-
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES))
-    run_clickhouse_statement_in_parallel(data_queries)
-
-    dictionary_queries = list(map(build_query, CREATE_DICTIONARY_QUERIES))
-    run_clickhouse_statement_in_parallel(dictionary_queries)
+from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel, create_clickhouse_tables
 
 
 def reset_clickhouse_tables():
