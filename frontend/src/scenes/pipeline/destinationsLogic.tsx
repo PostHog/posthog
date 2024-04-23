@@ -16,7 +16,7 @@ import {
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { pipelineLogic } from './pipelineLogic'
-import { BatchExportDestinationStep, convertToPipelineNode, Destination } from './types'
+import { BatchExportDestination, convertToPipelineNode, Destination } from './types'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
@@ -33,7 +33,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     actions({
         toggleEnabled: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
-        archiveBatchExport: (destination: BatchExportDestinationStep) => ({ destination }),
+        archiveBatchExport: (destination: BatchExportDestination) => ({ destination }),
     }),
     loaders(({ values }) => ({
         plugins: [

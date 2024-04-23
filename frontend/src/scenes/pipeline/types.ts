@@ -1,6 +1,6 @@
 import {
     BatchExportConfiguration,
-    BatchExportDestination,
+    BatchExportService,
     PipelineStage,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -23,54 +23,53 @@ interface PipelineNodeBase {
 
 // Split by backend
 
-export interface PluginBasedStepBase extends PipelineNodeBase {
+export interface PluginBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.Plugin
     id: number
     plugin: PluginType
     config: Record<string, any>
 }
+
 /** NOTE: Batch exports are only used in Destinations, but we're making this a bit more abstract for clearer types. */
-export interface BatchExportBasedStep extends PipelineNodeBase {
+export interface BatchExportBasedNode extends PipelineNodeBase {
     backend: PipelineBackend.BatchExport
     /** UUID */
     id: string
-    service: BatchExportDestination
+    service: BatchExportService
     interval: BatchExportConfiguration['interval']
 }
 
 // Stage: Filters
 
-export interface Filter extends PluginBasedStepBase {
+export interface Filter extends PluginBasedNode {
     stage: PipelineStage.Filter
 }
 
 // Stage: Transformations
 
-export interface Transformation extends PluginBasedStepBase {
+export interface Transformation extends PluginBasedNode {
     stage: PipelineStage.Transformation
     order: number
 }
 
 // Stage: Destinations
 
-export interface WebhookDestination extends PluginBasedStepBase {
+export interface WebhookDestination extends PluginBasedNode {
     stage: PipelineStage.Destination
     interval: 'realtime'
 }
-
-// Ideally this would be called BatchExportDestination, but that's used already
-export interface BatchExportDestinationStep extends BatchExportBasedStep {
+export interface BatchExportDestination extends BatchExportBasedNode {
     stage: PipelineStage.Destination
 }
-export type Destination = BatchExportDestinationStep | WebhookDestination
+export type Destination = BatchExportDestination | WebhookDestination
 
 // Legacy: Site apps
-export interface SiteApp extends PluginBasedStepBase {
+export interface SiteApp extends PluginBasedNode {
     stage: PipelineStage.SiteApp
 }
 
 // Legacy: Import apps
-export interface ImportApp extends PluginBasedStepBase {
+export interface ImportApp extends PluginBasedNode {
     stage: PipelineStage.ImportApp
 }
 

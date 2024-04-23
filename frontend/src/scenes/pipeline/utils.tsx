@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportDestination,
+    BatchExportService,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigTypeNew,
@@ -31,7 +31,7 @@ import {
     Destination,
     ImportApp,
     PipelineBackend,
-    PluginBasedStepBase,
+    PluginBasedNode,
     SiteApp,
     Transformation,
     WebhookDestination,
@@ -150,7 +150,7 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['type'] }): JSX.Element {
+export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
     const icon = {
         BigQuery: BigQueryIcon,
         Postgres: PostgresIcon,
@@ -275,7 +275,7 @@ export function appColumn<T extends { plugin: Transformation['plugin'] }>(): Lem
     }
 }
 
-function pluginMenuItems(node: PluginBasedStepBase): LemonMenuItem[] {
+function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     if (node.plugin?.url) {
         return [
             {
