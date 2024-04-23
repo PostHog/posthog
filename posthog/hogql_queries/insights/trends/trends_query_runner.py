@@ -33,7 +33,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, RunnableQueryNode
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
@@ -813,7 +813,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: dict) -> TrendsQuery:
+    def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
         # Remove any set breakdown limit for display on the dashboard
         if self.query.breakdownFilter:
             self.query.breakdownFilter.breakdown_limit = None
