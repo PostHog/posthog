@@ -78,7 +78,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
 
-    def dangerously_get_permissions(self) -> QuerySet:
+    def dangerously_get_permissions(self):
         """
         WARNING: This should be used very carefully. It is only for endpoints with very specific permission needs.
         If you want to add to the defaults simply set `permission_classes` instead.
