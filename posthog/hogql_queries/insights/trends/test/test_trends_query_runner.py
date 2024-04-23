@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
@@ -1792,7 +1793,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
         assert response.breakdown == [
-            BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"),
+            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),
