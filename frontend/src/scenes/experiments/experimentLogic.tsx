@@ -52,6 +52,7 @@ import {
 import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
+import { getMinimumDetectableEffect } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -792,50 +793,10 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableChange: [
-            (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
-            (newexperiment, experimentInsightType, conversionMetrics, trendResults): number => {
-                // ALWAYS RETURN A NEW ONE FROM HERE
-                // THIS ONE SHOULD ONLY BE CALLED FOR CALCULATING NEW ONE AND SETTING IT
-                // Update
-                if (newexperiment?.parameters?.minimum_detectable_effect) {
-                    return newexperiment?.parameters?.minimum_detectable_effect
-                }
-
-                // TRENDS
-                // Given current count of the Trend metric, what percentage increase are we targeting?
-                if (experimentInsightType === InsightType.TRENDS) {
-                    const baselineCount = trendResults[0]?.count
-
-                    if (baselineCount <= 200) {
-                        return 100
-                    } else if (baselineCount <= 1000) {
-                        return 20
-                    } else {
-                        return 5
-                    }
-                }
-
-                // FUNNELS
-                // Given current CR, find a realistic target CR increase and return MDE based on it
-                const currentConversionRate = conversionMetrics.totalRate * 100
-
-                // CR = 50% requires a high running time
-                // CR = 1% or 99% requires a low running time
-                const midpointDistance = Math.abs(50 - currentConversionRate)
-
-                let targetConversionRateIncrease
-                if (midpointDistance <= 20) {
-                    targetConversionRateIncrease = 0.1
-                } else if (midpointDistance <= 35) {
-                    targetConversionRateIncrease = 0.2
-                } else {
-                    targetConversionRateIncrease = 0.5
-                }
-
-                const targetConversionRate = currentConversionRate * (1 + targetConversionRateIncrease)
-                const mde = Math.ceil(targetConversionRate - currentConversionRate)
-
-                return mde || 5
+            (s) => [s.experimentInsightType, s.conversionMetrics, s.trendResults],
+            (experimentInsightType, conversionMetrics, trendResults): number | null => {
+                // :KLUDGE: extracted the method due to difficulties with logic tests
+                return getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)
             },
         ],
         minimumSampleSizePerVariant: [
@@ -845,6 +806,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
                 // The results are same as: https://www.evanmiller.org/ab-testing/sample-size.html
                 // and also: https://marketing.dynamicyield.com/ab-test-duration-calculator/
+                mde = mde || 5
                 return Math.ceil((1600 * conversionRate * (1 - conversionRate / 100)) / (mde * mde))
             },
         ],
@@ -949,6 +911,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (mde) =>
                 (baseCountData: number): number => {
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
+                    mde = mde || 5
                     const minCountData = (baseCountData * mde) / 100
                     const lambda1 = baseCountData
                     const lambda2 = minCountData + baseCountData
