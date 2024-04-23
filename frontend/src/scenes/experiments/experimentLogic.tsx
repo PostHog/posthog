@@ -304,6 +304,14 @@ export const experimentLogic = kea<experimentLogicType>([
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
+
+            // Minimum Detectable Effect is calculated based on a loaded insight
+            // Terminate if the insight did not manage to load in time
+            if (!minimumDetectableChange) {
+                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                lemonToast.error('Failed to load insight. Experiment cannot be saved as this value is required.')
+            }
+
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
             try {
