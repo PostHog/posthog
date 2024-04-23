@@ -67,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
+export function PlayerMeta({ linkIconsOnly = false }: { linkIconsOnly?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
