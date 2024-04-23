@@ -477,10 +477,10 @@ class PropertyDefinitionViewSet(
     ordering = "name"
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator
+    queryset = PropertyDefinition.objects.all()
 
-    def filter_queryset(self, queryset):
-        queryset = PropertyDefinition.objects
-
+    def carefully_get_queryset(self):
+        queryset = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [
                 f'posthog_propertydefinition."{f.column}"'

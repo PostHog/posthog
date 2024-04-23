@@ -449,7 +449,7 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
         level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
-        return fetch_batch_export_log_entries(
+        data = fetch_batch_export_log_entries(
             team_id=self.team_id,
             batch_export_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
@@ -459,3 +459,11 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
             level_filter=level_filter,
         )
+
+        page = self.paginate_queryset(data)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(data, many=True)
+        return response.Response(serializer.data)

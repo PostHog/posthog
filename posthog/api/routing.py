@@ -117,7 +117,19 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         """
         return queryset
 
+    def carefully_get_queryset(self) -> Optional[QuerySet]:
+        """
+        WARNING: This should be used very carefully. It bypasses all common filtering logic such as team and org filtering.
+        It is so named to make it clear that this should be checked whenever changes to access control logic changes.
+        """
+        pass
+
     def get_queryset(self):
+        queryset_override = self.carefully_get_queryset()
+
+        if queryset_override:
+            return queryset_override
+
         queryset = super().get_queryset()
         # First of all make sure we do the custom filters before applying our own
         queryset = self.filter_queryset(queryset)
