@@ -544,7 +544,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + 1
+                // if we're getting no results from realtime polling we can increment faster
+                // so that we stop polling sooner
+                const increment = newSnapshotsCount === 0 ? 2 : 1
+                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
             } else {
                 cache.lastSnapshotsUnchangedCount = 0
             }
