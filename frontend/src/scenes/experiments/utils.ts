@@ -64,7 +64,7 @@ export function getMinimumDetectableEffect(
 
     // TRENDS
     // Given current count of the Trend metric, what percentage increase are we targeting?
-    if (!trendResults[0]?.count) {
+    if (trendResults[0]?.count === undefined) {
         return null
     }
 
