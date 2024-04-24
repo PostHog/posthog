@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -33,6 +33,31 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
     # select all queries for snapshots
     def capture_select_queries(self):
         return self.capture_queries(("INSERT INTO cohortpeople", "SELECT", "ALTER", "select", "DELETE"))
+
+    def _get_cohort_activity(
+        self,
+        flag_id: Optional[int] = None,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ):
+        if team_id is None:
+            team_id = self.team.id
+
+        if flag_id:
+            url = f"/api/projects/{team_id}/cohorts/{flag_id}/activity"
+        else:
+            url = f"/api/projects/{team_id}/cohorts/activity"
+
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()
+
+    def assert_cohort_activity(self, flag_id: Optional[int], expected: List[Dict]):
+        activity_response = self._get_cohort_activity(flag_id)
+
+        activity: List[Dict] = activity_response["results"]
+        self.maxDiff = None
+        assert activity == expected
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)

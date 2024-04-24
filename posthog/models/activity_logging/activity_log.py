@@ -18,6 +18,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 logger = structlog.get_logger(__name__)
 
 ActivityScope = Literal[
+    "Cohort",
     "FeatureFlag",
     "Person",
     "Insight",
