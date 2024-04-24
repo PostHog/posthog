@@ -622,6 +622,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 Stop the survey once
                                                 <LemonInput
                                                     type="number"
+                                                    data-attr="survey-responses-limit-input"
                                                     size="small"
                                                     min={1}
                                                     value={value || NaN}
