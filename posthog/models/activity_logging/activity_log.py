@@ -134,6 +134,14 @@ common_field_exclusions = [
 
 
 field_exclusions: Dict[ActivityScope, List[str]] = {
+    "Cohort": [
+        "version",
+        "pending_version",
+        "count",
+        "is_calculating",
+        "last_calculation",
+        "errors_calculating",
+    ],
     "Notebook": [
         "text_content",
     ],
