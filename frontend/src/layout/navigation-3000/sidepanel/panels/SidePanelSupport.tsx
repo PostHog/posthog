@@ -1,5 +1,4 @@
 import {
-    IconBug,
     IconChevronDown,
     IconFeatures,
     IconFlask,
@@ -144,7 +143,6 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
 export const SidePanelSupport = (): JSX.Element => {
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { openEmailForm, closeEmailForm } = useActions(supportLogic)
     const { isEmailFormOpen } = useValues(supportLogic)
     const { preflight } = useValues(preflightLogic)
@@ -214,48 +212,26 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ||
-                            window.location.href.includes(urls.organizationBilling()) ? (
-                                <>
-                                    <Section title="Contact us">
-                                        <p>Can't find what you need in the docs?</p>
-                                        <LemonButton
-                                            type="primary"
-                                            fullWidth
-                                            center
-                                            onClick={() => openEmailForm()}
-                                            targetBlank
-                                            className="mt-2"
-                                        >
-                                            Email an engineer
-                                        </LemonButton>
-                                    </Section>
-                                    <Section title="Ask the community">
-                                        <p>
-                                            Questions about features, how to's, or use cases? There are thousands of
-                                            discussions in our community forums.{' '}
-                                            <Link to="https://posthog.com/questions">Ask a question</Link>
-                                        </p>
-                                    </Section>
-                                </>
-                            ) : (
-                                <Section title="Ask the community">
-                                    <p>
-                                        Questions about features, how to's, or use cases? There are thousands of
-                                        discussions in our community forums.
-                                    </p>
-                                    <LemonButton
-                                        type="primary"
-                                        fullWidth
-                                        center
-                                        to="https://posthog.com/questions"
-                                        targetBlank
-                                        className="mt-2"
-                                    >
-                                        Ask a question
-                                    </LemonButton>
-                                </Section>
-                            )}
+                            <Section title="Contact us">
+                                <p>Can't find what you need in the docs?</p>
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    onClick={() => openEmailForm()}
+                                    targetBlank
+                                    className="mt-2"
+                                >
+                                    Email an engineer
+                                </LemonButton>
+                            </Section>
+                            <Section title="Ask the community">
+                                <p>
+                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    in our community forums.{' '}
+                                    <Link to="https://posthog.com/questions">Ask a question</Link>
+                                </p>
+                            </Section>
 
                             <Section title="Share feedback">
                                 <ul>
@@ -296,55 +272,6 @@ export const SidePanelSupport = (): JSX.Element => {
                                     </li>
                                 </ul>
                             </Section>
-
-                            {hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT) ||
-                            window.location.href.includes(urls.organizationBilling()) ? null : (
-                                <Section title="Contact support">
-                                    <p>
-                                        Due to our large userbase, we're unable to offer email support to organizations
-                                        on the free plan. But we still want to help!
-                                    </p>
-
-                                    <ol className="pl-5">
-                                        <li>
-                                            <strong className="block">Search our docs</strong>
-                                            <p>
-                                                We're constantly updating our docs and tutorials to provide the latest
-                                                information about installing, using, and troubleshooting.
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">Ask a community question</strong>
-                                            <p>
-                                                Many common (and niche) questions have already been resolved by users
-                                                just like you. (Our own engineers also keep an eye on the questions as
-                                                they have time!){' '}
-                                                <Link to="https://posthog.com/question" className="block">
-                                                    Search community questions or ask your own.
-                                                </Link>
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">
-                                                Explore <Link to="https://posthog.com/partners">PostHog partners</Link>
-                                            </strong>
-                                            <p>
-                                                Third-party providers can help with installation and debugging of data
-                                                issues.
-                                            </p>
-                                        </li>
-                                        <li>
-                                            <strong className="block">Upgrade to a paid plan</strong>
-                                            <p>
-                                                Our paid plans offer email support.{' '}
-                                                <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                                    Explore options.
-                                                </Link>
-                                            </p>
-                                        </li>
-                                    </ol>
-                                </Section>
-                            )}
                         </>
                     )}
                 </div>
