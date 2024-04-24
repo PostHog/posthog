@@ -11,6 +11,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
@@ -36,6 +37,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.PLUGIN:
         case ActivityScope.PLUGIN_CONFIG:
             return pluginActivityDescriber
+        case ActivityScope.COHORT:
+            return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
         case ActivityScope.PERSON:
