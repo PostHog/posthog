@@ -6,12 +6,15 @@ import dlt
 from django.conf import settings
 from dlt.pipeline.exceptions import PipelineStepFailed
 
+from asgiref.sync import async_to_sync
 import asyncio
 import os
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltSource
 from collections import Counter
+
+from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 
 
 @dataclass
@@ -98,26 +101,42 @@ class DataImportPipeline:
     def _run(self) -> Dict[str, int]:
         pipeline = self._create_pipeline()
 
-        total_counts: Counter = Counter({})
+        total_counts: Counter[str] = Counter({})
 
         if self._incremental:
             # will get overwritten
-            counts: Counter = Counter({"start": 1})
+            counts: Counter[str] = Counter({"start": 1})
 
             while counts:
                 pipeline.run(self.source, loader_file_format=self.loader_file_format)
 
                 row_counts = pipeline.last_trace.last_normalize_info.row_counts
                 # Remove any DLT tables from the counts
-                filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-                counts = Counter(dict(filtered_rows))
+                filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
+                counts = Counter(filtered_rows)
                 total_counts = counts + total_counts
+
+                async_to_sync(validate_schema_and_update_table)(
+                    run_id=self.inputs.run_id,
+                    team_id=self.inputs.team_id,
+                    schema_id=self.inputs.schema_id,
+                    table_schema=self.source.schema.tables,
+                    table_row_counts=filtered_rows,
+                )
         else:
             pipeline.run(self.source, loader_file_format=self.loader_file_format)
             row_counts = pipeline.last_trace.last_normalize_info.row_counts
-            filtered_rows = filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items())
-            counts = Counter(dict(filtered_rows))
+            filtered_rows = dict(filter(lambda pair: not pair[0].startswith("_dlt"), row_counts.items()))
+            counts = Counter(filtered_rows)
             total_counts = total_counts + counts
+
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=self.inputs.run_id,
+                team_id=self.inputs.team_id,
+                schema_id=self.inputs.schema_id,
+                table_schema=self.source.schema.tables,
+                table_row_counts=filtered_rows,
+            )
 
         return dict(total_counts)
 
