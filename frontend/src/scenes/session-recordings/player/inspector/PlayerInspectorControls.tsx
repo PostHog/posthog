@@ -1,4 +1,4 @@
-import { IconBug, IconDashboard, IconInfo, IconTerminal, IconX } from '@posthog/icons'
+import { IconBottomPanel, IconBug, IconDashboard, IconInfo, IconSidePanel, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,7 +45,6 @@ function TabButtons({
             onChange={(tabId) => setTab(tabId)}
             tabs={tabs.map((tabId) => {
                 const TabIcon = TabToIcon[tabId]
-
                 return {
                     key: tabId,
                     label: (
@@ -66,7 +65,15 @@ function TabButtons({
     )
 }
 
-export function PlayerInspectorControls({ onClose }: { onClose: () => void }): JSX.Element {
+export function PlayerInspectorControls({
+    onClose,
+    isVerticallyStacked,
+    toggleLayoutStacking,
+}: {
+    onClose: () => void
+    isVerticallyStacked: boolean
+    toggleLayoutStacking?: () => void
+}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
     const { tab, windowIdFilter, windowIds, showMatchingEventsFilter } = useValues(inspectorLogic)
@@ -105,7 +112,14 @@ export function PlayerInspectorControls({ onClose }: { onClose: () => void }): J
             <div className="flex justify-between flex-nowrap">
                 <div className="w-2.5 mb-2 border-b shrink-0" />
                 <TabButtons tabs={tabs} logicProps={logicProps} />
-                <div className="flex flex-1 items-center justify-end mb-2 border-b px-1">
+                <div className="flex flex-1 items-center justify-end gap-1 mb-2 border-b px-1">
+                    {toggleLayoutStacking && (
+                        <LemonButton
+                            size="xsmall"
+                            icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
+                            onClick={toggleLayoutStacking}
+                        />
+                    )}
                     <LemonButton size="xsmall" icon={<IconX />} onClick={onClose} />
                 </div>
             </div>

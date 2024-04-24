@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
@@ -262,7 +263,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
             const newFilter = {
-                id: null,
+                id: getDefaultEventName(),
                 uuid: uuid(),
                 type: EntityTypes.EVENTS,
                 order: order,
