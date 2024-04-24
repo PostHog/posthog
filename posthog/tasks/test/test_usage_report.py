@@ -408,7 +408,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "recording_count_in_period": 5,
                     "recording_count_total": 16,
                     "mobile_recording_count_in_period": 0,
-                    "mobile_recording_count_total": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -453,7 +452,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
                             "mobile_recording_count_in_period": 0,
-                            "mobile_recording_count_total": 0,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -492,7 +490,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "recording_count_in_period": 5,
                             "recording_count_total": 16,
                             "mobile_recording_count_in_period": 0,
-                            "mobile_recording_count_total": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -554,7 +551,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "recording_count_in_period": 0,
                     "recording_count_total": 0,
                     "mobile_recording_count_in_period": 0,
-                    "mobile_recording_count_total": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -599,7 +595,6 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "recording_count_in_period": 0,
                             "recording_count_total": 0,
                             "mobile_recording_count_in_period": 0,
-                            "mobile_recording_count_total": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -708,7 +703,6 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         assert report.recording_count_total == 16
 
         assert report.mobile_recording_count_in_period == 0
-        assert report.mobile_recording_count_total == 0
 
     def test_usage_report_replay_with_mobile(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
@@ -719,12 +713,13 @@ class ReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTable
         all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
         report = _get_team_report(all_reports, self.team)
 
-        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 16}
-        assert report.recording_count_in_period == 5
-        assert report.recording_count_total == 16
+        # we don't split mobile recordings out of the total since that field is not used
+        assert all_reports["teams_with_recording_count_total"] == {self.team.pk: 18}
+        assert report.recording_count_total == 18
 
+        # but we do split them out of the daily usage since that field is used
+        assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
-        assert report.mobile_recording_count_total == 2
 
 
 class HogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):

@@ -86,7 +86,6 @@ class UsageReportCounters:
     recording_count_in_period: int
     recording_count_total: int
     mobile_recording_count_in_period: int
-    mobile_recording_count_total: int
 
     # Persons and Groups
     group_types_total: int
@@ -542,19 +541,13 @@ def get_teams_with_recording_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_recording_count_total(snapshot_source: Literal["mobile", "web"]) -> List[Tuple[int, int]]:
+def get_teams_with_recording_count_total() -> List[Tuple[int, int]]:
     result = sync_execute(
         """
         SELECT team_id, count(distinct session_id) as count
-        FROM (
-            SELECT any(team_id) as team_id, session_id
-            FROM session_replay_events
-            GROUP BY session_id
-            HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
-        )
+        FROM session_replay_events
         GROUP BY team_id
     """,
-        {"snapshot_source": snapshot_source},
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -747,14 +740,13 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
         ),
         # teams_with_event_count_by_lib=get_teams_with_event_count_by_lib(period_start, period_end),
         # teams_with_event_count_by_name=get_teams_with_event_count_by_name(period_start, period_end),
+        "teams_with_recording_count_total": get_teams_with_recording_count_total(),
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
-        "teams_with_recording_count_total": get_teams_with_recording_count_total(snapshot_source="web"),
         "teams_with_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="mobile"
         ),
-        "teams_with_mobile_recording_count_total": get_teams_with_recording_count_total(snapshot_source="mobile"),
         "teams_with_decide_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.DECIDE
         ),
@@ -930,10 +922,9 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_count_with_groups_in_period=all_data["teams_with_event_count_with_groups_in_period"].get(team.id, 0),
         # event_count_by_lib: Di all_data["teams_with_#"].get(team.id, 0),
         # event_count_by_name: Di all_data["teams_with_#"].get(team.id, 0),
-        recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         recording_count_total=all_data["teams_with_recording_count_total"].get(team.id, 0),
+        recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
-        mobile_recording_count_total=all_data["teams_with_mobile_recording_count_total"].get(team.id, 0),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         decide_requests_count_in_month=decide_requests_count_in_month,
