@@ -83,9 +83,10 @@ def process_query_model(
     result: dict | BaseModel
 
     if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not isinstance(
-        query, QUERY_WITH_RUNNER_USING_CACHE
+        query,
+        QUERY_WITH_RUNNER_USING_CACHE,  # type: ignore
     ):
-        result = CacheMissResponse()
+        result = CacheMissResponse(cache_key=None)
 
     if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)

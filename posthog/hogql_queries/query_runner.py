@@ -102,7 +102,7 @@ class CacheMissResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cache_key: str
+    cache_key: Optional[str]
 
 
 RunnableQueryNode = Union[
