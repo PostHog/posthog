@@ -51,7 +51,7 @@ class RecordingMetadata(TypedDict):
     first_url: str
     duration: int
     active_seconds: int
-    snapshot_source: Literal["web", "mobile"] | None
+    snapshot_source: Literal["web", "mobile"]
 
 
 class RecordingMatchingEvents(TypedDict):

@@ -103,7 +103,7 @@ class SessionReplayEvents:
             console_log_count=replay[9],
             console_warn_count=replay[10],
             console_error_count=replay[11],
-            snapshot_source=replay[12],
+            snapshot_source=replay[12] or "web",
         )
 
     def get_events(
