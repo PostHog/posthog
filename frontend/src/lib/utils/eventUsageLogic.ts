@@ -408,6 +408,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             existingCohort,
             newCohort,
         }),
+        reportExperimentInsightLoadFailed: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1019,6 +1020,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_filters: newCohort.filters,
                 id: newCohort.id,
             })
+        },
+        reportExperimentInsightLoadFailed: () => {
+            posthog.capture('experiment load insight failed')
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

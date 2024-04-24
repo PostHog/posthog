@@ -81,7 +81,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
-            source_id=str(inputs.source_id),
+            schema_id=str(inputs.schema_id),
             start_date=start_date,
             end_date=end_date,
         )
