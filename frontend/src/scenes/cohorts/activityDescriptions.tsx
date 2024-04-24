@@ -35,8 +35,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted {asNotification ? 'your' : 'the'} cohort:{' '}
-                    {logItem.detail.name}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the cohort: {logItem.detail.name}
                 </>
             ),
         }
@@ -46,7 +45,7 @@ export function cohortActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated {asNotification ? 'your' : 'the'} cohort:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> updated the cohort:{' '}
                     {nameOrLinkToCohort(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
