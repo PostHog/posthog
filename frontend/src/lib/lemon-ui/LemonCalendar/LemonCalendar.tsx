@@ -28,7 +28,7 @@ export interface LemonCalendarProps {
     /** Show a time picker */
     showTime?: boolean
     /** Only allow upcoming dates */
-    fromToday?: boolean
+    onlyAllowUpcoming?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -137,7 +137,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
                                             disabledReason:
-                                                props.fromToday && pastDate
+                                                props.onlyAllowUpcoming && pastDate
                                                     ? 'Cannot select dates in the past'
                                                     : undefined,
                                         }
