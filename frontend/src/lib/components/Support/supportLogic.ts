@@ -338,12 +338,15 @@ export const supportLogic = kea<supportLogicType>([
                 actions.setSidePanelOptions(panelOptions)
             }
         },
+        openEmailForm: async () => {
+            if (window.location.href.includes(urls.organizationBilling())) {
+                actions.setSendSupportRequestValue('target_area', 'billing')
+            }
+        },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
-            } else if (window.location.href.includes(urls.organizationBilling())) {
-                area = 'billing'
             }
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
