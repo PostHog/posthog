@@ -386,6 +386,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
+        reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
+            experiment,
+            newStartDate,
+        }),
         reportExperimentCompleted: (
             experiment: Experiment,
             endDate: Dayjs,
@@ -402,6 +406,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             existingCohort,
             newCohort,
         }),
+        reportExperimentInsightLoadFailed: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -484,7 +489,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey) => ({ survey }),
+        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
@@ -978,6 +983,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 launch_date: launchDate.toISOString(),
             })
         },
+        reportExperimentStartDateChange: ({ experiment, newStartDate }) => {
+            posthog.capture('experiment start date changed', {
+                name: experiment.name,
+                id: experiment.id,
+                old_start_date: experiment.start_date,
+                new_start_date: newStartDate,
+            })
+        },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
                 name: experiment.name,
@@ -1002,6 +1015,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_filters: newCohort.filters,
                 id: newCohort.id,
             })
+        },
+        reportExperimentInsightLoadFailed: () => {
+            posthog.capture('experiment load insight failed')
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
@@ -1144,13 +1160,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey }) => {
+        reportSurveyCreated: ({ survey, isDuplicate }) => {
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
+                is_duplicate: isDuplicate ?? false,
             })
         },
         reportSurveyLaunched: ({ survey }) => {

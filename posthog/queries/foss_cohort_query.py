@@ -23,7 +23,8 @@ from posthog.models.property import (
 from posthog.models.property.util import prop_filter_json_extract, parse_prop_grouped_clauses
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
-from posthog.utils import PersonOnEventsMode, relative_date_parse
+from posthog.schema import PersonsOnEventsMode
+from posthog.utils import relative_date_parse
 
 Relative_Date = Tuple[int, OperatorInterval]
 Event = Tuple[str, Union[str, int]]
@@ -138,12 +139,18 @@ class FOSSCohortQuery(EventQuery):
         should_join_distinct_ids=False,
         should_join_persons=False,
         # Extra events/person table columns to fetch since parent query needs them
-        extra_fields: List[ColumnName] = [],
-        extra_event_properties: List[PropertyName] = [],
-        extra_person_fields: List[ColumnName] = [],
+        extra_fields: Optional[List[ColumnName]] = None,
+        extra_event_properties: Optional[List[PropertyName]] = None,
+        extra_person_fields: Optional[List[ColumnName]] = None,
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         **kwargs,
     ) -> None:
+        if extra_person_fields is None:
+            extra_person_fields = []
+        if extra_event_properties is None:
+            extra_event_properties = []
+        if extra_fields is None:
+            extra_fields = []
         self._fields = []
         self._events = []
         self._earliest_time_for_event_query = None
@@ -299,7 +306,7 @@ class FOSSCohortQuery(EventQuery):
                 fields = f"{subq_alias}.person_id"
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
-                    if self._person_on_events_mode == PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+                    if self._person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
                         # when using person-on-events, instead of inner join, we filter inside
                         # the event query itself
                         continue
@@ -330,11 +337,11 @@ class FOSSCohortQuery(EventQuery):
         query, params = "", {}
         if self._should_join_behavioral_query:
             _fields = [
-                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonOnEventsMode.DISABLED else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
+                f"{self.DISTINCT_ID_TABLE_ALIAS if self._person_on_events_mode == PersonsOnEventsMode.disabled else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
-            if self.should_pushdown_persons and self._person_on_events_mode != PersonOnEventsMode.DISABLED:
+            if self.should_pushdown_persons and self._person_on_events_mode != PersonsOnEventsMode.disabled:
                 person_prop_query, person_prop_params = self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -550,7 +557,7 @@ class FOSSCohortQuery(EventQuery):
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = (
-            self._person_on_events_mode != PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            self._person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events
         )
 
     def _determine_should_join_persons(self) -> None:

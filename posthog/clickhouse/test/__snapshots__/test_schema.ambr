@@ -694,7 +694,9 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String),
-      _timestamp DateTime
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
   
   '''
@@ -721,7 +723,9 @@
       pointer_target_fixed,
       current_url,
       type,
-      _timestamp
+      _timestamp,
+      _offset,
+      _partition
   FROM posthog_test.kafka_heatmaps
   
   '''
@@ -1937,7 +1941,9 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String),
-      _timestamp DateTime
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.heatmaps', '{replica}')
   
       PARTITION BY toYYYYMM(timestamp)
@@ -2248,7 +2254,9 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String),
-      _timestamp DateTime
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
   
   '''
@@ -2824,7 +2832,9 @@
       pointer_target_fixed Bool,
       current_url VARCHAR,
       type LowCardinality(String),
-      _timestamp DateTime
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.heatmaps', '{replica}')
   
       PARTITION BY toYYYYMM(timestamp)

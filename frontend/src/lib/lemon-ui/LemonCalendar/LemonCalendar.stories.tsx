@@ -77,3 +77,13 @@ export const SundayFirst: Story = BasicTemplate.bind({})
 SundayFirst.args = {
     weekStartDay: 0,
 }
+
+export const ShowTime: Story = BasicTemplate.bind({})
+ShowTime.args = {
+    showTime: true,
+}
+
+export const FromToday: Story = BasicTemplate.bind({})
+FromToday.args = {
+    fromToday: true,
+}

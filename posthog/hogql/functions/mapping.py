@@ -598,10 +598,10 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "varPopIf": HogQLFunctionMeta("varPopIf", 2, 2, aggregate=True),
     "varSamp": HogQLFunctionMeta("varSamp", 1, 1, aggregate=True),
     "varSampIf": HogQLFunctionMeta("varSampIf", 2, 2, aggregate=True),
-    "covarPop": HogQLFunctionMeta("covarPop", 1, 1, aggregate=True),
-    "covarPopIf": HogQLFunctionMeta("covarPopIf", 2, 2, aggregate=True),
-    "covarSamp": HogQLFunctionMeta("covarSamp", 1, 1, aggregate=True),
-    "covarSampIf": HogQLFunctionMeta("covarSampIf", 2, 2, aggregate=True),
+    "covarPop": HogQLFunctionMeta("covarPop", 2, 2, aggregate=True),
+    "covarPopIf": HogQLFunctionMeta("covarPopIf", 3, 3, aggregate=True),
+    "covarSamp": HogQLFunctionMeta("covarSamp", 2, 2, aggregate=True),
+    "covarSampIf": HogQLFunctionMeta("covarSampIf", 3, 3, aggregate=True),
     # ClickHouse-specific aggregate functions
     "anyHeavy": HogQLFunctionMeta("anyHeavy", 1, 1, aggregate=True),
     "anyHeavyIf": HogQLFunctionMeta("anyHeavyIf", 2, 2, aggregate=True),
@@ -748,6 +748,7 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
+    "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),

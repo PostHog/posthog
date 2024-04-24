@@ -44,8 +44,7 @@ export function loadPostHogJS(): void {
                 },
                 process_person: 'identified_only',
 
-                // commented until https://github.com/PostHog/posthog-js/pull/1131
-                // __preview_heatmaps: true,
+                __preview_heatmaps: true,
 
                 // Helper to capture events for assertions in Cypress
                 _onCapture: (window as any)._cypress_posthog_captures
