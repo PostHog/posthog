@@ -113,15 +113,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!queryEqual(props.query, oldProps.query)) {
-            if (
-                !props.cachedResults ||
-                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
-            ) {
-                actions.loadData()
-            } else {
-                actions.setResponse(props.cachedResults)
-            }
+        if (
+            !queryEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
+        ) {
+            actions.loadData()
+        }
+        if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -624,7 +625,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0) {
+        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
+            // Attention: When on dashboard we don't want to load data on mount
+            // as it will have be loaded by some other logic
             actions.loadData()
         }
 
