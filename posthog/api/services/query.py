@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from posthog.caching.fetch_from_cache import NothingInCacheResult
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
@@ -86,8 +87,12 @@ def process_query_model(
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.run(execution_mode=execution_mode)
     elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
+        # TODO: These queries should use the caching layer too
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.calculate()
+        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+            result = NothingInCacheResult(query_runner.get_cache_key())
+        else:
+            result = query_runner.calculate()
     elif isinstance(query, HogQLAutocomplete):
         result = get_hogql_autocomplete(query=query, team=team)
     elif isinstance(query, HogQLMetadata):
