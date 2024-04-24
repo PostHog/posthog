@@ -76,8 +76,8 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
 
     // TODO(@zach): remove after updated plans w/ support levels are shipped
     const supportResponseTimes = {
-        [AvailableFeature.EMAIL_SUPPORT]: '2-3 days',
-        [AvailableFeature.PRIORITY_SUPPORT]: '4-6 hours',
+        [AvailableFeature.EMAIL_SUPPORT]: '24 hours',
+        [AvailableFeature.PRIORITY_SUPPORT]: '12 hours',
     }
 
     return (
