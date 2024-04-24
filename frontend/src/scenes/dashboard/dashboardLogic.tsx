@@ -861,7 +861,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = ['refresh', 'load_missing'].includes(action)
+            const hardRefreshWithoutCache = ['refresh', 'load_missing', 'refresh_insights_on_filters_updated'].includes(
+                action
+            )
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
