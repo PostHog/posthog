@@ -19,7 +19,7 @@ from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.schema import EventsQuery, EventsQueryResponse
+from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -255,6 +255,18 @@ class EventsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        new_query = self.query.model_copy()
+
+        if dashboard_filter.date_to or dashboard_filter.date_from:
+            new_query.before = dashboard_filter.date_to
+            new_query.after = dashboard_filter.date_from
+
+        if dashboard_filter.properties:
+            new_query.properties = (new_query.properties or []) + dashboard_filter.properties
+
+        return new_query
 
     def select_input_raw(self) -> List[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
