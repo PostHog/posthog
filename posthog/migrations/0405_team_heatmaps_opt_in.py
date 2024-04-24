@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0404_remove_propertydefinition_property_type_is_valid_and_more"),
     ]
