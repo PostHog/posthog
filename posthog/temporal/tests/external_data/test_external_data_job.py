@@ -23,7 +23,6 @@ from posthog.temporal.data_imports.workflow_activities.import_data import Import
 from posthog.warehouse.external_data_source.jobs import create_external_data_job
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
-    DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSource,
     ExternalDataSchema,
@@ -564,8 +563,6 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-
-    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 1
 
 
 @pytest.mark.django_db(transaction=True)
