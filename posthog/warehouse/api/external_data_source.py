@@ -334,18 +334,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        latest_completed_job = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id, status="Completed")
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_completed_job:
+        all_jobs = ExternalDataJob.objects.filter(
+            pipeline_id=instance.pk, team_id=instance.team_id, status="Completed"
+        ).all()
+        for job in all_jobs:
             try:
-                delete_data_import_folder(latest_completed_job.folder_path)
+                delete_data_import_folder(job.folder_path)
             except Exception as e:
-                logger.exception(
-                    f"Could not clean up data import folder: {latest_completed_job.folder_path}", exc_info=e
-                )
+                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
                 pass
 
         for schema in ExternalDataSchema.objects.filter(

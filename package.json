@@ -79,7 +79,7 @@
         "@posthog/icons": "0.7.0",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
-        "@rrweb/types": "2.0.0-alpha.12",
+        "@rrweb/types": "2.0.0-alpha.13",
         "@sentry/react": "7.22.0",
         "@tailwindcss/container-queries": "^0.1.1",
         "@testing-library/dom": ">=7.21.4",
@@ -170,7 +170,7 @@
         "react-transition-group": "^4.4.5",
         "react-virtualized": "^9.22.5",
         "resize-observer-polyfill": "^1.5.1",
-        "rrweb": "2.0.0-alpha.12",
+        "rrweb": "2.0.0-alpha.13",
         "sass": "^1.26.2",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "^3.4.0",
@@ -310,7 +310,7 @@
             "playwright": "1.41.2"
         },
         "patchedDependencies": {
-            "rrweb@2.0.0-alpha.12": "patches/rrweb@2.0.0-alpha.12.patch",
+            "rrweb@2.0.0-alpha.13": "patches/rrweb@2.0.0-alpha.13.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch"
         }
     },

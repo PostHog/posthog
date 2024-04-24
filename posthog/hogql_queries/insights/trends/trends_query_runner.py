@@ -33,7 +33,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, RunnableQueryNode
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
@@ -189,13 +189,17 @@ class TrendsQueryRunner(QueryRunner):
         res_compare: List[CompareItem] | None = None
 
         # Days
-        res_days: list[DayItem] = [
-            DayItem(
-                label=format_label_date(value, self.query_date_range.interval_name),
-                value=value,
-            )
-            for value in self.query_date_range.all_values()
-        ]
+        res_days: Optional[list[DayItem]] = (
+            None
+            if self._trends_display.should_aggregate_values()
+            else [
+                DayItem(
+                    label=format_label_date(value, self.query_date_range.interval_name),
+                    value=value,
+                )
+                for value in self.query_date_range.all_values()
+            ]
+        )
 
         # Series
         for index, series in enumerate(self.query.series):
@@ -812,3 +816,10 @@ class TrendsQueryRunner(QueryRunner):
             display = self.query.trendsFilter.display
 
         return TrendsDisplay(display)
+
+    def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
+        # Remove any set breakdown limit for display on the dashboard
+        if self.query.breakdownFilter:
+            self.query.breakdownFilter.breakdown_limit = None
+
+        return self.query

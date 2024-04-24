@@ -406,6 +406,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             existingCohort,
             newCohort,
         }),
+        reportExperimentInsightLoadFailed: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -488,7 +489,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey) => ({ survey }),
+        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
@@ -1015,6 +1016,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: newCohort.id,
             })
         },
+        reportExperimentInsightLoadFailed: () => {
+            posthog.capture('experiment load insight failed')
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1156,13 +1160,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey }) => {
+        reportSurveyCreated: ({ survey, isDuplicate }) => {
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
+                is_duplicate: isDuplicate ?? false,
             })
         },
         reportSurveyLaunched: ({ survey }) => {
