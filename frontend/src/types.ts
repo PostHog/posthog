@@ -666,7 +666,6 @@ interface BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
-    /** @default 'exact' */
     operator: PropertyOperator
 }
 
@@ -3601,6 +3600,7 @@ export interface ExternalDataSourceSyncSchema {
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    incremental?: boolean
     status?: string
 }
 
@@ -3611,7 +3611,7 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportDestinationS3 = {
+export type BatchExportServiceS3 = {
     type: 'S3'
     config: {
         bucket_name: string
@@ -3629,7 +3629,7 @@ export type BatchExportDestinationS3 = {
     }
 }
 
-export type BatchExportDestinationPostgres = {
+export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
         user: string
@@ -3645,7 +3645,7 @@ export type BatchExportDestinationPostgres = {
     }
 }
 
-export type BatchExportDestinationSnowflake = {
+export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
     config: {
         account: string
@@ -3661,7 +3661,7 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
-export type BatchExportDestinationBigQuery = {
+export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     config: {
         project_id: string
@@ -3677,7 +3677,7 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
-export type BatchExportDestinationHTTP = {
+export type BatchExportServiceHTTP = {
     type: 'HTTP'
     config: {
         url: string
@@ -3687,7 +3687,7 @@ export type BatchExportDestinationHTTP = {
     }
 }
 
-export type BatchExportDestinationRedshift = {
+export type BatchExportServiceRedshift = {
     type: 'Redshift'
     config: {
         user: string
@@ -3706,13 +3706,13 @@ export type BatchExportDestinationRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-export type BatchExportDestination =
-    | BatchExportDestinationS3
-    | BatchExportDestinationSnowflake
-    | BatchExportDestinationPostgres
-    | BatchExportDestinationBigQuery
-    | BatchExportDestinationRedshift
-    | BatchExportDestinationHTTP
+export type BatchExportService =
+    | BatchExportServiceS3
+    | BatchExportServiceSnowflake
+    | BatchExportServicePostgres
+    | BatchExportServiceBigQuery
+    | BatchExportServiceRedshift
+    | BatchExportServiceHTTP
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3720,7 +3720,7 @@ export type BatchExportConfiguration = {
     id: string
     team_id: number
     name: string
-    destination: BatchExportDestination
+    destination: BatchExportService
     interval: 'hour' | 'day' | 'every 5 minutes'
     created_at: string
     start_at: string | null

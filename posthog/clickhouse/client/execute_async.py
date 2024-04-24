@@ -83,7 +83,7 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query, ExecutionMode
+    from posthog.api.services.query import process_query
     from posthog.models import Team
 
     team = Team.objects.get(pk=team_id)
@@ -103,12 +103,7 @@ def execute_process_query(
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
         results = process_query(
-            team=team,
-            query_json=query_json,
-            limit_context=limit_context,
-            execution_mode=ExecutionMode.CALCULATION_ALWAYS
-            if refresh_requested
-            else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+            team=team, query_json=query_json, limit_context=limit_context, refresh_requested=refresh_requested
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True

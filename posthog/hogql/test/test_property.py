@@ -89,6 +89,19 @@ class TestProperty(BaseTest):
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
 
+    def test_property_to_expr_group_booleans(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="boolean_prop",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            property_type=PropertyType.Boolean,
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "boolean_prop", "value": ["true"]}),
+            self._parse_expr("group_0.properties.boolean_prop = true"),
+        )
+
     def test_property_to_expr_event(self):
         self.assertEqual(
             self._property_to_expr({"key": "a", "value": "b"}),
