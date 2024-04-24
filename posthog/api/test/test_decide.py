@@ -459,12 +459,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_heatmaps_opt_in(self, *args):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["heatmaps_opt_in"], False)
+        self.assertEqual(response["heatmaps"], False)
 
         self._update_team({"heatmaps_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["heatmaps_opt_in"], True)
+        self.assertEqual(response["heatmaps"], True)
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
