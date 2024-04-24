@@ -3,8 +3,6 @@ import json
 from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.settings import api_settings
-from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql.database.schema.sessions import get_lazy_session_table_properties, get_lazy_session_table_values
@@ -17,10 +15,9 @@ from posthog.utils import convert_property_value, flatten
 
 class SessionViewSet(
     TeamAndOrgViewSetMixin,
-    viewsets.GenericViewSet,
+    viewsets.ViewSet,
 ):
     scope_object = "query"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
     @action(methods=["GET"], detail=False)
