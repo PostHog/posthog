@@ -221,6 +221,7 @@ def get_decide(request: HttpRequest):
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
+            response["heatmaps_opt_in"] = True if team.heatmaps_opt_in else False
             response["autocaptureExceptions"] = (
                 {
                     "endpoint": "/e/",

@@ -150,7 +150,11 @@ const teamActionsMapping: Record<
     autocapture_exceptions_errors_to_ignore: () => null,
     autocapture_exceptions_opt_in: () => null,
     autocapture_opt_out(change: ActivityChange | undefined): ChangeMapping | null {
+        // TODO: Is this the right way around?
         return { description: [<>{change?.after ? 'enabled' : 'disabled'} autocapture</>] }
+    },
+    heatmaps_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
+        return { description: [<>{change?.after ? 'enabled' : 'disabled'} heatmaps</>] }
     },
     // and.... many more
     name(change: ActivityChange | undefined): ChangeMapping | null {

@@ -11,6 +11,7 @@ import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/Aut
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
@@ -76,13 +77,18 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-autocapture',
-        title: 'Autocapture',
+        title: 'Autocapture & heatmaps',
 
         settings: [
             {
                 id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
+            },
+            {
+                id: 'heatmaps',
+                title: 'Heatmaps',
+                component: <HeatmapsSettings />,
             },
             {
                 id: 'exception-autocapture',

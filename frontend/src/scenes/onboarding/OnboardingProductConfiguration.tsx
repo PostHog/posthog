@@ -44,7 +44,7 @@ export const OnboardingProductConfiguration = ({
     options,
 }: {
     stepKey?: OnboardingStepKey
-    options: ProductConfigOption[]
+    options: (ProductConfigOption | undefined)[]
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
     const { defaultEnabledPlugins } = useValues(pluginsLogic)
@@ -58,7 +58,7 @@ export const OnboardingProductConfiguration = ({
     }, [configOptions])
 
     useEffect(() => {
-        setConfigOptions(options)
+        setConfigOptions(options.filter((option) => option) as ProductConfigOption[])
     }, [])
 
     const combinedList: ConfigOption[] = [

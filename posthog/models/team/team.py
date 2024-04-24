@@ -218,6 +218,7 @@ class Team(UUIDClassicModel):
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    heatmaps_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_version: models.CharField = models.CharField(null=True, blank=True, max_length=24)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
