@@ -1,27 +1,15 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
+import { useMousePosition } from './useMousePosition'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
     const { heatmapElements, rawHeatmapLoading } = useValues(heatmapLogic)
 
-    // Track the mouse position and render an indicator about how many people have scrolled to this point
-    const [mouseY, setMouseY] = useState<null | number>(0)
-
-    useEffect(() => {
-        const onMove = (e: MouseEvent): void => {
-            setMouseY(e.clientY)
-        }
-
-        window.addEventListener('mousemove', onMove)
-        return () => {
-            window.removeEventListener('mousemove', onMove)
-        }
-    }, [])
+    const { y: mouseY } = useMousePosition()
 
     if (!mouseY) {
         return null

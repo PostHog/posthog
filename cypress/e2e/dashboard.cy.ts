@@ -100,6 +100,40 @@ describe('Dashboard', () => {
         cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')
     })
 
+    const assertVariablesConfigurationScreenIsShown = (): void => {
+        cy.get('[data-attr="new-dashboard-chooser"]').contains('Unique variable name').should('exist')
+    }
+
+    it('Allow reselecting a dashboard after pressing back', () => {
+        cy.intercept('GET', /\/api\/projects\/\d+\/dashboard_templates/, (req) => {
+            req.reply((response) => {
+                response.body.results[0].variables = [
+                    {
+                        id: 'id',
+                        name: 'Unique variable name',
+                        type: 'event',
+                        default: {},
+                        required: true,
+                        description: 'description',
+                    },
+                ]
+                return response
+            })
+        })
+
+        // Request templates again.
+        cy.clickNavMenu('dashboards')
+
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        assertVariablesConfigurationScreenIsShown()
+
+        cy.contains('.LemonButton', 'Back').click()
+
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        assertVariablesConfigurationScreenIsShown()
+    })
+
     it('Click on a dashboard item dropdown and view graph', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
         cy.get('.InsightCard [data-attr=more-button]').first().click()

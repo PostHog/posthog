@@ -12,14 +12,18 @@
     border-radius: var(--radius);
 
     .SessionRecordingsPlaylist__list {
+        position: relative;
         display: flex;
         flex-direction: column;
         flex-shrink: 0;
-        width: 25%;
-        min-width: 300px;
-        max-width: 350px;
         height: 100%;
         overflow: hidden;
+
+        &:not(.SessionRecordingsPlaylist__list--collapsed) {
+            width: 25%;
+            min-width: 305px;
+            max-width: 350px;
+        }
 
         .text-link {
             color: var(--default);
