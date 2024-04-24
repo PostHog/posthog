@@ -4,8 +4,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from posthog.models.utils import sane_repr
 
-from posthog.utils import absolute_uri
-
 
 class DashboardManager(models.Manager):
     def get_queryset(self):
@@ -88,10 +86,6 @@ class Dashboard(models.Model):
         # uses .all and not .first so that prefetching in serializers can be used
         sharing_configurations = self.sharingconfiguration_set.all()
         return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
-
-    @property
-    def url(self):
-        return absolute_uri(f"/dashboard/{self.id}")
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """
