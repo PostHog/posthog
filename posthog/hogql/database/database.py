@@ -53,7 +53,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import UnknownTableError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
@@ -134,7 +134,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise QueryError(f'Unknown table "{table_name}".')
+        raise UnknownTableError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> List[str]:
         return self._table_names + self._warehouse_table_names
@@ -276,6 +276,11 @@ def create_hogql_database(
     database.add_warehouse_tables(**tables)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        # Skip if either table is not present. This can happen if the table was deleted after the join was created.
+        # User will be prompted on UI to resolve missing tables underlying the JOIN
+        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+            continue
+
         try:
             source_table = database.get_table(join.source_table_name)
             joining_table = database.get_table(join.joining_table_name)
