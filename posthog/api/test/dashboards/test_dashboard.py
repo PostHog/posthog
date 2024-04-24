@@ -1306,7 +1306,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             "where": None,
                         },
                     },
-                    "result": [],
+                    "result": None,
                     "saved": False,
                     "short_id": ANY,
                     "tags": [],
