@@ -87,43 +87,43 @@ def process_query_model(
         QUERY_WITH_RUNNER_USING_CACHE,  # type: ignore
     ):
         result = CacheMissResponse(cache_key=None)
-
-    if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.run(execution_mode=execution_mode)
-    elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
-        # TODO: These queries should be using the QueryRunner caching layer too
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.calculate()
-    elif isinstance(query, HogQLAutocomplete):
-        result = get_hogql_autocomplete(query=query, team=team)
-    elif isinstance(query, HogQLMetadata):
-        metadata_query = HogQLMetadata.model_validate(query)
-        metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-        result = metadata_response
-    elif isinstance(query, DatabaseSchemaQuery):
-        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-        context = HogQLContext(team_id=team.pk, team=team, database=database)
-        result = serialize_database(context)
-    elif isinstance(query, TimeToSeeDataSessionsQuery):
-        sessions_query_serializer = SessionsQuerySerializer(data=query)
-        sessions_query_serializer.is_valid(raise_exception=True)
-        result = {"results": get_sessions(sessions_query_serializer).data}
-    elif isinstance(query, TimeToSeeDataQuery):
-        serializer = SessionEventsQuerySerializer(
-            data={
-                "team_id": team.pk,
-                "session_start": query.sessionStart,
-                "session_end": query.sessionEnd,
-                "session_id": query.sessionId,
-            }
-        )
-        serializer.is_valid(raise_exception=True)
-        result = get_session_events(serializer) or {}
-    elif hasattr(query, "source") and isinstance(query.source, BaseModel):
-        result = process_query_model(team, query.source)
     else:
-        raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+        if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
+            query_runner = get_query_runner(query, team, limit_context=limit_context)
+            result = query_runner.run(execution_mode=execution_mode)
+        elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
+            # TODO: These queries should be using the QueryRunner caching layer too
+            query_runner = get_query_runner(query, team, limit_context=limit_context)
+            result = query_runner.calculate()
+        elif isinstance(query, HogQLAutocomplete):
+            result = get_hogql_autocomplete(query=query, team=team)
+        elif isinstance(query, HogQLMetadata):
+            metadata_query = HogQLMetadata.model_validate(query)
+            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
+            result = metadata_response
+        elif isinstance(query, DatabaseSchemaQuery):
+            database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
+            context = HogQLContext(team_id=team.pk, team=team, database=database)
+            result = serialize_database(context)
+        elif isinstance(query, TimeToSeeDataSessionsQuery):
+            sessions_query_serializer = SessionsQuerySerializer(data=query)
+            sessions_query_serializer.is_valid(raise_exception=True)
+            result = {"results": get_sessions(sessions_query_serializer).data}
+        elif isinstance(query, TimeToSeeDataQuery):
+            serializer = SessionEventsQuerySerializer(
+                data={
+                    "team_id": team.pk,
+                    "session_start": query.sessionStart,
+                    "session_end": query.sessionEnd,
+                    "session_id": query.sessionId,
+                }
+            )
+            serializer.is_valid(raise_exception=True)
+            result = get_session_events(serializer) or {}
+        elif hasattr(query, "source") and isinstance(query.source, BaseModel):
+            result = process_query_model(team, query.source)
+        else:
+            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
 
     if isinstance(result, BaseModel):
         return result.model_dump()
