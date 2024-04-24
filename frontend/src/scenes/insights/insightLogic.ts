@@ -710,7 +710,7 @@ export const insightLogic = kea<insightLogicType>([
                 return
             }
 
-            if (!props.doNotLoad) {
+            if (!props.doNotLoad && !props.cachedInsight) {
                 actions.loadInsight(props.dashboardItemId as InsightShortId)
             }
         },
