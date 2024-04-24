@@ -489,10 +489,10 @@ index 0d49411b1f6d31103bed898c0e81d1d74ab51234..0b2160ef08aa3ae5310f63c295abc0a5
      }
      applyMutation(d, isSync) {
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-index 38a23aaae8d683fa584329eced277dd8de55d1ff..1090307f2974c2eb6259d650fd02ef2e2c40e790 100644
+index 38a23aaae8d683fa584329eced277dd8de55d1ff..278e06bc6c8c964581d461405a0f0a4544344fa1 100644
 --- a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
 +++ b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-@@ -1255,54 +1255,15 @@ function parse(css, options = {}) {
+@@ -1255,54 +1255,19 @@ function parse(css, options = {}) {
          });
      }
      function selector() {
@@ -547,6 +547,10 @@ index 38a23aaae8d683fa584329eced277dd8de55d1ff..1090307f2974c2eb6259d650fd02ef2e
 -        }
 -        return result;
 +                return m.replace(/,/g, '\u200C');
++            })
++            .split(/\s*(?![^(]*\)),\s*/)
++            .map((s) => {
++                return s.replace(/\u200C/g, ',');
 +            });
      }
      function declaration() {
