@@ -13,11 +13,12 @@ export function HeatmapsSettings(): JSX.Element {
     return (
         <>
             <p>
-                If heatmaps are enabled, PostHog will automatically capture clicks, mouse movements, and scrolls to
-                generate heatmaps.
+                If you use our JavaScript libraries, we can capture general clicks, mouse movements, and scrolling to
+                create heatmaps. No additional events are created, and you can disable this at any time.
                 <br />
-                Whereas heatmaps creates events whenever it can uniquely identify an interacted element, heatmaps are
-                generated based on general mouse positions and are useful for understanding getting behavior.
+                Whereas Autocapture creates events whenever it can uniquely identify an interacted element, heatmaps are
+                generated based on overall mouse or touch positions and are useful for understanding more general user
+                behavior across your site.
             </p>
             <div className="space-y-2">
                 <LemonSwitch

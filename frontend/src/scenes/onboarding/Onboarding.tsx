@@ -108,7 +108,9 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                     heatmapsEnabled
                         ? {
                               title: 'Enable heatmaps',
-                              description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements, and scrolls to create heatmaps. Unlike Autocapture, no new events are created.`,
+                              description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
+                               and scrolling to create heatmaps. 
+                               No additional events are created, and you can disable this at any time.`,
                               teamProperty: 'heatmaps_opt_in',
                               value: currentTeam?.heatmaps_opt_in ?? true,
                               type: 'toggle',
