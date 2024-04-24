@@ -36,6 +36,7 @@ class Migration(migrations.Migration):
                 choices=[(1, "event"), (2, "person"), (3, "group"), (4, "session")], default=1
             ),
         ),
+        # changed from migrations.AddConstraint. See migration 0405 for where we validate the constraint
         AddConstraintNotValid(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
