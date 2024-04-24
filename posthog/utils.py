@@ -46,6 +46,7 @@ from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
+from django.utils.cache import patch_cache_control
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception
@@ -428,7 +429,10 @@ def render_template(
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
     html = template.render(context, request=request)
-    return HttpResponse(html)
+    response = HttpResponse(html)
+    if not request.user.is_anonymous:
+        patch_cache_control(response, no_store=True)
+    return response
 
 
 def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:

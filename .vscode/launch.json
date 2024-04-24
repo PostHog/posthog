@@ -20,7 +20,6 @@
                 "--scheduler",
                 "redbeat.RedBeatScheduler",
                 "--without-heartbeat",
-                "--without-gossip",
                 "--without-mingle",
                 "--pool=solo",
                 "-Ofair",
