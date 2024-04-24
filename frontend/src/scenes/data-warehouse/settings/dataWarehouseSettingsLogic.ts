@@ -81,6 +81,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     ...state,
                     [schema.id]: true,
                 }),
+                resyncSchema: (state, { schema }) => ({
+                    ...state,
+                    [schema.id]: true,
+                }),
                 schemaLoadingFinished: (state, { schema }) => ({
                     ...state,
                     [schema.id]: false,
