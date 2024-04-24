@@ -1,0 +1,13 @@
+diff --git a/build/heatmap.js b/build/heatmap.js
+index 3eee39ea8c127b065fb4df763ab76af152e7d368..a37c950b937d04805b62832c661890931d0f3ff1 100644
+--- a/build/heatmap.js
++++ b/build/heatmap.js
+@@ -524,7 +524,7 @@ var Canvas2dRenderer = (function Canvas2dRendererClosure() {
+ 
+       }
+ 
+-      img.data = imgData;
++      //img.data = imgData;
+       this.ctx.putImageData(img, x, y);
+ 
+       this._renderBoundaries = [1000, 1000, 0, 0];

@@ -7,8 +7,8 @@ import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { posthog } from '~/toolbar/posthog'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
 import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { ActionType, ElementType } from '~/types'
@@ -292,11 +292,11 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
             }
         },
         showButtonActions: () => {
-            posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: true })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'actions', enabled: true })
         },
         hideButtonActions: () => {
             actions.setShowActionsTooltip(false)
-            posthog.capture('toolbar mode triggered', { mode: 'actions', enabled: false })
+            toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'actions', enabled: false })
         },
         [actionsLogic.actionTypes.getActionsSuccess]: () => {
             const { userIntent, actionId } = values
