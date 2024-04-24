@@ -101,7 +101,7 @@ interface RecordingViewedProps {
     page_change_events_length: number
     recording_width?: number
     loadedFromBlobStorage: boolean
-    snapshot_source: 'web' | 'mobile'
+    snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
