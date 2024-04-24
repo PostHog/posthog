@@ -58,7 +58,7 @@ export const OnboardingProductConfiguration = ({
     }, [configOptions])
 
     useEffect(() => {
-        setConfigOptions(options.filter((option) => option) as ProductConfigOption[])
+        setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
     }, [])
 
     const combinedList: ConfigOption[] = [
