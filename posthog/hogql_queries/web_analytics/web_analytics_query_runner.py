@@ -53,7 +53,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def property_filters_without_pathname(
-        self
+        self,
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
