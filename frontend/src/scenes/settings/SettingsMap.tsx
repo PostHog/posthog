@@ -89,6 +89,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
+                flag: 'TOOLBAR_HEATMAPS',
             },
             {
                 id: 'exception-autocapture',
