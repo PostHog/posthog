@@ -157,7 +157,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id, schema_id=inputs.external_data_schema_id, source_id=inputs.external_data_source_id
         )
 
-        run_id = await workflow.execute_activity(
+        run_id, incremental = await workflow.execute_activity(
             create_external_data_job_model_activity,
             create_external_data_job_inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
@@ -181,13 +181,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
             )
 
+            timeout_params = (
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                if incremental
+                else {"start_to_close_timeout": dt.timedelta(hours=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
+            )
+
             table_schemas, table_row_counts = await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(hours=30),
-                retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(minutes=1),
-            )
+                **timeout_params,
+            )  # type: ignore
 
             # check schema first
             validate_inputs = ValidateSchemaInputs(

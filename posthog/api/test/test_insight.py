@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
+from posthog.hogql.query import execute_hogql_query
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
@@ -27,7 +28,16 @@ from posthog.models import (
     OrganizationMembership,
     Text,
 )
-from posthog.schema import DataTableNode, DataVisualizationNode, DateRange, HogQLFilters, HogQLQuery
+from posthog.schema import (
+    DataTableNode,
+    DataVisualizationNode,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    HogQLFilters,
+    HogQLQuery,
+    TrendsQuery,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -995,11 +1005,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch(
-        "posthog.api.insight.synchronously_update_cache",
-        wraps=synchronously_update_cache,
-    )
-    def test_insight_refreshing(self, spy_update_insight_cache) -> None:
+    @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
+    def test_insight_refreshing_legacy(self, spy_update_insight_cache) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -1103,6 +1110,153 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
             ).json()
             self.assertEqual(spy_update_insight_cache.call_count, 4)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            )
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
+    def test_insight_refreshing_query(self, spy_execute_hogql_query) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="1",
+                properties={"prop": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                properties={"prop": "another_val"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                properties={"prop": "val", "another": "never_return_this"},
+            )
+
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                )
+            ]
+        ).model_dump()
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights",
+                data={
+                    "query": query_dict,
+                    "dashboards": [dashboard_id],
+                },
+            ).json()
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
+            insight_id = response["id"]
+
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
+
+        with freeze_time("2012-01-15T05:01:34.000Z"):
+            _create_event(team=self.team, event="$pageview", distinct_id="1")
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertFalse(response["is_cached"])
+
+        with freeze_time("2012-01-15T05:17:34.000Z"):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/").json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertTrue(response["is_cached"])
+
+        with freeze_time("2012-01-15T05:17:39.000Z"):
+            # Make sure the /query/ endpoint reuses the same cached result
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query_dict}).json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+            self.assertEqual(response["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 1])
+            self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")  # Using cached result
+            self.assertTrue(response["is_cached"])
+
+        with freeze_time("2012-01-16T05:01:34.000Z"):
+            # load it in the context of the dashboard, so has last 14 days as filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
+            ).json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 3)
+            self.assertEqual(
+                response["result"][0]["data"],
+                [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    2.0,
+                    1.0,
+                    0.0,
+                ],
+            )
+            self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
+            self.assertFalse(response["is_cached"])
+
+        #  Test property filter
+
+        dashboard = Dashboard.objects.get(pk=dashboard_id)
+        dashboard.filters = {
+            "properties": [{"key": "prop", "value": "val"}],
+            "date_from": "-14d",
+        }
+        dashboard.save()
+        with freeze_time("2012-01-16T05:01:34.000Z"):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
+            ).json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 4)
             self.assertEqual(
                 response["result"][0]["data"],
                 [
@@ -1973,7 +2127,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                            "coalesce(properties.$current_url, properties.$screen_name)",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -2014,7 +2168,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                             "*",
                             "event",
                             "person",
-                            "coalesce(properties.$current_url, properties.$screen_name) # Url / Screen",
+                            "coalesce(properties.$current_url, properties.$screen_name)",
                             "properties.$lib",
                             "timestamp",
                         ],
@@ -2953,22 +3107,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_insight_with_filters_via_hogql(self) -> None:
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
 
-        Insight.objects.create(
+        insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="xyz123",
         )
 
         # fresh response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
 
         # cached response
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+        self.assertEqual(response.json()["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
