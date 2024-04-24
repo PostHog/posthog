@@ -91,7 +91,9 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 }
 
 export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, isExperimentGoalModalOpen, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { experiment, isExperimentGoalModalOpen, experimentLoading, goalInsightDataLoading } = useValues(
+        experimentLogic({ experimentId })
+    )
     const { closeExperimentGoalModal, updateExperimentGoal, setNewExperimentInsight } = useActions(
         experimentLogic({ experimentId })
     )
@@ -108,6 +110,9 @@ export function ExperimentGoalModal({ experimentId }: { experimentId: Experiment
                         Cancel
                     </LemonButton>
                     <LemonButton
+                        disabledReason={
+                            goalInsightDataLoading && 'The insight needs to be loaded before saving the goal'
+                        }
                         form="edit-experiment-goal-form"
                         onClick={() => {
                             updateExperimentGoal(experiment.filters)

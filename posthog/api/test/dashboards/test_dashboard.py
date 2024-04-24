@@ -1194,7 +1194,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_create_from_template_json_cam_provide_text_tile(self) -> None:
+    def test_create_from_template_json_can_provide_text_tile(self) -> None:
         template: Dict = {
             **valid_template,
             "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}],
@@ -1225,7 +1225,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
-    def test_create_from_template_json_cam_provide_query_tile(self) -> None:
+    def test_create_from_template_json_can_provide_query_tile(self) -> None:
         template: Dict = {
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
@@ -1288,8 +1288,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         "kind": "DataTableNode",
                         "columns": ["person", "id", "created_at", "person.$delete"],
                         "source": {
+                            "actionId": None,
+                            "after": None,
+                            "before": None,
+                            "event": None,
+                            "filterTestAccounts": None,
+                            "fixedProperties": None,
                             "kind": "EventsQuery",
+                            "limit": None,
+                            "modifiers": None,
+                            "offset": None,
+                            "orderBy": None,
+                            "personId": None,
+                            "properties": None,
+                            "response": None,
                             "select": ["*"],
+                            "where": None,
                         },
                     },
                     "result": [],

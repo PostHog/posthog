@@ -161,6 +161,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -424,6 +425,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        isRecordingsListCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
             },
         ],
     })),

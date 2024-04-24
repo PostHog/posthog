@@ -3819,7 +3819,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -3842,7 +3842,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -3863,7 +3863,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -3886,7 +3886,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -4275,7 +4275,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   INNER JOIN
@@ -4316,7 +4316,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      INNER JOIN
@@ -4382,7 +4382,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4402,7 +4402,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4435,7 +4435,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4474,7 +4474,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4499,7 +4499,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -4545,7 +4545,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -4575,7 +4575,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -4621,7 +4621,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)

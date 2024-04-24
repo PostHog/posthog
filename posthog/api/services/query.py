@@ -61,7 +61,7 @@ def process_query(
     query_json: dict,
     *,
     limit_context: Optional[LimitContext] = None,
-    execution_mode: ExecutionMode = ExecutionMode.CALCULATION_ONLY_IF_STALE,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
@@ -78,7 +78,7 @@ def process_query_model(
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
     limit_context: Optional[LimitContext] = None,
-    execution_mode: ExecutionMode = ExecutionMode.CALCULATION_ONLY_IF_STALE,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
     result: dict | BaseModel
 

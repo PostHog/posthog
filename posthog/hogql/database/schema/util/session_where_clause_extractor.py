@@ -379,6 +379,8 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
             table_type = node.type.resolve_table_type(self.context)
             if not table_type:
                 return False
+            if isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
             return (
                 isinstance(table_type, ast.TableType)
                 and isinstance(table_type.table, EventsTable)
@@ -409,7 +411,10 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
-            table = node.type.resolve_table_type(self.context).table
+            table_type = node.type.resolve_table_type(self.context)
+            if isinstance(table_type, ast.TableAliasType):
+                table_type = table_type.table_type
+            table = table_type.table
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (isinstance(table, EventsTable) and resolved_field.name == "timestamp") or (
                     isinstance(table, SessionsTable) and resolved_field.name == "$start_timestamp"

@@ -23,7 +23,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                             subtle
                             key={action.id}
                             onClick={() => selectAction(action.id || null)}
-                            className="font-medium my-1"
+                            className="font-medium my-1 w-full"
                         >
                             <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
                             <span className="flex-grow">

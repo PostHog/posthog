@@ -54,7 +54,7 @@ from posthog.helpers.multi_property_breakdown import (
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import DATA_TABLE_LIKE_NODE_KINDS
-from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_enabled
+from posthog.hogql_queries.legacy_compatibility.feature_flag import should_use_hogql_backend_in_insight_serialization
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
@@ -530,8 +530,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
 
-        if not self.context["request"].user.is_anonymous and hogql_insights_enabled(
-            self.context["request"].user, insight.filters.get("insight", schema.InsightType.TRENDS)
+        if not self.context["request"].user.is_anonymous and should_use_hogql_backend_in_insight_serialization(
+            self.context["request"].user
         ):
             # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
             # we fake the insight being properly `query`-based.
@@ -853,12 +853,12 @@ Using the correct cache and enriching the response with dashboard specific confi
                 export = "{}/insights/{}/\n".format(SITE_URL, request.GET["export_insight_id"]).encode() + export
 
             response = HttpResponse(export)
-            response["Content-Disposition"] = (
-                'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
-                    name=slugify(request.GET.get("export_name", "export")),
-                    date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
-                    date_to=filter.date_to.strftime("%Y-%m-%d"),
-                )
+            response[
+                "Content-Disposition"
+            ] = 'attachment; filename="{name} ({date_from} {date_to}) from PostHog.csv"'.format(
+                name=slugify(request.GET.get("export_name", "export")),
+                date_from=filter.date_from.strftime("%Y-%m-%d -") if filter.date_from else "up until",
+                date_to=filter.date_to.strftime("%Y-%m-%d"),
             )
             return response
 
