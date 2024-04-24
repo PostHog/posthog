@@ -28,6 +28,8 @@ pub enum CaptureError {
     EmptyBatch,
     #[error("event submitted with an empty event name")]
     MissingEventName,
+    #[error("event submitted with an empty distinct_id")]
+    EmptyDistinctId,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
 
@@ -59,6 +61,7 @@ impl IntoResponse for CaptureError {
             | CaptureError::RequestParsingError(_)
             | CaptureError::EmptyBatch
             | CaptureError::MissingEventName
+            | CaptureError::EmptyDistinctId
             | CaptureError::MissingDistinctId
             | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError => (StatusCode::BAD_REQUEST, self.to_string()),

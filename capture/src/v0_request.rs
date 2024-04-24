@@ -217,10 +217,11 @@ impl RawEvent {
             .as_str()
             .map(|s| s.to_owned())
             .unwrap_or_else(|| value.to_string());
-        Ok(match distinct_id.len() {
-            0..=200 => distinct_id,
-            _ => distinct_id.chars().take(200).collect(),
-        })
+        match distinct_id.len() {
+            0 => Err(CaptureError::EmptyDistinctId),
+            1..=200 => Ok(distinct_id),
+            _ => Ok(distinct_id.chars().take(200).collect()),
+        }
     }
 }
 
@@ -303,10 +304,15 @@ mod tests {
             parse_and_extract(r#"{"event": "e"}"#),
             Err(CaptureError::MissingDistinctId)
         ));
-        // Return MissingDistinctId if null, breaking compat with capture-py
+        // Return MissingDistinctId if null
         assert!(matches!(
             parse_and_extract(r#"{"event": "e", "distinct_id": null}"#),
             Err(CaptureError::MissingDistinctId)
+        ));
+        // Return EmptyDistinctId if empty string
+        assert!(matches!(
+            parse_and_extract(r#"{"event": "e", "distinct_id": ""}"#),
+            Err(CaptureError::EmptyDistinctId)
         ));
 
         let assert_extracted_id = |input: &'static str, expected: &str| {
