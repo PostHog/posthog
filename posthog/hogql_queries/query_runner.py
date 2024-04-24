@@ -442,6 +442,12 @@ class QueryRunner(ABC, Generic[Q]):
                     query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
                 else:
                     query_update["dateRange"] = DateRange(**date_range_update)
-            return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
+        else:
+            # Capturing lack of support in Sentry in a non-failing way
+            capture_exception(
+                NotImplementedError(
+                    f"Skipped applying dashboard filters, as {self.query.__class__.__name__} does not support them"
+                )
+            )
 
-        raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")
+        return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!

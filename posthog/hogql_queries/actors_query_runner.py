@@ -1,6 +1,6 @@
 import itertools
 from datetime import timedelta
-from typing import List, Generator, Sequence, Iterator, Optional
+from typing import Any, List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -8,7 +8,7 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse
+from posthog.schema import ActorsQuery, ActorsQueryResponse, DashboardFilter
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -236,6 +236,12 @@ class ActorsQueryRunner(QueryRunner):
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        query_update: dict[str, Any] = {}
+        if self.source_query_runner:
+            query_update["source"] = self.source_query_runner.apply_dashboard_filters(dashboard_filter)
+        return self.query.model_copy(update=query_update)
 
     def _is_stale(self, cached_result_package):
         return True
