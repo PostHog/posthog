@@ -114,13 +114,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.clearResponse()
         }
         if (
+            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
             !queryEqual(props.query, oldProps.query) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
             actions.loadData()
-        }
-        if (props.cachedResults) {
+        } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
         }
