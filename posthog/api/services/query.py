@@ -42,7 +42,7 @@ from posthog.schema import (
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WITH_RUNNER = (
+QUERY_WITH_RUNNER_USING_CACHE = (
     TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -83,16 +83,18 @@ def process_query_model(
 ) -> dict:
     result: dict | BaseModel
 
-    if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not isinstance(
+        query, QUERY_WITH_RUNNER_USING_CACHE
+    ):
+        result = NothingInCacheResult()
+
+    if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.run(execution_mode=execution_mode)
     elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
-        # TODO: These queries should use the caching layer too
+        # TODO: These queries should be using the QueryRunner caching layer too
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            result = NothingInCacheResult(query_runner.get_cache_key())
-        else:
-            result = query_runner.calculate()
+        result = query_runner.calculate()
     elif isinstance(query, HogQLAutocomplete):
         result = get_hogql_autocomplete(query=query, team=team)
     elif isinstance(query, HogQLMetadata):
