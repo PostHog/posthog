@@ -309,7 +309,7 @@ export const experimentLogic = kea<experimentLogicType>([
             // Terminate if the insight did not manage to load in time
             if (!minimumDetectableChange) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-                lemonToast.error(
+                return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
                 )
             }
@@ -481,10 +481,26 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         updateExperimentGoal: async ({ filters }) => {
-            // We never want to update global properties in the experiment
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
+            if (!minimumDetectableChange) {
+                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                return lemonToast.error(
+                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+                )
+            }
+
             const filtersToUpdate = { ...filters }
             delete filtersToUpdate.properties
-            actions.updateExperiment({ filters: filtersToUpdate })
+
+            actions.updateExperiment({
+                filters: filtersToUpdate,
+                parameters: {
+                    ...values.experiment?.parameters,
+                    recommended_running_time: recommendedRunningTime,
+                    recommended_sample_size: recommendedSampleSize,
+                    minimum_detectable_effect: minimumDetectableChange,
+                },
+            })
             actions.closeExperimentGoalModal()
         },
         updateExperimentExposure: async ({ filters }) => {
