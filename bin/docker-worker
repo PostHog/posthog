@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+./bin/load-vault-env
 ./bin/migrate-check
 
 # Stop any background jobs on exit

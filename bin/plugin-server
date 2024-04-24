@@ -32,6 +32,7 @@ if [[ -n $INJECT_EC2_CLIENT_RACK ]]; then
   export KAFKA_CLIENT_RACK=$(curl --max-time 0.1 -H "X-aws-ec2-metadata-token: $TOKEN" -v http://169.254.169.254/latest/meta-data/placement/availability-zone-id)
 fi
 
+./bin/load-vault-env
 ./bin/migrate-check
 
 cd plugin-server
