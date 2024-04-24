@@ -257,7 +257,7 @@ class EventsQueryRunner(QueryRunner):
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        new_query = self.query.model_copy()
+        new_query = self.query.model_copy()  # Shallow copy!
 
         if dashboard_filter.date_to or dashboard_filter.date_from:
             new_query.before = dashboard_filter.date_to
