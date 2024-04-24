@@ -8,6 +8,7 @@ import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -335,6 +336,11 @@ export const supportLogic = kea<supportLogicType>([
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
+            }
+        },
+        openEmailForm: async () => {
+            if (window.location.href.includes(urls.organizationBilling())) {
+                actions.setSendSupportRequestValue('target_area', 'billing')
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {

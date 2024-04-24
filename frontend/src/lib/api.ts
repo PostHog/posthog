@@ -1954,6 +1954,9 @@ const api = {
         async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
         },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
+        },
     },
 
     dataWarehouseViewLinks: {
