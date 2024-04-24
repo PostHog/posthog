@@ -167,10 +167,10 @@ export const TARGET_AREA_TO_NAME = [
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Product outage / data loss / data breach',
-    high: 'Specific feature not working at all',
-    medium: 'Feature functioning but not as expected',
-    low: 'General question or feature request',
+    critical: 'Critical: Outage, data loss, or data breach',
+    high: 'High: Specific feature is not working at all',
+    medium: 'Medium: Feature not working as expected',
+    low: 'Low: Question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
