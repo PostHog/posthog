@@ -3,6 +3,9 @@ name = "capture-server"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 capture = { path = "../capture" }
 envconfig = { workspace = true }

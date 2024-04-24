@@ -11,6 +11,21 @@ members = [
   "hook-worker",
 ]
 
+[workspace.lints.rust]
+# See https://doc.rust-lang.org/stable/rustc/lints/listing/allowed-by-default.html
+unsafe_code = "forbid" # forbid cannot be ignored with an annotation
+unstable_features = "forbid"
+macro_use_extern_crate = "forbid"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+
+[workspace.lints.clippy]
+# See https://rust-lang.github.io/rust-clippy/, we might want to add more
+enum_glob_use = "deny"
+
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"

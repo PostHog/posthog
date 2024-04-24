@@ -118,10 +118,10 @@ impl KafkaSink {
             client_config.create_with_context(KafkaContext { liveness })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        _ = producer.client().fetch_metadata(
+        drop(producer.client().fetch_metadata(
             Some("__consumer_offsets"),
             Timeout::After(Duration::new(10, 0)),
-        )?;
+        )?);
         info!("connected to Kafka brokers");
 
         Ok(KafkaSink {

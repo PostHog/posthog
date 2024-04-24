@@ -5,7 +5,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -71,7 +70,7 @@ jobs:
       - name: Run cargo check
         run: cargo check --all-features
 
-  clippy:
+  linting:
     runs-on: depot-ubuntu-22.04-4
 
     steps:
@@ -81,7 +80,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          components: clippy
+          components: clippy,rustfmt
 
       - uses: actions/cache@v3
         with:
@@ -94,17 +93,18 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-  format:
-    runs-on: depot-ubuntu-22.04-4
+      - name: Check format
+        run: cargo fmt -- --check
 
+  shear:
+    runs-on: depot-ubuntu-22.04-4
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install latest rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          components: rustfmt
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
 
-      - name: Format
-        run: cargo fmt -- --check
+      - name: Install cargo-shear
+        run: cargo binstall --no-confirm cargo-shear
+
+      - run: cargo shear

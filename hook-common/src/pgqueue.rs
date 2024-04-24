@@ -827,14 +827,15 @@ mod tests {
 
         let retry_interval = retry_policy.retry_interval(job.job.attempt as u32, None);
         let retry_queue = retry_policy.retry_queue(&job.job.queue).to_owned();
-        let _ = job
-            .retry(
+        drop(
+            job.retry(
                 "a very reasonable failure reason",
                 retry_interval,
                 &retry_queue,
             )
             .await
-            .expect("failed to retry job");
+            .expect("failed to retry job"),
+        );
         batch.commit().await.expect("failed to commit transaction");
 
         let retried_job: PgTransactionJob<JobParameters, JobMetadata> = queue
@@ -883,14 +884,15 @@ mod tests {
 
         let retry_interval = retry_policy.retry_interval(job.job.attempt as u32, None);
         let retry_queue = retry_policy.retry_queue(&job.job.queue).to_owned();
-        let _ = job
-            .retry(
+        drop(
+            job.retry(
                 "a very reasonable failure reason",
                 retry_interval,
                 &retry_queue,
             )
             .await
-            .expect("failed to retry job");
+            .expect("failed to retry job"),
+        );
         batch.commit().await.expect("failed to commit transaction");
 
         let retried_job_not_found: Option<PgTransactionBatch<JobParameters, JobMetadata>> = queue
