@@ -89,6 +89,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
+        windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],

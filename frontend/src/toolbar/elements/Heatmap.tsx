@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmapJsData, heatmapEnabled, heatmapFilters } = useValues(heatmapLogic)
+    const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight } = useValues(heatmapLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
 
@@ -39,8 +39,9 @@ export function Heatmap(): JSX.Element | null {
     }
 
     return (
-        <div className="fixed inset-0 overflow-hidden">
-            <div className="absolute inset-0" ref={setHeatmapContainer} />
+        <div className="fixed inset-0 overflow-hidden w-full h-full">
+            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
+            <div key={`${windowWidth}x${windowHeight}`} className="absolute inset-0" ref={setHeatmapContainer} />
         </div>
     )
 }
