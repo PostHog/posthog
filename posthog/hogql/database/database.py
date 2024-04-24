@@ -53,7 +53,7 @@ from posthog.hogql.database.schema.session_replay_events import (
 )
 from posthog.hogql.database.schema.sessions import RawSessionsTable, SessionsTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.errors import UnknownTableError, ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
@@ -134,7 +134,7 @@ class Database(BaseModel):
     def get_table(self, table_name: str) -> Table:
         if self.has_table(table_name):
             return getattr(self, table_name)
-        raise UnknownTableError(f'Unknown table "{table_name}".')
+        raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> List[str]:
         return self._table_names + self._warehouse_table_names
