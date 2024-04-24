@@ -102,7 +102,7 @@ class CacheMissResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cache_key: str
+    cache_key: Optional[str]
 
 
 RunnableQueryNode = Union[
@@ -329,7 +329,8 @@ class QueryRunner(ABC, Generic[Q]):
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CachedQueryResponse | CacheMissResponse:
-        cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
+        # TODO: `self.limit_context` should probably just be in get_cache_key()
+        cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
@@ -406,7 +407,7 @@ class QueryRunner(ABC, Generic[Q]):
     def toJSON(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
-    def _cache_key(self) -> str:
+    def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
             f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"

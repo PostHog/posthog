@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from posthog.api.services.query import ExecutionMode
 import structlog
 from sentry_sdk import capture_exception
 
@@ -110,7 +109,7 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[Dict]) -> CacheTyp
 def calculate_for_query_based_insight(
     insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
 ) -> "InsightResult":
-    from posthog.api.services.query import process_query
+    from posthog.api.services.query import process_query, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
