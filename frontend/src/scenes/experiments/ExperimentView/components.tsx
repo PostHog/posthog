@@ -380,13 +380,14 @@ export function ActionBanner(): JSX.Element {
         areResultsSignificant,
         isExperimentStopped,
         funnelResultsPersonsTotal,
-        recommendedSampleSize,
         actualRunningTime,
-        recommendedRunningTime,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>

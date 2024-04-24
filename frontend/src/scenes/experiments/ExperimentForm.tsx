@@ -148,8 +148,7 @@ const StepInfo = (): JSX.Element => {
 }
 
 const StepGoal = (): JSX.Element => {
-    const { experiment, exposureAndSampleSize, experimentInsightType, groupTypes, aggregationLabel } =
-        useValues(experimentLogic)
+    const { experiment, experimentInsightType, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
 
     // insightLogic
@@ -264,10 +263,7 @@ const StepGoal = (): JSX.Element => {
                 className="mt-2"
                 type="primary"
                 data-attr="save-experiment"
-                onClick={() => {
-                    const { exposure, sampleSize } = exposureAndSampleSize
-                    createExperiment(true, exposure, sampleSize)
-                }}
+                onClick={() => createExperiment(true)}
             >
                 Save as draft
             </LemonButton>
