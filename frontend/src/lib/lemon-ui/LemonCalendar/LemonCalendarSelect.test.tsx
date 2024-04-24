@@ -113,4 +113,66 @@ describe('LemonCalendarSelect', () => {
         // only changes the hour
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
     })
+
+    test('onlyAllowUpcoming', async () => {
+        const onClose = jest.fn()
+        const onChange = jest.fn()
+        window.HTMLElement.prototype.scrollIntoView = jest.fn()
+
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+
+        function TestSelect(): JSX.Element {
+            const [value, setValue] = useState<dayjs.Dayjs | null>(null)
+            return (
+                <LemonCalendarSelect
+                    months={1}
+                    value={value}
+                    onClose={onClose}
+                    onChange={(value) => {
+                        setValue(value)
+                        onChange(value)
+                    }}
+                    showTime
+                    onlyAllowUpcoming
+                />
+            )
+        }
+        const { container } = render(<TestSelect />)
+
+        async function clickOnDate(day: string): Promise<void> {
+            const element = container.querySelector('.LemonCalendar__month') as HTMLElement
+            if (element) {
+                userEvent.click(await within(element).findByText(day))
+                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            }
+        }
+
+        async function clickOnTime(props: GetLemonButtonTimePropsOpts): Promise<void> {
+            const element = getTimeElement(container.querySelector('.LemonCalendar__time'), props)
+            if (element) {
+                userEvent.click(element)
+                userEvent.click(getByDataAttr(container, 'lemon-calendar-select-apply'))
+            }
+        }
+
+        // click on minute
+        await clickOnTime({ unit: 'm', value: 42 })
+        // time is disabled until a date is clicked
+        expect(onChange).not.toHaveBeenCalled()
+
+        // click on current date
+        await clickOnDate('9')
+        // cannot select a date in the past
+        expect(onChange).not.toHaveBeenCalled()
+
+        // click on current date
+        await clickOnDate('10')
+        // chooses the current date and sets the time to the current hour and minute
+        expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
+
+        // click on an earlier hour
+        await clickOnTime({ unit: 'a', value: 'am' })
+        // does not update the date because it is in the past
+        expect(onChange).lastCalledWith(dayjs('2023-01-10T17:22:00.000Z'))
+    })
 })

@@ -489,10 +489,18 @@ index 0d49411b1f6d31103bed898c0e81d1d74ab51234..0b2160ef08aa3ae5310f63c295abc0a5
      }
      applyMutation(d, isSync) {
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-index 38a23aaae8d683fa584329eced277dd8de55d1ff..a20f6c785ca3fde692295b7c80fa53d6211315b4 100644
+index 38a23aaae8d683fa584329eced277dd8de55d1ff..44efee95395f6612204e051724a108833741a492 100644
 --- a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
 +++ b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-@@ -1278,8 +1278,15 @@ function parse(css, options = {}) {
+@@ -1271,15 +1271,22 @@ function parse(css, options = {}) {
+             .replace(/"(?:\\"|[^"])*"|'(?:\\'|[^'])*'/g, (m) => {
+             return m.replace(/,/g, '\u200C');
+         });
+-        return customSplit(cleanedInput).map((s) => s.replace(/\u200C/g, ',').trim());
++        return cleanedInput.split(/\s*(?![^(]*\)),\s*/).map((s) => s.replace(/\u200C/g, ',').trim());
+     }
+     function customSplit(input) {
+         const result = [];
          let currentSegment = '';
          let depthParentheses = 0;
          let depthBrackets = 0;
