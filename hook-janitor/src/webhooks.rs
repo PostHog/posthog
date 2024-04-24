@@ -495,7 +495,7 @@ mod tests {
     use super::*;
     use crate::config;
     use crate::kafka_producer::{create_kafka_producer, KafkaContext};
-    use hook_common::health::HealthRegistry;
+    use health::HealthRegistry;
     use hook_common::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };

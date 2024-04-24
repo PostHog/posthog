@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use health::HealthHandle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
@@ -12,7 +13,6 @@ use tracing::{info_span, instrument, Instrument};
 
 use crate::api::{CaptureError, ProcessedEvent};
 use crate::config::KafkaConfig;
-use crate::health::HealthHandle;
 use crate::limiters::overflow::OverflowLimiter;
 use crate::prometheus::report_dropped_events;
 use crate::sinks::Event;
@@ -260,11 +260,11 @@ impl Event for KafkaSink {
 mod tests {
     use crate::api::{CaptureError, ProcessedEvent};
     use crate::config;
-    use crate::health::HealthRegistry;
     use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
+    use health::HealthRegistry;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;

@@ -371,6 +371,7 @@ dependencies = [
  "envconfig",
  "flate2",
  "governor",
+ "health",
  "metrics",
  "metrics-exporter-prometheus",
  "rand",
@@ -450,9 +451,9 @@ dependencies = [
 
 [[package]]
 name = "combine"
-version = "4.6.6"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35ed6e9d84f0b51a7f52daf1c7d71dd136fd7a3f41a8462b8cdb8c78d920fad4"
+checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "futures-core",
@@ -1002,6 +1003,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "health"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.5",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1100,6 +1111,7 @@ dependencies = [
  "envconfig",
  "eyre",
  "futures",
+ "health",
  "hook-common",
  "metrics",
  "rdkafka",
@@ -1120,6 +1132,7 @@ dependencies = [
  "chrono",
  "envconfig",
  "futures",
+ "health",
  "hook-common",
  "http 1.1.0",
  "metrics",

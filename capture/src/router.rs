@@ -6,10 +6,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use health::HealthRegistry;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::health::HealthRegistry;
 use crate::{
     limiters::billing::BillingLimiter, redis::Client, sinks, time::TimeSource, v0_endpoint,
 };

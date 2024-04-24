@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use hook_common::health::HealthRegistry;
+use health::HealthRegistry;
 use std::future::ready;
 
 pub fn app(liveness: HealthRegistry) -> Router {

@@ -1,16 +1,14 @@
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::{Arc, RwLock};
 
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use time::Duration;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 /// Health reporting for components of the service.
-///
-/// FIXME: copied over from capture, make sure to keep in sync until we share the crate
 ///
 /// The capture server contains several asynchronous loops, and
 /// the process can only be trusted with user data if all the
@@ -100,7 +98,7 @@ impl HealthHandle {
         ))
     }
 
-    /// Asynchronously report component status, returns when the message is queued.
+    /// Synchronously report component status, returns when the message is queued.
     pub fn report_status_blocking(&self, status: ComponentStatus) {
         let message = HealthMessage {
             component: self.component.clone(),
@@ -145,7 +143,7 @@ impl HealthRegistry {
 
     /// Registers a new component in the registry. The returned handle should be passed
     /// to the component, to allow it to frequently report its health status.
-    pub async fn register(&self, component: String, deadline: time::Duration) -> HealthHandle {
+    pub async fn register(&self, component: String, deadline: Duration) -> HealthHandle {
         let handle = HealthHandle {
             component,
             deadline,
@@ -200,7 +198,7 @@ impl HealthRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::health::{ComponentStatus, HealthRegistry, HealthStatus};
+    use crate::{ComponentStatus, HealthRegistry, HealthStatus};
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use std::ops::{Add, Sub};

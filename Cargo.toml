@@ -4,10 +4,11 @@ resolver = "2"
 members = [
   "capture",
   "capture-server",
-  "hook-common",
+  "common/health",
   "hook-api",
-  "hook-worker",
+  "hook-common",
   "hook-janitor",
+  "hook-worker",
 ]
 
 [workspace.dependencies]
@@ -44,13 +45,13 @@ sqlx = { version = "0.7", features = [
   "tls-native-tls",
   "uuid",
 ] }
-thiserror = { version = "1.0" }
 time = { version = "0.3.20", features = [
   "formatting",
   "macros",
   "parsing",
   "serde",
 ] }
+thiserror = { version = "1.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tower = "0.4.13"
 tower-http = { version = "0.5.2", features = ["cors", "trace"] }

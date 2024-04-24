@@ -1,6 +1,6 @@
 use crate::config::KafkaConfig;
 
-use hook_common::health::HealthHandle;
+use health::HealthHandle;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;

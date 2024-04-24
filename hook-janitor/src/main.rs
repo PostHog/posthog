@@ -4,7 +4,7 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 use futures::future::{select, Either};
-use hook_common::health::{HealthHandle, HealthRegistry};
+use health::{HealthHandle, HealthRegistry};
 use kafka_producer::create_kafka_producer;
 use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;

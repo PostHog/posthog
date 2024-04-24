@@ -2,11 +2,12 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use health::{ComponentStatus, HealthRegistry};
 use time::Duration;
 use tokio::net::TcpListener;
 
 use crate::config::Config;
-use crate::health::{ComponentStatus, HealthRegistry};
+
 use crate::limiters::billing::BillingLimiter;
 use crate::limiters::overflow::OverflowLimiter;
 use crate::redis::RedisClient;

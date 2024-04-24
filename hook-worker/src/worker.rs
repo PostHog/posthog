@@ -4,7 +4,7 @@ use std::time;
 
 use chrono::Utc;
 use futures::future::join_all;
-use hook_common::health::HealthHandle;
+use health::HealthHandle;
 use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
     pgqueue::{
@@ -452,7 +452,7 @@ mod tests {
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
     #[allow(unused_imports)]
-    use hook_common::health::HealthRegistry;
+    use health::HealthRegistry;
     #[allow(unused_imports)]
     use hook_common::pgqueue::{JobStatus, NewJob};
     #[allow(unused_imports)]

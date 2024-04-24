@@ -4,7 +4,7 @@ use axum::Router;
 use envconfig::Envconfig;
 use std::future::ready;
 
-use hook_common::health::HealthRegistry;
+use health::HealthRegistry;
 use hook_common::{
     metrics::serve, metrics::setup_metrics_routes, pgqueue::PgQueue, retry::RetryPolicy,
 };
