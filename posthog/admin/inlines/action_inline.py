@@ -8,3 +8,4 @@ class ActionInline(admin.TabularInline):
     model = Action
     classes = ("collapse",)
     autocomplete_fields = ("created_by",)
+    exclude = ("events",)
