@@ -444,7 +444,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
@@ -455,7 +455,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": False} for row in schemas]
+        options = [{"table": row, "should_sync": True} for row in schemas]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)
