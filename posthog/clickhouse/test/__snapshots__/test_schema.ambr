@@ -1956,6 +1956,7 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
@@ -2847,6 +2848,7 @@
       -- we'll almost never query this by session id
       -- so from least to most cardinality that's
       ORDER BY (type, team_id,  toDate(timestamp), current_url, viewport_width)
+      
   -- I am purposefully not setting index granularity
   -- the default is 8192, and we will be loading a lot of data
   -- per query, we tend to copy this 512 around the place but
