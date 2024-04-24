@@ -34,6 +34,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    EventsQuery,
     HogQLFilters,
     HogQLQuery,
     TrendsQuery,
@@ -1278,7 +1279,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
-    def test_dashboard_filters_applied_to_data_table_node(self):
+    def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
         )
@@ -1327,6 +1328,29 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["query"]["source"]["filters"]["dateRange"]["date_from"], "-180d")
+
+    def test_dashboard_filters_applied_to_events_query_data_table_node(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "the dashboard", "filters": {"date_from": "-180d"}}
+        )
+        query = DataTableNode(
+            source=EventsQuery(select=["uuid", "event", "timestamp"], after="-3d").model_dump(),
+        ).model_dump()
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"query": query, "name": "insight", "dashboards": [dashboard_id]}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"], query)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["query"]["source"]["after"], "-180d")
 
     # BASIC TESTING OF ENDPOINTS. /queries as in depth testing for each insight
 
