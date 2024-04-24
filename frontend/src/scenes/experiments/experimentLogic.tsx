@@ -106,6 +106,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['conversionMetrics'],
             trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['results as trendResults'],
+            insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
+            ['insightDataLoading as goalInsightDataLoading'],
         ],
         actions: [
             experimentsLogic,
