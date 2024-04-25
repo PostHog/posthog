@@ -6,8 +6,25 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 
 export function DatawarehouseTableForm(): JSX.Element {
     return (
-        <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
+        <Form
+            formKey="table"
+            logic={dataWarehouseTableLogic}
+            className="space-y-4"
+            enableFormOnSubmit
+            autoComplete="off"
+        >
             <div className="flex flex-col gap-2 max-w-160">
+                {/* Hidden first field to stop Chrome trying to autocomplete the table name with an email address */}
+                <LemonField name="hidden-name" label="Table Name" className="hidden">
+                    <LemonInput
+                        data-attr="table-name"
+                        className="ph-ignore-input hidden"
+                        autoComplete="off"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                    />
+                </LemonField>
                 <LemonField name="name" label="Table Name">
                     <LemonInput
                         data-attr="table-name"

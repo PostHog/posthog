@@ -249,6 +249,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -274,8 +275,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep],
-            (currentStep): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected],
+            (currentStep, isManualLinkingSelected): string => {
+                if (currentStep === 2 && isManualLinkingSelected) {
+                    return 'Link'
+                }
+
                 if (currentStep === 3) {
                     return 'Import'
                 }
