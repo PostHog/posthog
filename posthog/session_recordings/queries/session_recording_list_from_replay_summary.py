@@ -1,7 +1,7 @@
 import dataclasses
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
+from typing import Any, Literal, NamedTuple, Union
 
 from django.conf import settings
 from sentry_sdk import capture_exception
@@ -25,15 +25,15 @@ class SummaryEventFiltersSQL:
     having_conditions: str
     having_select: str
     where_conditions: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
 
 
 class SessionRecordingQueryResult(NamedTuple):
-    results: List
+    results: list
     has_more_recording: bool
 
 
-def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter) -> Tuple[str, Dict[str, Any]]:
+def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter) -> tuple[str, dict[str, Any]]:
     start_time_clause = ""
     start_time_params = {}
     if recording_filters.date_from:
@@ -52,7 +52,7 @@ def _get_order_by_clause(filter_order: str | None) -> str:
 
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     if not recording_filters.console_search_query:
         return "", {}
 
@@ -66,7 +66,7 @@ def _get_filter_by_log_text_session_ids_clause(
 
 def _get_filter_by_provided_session_ids_clause(
     recording_filters: SessionRecordingsFilter, column_name="session_id"
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     if recording_filters.session_ids is None:
         return "", {}
 
@@ -111,7 +111,7 @@ class LogQuery:
     # a recording spans the time boundaries
     # TODO This is just copied from below
     @cached_property
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -124,8 +124,8 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "info"]],
-    ) -> Tuple[str, Dict[str, Any]]:
+        console_logs_filter: list[Literal["error", "warn", "info"]],
+    ) -> tuple[str, dict[str, Any]]:
         return (
             (
                 f"AND level in %(console_logs_levels)s",
@@ -135,7 +135,7 @@ class LogQuery:
             else ("", {})
         )
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self) -> tuple[str, dict]:
         if not self._filter.console_search_query:
             return "", {}
 
@@ -177,7 +177,7 @@ class ActorsQuery(EventQuery):
         pass
 
     # we have to implement this from EventQuery but don't need it
-    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: list[Any]) -> list[dict[str, Any]]:
         pass
 
     _raw_persons_query = """
@@ -195,7 +195,7 @@ class ActorsQuery(EventQuery):
             {filter_by_person_uuid_condition}
     """
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         # we don't support PoE V1 - hopefully that's ok
         if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
             return "", {}
@@ -280,7 +280,7 @@ class SessionIdEventsQuery(EventQuery):
         pass
 
     # we have to implement this from EventQuery but don't need it
-    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: list[Any]) -> list[dict[str, Any]]:
         pass
 
     def _determine_should_join_events(self):
@@ -354,7 +354,7 @@ class SessionIdEventsQuery(EventQuery):
         HAVING 1=1 {event_filter_having_events_condition}
     """
 
-    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
+    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> tuple[str, dict[str, Any]]:
         filter_sql, params = format_entity_filter(
             team_id=team_id,
             entity=entity,
@@ -382,8 +382,8 @@ class SessionIdEventsQuery(EventQuery):
 
     @cached_property
     def build_event_filters(self) -> SummaryEventFiltersSQL:
-        event_names_to_filter: List[Union[int, str]] = []
-        params: Dict = {}
+        event_names_to_filter: list[Union[int, str]] = []
+        params: dict = {}
         condition_sql = ""
 
         for index, entity in enumerate(self._filter.entities):
@@ -432,7 +432,7 @@ class SessionIdEventsQuery(EventQuery):
             params=params,
         )
 
-    def _get_groups_query(self) -> Tuple[str, Dict]:
+    def _get_groups_query(self) -> tuple[str, dict]:
         try:
             from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
         except ImportError:
@@ -449,7 +449,7 @@ class SessionIdEventsQuery(EventQuery):
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     @cached_property
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -460,7 +460,7 @@ class SessionIdEventsQuery(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
-    def get_query(self, select_event_ids: bool = False) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self, select_event_ids: bool = False) -> tuple[str, dict[str, Any]]:
         if not self._determine_should_join_events():
             return "", {}
 
@@ -564,7 +564,7 @@ class SessionIdEventsQuery(EventQuery):
         return persons_join, persons_select_params, persons_sub_query
 
     @cached_property
-    def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_person_id_clause(self) -> tuple[str, dict[str, Any]]:
         person_id_clause = ""
         person_id_params = {}
         if self._filter.person_uuid:
@@ -572,7 +572,7 @@ class SessionIdEventsQuery(EventQuery):
             person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_id_clause, person_id_params
 
-    def matching_events(self) -> List[str]:
+    def matching_events(self) -> list[str]:
         self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
         query, query_params = self.get_query(select_event_ids=True)
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
@@ -644,7 +644,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     """
 
     @staticmethod
-    def _data_to_return(results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(results: list[Any]) -> list[dict[str, Any]]:
         default_columns = [
             "session_id",
             "team_id",
@@ -694,7 +694,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     def limit(self):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         offset = self._filter.offset or 0
 
         base_params = {
@@ -758,7 +758,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     def duration_clause(
         self,
         duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"],
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
         if self._filter.recording_duration_filter:
@@ -775,7 +775,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return duration_clause, duration_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "info"]]) -> str:
+    def _get_console_log_clause(console_logs_filter: list[Literal["error", "warn", "info"]]) -> str:
         # to avoid a CH migration we map from info to log when constructing the query here
         filters = [f"console_{'log' if log == 'info' else log}_count > 0" for log in console_logs_filter]
         return f"AND ({' OR '.join(filters)})" if filters else ""

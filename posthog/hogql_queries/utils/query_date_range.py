@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional, Dict
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parse
@@ -248,7 +248,7 @@ class QueryDateRange:
             args=[self.date_to_start_of_interval_hogql(self.date_to_as_hogql()), self.one_interval_period()],
         )
 
-    def to_placeholders(self) -> Dict[str, ast.Expr]:
+    def to_placeholders(self) -> dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),

@@ -1,5 +1,6 @@
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypedDict
+from typing import Any, Optional, TypedDict
+from collections.abc import Callable
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -36,7 +37,7 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: Type["User"]
+    model: type["User"]
 
     use_in_migrations = True
 
@@ -58,12 +59,12 @@ class UserManager(BaseUserManager):
         email: str,
         password: Optional[str],
         first_name: str = "",
-        organization_fields: Optional[Dict[str, Any]] = None,
-        team_fields: Optional[Dict[str, Any]] = None,
+        organization_fields: Optional[dict[str, Any]] = None,
+        team_fields: Optional[dict[str, Any]] = None,
         create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
         is_staff: bool = False,
         **user_fields,
-    ) -> Tuple["Organization", "Team", "User"]:
+    ) -> tuple["Organization", "Team", "User"]:
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
@@ -112,7 +113,7 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
-def events_column_config_default() -> Dict[str, Any]:
+def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
@@ -124,7 +125,7 @@ class ThemeMode(models.TextChoices):
 
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: List[str] = []
+    REQUIRED_FIELDS: list[str] = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"

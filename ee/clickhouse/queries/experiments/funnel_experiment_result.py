@@ -1,7 +1,7 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
 import json
-from typing import List, Optional, Tuple, Type
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
@@ -56,7 +56,7 @@ class ClickhouseFunnelExperimentResult:
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
-        funnel_class: Type[ClickhouseFunnel] = ClickhouseFunnel,
+        funnel_class: type[ClickhouseFunnel] = ClickhouseFunnel,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
         self.variants = [variant["key"] for variant in feature_flag.variants]
@@ -148,9 +148,9 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def calculate_results(
         control_variant: Variant,
-        test_variants: List[Variant],
-        priors: Tuple[int, int] = (1, 1),
-    ) -> List[Probability]:
+        test_variants: list[Variant],
+        priors: tuple[int, int] = (1, 1),
+    ) -> list[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
 
@@ -186,9 +186,9 @@ class ClickhouseFunnelExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant,
-        test_variants: List[Variant],
-        probabilities: List[Probability],
-    ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        test_variants: list[Variant],
+        probabilities: list[Probability],
+    ) -> tuple[ExperimentSignificanceCode, Probability]:
         def get_conversion_rate(variant: Variant):
             return variant.success_count / (variant.success_count + variant.failure_count)
 
@@ -226,7 +226,7 @@ class ClickhouseFunnelExperimentResult:
         return ExperimentSignificanceCode.SIGNIFICANT, expected_loss
 
 
-def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) -> float:
+def calculate_expected_loss(target_variant: Variant, variants: list[Variant]) -> float:
     """
     Calculates expected loss in conversion rate for a given variant.
     Loss calculation comes from VWO's SmartStats technical paper:
@@ -268,7 +268,7 @@ def calculate_expected_loss(target_variant: Variant, variants: List[Variant]) ->
     return loss / simulations_count
 
 
-def simulate_winning_variant_for_conversion(target_variant: Variant, variants: List[Variant]) -> Probability:
+def simulate_winning_variant_for_conversion(target_variant: Variant, variants: list[Variant]) -> Probability:
     random_sampler = default_rng()
     prior_success = 1
     prior_failure = 1
@@ -300,7 +300,7 @@ def simulate_winning_variant_for_conversion(target_variant: Variant, variants: L
     return winnings / simulations_count
 
 
-def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[Probability]:
+def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[Probability]:
     """
     Calculates the probability of winning for each variant.
     """

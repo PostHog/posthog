@@ -1,4 +1,4 @@
-from typing import Optional, Literal, Tuple, get_args
+from typing import Optional, Literal, get_args
 import hashlib
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
@@ -111,5 +111,5 @@ APIScopeObjectOrNotSupported = Literal[
 ]
 
 
-API_SCOPE_OBJECTS: Tuple[APIScopeObject, ...] = get_args(APIScopeObject)
-API_SCOPE_ACTIONS: Tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
+API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)

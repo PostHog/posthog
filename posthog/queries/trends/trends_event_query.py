@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.trends.trends_event_query_base import TrendsEventQueryBase
@@ -6,7 +6,7 @@ from posthog.schema import PersonsOnEventsMode
 
 
 class TrendsEventQuery(TrendsEventQueryBase):
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         person_id_field = ""
         if self._should_join_distinct_ids:
             person_id_field = f", {self._person_id_alias} as person_id"

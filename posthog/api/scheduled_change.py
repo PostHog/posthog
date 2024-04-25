@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 from rest_framework import (
     serializers,
     viewsets,
@@ -29,7 +29,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ScheduledChange:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
