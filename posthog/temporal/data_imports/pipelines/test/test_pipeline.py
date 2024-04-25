@@ -73,9 +73,12 @@ class TestDataImportPipeline(APIBaseTest):
             mock.last_trace.last_normalize_info.row_counts = {"customer": 1}
             return mock
 
-        with patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline), patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
-        ) as mock_validate_schema_and_update_table:
+        with (
+            patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
+            ) as mock_validate_schema_and_update_table,
+        ):
             pipeline = await self._create_pipeline("Customer", False)
             res = await pipeline.run()
 
@@ -90,9 +93,12 @@ class TestDataImportPipeline(APIBaseTest):
             type(mock.last_trace.last_normalize_info).row_counts = PropertyMock(side_effect=[{"customer": 1}, {}])
             return mock
 
-        with patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline), patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
-        ) as mock_validate_schema_and_update_table:
+        with (
+            patch.object(DataImportPipeline, "_create_pipeline", mock_create_pipeline),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline.validate_schema_and_update_table"
+            ) as mock_validate_schema_and_update_table,
+        ):
             pipeline = await self._create_pipeline("Customer", True)
             res = await pipeline.run()
 
