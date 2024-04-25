@@ -60,7 +60,8 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
 
-    const { heatmapEnabled, heatmapFilters, heatmapElements, scrollDepthPosthogJsError } = useValues(heatmapLogic)
+    const { heatmapEnabled, heatmapFilters, heatmapElements, scrollDepthPosthogJsError, heatmapColorPalette } =
+        useValues(heatmapLogic)
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null
@@ -77,11 +78,32 @@ export function ScrollDepth(): JSX.Element | null {
 
     function color(count: number): string {
         const value = 1 - count / maxCount
-        const safeValue = Math.max(0, Math.min(1, value))
-        const hue = Math.round(260 * safeValue)
 
-        // Return hsl color. You can adjust saturation and lightness to your liking
-        return `hsl(${hue}, 100%, 50%)`
+        if (heatmapColorPalette === 'default') {
+            const safeValue = Math.max(0, Math.min(1, value))
+            const hue = Math.round(260 * safeValue)
+
+            // Return hsl color. You can adjust saturation and lightness to your liking
+            return `hsl(${hue}, 100%, 50%)`
+        }
+
+        const rgba = [0, 0, 0, count / maxCount]
+
+        switch (heatmapColorPalette) {
+            case 'red':
+                rgba[0] = 255
+                break
+            case 'green':
+                rgba[1] = 255
+                break
+            case 'blue':
+                rgba[2] = 255
+                break
+            default:
+                break
+        }
+
+        return `rgba(${rgba.join(', ')})`
     }
 
     return (

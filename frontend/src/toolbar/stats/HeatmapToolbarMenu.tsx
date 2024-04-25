@@ -1,5 +1,5 @@
 import { IconMagicWand } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
@@ -14,7 +14,7 @@ import { dateFilterToText, dateMapping } from 'lib/utils'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { HEATMAP_COLOR_PALETTE_OPTIONS, heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 import { useToolbarFeatureFlag } from '../toolbarPosthogJS'
@@ -56,6 +56,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         elementStatsLoading,
         clickmapsEnabled,
         heatmapFixedPositionMode,
+        heatmapColorPalette,
     } = useValues(heatmapLogic)
     const {
         setCommonFilters,
@@ -64,6 +65,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setMatchLinksByHref,
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
+        setHeatmapColorPalette,
     } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -207,6 +209,15 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                                 }px - ${viewportRange.max}px)`}
                                             </code>
                                         </Tooltip>
+                                    </div>
+
+                                    <LemonLabel>Color palette</LemonLabel>
+                                    <div className="flex gap-2 justify-between items-center">
+                                        <LemonSelect
+                                            options={HEATMAP_COLOR_PALETTE_OPTIONS}
+                                            value={heatmapColorPalette}
+                                            onChange={setHeatmapColorPalette}
+                                        />
                                     </div>
 
                                     {heatmapFilters.type !== 'scrolldepth' ? (
