@@ -1,5 +1,3 @@
-from typing import List, Dict
-
 from itertools import groupby
 from django.db.models import UUIDField, DateTimeField, Q
 from django.utils import timezone
@@ -10,8 +8,8 @@ from posthog.models import Survey
 
 
 def _get_surveys_response_counts(
-    surveys_ids: List[UUIDField], team_id: UUIDField, earliest_survey_creation_date: DateTimeField
-) -> Dict[str, int]:
+    surveys_ids: list[UUIDField], team_id: UUIDField, earliest_survey_creation_date: DateTimeField
+) -> dict[str, int]:
     data = sync_execute(
         """
         SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
