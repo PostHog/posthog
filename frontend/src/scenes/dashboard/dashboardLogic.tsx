@@ -340,10 +340,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const newTiles = state.tiles.slice()
 
                         if (tileIndex >= 0) {
-                            if (insight.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
-                                if (updateTileOnDashboards?.includes(props.id)) {
-                                    newTiles[tileIndex].last_refresh = insight.last_refresh
+                            if (insight.dashboards?.includes(props.id) && updateTileOnDashboards?.includes(props.id)) {
+                                newTiles[tileIndex] = {
+                                    ...newTiles[tileIndex],
+                                    insight: insight,
+                                    last_refresh: insight.last_refresh,
                                 }
                             } else {
                                 newTiles.splice(tileIndex, 1)
