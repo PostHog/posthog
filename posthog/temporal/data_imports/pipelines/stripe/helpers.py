@@ -162,6 +162,9 @@ def stripe_source(
             stripe_pagination,
             name=endpoint,
             write_disposition="append",
+            columns={
+                "description": {"data_type": "string", "nullable": True},
+            },
         )(
             api_key=api_key,
             account_id=account_id,
