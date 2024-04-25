@@ -154,7 +154,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     @staticmethod
-    def _predicate_expressions(placeholders: dict[str, Expr]) -> list[ast.Expr]:  # noqa: UP006
+    def _predicate_expressions(placeholders: dict[str, Expr]) -> list[ast.Expr]:
         predicate_expressions: list[ast.Expr] = []
 
         predicate_mapping: dict[str, str] = {
