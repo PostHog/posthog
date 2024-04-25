@@ -425,7 +425,7 @@ class QueryRunner(ABC, Generic[Q]):
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> Q:
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        if "properties" in self.query.model_fields and "dateRange" in self.query.model_fields:
+        if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
             query_update: dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
