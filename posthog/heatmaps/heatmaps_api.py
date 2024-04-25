@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Any
+from typing import Any, List  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
 
@@ -154,7 +154,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     @staticmethod
-    def _predicate_expressions(placeholders: dict[str, Expr]) -> list[ast.Expr]:
+    def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
         predicate_expressions: list[ast.Expr] = []
 
         predicate_mapping: dict[str, str] = {
