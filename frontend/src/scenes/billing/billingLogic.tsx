@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -91,8 +90,6 @@ export const billingLogic = kea<billingLogicType>([
             ['resetDismissKey as resetUsageLimitExceededKey'],
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
-            supportLogic,
-            ['openSupportForm'],
         ],
     })),
     reducers({
@@ -173,7 +170,11 @@ export const billingLogic = kea<billingLogicType>([
                         if (error.detail && error.detail.includes('open invoice')) {
                             actions.setUnsubscribeError({
                                 detail: error.detail,
-                                link: <Link to={values.billing?.stripe_portal_url} target="_blank">View invoices</Link>,
+                                link: (
+                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                        View invoices
+                                    </Link>
+                                ),
                             } as UnsubscribeError)
                         } else {
                             actions.setUnsubscribeError({
