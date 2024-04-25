@@ -32,7 +32,7 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     if (!person) {
         return (
             <div className="p-2 max-w-160">
-                <h4>Person not found</h4>
+                <h4>Person profile not found</h4>
                 <p>
                     The Person may have been deleted.
                     <br />

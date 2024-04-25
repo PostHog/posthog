@@ -1,19 +1,14 @@
 from uuid import uuid5, UUID
 
-# JS code
-# const PERSON_UUIDV5_NAMESPACE = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
 
-# function uuidFromDistinctId(teamId: number, distinctId: string): string {
-#     // Deterministcally create a UUIDv5 based on the (team_id, distinct_id) pair.
-#     return uuidv5(`${teamId}:${distinctId}`, PERSON_UUIDV5_NAMESPACE)
-# }
+PERSON_UUIDV5_NAMESPACE = UUID("932979b4-65c3-4424-8467-0b66ec27bc22")
 
 
 def uuidFromDistinctId(team_id: int, distinct_id: str) -> UUID:
     """
     Deterministically create a UUIDv5 based on the (team_id, distinct_id) pair.
     """
-    return uuid5(UUID("932979b4-65c3-4424-8467-0b66ec27bc22"), f"{team_id}:{distinct_id}")
+    return uuid5(PERSON_UUIDV5_NAMESPACE, f"{team_id}:{distinct_id}")
 
 
 class MissingPerson:
