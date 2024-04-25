@@ -1,13 +1,11 @@
-import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -58,8 +56,6 @@ function DashboardScene(): JSX.Element {
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-
-    const [editMode, setEditMode] = useState(false)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -117,47 +113,27 @@ function DashboardScene(): JSX.Element {
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
                             DashboardPlacement.FeatureFlag,
-                        ].includes(placement) && (
-                            <div className="flex space-x-4 items-center">
-                                <LemonSwitch
-                                    checked={editMode}
-                                    bordered={true}
-                                    onChange={() => setEditMode(!editMode)}
-                                    label="Edit dashboard"
-                                />
-                                {editMode && (
-                                    <>
-                                        <DateFilter
-                                            showCustom
-                                            dateFrom={dashboardFilters?.date_from ?? undefined}
-                                            dateTo={dashboardFilters?.date_to ?? undefined}
-                                            onChange={setDates}
-                                            disabled={!canEditDashboard}
-                                            makeLabel={(key) => (
-                                                <>
-                                                    <IconCalendar />
-                                                    <span className="hide-when-small"> {key}</span>
-                                                </>
-                                            )}
-                                        />
-                                        <PropertyFilters
-                                            onChange={setProperties}
-                                            pageKey={'dashboard_' + dashboard?.id}
-                                            propertyFilters={dashboard?.filters.properties}
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.EventProperties,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                ...groupsTaxonomicTypes,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                                TaxonomicFilterGroupType.Elements,
-                                                TaxonomicFilterGroupType.HogQLExpression,
-                                            ]}
-                                        />
-                                    </>
-                                )}
-                            </div>
-                        )}
+                        ].includes(placement) &&
+                            dashboard && (
+                                <div className="flex space-x-4 items-center">
+                                    <DashboardEditBar
+                                        dashboard={dashboard}
+                                        canEditDashboard={canEditDashboard}
+                                        dashboardFilters={dashboardFilters}
+                                        setDates={setDates}
+                                        setProperties={setProperties}
+                                        groupsTaxonomicTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            ...groupsTaxonomicTypes,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                            TaxonomicFilterGroupType.HogQLExpression,
+                                        ]}
+                                    />
+                                </div>
+                            )}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
                             <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
                                 Edit dashboard
