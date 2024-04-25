@@ -51,7 +51,7 @@ export const mockEventDefinitions: EventDefinition[] = [
     'test event',
     '$click',
     '$autocapture',
-    'search',
+    'search term',
     'other event',
     ...Array(150),
 ].map((name, index) => ({
@@ -88,6 +88,15 @@ export const mockEventPropertyDefinitions: PropertyDefinition[] = [
     description: `${name || 'name generation'} is the best!`,
     is_seen_on_filtered_events: (name || '').includes('$'),
 }))
+
+export const mockSessionPropertyDefinitions: PropertyDefinition[] = ['$session_duration', '$initial_utm_source'].map(
+    (name) => ({
+        ...mockEventPropertyDefinition,
+        id: name,
+        name: name,
+        description: `${name} is the best!`,
+    })
+)
 
 export const mockPersonProperty = {
     name: '$browser_version',

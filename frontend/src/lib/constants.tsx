@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
     TOOLBAR_HEATMAPS: 'toolbar-heatmaps', // owner: #team-replay
     THEME: 'theme', // owner: @aprilfools
+    SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
