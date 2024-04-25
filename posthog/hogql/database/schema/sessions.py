@@ -1,4 +1,4 @@
-from typing import cast, Any, Optional, TYPE_CHECKING
+from typing import cast, Any, Optional, TYPE_CHECKING, Union
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -79,6 +79,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
 }
 
 
@@ -118,7 +119,7 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
-    aggregate_fields = {
+    aggregate_fields: dict[str, Union[ast.Expr, tuple[ast.Expr, set[str]]]] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
@@ -153,43 +154,85 @@ def select_from_sessions_table(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$session_duration": ast.Call(
-            name="dateDiff",
-            args=[
-                ast.Constant(value="second"),
-                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
-                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
-            ],
-        ),
-        "$channel_type": create_channel_type_expr(
-            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
-            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-            referring_domain=ast.Call(
-                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
+        "$session_duration": (
+            ast.Call(
+                name="dateDiff",
+                args=[
+                    ast.Constant(value="second"),
+                    ast.Field(chain=["$start_timestamp"]),
+                    ast.Field(chain=["$end_timestamp"]),
+                ],
             ),
-            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+            {"$start_timestamp", "$end_timestamp"},
+        ),
+        "$channel_type": (
+            create_channel_type_expr(
+                campaign=ast.Field(chain=[table_name, "$initial_utm_campaign"]),
+                medium=ast.Field(chain=[table_name, "$initial_utm_medium"]),
+                source=ast.Field(chain=[table_name, "$initial_utm_source"]),
+                referring_domain=ast.Field(chain=[table_name, "$initial_referring_domain"]),
+                gclid=ast.Field(chain=[table_name, "$initial_gclid"]),
+                gad_source=ast.Field(chain=[table_name, "$initial_gad_source"]),
+            ),
+            {
+                "$initial_utm_campaign",
+                "$initial_utm_medium",
+                "$initial_utm_source",
+                "$initial_referring_domain",
+                "$initial_gclid",
+                "$initial_gad_source",
+            },
+        ),
+        "$is_bounce": (
+            ast.Call(
+                name="and",
+                args=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt,
+                        left=ast.Field(chain=["$session_duration"]),
+                        right=ast.Constant(value=30),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["$pageview_count"]),
+                        right=ast.Constant(value=1),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["$autocapture_count"]),
+                        right=ast.Constant(value=0),
+                    ),
+                ],
+            ),
+            {"$session_duration", "$pageview_count", "$autocapture_count"},
         ),
     }
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
 
-    select_fields: list[ast.Expr] = []
+    select_fields: dict[str, ast.Expr] = {}
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
+
+    def add_aggregate_field(_name: str):
+        field = aggregate_fields[_name]
+        if isinstance(field, tuple):
+            field, dependencies = field
+            for dependency in dependencies:
+                add_aggregate_field(dependency)
+        select_fields[_name] = ast.Alias(alias=_name, expr=field)
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
-            select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
+            add_aggregate_field(name)
         else:
-            select_fields.append(
-                ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
+            select_fields[name] = ast.Alias(
+                alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain)
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
 
     return ast.SelectQuery(
-        select=select_fields,
+        select=list(select_fields.values()),
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=group_by_fields,
         where=where,
