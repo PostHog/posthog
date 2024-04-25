@@ -109,10 +109,12 @@ class TestSavedQuery(APIBaseTest):
             [
                 {
                     "id": str(schema.pk),
+                    "incremental": False,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
+                    "status": schema.status,
                     "table": schema.table,
                 }
             ],
@@ -129,7 +131,8 @@ class TestSavedQuery(APIBaseTest):
         self.assertFalse(ExternalDataSource.objects.filter(pk=source.pk).exists())
         self.assertFalse(ExternalDataSchema.objects.filter(pk=schema.pk).exists())
 
-    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_workflow")
+    # TODO: update this test
+    @patch("posthog.warehouse.api.external_data_source.trigger_external_data_source_workflow")
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
 
@@ -225,7 +228,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 
@@ -259,7 +262,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json(), [{"should_sync": False, "table": "table_1"}])
+            self.assertEqual(response.json(), [{"should_sync": True, "table": "table_1"}])
 
             new_team = Team.objects.create(name="new_team", organization=self.team.organization)
 

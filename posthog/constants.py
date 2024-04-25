@@ -289,9 +289,6 @@ class BreakdownAttributionType(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
-BREAKDOWN_VALUES_LIMIT = 25
-BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
-CSV_EXPORT_LIMIT = 10000
 
 
 class EventDefinitionType(str, Enum):

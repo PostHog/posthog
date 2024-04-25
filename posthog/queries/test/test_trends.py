@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
 
@@ -56,8 +56,8 @@ from posthog.test.test_journeys import journeys_for
 from posthog.utils import generate_cache_key
 
 
-def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
-    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
+    ret_dict: dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = (
             value
@@ -112,7 +112,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ).json()
         return response["results"][0]["people"]
 
-    def _create_events(self, use_time=False) -> Tuple[Action, Person]:
+    def _create_events(self, use_time=False) -> tuple[Action, Person]:
         person = _create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -1788,7 +1788,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
+    def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         for time in dates:
             with freeze_time(time):
@@ -5893,7 +5893,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         data = {
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5907,7 +5907,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -5917,7 +5917,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         data = {
             "sampling_factor": 1,
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5931,7 +5931,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = Trends().run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries

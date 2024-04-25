@@ -50,6 +50,10 @@
                 "math_property": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -83,6 +87,10 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "type": "integer"
@@ -150,6 +158,9 @@
                 },
                 "missing_actors_count": {
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "offset": {
                     "type": "integer"
@@ -580,6 +591,10 @@
                 "kind": {
                     "$ref": "#/definitions/NodeKind"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "response": {
                     "description": "Cached query response",
                     "type": "object"
@@ -841,6 +856,10 @@
                 "math_property": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -917,6 +936,10 @@
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse",
@@ -1100,6 +1123,10 @@
                 "math_property": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1173,7 +1200,8 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "exact"
                 },
                 "type": {
                     "const": "event",
@@ -1293,6 +1321,10 @@
                 "math_property": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1368,6 +1400,10 @@
                 "limit": {
                     "description": "Number of rows to return",
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "description": "Number of rows to skip before returning rows",
@@ -1456,6 +1492,9 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "offset": {
                     "type": "integer"
@@ -1648,6 +1687,9 @@
                     "const": "FunnelCorrelationActorsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -1723,6 +1765,9 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "offset": {
                     "type": "integer"
@@ -1829,6 +1874,10 @@
                 "math_property": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -1905,6 +1954,10 @@
                 },
                 "math_property": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "name": {
                     "type": "string"
@@ -2094,6 +2147,9 @@
                     "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -2244,6 +2300,10 @@
                     "const": "FunnelsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -2284,6 +2344,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -2385,6 +2448,10 @@
                     "const": "HogQLAutocomplete",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "response": {
                     "$ref": "#/definitions/HogQLAutocompleteResponse",
                     "description": "Cached query response"
@@ -2473,6 +2540,10 @@
                 "kind": {
                     "const": "HogQLMetadata",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLMetadataResponse",
@@ -2580,7 +2651,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "query": {
                     "type": "string"
@@ -2737,6 +2809,9 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 },
@@ -2758,6 +2833,9 @@
             "properties": {
                 "includeRecordings": {
                     "type": "boolean"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -3064,6 +3142,10 @@
                 "kind": {
                     "$ref": "#/definitions/NodeKind"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -3144,6 +3226,10 @@
                     "$ref": "#/definitions/LifecycleFilter",
                     "description": "Properties specific to the lifecycle insight"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -3187,6 +3273,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -3439,6 +3528,10 @@
                     "const": "PathsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "pathsFilter": {
                     "$ref": "#/definitions/PathsFilter",
                     "description": "Properties specific to the paths insight"
@@ -3479,6 +3572,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -3546,6 +3642,10 @@
                 },
                 "limit": {
                     "type": "integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "offset": {
                     "type": "integer"
@@ -3707,6 +3807,9 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
@@ -3771,6 +3874,9 @@
                         "limit": {
                             "type": "integer"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "offset": {
                             "type": "integer"
                         },
@@ -3815,6 +3921,9 @@
                         },
                         "missing_actors_count": {
                             "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
                         },
                         "offset": {
                             "type": "integer"
@@ -4128,6 +4237,9 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
@@ -4172,6 +4284,9 @@
                         "limit": {
                             "type": "integer"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
@@ -4215,6 +4330,9 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
@@ -4251,6 +4369,9 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
@@ -4281,6 +4402,9 @@
                         },
                         "last_refresh": {
                             "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
                         },
                         "next_allowed_client_refresh": {
                             "type": "string"
@@ -4313,6 +4437,9 @@
                         "last_refresh": {
                             "type": "string"
                         },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
+                        },
                         "next_allowed_client_refresh": {
                             "type": "string"
                         },
@@ -4343,6 +4470,9 @@
                         },
                         "last_refresh": {
                             "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
                         },
                         "next_allowed_client_refresh": {
                             "type": "string"
@@ -4378,6 +4508,9 @@
                         },
                         "limit": {
                             "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers"
                         },
                         "offset": {
                             "type": "integer"
@@ -4692,6 +4825,10 @@
                     "const": "RetentionQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -4732,6 +4869,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -4965,6 +5105,10 @@
                     "const": "SessionsTimelineQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "personId": {
                     "description": "Fetch sessions only for a given person",
                     "type": "string"
@@ -5074,6 +5218,10 @@
                     "const": "StickinessQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -5118,6 +5266,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -5169,6 +5320,10 @@
                     "const": "TimeToSeeDataQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "response": {
                     "description": "Cached query response",
                     "type": "object"
@@ -5202,6 +5357,10 @@
                 "kind": {
                     "const": "TimeToSeeDataSessionsQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/TimeToSeeDataSessionsQueryResponse",
@@ -5393,6 +5552,10 @@
                     "const": "TrendsQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
                 "properties": {
                     "anyOf": [
                         {
@@ -5440,6 +5603,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -5516,6 +5682,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5577,6 +5746,9 @@
                     "const": "WebOverviewQuery",
                     "type": "string"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5613,6 +5785,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"
@@ -5681,6 +5856,9 @@
                 "limit": {
                     "type": "integer"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 },
@@ -5728,6 +5906,9 @@
                 "limit": {
                     "type": "integer"
                 },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
+                },
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
@@ -5764,6 +5945,9 @@
                 "kind": {
                     "const": "WebTopClicksQuery",
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
@@ -5805,6 +5989,9 @@
                 },
                 "last_refresh": {
                     "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers"
                 },
                 "next_allowed_client_refresh": {
                     "type": "string"

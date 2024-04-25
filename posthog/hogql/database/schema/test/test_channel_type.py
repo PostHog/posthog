@@ -234,15 +234,15 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_no_info_is_other(self):
+    def test_no_info_is_unknown(self):
         self.assertEqual(
-            "Other",
+            "Unknown",
             self._get_initial_channel_type({}),
         )
 
-    def test_unknown_domain_is_other(self):
+    def test_unknown_domain_is_unknown(self):
         self.assertEqual(
-            "Other",
+            "Unknown",
             self._get_initial_channel_type(
                 {
                     "$initial_referring_domain": "some-unknown-domain.example.com",
@@ -252,7 +252,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_doesnt_fail_on_numbers(self):
         self.assertEqual(
-            "Other",
+            "Unknown",
             self._get_initial_channel_type(
                 {
                     "$initial_referring_domain": "example.com",
@@ -318,7 +318,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     def test_daily_mail_ad_click(self):
         # go to daily mail -> click ad
         self.assertEqual(
-            "Paid Other",
+            "Paid Unknown",
             self._get_initial_channel_type_from_wild_clicks(
                 "https://www.vivaia.com/item/square-toe-v-cut-flats-p_10003645.html?gid=10011676&currency=GBP&shipping_country_code=GB&gclid=EAIaIQobChMIxvGy5rr_ggMVYi0GAB0KSAumEAEYASABEgLZ2PD_BwE",
                 "https://2bb5cd7f10ba63d8b55ecfac1a3948db.safeframe.googlesyndication.com/",

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, cast
+from typing import Any, cast
 
 from django.db.models import Count, Prefetch
 from rest_framework import request, serializers, viewsets
@@ -123,7 +123,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         return instance
 
-    def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
+    def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps
@@ -165,7 +165,7 @@ class ActionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "action"
-    renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
+    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]
@@ -182,7 +182,7 @@ class ActionViewSet(
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         actions = self.get_queryset()
-        actions_list: List[Dict[Any, Any]] = self.serializer_class(
+        actions_list: list[dict[Any, Any]] = self.serializer_class(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})

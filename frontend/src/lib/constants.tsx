@@ -177,6 +177,7 @@ export const FEATURE_FLAGS = {
     HOGQL_INSIGHTS_STICKINESS: 'hogql-insights-stickiness', // owner: @Gilbert09
     HOGQL_INSIGHTS_FUNNELS: 'hogql-insights-funnels', // owner: @thmsobrmlr
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
+    HOGQL_IN_INSIGHT_SERIALIZATION: 'hogql-in-insight-serialization', // owner: @Twixes
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
@@ -200,7 +201,6 @@ export const FEATURE_FLAGS = {
     SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     BILLING_UPGRADE_LANGUAGE: 'billing-upgrade-language', // owner: @biancayang
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
-    SESSION_REPLAY_V3_INGESTION_PLAYBACK: 'session-replay-v3-ingestion-playback', // owner: @benjackwhite
     SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
     SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
@@ -210,6 +210,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
     IP_ALLOWLIST_SETTING: 'ip-allowlist-setting', // owner: @benjackwhite
     EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
+    TOOLBAR_HEATMAPS: 'toolbar-heatmaps', // owner: #team-replay
     THEME: 'theme', // owner: @aprilfools
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

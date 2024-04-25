@@ -467,6 +467,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -670,6 +671,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1032,6 +1034,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1169,6 +1172,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1463,6 +1467,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1554,6 +1559,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1643,6 +1649,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1703,6 +1710,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1737,14 +1745,35 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.14
   '''
-  /* user_id:199 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT "posthog_experiment"."id",
+         "posthog_experiment"."name",
+         "posthog_experiment"."description",
+         "posthog_experiment"."team_id",
+         "posthog_experiment"."filters",
+         "posthog_experiment"."parameters",
+         "posthog_experiment"."secondary_metrics",
+         "posthog_experiment"."created_by_id",
+         "posthog_experiment"."feature_flag_id",
+         "posthog_experiment"."exposure_cohort_id",
+         "posthog_experiment"."start_date",
+         "posthog_experiment"."end_date",
+         "posthog_experiment"."created_at",
+         "posthog_experiment"."updated_at",
+         "posthog_experiment"."archived"
+  FROM "posthog_experiment"
+  WHERE "posthog_experiment"."exposure_cohort_id" = 2
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.15
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
     AND cohort_id = 2
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.15
+# name: TestFeatureFlag.test_creating_static_cohort.16
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT id

@@ -1014,7 +1014,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"LIMIT 100 "
                 f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
             )
-            self.assertEqual(response.results[0], tuple((random_uuid for x in alternatives)))
+            self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"
@@ -1452,9 +1452,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": random_uuid},
             )
 
-        query = (
-            "SELECT session.session_id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
-        )
+        query = "SELECT session.session_id, session.$session_duration from events WHERE distinct_id={distinct_id} order by timestamp"
         response = execute_hogql_query(
             query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
         )

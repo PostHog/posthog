@@ -480,6 +480,10 @@ class ApiRequest {
         return this.experiments(teamId).addPathComponent(experimentId)
     }
 
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -1309,6 +1313,9 @@ const api = {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
         },
+        async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().experimentCreateExposureCohort(id).create()
+        },
     },
 
     organizationMembers: {
@@ -1794,22 +1801,18 @@ const api = {
         ): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).update({ data })
         },
-
         async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExports().create({ data })
         },
         async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).delete()
         },
-
         async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('pause').create()
         },
-
         async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('unpause').create()
         },
-
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
@@ -1947,6 +1950,12 @@ const api = {
             data: Partial<ExternalDataSourceSchema>
         ): Promise<ExternalDataSourceSchema> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
+        },
+        async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
+        },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
     },
 

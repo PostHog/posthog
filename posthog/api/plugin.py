@@ -2,7 +2,7 @@ import json
 import os
 import re
 import subprocess
-from typing import Any, Dict, List, Optional, Set, cast, Literal
+from typing import Any, Optional, cast, Literal
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -63,7 +63,11 @@ def _update_plugin_attachments(request: request.Request, plugin_config: PluginCo
             _update_plugin_attachment(request, plugin_config, match.group(1), None, user)
 
 
-def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, Any], secret_fields=[]) -> List[Change]:
+def get_plugin_config_changes(
+    old_config: dict[str, Any], new_config: dict[str, Any], secret_fields=None
+) -> list[Change]:
+    if secret_fields is None:
+        secret_fields = []
     config_changes = dict_changes_between("Plugin", old_config, new_config)
 
     for i, change in enumerate(config_changes):
@@ -79,8 +83,10 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
 
 
 def log_enabled_change_activity(
-    new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=[]
+    new_plugin_config: PluginConfig, old_enabled: bool, user: User, was_impersonated: bool, changes=None
 ):
+    if changes is None:
+        changes = []
     if old_enabled != new_plugin_config.enabled:
         log_activity(
             organization_id=new_plugin_config.team.organization.id,
@@ -97,8 +103,8 @@ def log_enabled_change_activity(
 
 def log_config_update_activity(
     new_plugin_config: PluginConfig,
-    old_config: Dict[str, Any],
-    secret_fields: Set[str],
+    old_config: dict[str, Any],
+    secret_fields: set[str],
     old_enabled: bool,
     user: User,
     was_impersonated: bool,
@@ -274,7 +280,7 @@ class PluginSerializer(serializers.ModelSerializer):
     def get_organization_name(self, plugin: Plugin) -> str:
         return plugin.organization.name
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:
         validated_data["url"] = self.initial_data.get("url", None)
         validated_data["organization_id"] = self.context["organization_id"]
         validated_data["updated_at"] = now()
@@ -285,7 +291,7 @@ class PluginSerializer(serializers.ModelSerializer):
 
         return plugin
 
-    def update(self, plugin: Plugin, validated_data: Dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
+    def update(self, plugin: Plugin, validated_data: dict, *args: Any, **kwargs: Any) -> Plugin:  # type: ignore
         context_organization = self.context["get_organization"]()
         if (
             "is_global" in validated_data
@@ -381,7 +387,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def source(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="source editing")
-        response: Dict[str, str] = {}
+        response: dict[str, str] = {}
         for source in PluginSourceFile.objects.filter(plugin=plugin):
             response[source.filename] = source.source
         return Response(response)
@@ -389,7 +395,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["PATCH"], detail=True)
     def update_source(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="source editing")
-        sources: Dict[str, PluginSourceFile] = {}
+        sources: dict[str, PluginSourceFile] = {}
         performed_changes = False
         for plugin_source_file in PluginSourceFile.objects.filter(plugin=plugin):
             sources[plugin_source_file.filename] = plugin_source_file
@@ -432,7 +438,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     sources[key].error = error
                     sources[key].save()
 
-        response: Dict[str, str] = {}
+        response: dict[str, str] = {}
         for _, source in sources.items():
             response[source.filename] = source.source
 
@@ -470,7 +476,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             Plugin.PluginType.SOURCE,
             Plugin.PluginType.LOCAL,
         ):
-            validated_data: Dict[str, Any] = {}
+            validated_data: dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             with transaction.atomic():
                 serializer.update(plugin, validated_data)
@@ -641,7 +647,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # error details instead.
         return None
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
@@ -676,7 +682,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def update(  # type: ignore
         self,
         plugin_config: PluginConfig,
-        validated_data: Dict,
+        validated_data: dict,
         *args: Any,
         **kwargs: Any,
     ) -> PluginConfig:
@@ -725,7 +731,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(deleted=False)
         return queryset.order_by("order", "plugin_id")
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         if context["view"].action in ("retrieve", "list"):
             context["delivery_rates_1d"] = TeamPluginsDeliveryRateQuery(self.team).run()
@@ -850,7 +856,7 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             content = plugin_source.transpiled or ""
             return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
-        obj: Dict[str, Any] = {}
+        obj: dict[str, Any] = {}
         if not plugin_source:
             obj = {"no_frontend": True}
         elif plugin_source.status is None or plugin_source.status == PluginSourceFile.Status.LOCKED:
@@ -862,9 +868,9 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return HttpResponse(content, content_type="application/javascript; charset=UTF-8")
 
 
-def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
+def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
     # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if "secret" in field and field["secret"]}
+    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
     return secret_fields
 
 

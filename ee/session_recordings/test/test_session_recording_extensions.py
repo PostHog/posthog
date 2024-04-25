@@ -103,7 +103,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
                 for file in ["a", "b", "c"]:
                     blob_path = f"{TEST_BUCKET}/team_id/{self.team.pk}/session_id/{session_id}/data"
                     file_name = f"{blob_path}/{file}"
-                    write(file_name, f"my content-{file}".encode("utf-8"))
+                    write(file_name, f"my content-{file}".encode())
 
                 recording: SessionRecording = SessionRecording.objects.create(team=self.team, session_id=session_id)
 
@@ -164,7 +164,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
 
             mock_write.assert_called_with(
                 f"{expected_path}/12345000-12346000",
-                gzip.compress("the new content".encode("utf-8")),
+                gzip.compress(b"the new content"),
                 extras={
                     "ContentEncoding": "gzip",
                     "ContentType": "application/json",

@@ -202,12 +202,12 @@ export function NoResultsEmptyState(): JSX.Element {
                         <div className="w-1/2 my-auto px-6 space-y-4 items-center">
                             <div className="flex items-center">
                                 <div className="font-semibold leading-tight text-base text-current">
-                                    Experiment results not yet available
+                                    Experiment results are not yet available
                                 </div>
                             </div>
                             <div className="text-muted">
-                                Results will be calculated once we've received the necessary minimum events. The
-                                checklist on the right shows what's still needed.
+                                Results will be calculated once we've received the necessary events. The checklist on
+                                the right shows what's still needed.
                             </div>
                         </div>
                         <LemonDivider vertical />
@@ -273,7 +273,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 }
 
 export function PageHeaderCustom(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
     const {
         launchExperiment,
         resetRunningExperiment,
@@ -282,7 +282,10 @@ export function PageHeaderCustom(): JSX.Element {
         setEditExperiment,
         loadExperimentResults,
         loadSecondaryMetricResults,
+        createExposureCohort,
     } = useActions(experimentLogic)
+
+    const exposureCohortId = experiment?.exposure_cohort
 
     return (
         <PageHeader
@@ -293,49 +296,71 @@ export function PageHeaderCustom(): JSX.Element {
                             <LemonButton type="secondary" className="mr-2" onClick={() => setEditExperiment(true)}>
                                 Edit
                             </LemonButton>
-                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                            <LemonButton
+                                type="primary"
+                                data-attr="launch-experiment"
+                                onClick={() => launchExperiment()}
+                            >
                                 Launch
                             </LemonButton>
                         </div>
                     )}
                     {experiment && isExperimentRunning && (
                         <div className="flex flex-row gap-2">
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => loadExperimentResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-experiment"
-                                            >
-                                                Refresh experiment results
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-secondary-metrics"
-                                            >
-                                                Refresh secondary metrics
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
+                            {!isExperimentStopped && !experiment.archived && (
+                                <>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        exposureCohortId ? undefined : createExposureCohort()
+                                                    }
+                                                    fullWidth
+                                                    data-attr={`${
+                                                        exposureCohortId ? 'view' : 'create'
+                                                    }-exposure-cohort`}
+                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                    targetBlank={!!exposureCohortId}
+                                                >
+                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadExperimentResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-experiment"
+                                                >
+                                                    Refresh experiment results
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadSecondaryMetricResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-secondary-metrics"
+                                                >
+                                                    Refresh secondary metrics
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
                             <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                             {!experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                <LemonButton
+                                    type="secondary"
+                                    data-attr="stop-experiment"
+                                    status="danger"
+                                    onClick={() => endExperiment()}
+                                >
                                     Stop
                                 </LemonButton>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
+                            {isExperimentStopped && (
+                                <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                    <b>Archive</b>
+                                </LemonButton>
+                            )}
                         </div>
                     )}
                 </>
@@ -355,13 +380,14 @@ export function ActionBanner(): JSX.Element {
         areResultsSignificant,
         isExperimentStopped,
         funnelResultsPersonsTotal,
-        recommendedSampleSize,
         actualRunningTime,
-        recommendedRunningTime,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>
@@ -392,7 +418,7 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="warning" className="mt-4">
-                    You've reached a robust sample size for your experiment, but the results are still inconclusive.
+                    You've reached a sufficient sample size for your experiment, but the results are still inconclusive.
                     Continuing the experiment is unlikely to yield significant findings. It may be time to stop this
                     experiment.
                 </LemonBanner>
@@ -409,8 +435,8 @@ export function ActionBanner(): JSX.Element {
 
         return (
             <LemonBanner type="info" className="mt-4">
-                Your experiment is live and is collecting data, but hasn't yet reached the statistical significance
-                needed to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
+                Your experiment is live and collecting data, but hasn't yet reached the statistical significance needed
+                to make reliable decisions. It's important to wait for more data to avoid premature conclusions.
             </LemonBanner>
         )
     }
@@ -433,9 +459,9 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the sample size just meets the minimum requirements,
-                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
-                    running the experiment a bit longer.
+                    You've achieved significant results, however, the sample size barely meets the minimum requirements,
+                    and the win probability is marginally above 90%. To ensure more reliable outcomes, consider running
+                    the experiment longer.
                 </LemonBanner>
             )
         }
@@ -447,9 +473,9 @@ export function ActionBanner(): JSX.Element {
         ) {
             return (
                 <LemonBanner type="info" className="mt-4">
-                    You've achieved significant results, however, the running time just meets the minimum requirements,
-                    and the win probability is only marginally above 90%. To ensure more reliable outcomes, consider
-                    running the experiment a bit longer.
+                    You've achieved significant results, however, the running time barely meets the minimum
+                    requirements, and the win probability is marginally above 90%. To ensure more reliable outcomes,
+                    consider running the experiment longer.
                 </LemonBanner>
             )
         }

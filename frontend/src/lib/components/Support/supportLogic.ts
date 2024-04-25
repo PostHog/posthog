@@ -8,6 +8,7 @@ import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -54,7 +55,7 @@ function getBillingAdminLink(user: UserType | null): string {
     if (!user) {
         return ''
     }
-    const link = `http://go/billing/customer/${user.organization?.id}`
+    const link = `http://go/billing/${user.organization?.id}`
     return `Billing Admin: ${link} (Organization: '${user.organization?.name}'`
 }
 
@@ -79,7 +80,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'apps',
                 'data-attr': `support-form-target-area-apps`,
-                label: 'Apps',
+                label: 'Data pipelines',
             },
             {
                 value: 'login',
@@ -335,6 +336,11 @@ export const supportLogic = kea<supportLogicType>([
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
+            }
+        },
+        openEmailForm: async () => {
+            if (window.location.href.includes(urls.organizationBilling())) {
+                actions.setSendSupportRequestValue('target_area', 'billing')
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {

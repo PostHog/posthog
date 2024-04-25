@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import posthoganalytics
 import pydantic
@@ -33,10 +33,10 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails, PersonOnEventsMode
+from posthog.utils import GenericEmails
 
 from .team_caching import get_team_in_cache, set_team_in_cache
-from ...schema import PathCleaningFilter
+from ...schema import PathCleaningFilter, PersonsOnEventsMode
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -64,7 +64,7 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization: Optional[Any]) -> List:
+    def set_test_account_filters(self, organization: Optional[Any]) -> list:
         filters = [
             {
                 "key": "$host",
@@ -81,13 +81,9 @@ class TeamManager(models.Manager):
                 example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     return [
-                        {
-                            "key": "email",
-                            "operator": "not_icontains",
-                            "value": example_email.group(),
-                            "type": "person",
-                        }
-                    ] + filters
+                        {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},
+                        *filters,
+                    ]
         return filters
 
     def create_with_data(self, user: Any = None, default_dashboards: bool = True, **kwargs) -> "Team":
@@ -154,7 +150,7 @@ class TeamManager(models.Manager):
         return result[0]
 
 
-def get_default_data_attributes() -> List[str]:
+def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
 
 
@@ -222,6 +218,7 @@ class Team(UUIDClassicModel):
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    heatmaps_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     session_recording_version: models.CharField = models.CharField(null=True, blank=True, max_length=24)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
@@ -289,33 +286,33 @@ class Team(UUIDClassicModel):
     objects: TeamManager = TeamManager()
 
     @property
-    def person_on_events_mode(self) -> PersonOnEventsMode:
+    def person_on_events_mode(self) -> PersonsOnEventsMode:
         if self._person_on_events_person_id_override_properties_on_events:
-            tag_queries(person_on_events_mode=PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
-            return PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            tag_queries(person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_on_events)
+            return PersonsOnEventsMode.person_id_override_properties_on_events
 
         if self._person_on_events_person_id_no_override_properties_on_events:
             # also tag person_on_events_enabled for legacy compatibility
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                person_on_events_mode=PersonsOnEventsMode.person_id_no_override_properties_on_events,
             )
-            return PersonOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            return PersonsOnEventsMode.person_id_no_override_properties_on_events
 
         if self._person_on_events_person_id_override_properties_joined:
             tag_queries(
                 person_on_events_enabled=True,
-                person_on_events_mode=PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                person_on_events_mode=PersonsOnEventsMode.person_id_override_properties_joined,
             )
-            return PersonOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+            return PersonsOnEventsMode.person_id_override_properties_joined
 
-        return PersonOnEventsMode.DISABLED
+        return PersonsOnEventsMode.disabled
 
     # KLUDGE: DO NOT REFERENCE IN THE BACKEND!
     # Keeping this property for now only to be used by the frontend in certain cases
     @property
     def person_on_events_querying_enabled(self) -> bool:
-        return self.person_on_events_mode != PersonOnEventsMode.DISABLED
+        return self.person_on_events_mode != PersonsOnEventsMode.disabled
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
@@ -481,7 +478,7 @@ def groups_on_events_querying_enabled():
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
-    available_product_features: Optional[List[Dict[str, str]]] = (
+    available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")
         .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)

@@ -25,7 +25,7 @@ from parameterized import parameterized
 from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
-from typing import Any, Dict, List, Union, cast
+from typing import Any, Union, cast
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import quote
 
@@ -60,10 +60,10 @@ parser = ResolvingParser(
     url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
     strict=True,
 )
-openapi_spec = cast(Dict[str, Any], parser.specification)
+openapi_spec = cast(dict[str, Any], parser.specification)
 
 large_data_array = [
-    {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
+    {"key": "".join(random.choice(string.ascii_letters) for _ in range(512 * 1024))}
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
 
 android_json = {
@@ -162,7 +162,7 @@ class TestCapture(BaseTest):
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
 
-    def _to_json(self, data: Union[Dict, List]) -> str:
+    def _to_json(self, data: Union[dict, list]) -> str:
         return json.dumps(data)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -188,7 +188,7 @@ class TestCapture(BaseTest):
     def _send_original_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | None = {},
+        event_data: dict | None = None,
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -196,6 +196,8 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
         if event_data is None:
             event_data = {}
 
@@ -227,7 +229,7 @@ class TestCapture(BaseTest):
     def _send_august_2023_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | List[Dict] | None = None,
+        event_data: dict | list[dict] | None = None,
         session_id="abc123",
         window_id="def456",
         distinct_id="ghi789",
@@ -239,7 +241,7 @@ class TestCapture(BaseTest):
             # event_data is an array of RRWeb events
             event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
 
-        if isinstance(event_data, Dict):
+        if isinstance(event_data, dict):
             event_data = [event_data]
 
         event = {
@@ -258,7 +260,7 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
-        post_data: List[Dict[str, Any]] | Dict[str, Any]
+        post_data: list[dict[str, Any]] | dict[str, Any]
 
         if content_type == "application/json":
             post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
@@ -1252,7 +1254,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
+            "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -1281,7 +1283,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
+            "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -1524,9 +1526,9 @@ class TestCapture(BaseTest):
             ),
         ]
     )
-    def test_cors_allows_tracing_headers(self, _: str, path: str, headers: List[str]) -> None:
-        expected_headers = ",".join(["X-Requested-With", "Content-Type"] + headers)
-        presented_headers = ",".join(headers + ["someotherrandomheader"])
+    def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
+        expected_headers = ",".join(["X-Requested-With", "Content-Type", *headers])
+        presented_headers = ",".join([*headers, "someotherrandomheader"])
         response = self.client.options(
             path,
             HTTP_ORIGIN="https://localhost",

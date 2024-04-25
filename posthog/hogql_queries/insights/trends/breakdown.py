@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional, Tuple, Union, cast
+from typing import Optional, Union, cast
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
@@ -29,7 +30,8 @@ class Breakdown:
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
-    breakdown_values_override: Optional[List[str]]
+    breakdown_values_override: Optional[list[str]]
+    limit_context: LimitContext
 
     def __init__(
         self,
@@ -40,7 +42,8 @@ class Breakdown:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
-        breakdown_values_override: Optional[List[str]] = None,
+        breakdown_values_override: Optional[list[str]] = None,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
         self.query = query
@@ -50,6 +53,7 @@ class Breakdown:
         self.modifiers = modifiers
         self.events_filter = events_filter
         self.breakdown_values_override = breakdown_values_override
+        self.limit_context = limit_context
 
     @cached_property
     def enabled(self) -> bool:
@@ -67,7 +71,7 @@ class Breakdown:
     def is_histogram_breakdown(self) -> bool:
         return self.enabled and self.query.breakdownFilter.breakdown_histogram_bin_count is not None
 
-    def placeholders(self) -> Dict[str, ast.Expr]:
+    def placeholders(self) -> dict[str, ast.Expr]:
         values = self._breakdown_buckets_ast if self.is_histogram_breakdown else self._breakdown_values_ast
 
         return {"cross_join_breakdown_values": ast.Alias(alias="breakdown_value", expr=values)}
@@ -102,7 +106,7 @@ class Breakdown:
             if self.query.breakdownFilter.breakdown == "all":
                 return None
 
-            if isinstance(self.query.breakdownFilter.breakdown, List):
+            if isinstance(self.query.breakdownFilter.breakdown, list):
                 or_clause = ast.Or(
                     exprs=[
                         ast.CompareOperation(
@@ -127,7 +131,12 @@ class Breakdown:
             )
 
         # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
-        if self.query.breakdownFilter is not None and not self.query.breakdownFilter.breakdown_hide_other_aggregation:
+        # Except when explicitly filtering
+        if (
+            self.query.breakdownFilter is not None
+            and not self.query.breakdownFilter.breakdown_hide_other_aggregation
+            and len(self.breakdown_values_override or []) == 0
+        ):
             return ast.Constant(value=True)
 
         if (
@@ -217,10 +226,10 @@ class Breakdown:
         return ast.Array(exprs=exprs)
 
     @cached_property
-    def _all_breakdown_values(self) -> List[str | int | None]:
+    def _all_breakdown_values(self) -> list[str | int | None]:
         # Used in the actors query
         if self.breakdown_values_override is not None:
-            return cast(List[str | int | None], self.breakdown_values_override)
+            return cast(list[str | int | None], self.breakdown_values_override)
 
         if self.query.breakdownFilter is None:
             return []
@@ -234,19 +243,20 @@ class Breakdown:
                 breakdown_filter=self.query.breakdownFilter,
                 query_date_range=self.query_date_range,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
-            return cast(List[str | int | None], breakdown.get_breakdown_values())
+            return cast(list[str | int | None], breakdown.get_breakdown_values())
 
     @cached_property
-    def _breakdown_values(self) -> List[str | int]:
+    def _breakdown_values(self) -> list[str | int]:
         values = [BREAKDOWN_NULL_STRING_LABEL if v is None else v for v in self._all_breakdown_values]
-        return cast(List[str | int], values)
+        return cast(list[str | int], values)
 
     @cached_property
     def has_breakdown_values(self) -> bool:
         return len(self._breakdown_values) > 0
 
-    def _get_breakdown_histogram_buckets(self) -> List[Tuple[float, float]]:
+    def _get_breakdown_histogram_buckets(self) -> list[tuple[float, float]]:
         buckets = []
         values = self._breakdown_values
 
@@ -265,7 +275,7 @@ class Breakdown:
         return buckets
 
     def _get_breakdown_histogram_multi_if(self) -> ast.Expr:
-        multi_if_exprs: List[ast.Expr] = []
+        multi_if_exprs: list[ast.Expr] = []
 
         buckets = self._get_breakdown_histogram_buckets()
 

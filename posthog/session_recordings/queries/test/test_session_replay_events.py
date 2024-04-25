@@ -52,6 +52,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "keypress_count": 2,
             "mouse_activity_count": 2,
             "start_time": self.base_time,
+            "snapshot_source": "web",
         }
 
     def test_get_nonexistent_metadata(self) -> None:

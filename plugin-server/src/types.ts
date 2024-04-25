@@ -116,6 +116,7 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -209,6 +210,7 @@ export interface PluginsServerConfig {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
+    LAZY_PERSON_CREATION_TEAMS: string
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -292,6 +294,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
     poeWritesExcludeTeams: ValueMatcher<number>
+    lazyPersonCreationTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -732,9 +735,17 @@ export interface RawPerson extends BasePerson {
 }
 
 /** Usable Person model. */
-export interface Person extends BasePerson {
+export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Person model exposed outside of person-specific DB logic. */
+export interface Person {
+    team_id: number
+    properties: Properties
+    uuid: string
+    created_at: DateTime
 }
 
 /** Clickhouse Person model. */
@@ -1098,4 +1109,27 @@ export type RRWebEvent = Record<string, any> & {
 
 export interface ValueMatcher<T> {
     (value: T): boolean
+}
+
+export type RawClickhouseHeatmapEvent = {
+    /**
+     * session id lets us offer example recordings on high traffic parts of the page,
+     * and could let us offer more advanced filtering of heatmap data
+     * we will break the relationship between particular sessions and clicks in aggregating this data
+     * it should always be treated as an exemplar and not as concrete values
+     */
+    session_id: string
+    distinct_id: string
+    viewport_width: number
+    viewport_height: number
+    pointer_target_fixed: boolean
+    current_url: string
+    // x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    x: number
+    // y is the y with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    y: number
+    scale_factor: 16 // in the future we may support other values
+    timestamp: string
+    type: string
+    team_id: number
 }

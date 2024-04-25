@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -131,7 +131,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -140,10 +140,15 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
-            assert len(response.json()["results"]) == 2
+            assert len(response.json()["results"]) == 3
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
@@ -1488,11 +1493,11 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
 
-def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

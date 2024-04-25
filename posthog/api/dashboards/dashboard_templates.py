@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Dict
 
 import structlog
 from django.db.models import Q
@@ -50,7 +49,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "scope",
         ]
 
-    def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
+    def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
         if not validated_data["tiles"]:
             raise ValidationError(detail="You need to provide tiles for the template.")
 
@@ -61,7 +60,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         validated_data["team_id"] = self.context["team_id"]
         return super().create(validated_data, *args, **kwargs)
 
-    def update(self, instance: DashboardTemplate, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
+    def update(self, instance: DashboardTemplate, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
         # if the original request was to make the template scope to team only, and the template is none then deny the request
         if validated_data.get("scope") == "team" and instance.scope == "global" and not instance.team_id:
             raise ValidationError(detail="The original templates cannot be made private as they would be lost.")

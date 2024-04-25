@@ -552,15 +552,15 @@ class FunnelCorrelationTest(BaseTest):
                 ),
             )
 
-            (browser_correlation,) = [
+            (browser_correlation,) = (
                 correlation
                 for correlation in odds["result"]["events"]
                 if correlation["event"]["event"] == "$browser::1"
-            ]
+            )
 
-            (notset_correlation,) = [
+            (notset_correlation,) = (
                 correlation for correlation in odds["result"]["events"] if correlation["event"]["event"] == "$browser::"
-            ]
+            )
 
             assert get_people_for_correlation_ok(client=self.client, correlation=browser_correlation) == {
                 "success": ["Person 2"],

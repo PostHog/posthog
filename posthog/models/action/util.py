@@ -1,6 +1,6 @@
 from collections import Counter
-from typing import Counter as TCounter, Literal, Optional
-from typing import Dict, List, Tuple
+from typing import Literal, Optional
+from collections import Counter as TCounter
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
@@ -15,7 +15,7 @@ from posthog.queries.util import PersonPropertiesMode
 def format_action_filter_event_only(
     action: Action,
     prepend: str = "action",
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     """Return SQL for prefiltering events by action, i.e. down to only the events and without any other filters."""
     events = action.get_step_events()
     if not events:
@@ -37,7 +37,7 @@ def format_action_filter(
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     """Return SQL for filtering events by action."""
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -48,7 +48,7 @@ def format_action_filter(
 
     or_queries = []
     for index, step in enumerate(steps):
-        conditions: List[str] = []
+        conditions: list[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
             from posthog.models.property.util import (
@@ -118,7 +118,7 @@ def format_action_filter(
 
 def filter_event(
     step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
-) -> Tuple[List[str], Dict]:
+) -> tuple[list[str], dict]:
     from posthog.models.property.util import get_property_string_expr
 
     params = {}
@@ -156,7 +156,7 @@ def format_entity_filter(
     person_id_joined_alias: str,
     prepend: str = "action",
     filter_by_team=True,
-) -> Tuple[str, Dict]:
+) -> tuple[str, dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
         entity_filter, params = format_action_filter(

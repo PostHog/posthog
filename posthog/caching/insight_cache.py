@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, List, Optional, Tuple, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 import structlog
@@ -12,8 +12,8 @@ from prometheus_client import Counter
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.caching.calculate_results import calculate_result_by_insight
-from posthog.models import Dashboard, Insight, InsightCachingState, Team
+from posthog.caching.calculate_results import calculate_for_filter_based_insight
+from posthog.models import Dashboard, Insight, InsightCachingState
 from posthog.models.instance_setting import get_instance_setting
 from posthog.tasks.tasks import update_cache_task
 
@@ -49,7 +49,7 @@ def schedule_cache_updates():
         logger.warn("No caches were found to be updated")
 
 
-def fetch_states_in_need_of_updating(limit: int) -> List[Tuple[int, str, UUID]]:
+def fetch_states_in_need_of_updating(limit: int) -> list[tuple[int, str, UUID]]:
     current_time = now()
     with connection.cursor() as cursor:
         cursor.execute(
@@ -90,13 +90,12 @@ def update_cache(caching_state_id: UUID):
         return
 
     insight, dashboard = _extract_insight_dashboard(caching_state)
-    team: Team = insight.team
     start_time = perf_counter()
 
     exception = cache_key = cache_type = None
 
     metadata = {
-        "team_id": team.pk,
+        "team_id": insight.team_id,
         "insight_id": insight.pk,
         "dashboard_id": dashboard.pk if dashboard else None,
         "last_refresh": caching_state.last_refresh,
@@ -104,7 +103,7 @@ def update_cache(caching_state_id: UUID):
     }
 
     try:
-        cache_key, cache_type, result = calculate_result_by_insight(team=team, insight=insight, dashboard=dashboard)
+        cache_key, cache_type, result = calculate_for_filter_based_insight(insight=insight, dashboard=dashboard)
     except Exception as err:
         capture_exception(err, metadata)
         exception = err
@@ -163,7 +162,7 @@ def update_cached_state(
     )
 
 
-def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:
+def _extract_insight_dashboard(caching_state: InsightCachingState) -> tuple[Insight, Optional[Dashboard]]:
     if caching_state.dashboard_tile is not None:
         assert caching_state.dashboard_tile.insight is not None
 

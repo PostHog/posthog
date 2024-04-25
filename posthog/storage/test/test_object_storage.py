@@ -57,7 +57,7 @@ class TestStorage(APIBaseTest):
             chunk_id = uuid.uuid4()
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
-            write(file_name, "my content".encode("utf-8"))
+            write(file_name, b"my content")
             self.assertEqual(read(file_name), "my content")
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
@@ -66,7 +66,7 @@ class TestStorage(APIBaseTest):
             chunk_id = uuid.uuid4()
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_can_generate_presigned_url_for_existing_file/{name}"
-            write(file_name, "my content".encode("utf-8"))
+            write(file_name, b"my content")
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
@@ -93,7 +93,7 @@ class TestStorage(APIBaseTest):
 
             for file in ["a", "b", "c"]:
                 file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
-                write(file_name, "my content".encode("utf-8"))
+                write(file_name, b"my content")
 
             listing = list_objects(prefix=f"{TEST_BUCKET}/{shared_prefix}")
 
@@ -117,7 +117,7 @@ class TestStorage(APIBaseTest):
 
             for file in ["a", "b", "c"]:
                 file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
-                write(file_name, "my content".encode("utf-8"))
+                write(file_name, b"my content")
 
             copied_count = copy_objects(
                 source_prefix=f"{TEST_BUCKET}/{shared_prefix}",
@@ -142,7 +142,7 @@ class TestStorage(APIBaseTest):
 
             for file in ["a", "b", "c"]:
                 file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
-                write(file_name, "my content".encode("utf-8"))
+                write(file_name, b"my content")
 
             copied_count = copy_objects(
                 source_prefix=f"nothing_here",

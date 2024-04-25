@@ -1,5 +1,5 @@
 import json
-from typing import List, Any
+from typing import Any
 
 from django.db import models
 from django.db.models import Q
@@ -51,10 +51,10 @@ class Action(models.Model):
             "deleted": self.deleted,
         }
 
-    def get_step_events(self) -> List[str]:
+    def get_step_events(self) -> list[str]:
         return [action_step.event for action_step in self.steps.all()]
 
-    def generate_bytecode(self) -> List[Any]:
+    def generate_bytecode(self) -> list[Any]:
         from posthog.hogql.property import action_to_expr
         from posthog.hogql.bytecode import create_bytecode
 

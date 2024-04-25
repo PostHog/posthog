@@ -1,6 +1,7 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import Any, Callable, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 
 from django.shortcuts import redirect
 import structlog
@@ -66,7 +67,7 @@ cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "tr
 
 
 class AllowIPMiddleware:
-    trusted_proxies: List[str] = []
+    trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:
@@ -94,7 +95,7 @@ class AllowIPMiddleware:
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
                     return client_ip
-                proxies = [closest_proxy] + forwarded_for
+                proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
                     if proxy not in self.trusted_proxies:
                         return None
@@ -411,7 +412,7 @@ class CaptureMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        middlewares: List[Any] = []
+        middlewares: list[Any] = []
         # based on how we're using these middlewares, only middlewares that
         # have a process_request and process_response attribute can be valid here.
         # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
@@ -486,7 +487,7 @@ class CaptureMiddleware:
 
 
 def per_request_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     We get some default logging context from the django-structlog middleware,
@@ -517,7 +518,7 @@ def per_request_logging_context_middleware(
 
 
 def user_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     This middleware adds the team_id to the logging context if it exists. Note

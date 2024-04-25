@@ -337,11 +337,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async () => {
-                    const params = {
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
-                    }
-
-                    const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
+                    const response = await api.recordings.listSnapshots(props.sessionRecordingId)
                     return response.sources ?? []
                 },
             },
@@ -353,7 +349,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const params = {
                         source: source.source,
                         blob_key: source.blob_key,
-                        version: values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_V3_INGESTION_PLAYBACK] ? '3' : '2',
                     }
 
                     const snapshotLoadingStartTime = performance.now()
@@ -368,7 +363,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw new Error('Missing key')
                     }
 
-                    const blobResponseType = source.source === SnapshotSourceType.blob || params.version === '3'
+                    const blobResponseType = source.source === SnapshotSourceType.blob
 
                     const response = blobResponseType
                         ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params).catch((e) => {
@@ -549,7 +544,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + 1
+                // if we're getting no results from realtime polling we can increment faster
+                // so that we stop polling sooner
+                const increment = newSnapshotsCount === 0 ? 2 : 1
+                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
             } else {
                 cache.lastSnapshotsUnchangedCount = 0
             }
@@ -618,6 +616,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
+                    values.sessionPlayerMetaData,
                     0
                 )
                 // Reset cache now that final usage report has been sent
@@ -632,6 +631,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
+                values.sessionPlayerMetaData,
                 0
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
@@ -639,6 +639,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
+                values.sessionPlayerMetaData,
                 10
             )
         },
@@ -653,7 +654,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
     })),
-    selectors({
+    selectors(({ cache }) => ({
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -692,7 +693,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading],
             (snapshotSourcesLoading, snapshotsForSourceLoading): boolean => {
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+                // if there's a realTimePollingTimeoutID, don't signal that we're loading
+                // we don't want the UI to flip to "loading" every time we poll
+                return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
@@ -869,7 +872,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             },
         ],
-    }),
+    })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)
     }),

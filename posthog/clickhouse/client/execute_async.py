@@ -1,11 +1,13 @@
 import datetime
 import json
+from functools import partial
 from typing import Optional
 import uuid
 
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
+from django.db import transaction
 
 from posthog import celery, redis
 from posthog.clickhouse.query_tagging import tag_queries
@@ -81,7 +83,7 @@ def execute_process_query(
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query
+    from posthog.api.services.query import process_query, ExecutionMode
     from posthog.models import Team
 
     team = Team.objects.get(pk=team_id)
@@ -101,7 +103,12 @@ def execute_process_query(
     try:
         tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
         results = process_query(
-            team=team, query_json=query_json, limit_context=limit_context, refresh_requested=refresh_requested
+            team=team,
+            query_json=query_json,
+            limit_context=limit_context,
+            execution_mode=ExecutionMode.CALCULATION_ALWAYS
+            if refresh_requested
+            else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
@@ -122,6 +129,27 @@ def execute_process_query(
         raise err
     finally:
         manager.store_query_status(query_status)
+
+
+def kick_off_task(
+    manager: QueryStatusManager,
+    query_id: str,
+    query_json: dict,
+    query_status: QueryStatus,
+    refresh_requested: bool,
+    team_id: int,
+    user_id: int,
+):
+    task = process_query_task.delay(
+        team_id,
+        user_id,
+        query_id,
+        query_json,
+        limit_context=LimitContext.QUERY_ASYNC,
+        refresh_requested=refresh_requested,
+    )
+    query_status.task_id = task.id
+    manager.store_query_status(query_status)
 
 
 def enqueue_process_query_task(
@@ -159,16 +187,9 @@ def enqueue_process_query_task(
             refresh_requested=refresh_requested,
         )
     else:
-        task = process_query_task.delay(
-            team_id,
-            user_id,
-            query_id,
-            query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-            refresh_requested=refresh_requested,
+        transaction.on_commit(
+            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
         )
-        query_status.task_id = task.id
-        manager.store_query_status(query_status)
 
     return query_status
 
