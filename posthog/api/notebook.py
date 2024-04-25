@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any, Type
+from typing import Optional, Any
 from django.db.models import Q
 import structlog
 from django.db import transaction
@@ -60,7 +60,7 @@ def log_notebook_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
 
@@ -122,7 +122,7 @@ class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerM
             "user_access_level",
         ]
 
-    def create(self, validated_data: Dict, *args, **kwargs) -> Notebook:
+    def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
         team = self.context["get_team"]()
 
@@ -145,7 +145,7 @@ class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerM
 
         return notebook
 
-    def update(self, instance: Notebook, validated_data: Dict, **kwargs) -> Notebook:
+    def update(self, instance: Notebook, validated_data: dict, **kwargs) -> Notebook:
         try:
             before_update = Notebook.objects.get(pk=instance.id)
         except Notebook.DoesNotExist:
@@ -244,7 +244,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     filterset_fields = ["short_id"]
     lookup_field = "short_id"
 
-    def get_serializer_class(self) -> Type[BaseSerializer]:
+    def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
     def get_queryset(self) -> QuerySet:
@@ -302,8 +302,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
                     if target:
                         # the JSONB query requires a specific structure
-                        basic_structure = List[Dict[str, Any]]
-                        nested_structure = basic_structure | List[Dict[str, basic_structure]]
+                        basic_structure = list[dict[str, Any]]
+                        nested_structure = basic_structure | list[dict[str, basic_structure]]
 
                         presence_match_structure: basic_structure | nested_structure = [{"type": f"ph-{target}"}]
 

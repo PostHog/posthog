@@ -1,7 +1,6 @@
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List
 from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
@@ -65,7 +64,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     # because we use `now()` in the CH queries which don't know about any frozen time
     # @snapshot_clickhouse_queries
     def test_get_session_recordings(self):
-        twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
+        twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
         user = Person.objects.create(
             team=self.team,
@@ -132,7 +131,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # almost duplicate of test_get_session_recordings above
         # but if we have multiple distinct ids on a recording the snapshot
         # varies which makes the snapshot useless
-        twelve_distinct_ids: List[str] = [f"user_one_{i}" for i in range(12)]
+        twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
         Person.objects.create(
             team=self.team,
@@ -383,6 +382,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "snapshot_source": "web",
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
@@ -576,7 +576,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             object_storage_path="an lts stored object path",
         )
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             # this mock simulates a recording whose blob storage has been deleted by TTL
             # but which has been stored in LTS blob storage
             if path == "an lts stored object path":

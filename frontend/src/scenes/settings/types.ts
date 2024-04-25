@@ -77,6 +77,7 @@ export type SettingId =
     | 'optout'
     | 'theme'
     | 'replay-ai-config'
+    | 'heatmaps'
 
 export type Setting = {
     id: SettingId

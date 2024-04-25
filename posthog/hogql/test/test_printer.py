@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Dict
+from typing import Literal, Optional
 
 import pytest
 from django.test import override_settings
@@ -35,7 +35,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        placeholders: Optional[Dict[str, ast.Expr]] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),

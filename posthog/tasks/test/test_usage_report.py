@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
 
@@ -324,14 +324,14 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
             flush_persons_and_events()
 
-    def _select_report_by_org_id(self, org_id: str, reports: List[Dict]) -> Dict:
+    def _select_report_by_org_id(self, org_id: str, reports: list[dict]) -> dict:
         return next(report for report in reports if report["organization_id"] == org_id)
 
     def _create_plugin(self, name: str, enabled: bool) -> None:
         plugin = Plugin.objects.create(organization_id=self.team.organization.pk, name=name)
         PluginConfig.objects.create(plugin=plugin, enabled=enabled, order=1)
 
-    def _test_usage_report(self) -> List[dict]:
+    def _test_usage_report(self) -> list[dict]:
         with self.settings(SITE_URL="http://test.posthog.com"):
             self._create_sample_usage_data()
             self._create_plugin("Installed but not enabled", False)

@@ -1,6 +1,7 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import Any, Callable, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 
 from django.shortcuts import redirect
 import structlog
@@ -67,7 +68,7 @@ cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "tr
 
 
 class AllowIPMiddleware:
-    trusted_proxies: List[str] = []
+    trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:
@@ -422,7 +423,7 @@ class CaptureMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        middlewares: List[Any] = []
+        middlewares: list[Any] = []
         # based on how we're using these middlewares, only middlewares that
         # have a process_request and process_response attribute can be valid here.
         # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which

@@ -1,5 +1,4 @@
 import math
-from typing import Dict
 
 import freezegun
 from django.http import HttpResponse
@@ -48,21 +47,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     CLASS_DATA_LEVEL_SETUP = False
 
     def _assert_heatmap_no_result_count(
-        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
     ) -> None:
         response = self._get_heatmap(params, expected_status_code)
         if response.status_code == status.HTTP_200_OK:
             assert len(response.json()["results"]) == 0
 
     def _assert_heatmap_single_result_count(
-        self, params: Dict[str, str | int | None] | None, expected_grouped_count: int
+        self, params: dict[str, str | int | None] | None, expected_grouped_count: int
     ) -> None:
         response = self._get_heatmap(params)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
 
     def _get_heatmap(
-        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
     ) -> HttpResponse:
         if params is None:
             params = {}

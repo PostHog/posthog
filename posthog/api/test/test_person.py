@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Optional, cast
+from typing import Optional, cast
 from unittest import mock
 from unittest.mock import patch, Mock
 
@@ -982,10 +982,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def _assert_person_activity(self, person_id: Optional[str], expected: List[Dict]):
+    def _assert_person_activity(self, person_id: Optional[str], expected: list[dict]):
         activity_response = self._get_person_activity(person_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
 

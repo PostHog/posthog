@@ -1,5 +1,5 @@
 import datetime
-from typing import List, Tuple, Union
+from typing import Union
 from django.conf import settings
 import structlog
 from celery import chain
@@ -28,7 +28,7 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
     max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
-) -> Tuple[List[Insight], List[ExportedAsset]]:
+) -> tuple[list[Insight], list[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
             tiles = get_tiles_ordered_by_position(resource.dashboard)

@@ -218,7 +218,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return dashboard
                     } catch (error: any) {
                         if (error.status === 404) {
-                            throw new Error('Dashboard not found')
+                            return null
                         }
                         throw error
                     }

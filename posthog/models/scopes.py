@@ -4,9 +4,15 @@
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
 # WARNING: Make sure to keep in sync with the frontend!
-from typing import Literal, Tuple, get_args
+from typing import Literal, get_args
 
 
+## API Scopes
+# These are the scopes that are used to define the permissions of the API tokens.
+# Not every model needs a scope - it should more be for top-level things
+# Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
+
+# WARNING: Make sure to keep in sync with the frontend!
 APIScopeObject = Literal[
     "action",
     "activity_log",
@@ -50,5 +56,5 @@ APIScopeObjectOrNotSupported = Literal[
 ]
 
 
-API_SCOPE_OBJECTS: Tuple[APIScopeObject, ...] = get_args(APIScopeObject)
-API_SCOPE_ACTIONS: Tuple[APIScopeActions, ...] = get_args(APIScopeActions)
+API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
+API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
