@@ -25,6 +25,7 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -429,7 +430,13 @@ class QueryRunner(ABC, Generic[Q]):
             if dashboard_filter.properties:
                 if self.query.properties:
                     query_update["properties"] = PropertyGroupFilter(
-                        type=FilterLogicalOperator.AND, values=[self.query.properties, dashboard_filter.properties]
+                        type=FilterLogicalOperator.AND,
+                        values=[
+                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties),
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND, values=dashboard_filter.properties
+                            ),
+                        ],
                     )
                 else:
                     query_update["properties"] = dashboard_filter.properties

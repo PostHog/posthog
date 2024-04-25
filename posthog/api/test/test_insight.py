@@ -1246,12 +1246,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         #  Test property filter
 
-        dashboard = Dashboard.objects.get(pk=dashboard_id)
-        dashboard.filters = {
-            "properties": [{"key": "prop", "value": "val"}],
-            "date_from": "-14d",
-        }
-        dashboard.save()
+        Dashboard.objects.update(
+            id=dashboard_id,
+            filters={
+                "properties": [{"key": "prop", "value": "val"}],
+                "date_from": "-14d",
+            },
+        )
         with freeze_time("2012-01-16T05:01:34.000Z"):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
