@@ -260,7 +260,7 @@ def get_person_ids_by_cohort_id(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, team: Team):
-    persons = (
+    persons = [
         {
             "id": str(uuid.uuid4()),
             "person_id": str(person_uuid),
@@ -269,7 +269,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
             "_timestamp": datetime.now(),
         }
         for person_uuid in person_uuids
-    )
+    ]
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 

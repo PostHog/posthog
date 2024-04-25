@@ -142,7 +142,7 @@ services:
     elasticsearch:
         extends:
             file: docker-compose.base.yml
-            service: elasticsearch            
+            service: elasticsearch
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml
