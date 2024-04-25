@@ -201,7 +201,7 @@ export function PersonsModal({
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
-                                <InsightValidationError detail={validationError} />
+                                <InsightValidationError query={query} detail={validationError} />
                             ) : (
                                 <InsightErrorState query={query} />
                             )

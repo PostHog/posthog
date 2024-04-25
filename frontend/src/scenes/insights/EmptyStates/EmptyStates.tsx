@@ -178,17 +178,21 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                                     If this persists, submit a bug report.
                                 </Link>
                             </li>
-                            {query && (
-                                <li>
-                                    <Link data-attr="insight-error-query" to={urls.debugQuery(query)}>
-                                        Open in query debugger
-                                    </Link>
-                                </li>
-                            )}
                         </ol>
                     </div>
                 )}
                 {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {query && (
+                    <LemonButton
+                        data-attr="insight-error-query"
+                        targetBlank
+                        size="small"
+                        type="secondary"
+                        to={urls.debugQuery(query)}
+                    >
+                        Open in query debugger
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -251,7 +255,13 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
+export function InsightValidationError({
+    detail,
+    query,
+}: {
+    detail: string
+    query?: Record<string, any> | null
+}): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -264,6 +274,19 @@ export function InsightValidationError({ detail }: { detail: string }): JSX.Elem
                     {/* but rather that it's something with the definition of the query itself */}
                 </h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
+                {query ? (
+                    <p className="text-sm text-center text-balance">
+                        <LemonButton
+                            data-attr="insight-error-query"
+                            targetBlank
+                            size="small"
+                            type="secondary"
+                            to={urls.debugQuery(query)}
+                        >
+                            Open in query debugger
+                        </LemonButton>
+                    </p>
+                ) : null}
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
                         <Link

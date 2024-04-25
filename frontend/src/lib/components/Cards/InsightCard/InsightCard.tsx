@@ -215,7 +215,7 @@ export function FilterBasedCardContent({
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
-                    <InsightValidationError detail={validationError} />
+                    <InsightValidationError query={query} detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (

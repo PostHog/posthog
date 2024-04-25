@@ -93,7 +93,7 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <InsightValidationError detail={validationError} />
+            return <InsightValidationError query={query} detail={validationError} />
         }
 
         // Insight specific empty states - note order is important here
