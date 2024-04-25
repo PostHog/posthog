@@ -163,7 +163,7 @@ def stripe_source(
             name=endpoint,
             write_disposition="append",
             columns={
-                "description": {"data_type": "string", "nullable": True},
+                "description": {"data_type": "text", "nullable": True},
             },
         )(
             api_key=api_key,
