@@ -1,22 +1,19 @@
 import './Billing.scss'
 
-import { IconCheckCircle, IconPlus } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -35,18 +32,15 @@ export function Billing(): JSX.Element {
     const {
         billing,
         billingLoading,
-        redirectPath,
         isOnboarding,
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
-        isUnlicensedDebug,
         over20kAnnual,
         isAnnualPlan,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -92,43 +86,6 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const getUpgradeAllProductsLink = (): string => {
-        if (!products) {
-            return ''
-        }
-        let url = '/api/billing-v2/activation?products='
-        let productsToUpgrade = ''
-        for (const product of products) {
-            if (product.subscribed || product.contact_support || product.inclusion_only) {
-                continue
-            }
-            const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
-            const upgradePlanKey = isUnlicensedDebug
-                ? product.plans?.[product.plans?.length - 1].plan_key
-                : product.plans?.[currentPlanIndex + 1]?.plan_key
-            if (!upgradePlanKey) {
-                continue
-            }
-            productsToUpgrade += `${product.type}:${upgradePlanKey},`
-            if (product.addons?.length) {
-                for (const addon of product.addons) {
-                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
-                }
-            }
-        }
-        // remove the trailing comma that will be at the end of the url
-        if (!productsToUpgrade) {
-            return ''
-        }
-        url += productsToUpgrade.slice(0, -1)
-        if (redirectPath) {
-            url += `&redirect_path=${redirectPath}`
-        }
-        return url
-    }
-
-    const upgradeAllProductsLink = getUpgradeAllProductsLink()
-
     return (
         <div ref={ref}>
             {showLicenseDirectInput && (
@@ -305,24 +262,6 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
-                {isOnboarding && upgradeAllProductsLink && (
-                    <BillingUpgradeCTA
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={upgradeAllProductsLink}
-                        disableClientSideRouting
-                    >
-                        {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                            ? 'Subscribe to all'
-                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              !billing?.has_active_subscription
-                            ? 'Add credit card to all products'
-                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                              billing?.has_active_subscription
-                            ? 'Add all products to plan'
-                            : 'Upgrade to all'}{' '}
-                    </BillingUpgradeCTA>
-                )}
             </div>
             <LemonDivider className="mt-2 mb-8" />
 
