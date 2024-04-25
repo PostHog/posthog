@@ -96,7 +96,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         return queryset
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
-        super().filter_queryset(queryset)
+        queryset = super().filter_queryset(queryset)
         return self.prefetch_tagged_items_if_available(queryset)
 
 
