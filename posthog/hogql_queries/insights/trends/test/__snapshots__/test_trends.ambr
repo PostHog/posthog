@@ -4735,7 +4735,8 @@
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -4781,7 +4782,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
@@ -4827,7 +4829,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
@@ -4873,7 +4876,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -4930,7 +4934,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -4987,7 +4992,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -5033,7 +5039,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -5079,7 +5086,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
@@ -5125,7 +5133,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
@@ -5171,6 +5180,7 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
