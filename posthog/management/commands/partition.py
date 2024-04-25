@@ -6,7 +6,7 @@ from django.db import connection
 
 def load_sql(filename):
     path = os.path.join(os.path.dirname(__file__), "../sql/", filename)
-    with open(path, "r", encoding="utf_8") as f:
+    with open(path, encoding="utf_8") as f:
         return f.read()
 
 

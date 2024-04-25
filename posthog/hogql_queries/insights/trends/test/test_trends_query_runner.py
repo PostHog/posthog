@@ -1,7 +1,7 @@
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from freezegun import freeze_time
@@ -49,14 +49,14 @@ from posthog.test.base import (
 @dataclass
 class Series:
     event: str
-    timestamps: List[str]
+    timestamps: list[str]
 
 
 @dataclass
 class SeriesTestData:
     distinct_id: str
-    events: List[Series]
-    properties: Dict[str, str | int]
+    events: list[Series]
+    properties: dict[str, str | int]
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -64,9 +64,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
-    def _create_events(self, data: List[SeriesTestData]):
+    def _create_events(self, data: list[SeriesTestData]):
         person_result = []
-        properties_to_create: Dict[str, str] = {}
+        properties_to_create: dict[str, str] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
@@ -174,7 +174,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[List[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
         filter_test_accounts: Optional[bool] = None,
@@ -182,7 +182,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit_context: Optional[LimitContext] = None,
         explicit_date: Optional[bool] = None,
     ) -> TrendsQueryRunner:
-        query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
@@ -198,7 +198,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[List[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
         *,

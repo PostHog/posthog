@@ -3,7 +3,7 @@ import tiktoken
 import datetime
 import pytz
 
-from typing import Dict, Any, List, Tuple
+from typing import Any
 
 from abc import ABC, abstractmethod
 from prometheus_client import Histogram, Counter
@@ -88,7 +88,7 @@ class EmbeddingPreparation(ABC):
 
     @staticmethod
     @abstractmethod
-    def prepare(item, team) -> Tuple[str, str]:
+    def prepare(item, team) -> tuple[str, str]:
         raise NotImplementedError()
 
 
@@ -100,7 +100,7 @@ class SessionEmbeddingsRunner(ABC):
         self.team = team
         self.openai_client = OpenAI()
 
-    def run(self, items: List[Any], embeddings_preparation: type[EmbeddingPreparation]) -> None:
+    def run(self, items: list[Any], embeddings_preparation: type[EmbeddingPreparation]) -> None:
         source_type = embeddings_preparation.source_type
 
         try:
@@ -196,7 +196,7 @@ class SessionEmbeddingsRunner(ABC):
         """Returns the number of tokens in a text string."""
         return len(encoding.encode(string))
 
-    def _flush_embeddings_to_clickhouse(self, embeddings: List[Dict[str, Any]], source_type: str) -> None:
+    def _flush_embeddings_to_clickhouse(self, embeddings: list[dict[str, Any]], source_type: str) -> None:
         try:
             sync_execute(
                 "INSERT INTO session_replay_embeddings (session_id, team_id, embeddings, source_type, input) VALUES",
@@ -213,7 +213,7 @@ class ErrorEmbeddingsPreparation(EmbeddingPreparation):
     source_type = "error"
 
     @staticmethod
-    def prepare(item: Tuple[str, str], _):
+    def prepare(item: tuple[str, str], _):
         session_id = item[0]
         error_message = item[1]
         return session_id, error_message
@@ -286,7 +286,7 @@ class SessionEventsEmbeddingsPreparation(EmbeddingPreparation):
         return session_id, input
 
     @staticmethod
-    def _compact_result(event_name: str, current_url: int, elements_chain: Dict[str, str] | str) -> str:
+    def _compact_result(event_name: str, current_url: int, elements_chain: dict[str, str] | str) -> str:
         elements_string = (
             elements_chain if isinstance(elements_chain, str) else ", ".join(str(e) for e in elements_chain)
         )

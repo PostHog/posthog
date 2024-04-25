@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import Dict
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
@@ -30,7 +29,7 @@ def check_feature_flag_rollback_conditions(feature_flag_id: int) -> None:
         flag.save()
 
 
-def calculate_rolling_average(threshold_metric: Dict, team: Team, timezone: str) -> float:
+def calculate_rolling_average(threshold_metric: dict, team: Team, timezone: str) -> float:
     curr = datetime.now(tz=ZoneInfo(timezone))
 
     rolling_average_days = 7
@@ -54,7 +53,7 @@ def calculate_rolling_average(threshold_metric: Dict, team: Team, timezone: str)
     return sum(data) / rolling_average_days
 
 
-def check_condition(rollback_condition: Dict, feature_flag: FeatureFlag) -> bool:
+def check_condition(rollback_condition: dict, feature_flag: FeatureFlag) -> bool:
     if rollback_condition["threshold_type"] == "sentry":
         created_date = feature_flag.created_at
         base_start_date = created_date.strftime("%Y-%m-%dT%H:%M:%S")

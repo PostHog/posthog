@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Literal, TypeAlias, Tuple, List
+from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
@@ -18,7 +18,7 @@ ConstantDataType: TypeAlias = Literal[
 ]
 ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
 ConstantSupportedData: TypeAlias = (
-    ConstantSupportedPrimitive | List[ConstantSupportedPrimitive] | Tuple[ConstantSupportedPrimitive, ...]
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 
 # Keywords passed to ClickHouse without transformation

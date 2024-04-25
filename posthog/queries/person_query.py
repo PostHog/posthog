@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Union
 from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
@@ -45,7 +45,7 @@ class PersonQuery:
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
     _column_optimizer: ColumnOptimizer
-    _extra_fields: Set[ColumnName]
+    _extra_fields: set[ColumnName]
     _inner_person_properties: Optional[PropertyGroup]
     _cohort: Optional[Cohort]
     _include_distinct_ids: Optional[bool] = False
@@ -58,10 +58,10 @@ class PersonQuery:
         cohort: Optional[Cohort] = None,
         *,
         entity: Optional[Entity] = None,
-        extra_fields: Optional[List[ColumnName]] = None,
+        extra_fields: Optional[list[ColumnName]] = None,
         # A sub-optimal version of the `cohort` parameter above, the difference being that
         # this supports multiple cohort filters, but is not as performant as the above.
-        cohort_filters: Optional[List[Property]] = None,
+        cohort_filters: Optional[list[Property]] = None,
         include_distinct_ids: Optional[bool] = False,
     ) -> None:
         self._filter = filter
@@ -90,7 +90,7 @@ class PersonQuery:
         prepend: Optional[Union[str, int]] = None,
         paginate: bool = False,
         filter_future_persons: bool = False,
-    ) -> Tuple[str, Dict]:
+    ) -> tuple[str, dict]:
         prepend = str(prepend) if prepend is not None else ""
 
         fields = "id" + " ".join(
@@ -175,7 +175,7 @@ class PersonQuery:
         )
 
     @property
-    def fields(self) -> List[ColumnName]:
+    def fields(self) -> list[ColumnName]:
         "Returns person table fields this query exposes"
         return [alias for column_name, alias in self._get_fields()]
 
@@ -194,7 +194,7 @@ class PersonQuery:
     def _uses_person_id(self, prop: Property) -> bool:
         return prop.type in ("person", "static-cohort", "precalculated-cohort")
 
-    def _get_fields(self) -> List[Tuple[str, str]]:
+    def _get_fields(self) -> list[tuple[str, str]]:
         # :TRICKY: Figure out what fields we want to expose - minimizing this set is good for performance.
         #   We use the result from column_optimizer to figure out counts of all properties to be filtered and queried.
         #   Here, we remove the ones only to be used for filtering.
@@ -207,7 +207,7 @@ class PersonQuery:
 
         return [(column_name, self.ALIASES.get(column_name, column_name)) for column_name in sorted(columns)]
 
-    def _get_person_filter_clauses(self, prepend: str = "") -> Tuple[str, str, Dict]:
+    def _get_person_filter_clauses(self, prepend: str = "") -> tuple[str, str, dict]:
         finalization_conditions, params = parse_prop_grouped_clauses(
             self._team_id,
             self._inner_person_properties,
@@ -231,7 +231,7 @@ class PersonQuery:
         params.update(prefiltering_params)
         return prefiltering_conditions, finalization_conditions, params
 
-    def _get_fast_single_cohort_clause(self) -> Tuple[str, Dict]:
+    def _get_fast_single_cohort_clause(self) -> tuple[str, dict]:
         if self._cohort:
             cohort_table = (
                 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
@@ -252,10 +252,10 @@ class PersonQuery:
         else:
             return "", {}
 
-    def _get_multiple_cohorts_clause(self, prepend: str = "") -> Tuple[str, Dict]:
+    def _get_multiple_cohorts_clause(self, prepend: str = "") -> tuple[str, dict]:
         if self._cohort_filters:
             query = []
-            params: Dict[str, Any] = {}
+            params: dict[str, Any] = {}
 
             # TODO: doesn't support non-caclculated cohorts
             for index, property in enumerate(self._cohort_filters):
@@ -274,7 +274,7 @@ class PersonQuery:
         else:
             return "", {}
 
-    def _get_limit_offset_clause(self) -> Tuple[str, Dict]:
+    def _get_limit_offset_clause(self) -> tuple[str, dict]:
         if not isinstance(self._filter, Filter):
             return "", {}
 
@@ -295,7 +295,7 @@ class PersonQuery:
 
         return clause, params
 
-    def _get_search_clauses(self, prepend: str = "") -> Tuple[str, str, Dict]:
+    def _get_search_clauses(self, prepend: str = "") -> tuple[str, str, dict]:
         """
         Return - respectively - the prefiltering search clause (not aggregated by is_deleted or version, which is great
         for memory usage), the final search clause (aggregated for true results, more expensive), and new params.
@@ -365,7 +365,7 @@ class PersonQuery:
 
         return "", "", {}
 
-    def _get_distinct_id_clause(self) -> Tuple[str, Dict]:
+    def _get_distinct_id_clause(self) -> tuple[str, dict]:
         if not isinstance(self._filter, Filter):
             return "", {}
 
@@ -378,7 +378,7 @@ class PersonQuery:
             return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id}
         return "", {}
 
-    def _add_distinct_id_join_if_needed(self, query: str, params: Dict[Any, Any]) -> Tuple[str, Dict[Any, Any]]:
+    def _add_distinct_id_join_if_needed(self, query: str, params: dict[Any, Any]) -> tuple[str, dict[Any, Any]]:
         if not self._include_distinct_ids:
             return query, params
         return (
@@ -395,7 +395,7 @@ class PersonQuery:
             params,
         )
 
-    def _get_email_clause(self) -> Tuple[str, Dict]:
+    def _get_email_clause(self) -> tuple[str, dict]:
         if not isinstance(self._filter, Filter):
             return "", {}
 
@@ -407,7 +407,7 @@ class PersonQuery:
             )
         return "", {}
 
-    def _get_updated_after_clause(self) -> Tuple[str, Dict]:
+    def _get_updated_after_clause(self) -> tuple[str, dict]:
         if not isinstance(self._filter, Filter):
             return "", {}
 

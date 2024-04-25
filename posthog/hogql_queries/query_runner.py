@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import IntEnum
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
+from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 
 from django.conf import settings
 from django.core.cache import cache
@@ -76,9 +76,9 @@ class QueryResponse(BaseModel, Generic[DataT]):
         extra="forbid",
     )
     results: DataT
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[Union[Tuple[str, str], str]]] = None
-    columns: Optional[List[str]] = None
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[Union[tuple[str, str], str]]] = None
+    columns: Optional[list[str]] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
     limit: Optional[int] = None
@@ -128,7 +128,7 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode | BaseModel,
+    query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
@@ -146,7 +146,7 @@ def get_query_runner(
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
-            query=cast(TrendsQuery | Dict[str, Any], query),
+            query=cast(TrendsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -156,7 +156,7 @@ def get_query_runner(
         from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
-            query=cast(FunnelsQuery | Dict[str, Any], query),
+            query=cast(FunnelsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -166,7 +166,7 @@ def get_query_runner(
         from .insights.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
-            query=cast(RetentionQuery | Dict[str, Any], query),
+            query=cast(RetentionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -176,7 +176,7 @@ def get_query_runner(
         from .insights.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
-            query=cast(PathsQuery | Dict[str, Any], query),
+            query=cast(PathsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -186,7 +186,7 @@ def get_query_runner(
         from .insights.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
-            query=cast(StickinessQuery | Dict[str, Any], query),
+            query=cast(StickinessQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -196,7 +196,7 @@ def get_query_runner(
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
-            query=cast(LifecycleQuery | Dict[str, Any], query),
+            query=cast(LifecycleQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -206,7 +206,7 @@ def get_query_runner(
         from .events_query_runner import EventsQueryRunner
 
         return EventsQueryRunner(
-            query=cast(EventsQuery | Dict[str, Any], query),
+            query=cast(EventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -216,7 +216,7 @@ def get_query_runner(
         from .actors_query_runner import ActorsQueryRunner
 
         return ActorsQueryRunner(
-            query=cast(ActorsQuery | Dict[str, Any], query),
+            query=cast(ActorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -226,7 +226,7 @@ def get_query_runner(
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
-            query=cast(InsightActorsQuery | Dict[str, Any], query),
+            query=cast(InsightActorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -236,7 +236,7 @@ def get_query_runner(
         from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
-            query=cast(InsightActorsQueryOptions | Dict[str, Any], query),
+            query=cast(InsightActorsQueryOptions | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -246,7 +246,7 @@ def get_query_runner(
         from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
-            query=cast(FunnelCorrelationQuery | Dict[str, Any], query),
+            query=cast(FunnelCorrelationQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -256,7 +256,7 @@ def get_query_runner(
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | Dict[str, Any], query),
+            query=cast(HogQLQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -266,7 +266,7 @@ def get_query_runner(
         from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
 
         return SessionsTimelineQueryRunner(
-            query=cast(SessionsTimelineQuery | Dict[str, Any], query),
+            query=cast(SessionsTimelineQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,
@@ -292,7 +292,7 @@ Q = TypeVar("Q", bound=RunnableQueryNode)
 
 class QueryRunner(ABC, Generic[Q]):
     query: Q
-    query_type: Type[Q]
+    query_type: type[Q]
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -300,7 +300,7 @@ class QueryRunner(ABC, Generic[Q]):
 
     def __init__(
         self,
-        query: Q | BaseModel | Dict[str, Any],
+        query: Q | BaseModel | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -425,7 +425,7 @@ class QueryRunner(ABC, Generic[Q]):
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
-            query_update: Dict[str, Any] = {}
+            query_update: dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
                     query_update["properties"] = PropertyGroupFilter(

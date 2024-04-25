@@ -1,6 +1,6 @@
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Optional, cast
 
 from django.db import connection
 from django.db.models import Prefetch
@@ -125,7 +125,7 @@ class QueryContext:
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
-    params: Dict = dataclasses.field(default_factory=dict)
+    params: dict = dataclasses.field(default_factory=dict)
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> "QueryContext":
         if properties_to_filter:
@@ -219,7 +219,7 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
+    def with_search(self, search_query: str, search_kwargs: dict) -> "QueryContext":
         return dataclasses.replace(
             self,
             search_query=search_query,
@@ -443,7 +443,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
         return self.count
 
-    def paginate_queryset(self, queryset, request, view=None) -> Optional[List[Any]]:
+    def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
         """
         Assumes the queryset has already had pagination applied
         """
@@ -570,7 +570,7 @@ class PropertyDefinitionViewSet(
 
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
-    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
+    def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:

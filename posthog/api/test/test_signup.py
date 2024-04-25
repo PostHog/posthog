@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Dict, Optional, cast
+from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
@@ -294,7 +294,7 @@ class TestSignupAPI(APIBaseTest):
         required_attributes = ["first_name", "email"]
 
         for attribute in required_attributes:
-            body: Dict[str, Optional[str]] = {
+            body: dict[str, Optional[str]] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
                 "password": "notsecure",

@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 from django.db import models
@@ -136,7 +136,7 @@ class SessionRecording(UUIDModel):
 
     def build_object_storage_path(self, version: Literal["2023-08-01", "2022-12-22"]) -> str:
         if version == "2022-12-22":
-            path_parts: List[str] = [
+            path_parts: list[str] = [
                 settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER,
                 f"team-{self.team_id}",
                 f"session-{self.session_id}",
@@ -161,7 +161,7 @@ class SessionRecording(UUIDModel):
             return SessionRecording(session_id=session_id, team=team)
 
     @staticmethod
-    def get_or_build_from_clickhouse(team: Team, ch_recordings: List[dict]) -> "List[SessionRecording]":
+    def get_or_build_from_clickhouse(team: Team, ch_recordings: list[dict]) -> "list[SessionRecording]":
         session_ids = sorted([recording["session_id"] for recording in ch_recordings])
 
         recordings_by_id = {
@@ -193,7 +193,7 @@ class SessionRecording(UUIDModel):
 
         return recordings
 
-    def set_start_url_from_urls(self, urls: Optional[List[str]] = None, first_url: Optional[str] = None):
+    def set_start_url_from_urls(self, urls: Optional[list[str]] = None, first_url: Optional[str] = None):
         if first_url:
             self.start_url = first_url[:512]
             return

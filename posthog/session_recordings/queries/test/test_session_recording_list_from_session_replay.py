@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Dict
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -76,7 +75,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             properties=properties,
         )
 
-    def _filter_recordings_by(self, recordings_filter: Dict) -> SessionRecordingQueryResult:
+    def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
         the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=the_filter, team=self.team)
         return session_recording_list_instance.run()
