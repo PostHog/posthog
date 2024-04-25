@@ -870,9 +870,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                } else {
-                    return defaultEntityFilterOnFlag
                 }
+                return defaultEntityFilterOnFlag
             },
         ],
         hasEarlyAccessFeatures: [

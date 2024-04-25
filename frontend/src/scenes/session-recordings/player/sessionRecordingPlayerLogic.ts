@@ -444,9 +444,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (isSkippingInactivity) {
                     const secondsToSkip = ((currentSegment?.endTimestamp ?? 0) - (currentTimestamp ?? 0)) / 1000
                     return Math.max(50, secondsToSkip)
-                } else {
-                    return speed
                 }
+                return speed
             },
         ],
         segmentForTimestamp: [

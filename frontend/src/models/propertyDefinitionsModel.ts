@@ -65,9 +65,8 @@ const getPropertyKey = (
 ): string => {
     if (type === PropertyDefinitionType.Group) {
         return `${type}/${groupTypeIndex}/${propertyName}`
-    } else {
-        return `${type}/${propertyName}`
     }
+    return `${type}/${propertyName}`
 }
 
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce. Returns the property sync if already found. */
