@@ -56,45 +56,46 @@ export function DashboardEditBar({
 
     return (
         <div className="flex gap-2 items-center justify-between flex-wrap">
+            <DateFilter
+                showCustom
+                dateFrom={tempDates.dateFrom}
+                dateTo={tempDates.dateTo}
+                onChange={(dateFrom, dateTo) => setTempDates({ dateFrom, dateTo })}
+                disabled={!canEditDashboard || !editMode}
+                makeLabel={(key) => (
+                    <>
+                        <IconCalendar />
+                        <span className="hide-when-small"> {key}</span>
+                    </>
+                )}
+            />
+            <PropertyFilters
+                disabled={!editMode}
+                onChange={setTempProperties}
+                pageKey={'dashboard_' + dashboard?.id}
+                propertyFilters={tempProperties}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ]}
+            />
             {!editMode ? (
                 <LemonButton type="secondary" size="small" onClick={() => setEditMode(true)}>
                     Edit filters
                 </LemonButton>
             ) : (
                 <>
+                    <LemonButton onClick={handleCancel} type="secondary" size="small" className="ml-4">
+                        Cancel
+                    </LemonButton>
                     <LemonButton onClick={handleSave} type="primary" size="small">
                         Apply and save dashboard
                     </LemonButton>
-                    <LemonButton onClick={handleCancel} type="secondary" size="small" className="mr-4">
-                        Cancel
-                    </LemonButton>
-                    <DateFilter
-                        showCustom
-                        dateFrom={tempDates.dateFrom}
-                        dateTo={tempDates.dateTo}
-                        onChange={(dateFrom, dateTo) => setTempDates({ dateFrom, dateTo })}
-                        disabled={!canEditDashboard}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
-                    <PropertyFilters
-                        onChange={setTempProperties}
-                        pageKey={'dashboard_' + dashboard?.id}
-                        propertyFilters={tempProperties}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            ...groupsTaxonomicTypes,
-                            TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                    />
                 </>
             )}
         </div>
