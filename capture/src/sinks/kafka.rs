@@ -96,6 +96,7 @@ impl KafkaSink {
         client_config
             .set("bootstrap.servers", &config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
+            .set("partitioner", "murmur2_random") // Compatibility with python-kafka
             .set("linger.ms", config.kafka_producer_linger_ms.to_string())
             .set(
                 "message.timeout.ms",
