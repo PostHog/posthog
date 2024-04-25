@@ -143,12 +143,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
+        # to calculate expected scroll depth bucket from y and viewport height
+        # ((round(y/16) + round(viewport_height/16)) * 16 // 100) * 100
+
+        # scroll depth bucket 1000
         self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, viewport_height=1000)
         self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000)
+        # scroll depth bucket 1100
         self._create_heatmap_event("session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000)
+        # scroll depth bucket 1200
         self._create_heatmap_event("session_4", "scrolldepth", "2023-03-08T08:01:00", y=300, viewport_height=1000)
+        # scroll depth bucket 1300
         self._create_heatmap_event("session_5", "scrolldepth", "2023-03-08T08:01:00", y=400, viewport_height=1000)
+        # scroll depth bucket 1400
         self._create_heatmap_event("session_6", "scrolldepth", "2023-03-08T08:01:00", y=500, viewport_height=1000)
+        # scroll depth bucket 1800
         self._create_heatmap_event("session_7", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
         self._create_heatmap_event("session_8", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
 
@@ -157,34 +166,71 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert scroll_response.json() == {
             "results": [
                 {
-                    "bucket_count": 1,
+                    "bucket_count": 2,
                     "cumulative_count": 8,
                     "scroll_depth_bucket": 1000,
                 },
                 {
                     "bucket_count": 1,
-                    "cumulative_count": 7,
+                    "cumulative_count": 6,
                     "scroll_depth_bucket": 1100,
                 },
                 {
-                    "bucket_count": 2,
-                    "cumulative_count": 6,
+                    "bucket_count": 1,
+                    "cumulative_count": 5,
                     "scroll_depth_bucket": 1200,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 4,
-                    "scroll_depth_bucket": 1400,
+                    "scroll_depth_bucket": 1300,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 3,
-                    "scroll_depth_bucket": 1500,
+                    "scroll_depth_bucket": 1400,
                 },
                 {
                     "bucket_count": 2,
                     "cumulative_count": 2,
-                    "scroll_depth_bucket": 1900,
+                    "scroll_depth_bucket": 1800,
+                },
+            ],
+        }
+
+    def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
+        # scroll depth bucket 1000
+        self._create_heatmap_event(
+            "session_1", "scrolldepth", "2023-03-08T07:00:00", y=100, viewport_height=1000, distinct_id="12345"
+        )
+
+        # one person only scrolls a little way
+        # scroll depth bucket 1000
+        self._create_heatmap_event(
+            "session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000, distinct_id="34567"
+        )
+
+        # the first person scrolls further
+        # scroll depth bucket 1100
+        self._create_heatmap_event(
+            "session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000, distinct_id="12345"
+        )
+
+        scroll_response = self._get_heatmap(
+            {"date_from": "2023-03-06", "type": "scrolldepth", "aggregation": "unique_visitors"}
+        )
+
+        assert scroll_response.json() == {
+            "results": [
+                {
+                    "bucket_count": 2,
+                    "cumulative_count": 3,
+                    "scroll_depth_bucket": 1000,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 1,
+                    "scroll_depth_bucket": 1100,
                 },
             ],
         }
@@ -277,37 +323,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_no_result_count(
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
         )
-
-    def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
-        self._create_heatmap_event(
-            "session_1", "scrolldepth", "2023-03-08T07:00:00", y=100, viewport_height=1000, distinct_id="12345"
-        )
-        # one person only scrolls a little way
-        self._create_heatmap_event(
-            "session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000, distinct_id="34567"
-        )
-        self._create_heatmap_event(
-            "session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000, distinct_id="12345"
-        )
-
-        scroll_response = self._get_heatmap(
-            {"date_from": "2023-03-06", "type": "scrolldepth", "aggregation": "unique_visitors"}
-        )
-
-        assert scroll_response.json() == {
-            "results": [
-                {
-                    "bucket_count": 2,
-                    "cumulative_count": 3,
-                    "scroll_depth_bucket": 1100,
-                },
-                {
-                    "bucket_count": 1,
-                    "cumulative_count": 1,
-                    "scroll_depth_bucket": 1200,
-                },
-            ],
-        }
 
     def _create_heatmap_event(
         self,

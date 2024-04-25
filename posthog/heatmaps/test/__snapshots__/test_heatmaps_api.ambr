@@ -241,3 +241,25 @@
                          allow_experimental_object_type=1
   '''
 # ---
+# name: TestSessionRecordings.test_can_get_scrolldepth_counts
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT bucket AS bucket,
+         cnt AS bucket_count,
+         sum(cnt) OVER (
+                        ORDER BY bucket DESC) AS cumulative_count
+  FROM
+    (SELECT multiply(intDiv(scroll_y, 100), 100) AS bucket,
+            count(*) AS cnt
+     FROM
+       (SELECT heatmaps.distinct_id AS distinct_id,
+               multiply(plus(heatmaps.y, heatmaps.viewport_height), heatmaps.scale_factor) AS scroll_y
+        FROM heatmaps
+        WHERE and(equals(heatmaps.team_id, 2), equals(heatmaps.type, 'scrolldepth'), greaterOrEquals(toTimeZone(heatmaps.timestamp, 'UTC'), toDate('2023-03-06'))))
+     GROUP BY bucket)
+  ORDER BY bucket ASC
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1
+  '''
+# ---

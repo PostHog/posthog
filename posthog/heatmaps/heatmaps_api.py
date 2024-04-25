@@ -106,7 +106,7 @@ class HeatmapsResponseSerializer(serializers.Serializer):
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
     cumulative_count = serializers.IntegerField(required=True)
     bucket_count = serializers.IntegerField(required=True)
-    scroll_depth_bucket = serializers.FloatField(required=True)
+    scroll_depth_bucket = serializers.IntegerField(required=True)
 
 
 class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
