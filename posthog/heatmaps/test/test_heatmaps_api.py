@@ -277,7 +277,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @snapshot_clickhouse_queries
-    def test_can_filter_by_viewport(self, _name: str, query_params: dict, expected_results: dict) -> None:
+    def test_can_filter_by_viewport(self, _name: str, query_params: dict, expected_results: list) -> None:
         # all these xs = round(10/16) = 1
 
         # viewport widths that scale to 9
