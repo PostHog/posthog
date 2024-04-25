@@ -72,6 +72,7 @@ ExtractErrors = {
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
 
