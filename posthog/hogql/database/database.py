@@ -22,6 +22,7 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
@@ -80,6 +81,7 @@ class Database(BaseModel):
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: SessionsTable = SessionsTable()
+    heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -274,6 +276,11 @@ def create_hogql_database(
     database.add_warehouse_tables(**tables)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        # Skip if either table is not present. This can happen if the table was deleted after the join was created.
+        # User will be prompted on UI to resolve missing tables underlying the JOIN
+        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+            continue
+
         try:
             source_table = database.get_table(join.source_table_name)
             joining_table = database.get_table(join.joining_table_name)

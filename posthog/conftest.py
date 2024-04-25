@@ -69,6 +69,7 @@ def reset_clickhouse_tables():
     )
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
+    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP = [
@@ -86,6 +87,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
         TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
         TRUNCATE_SESSIONS_TABLE_SQL(),
+        TRUNCATE_HEATMAPS_TABLE_SQL(),
     ]
 
     run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)

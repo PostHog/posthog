@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
@@ -84,7 +85,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             runner = EventsQueryRunner(query=query, team=self.team)
-            return runner.run().results
+            response = runner.run()
+            assert isinstance(response, CachedQueryResponse)
+            results = response.results
+            return results
 
     def test_is_not_set_boolean(self):
         # see https://github.com/PostHog/posthog/issues/18030

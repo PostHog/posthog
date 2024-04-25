@@ -34,8 +34,16 @@ import {
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
-        useActions(surveyLogic)
+    const {
+        editingSurvey,
+        updateSurvey,
+        launchSurvey,
+        stopSurvey,
+        archiveSurvey,
+        resumeSurvey,
+        setSelectedQuestion,
+        duplicateSurvey,
+    } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -43,6 +51,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
+        } else {
+            setTabKey('overview')
         }
     }, [survey.start_date])
 
@@ -66,10 +76,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
+                                                <LemonButton
+                                                    data-attr="duplicate-survey"
+                                                    fullWidth
+                                                    onClick={duplicateSurvey}
+                                                >
+                                                    Duplicate
+                                                </LemonButton>
                                                 <LemonDivider />
                                             </>
                                             {survey.end_date && !survey.archived && (
-                                                <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                <LemonButton
+                                                    data-attr="archive-survey"
+                                                    onClick={() => archiveSurvey()}
+                                                    fullWidth
+                                                >
                                                     Archive
                                                 </LemonButton>
                                             )}
@@ -101,7 +122,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     </LemonButton>
                                 ) : (
                                     !survey.archived && (
-                                        <LemonButton type="secondary" status="danger" onClick={() => stopSurvey()}>
+                                        <LemonButton
+                                            data-attr="stop-survey"
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={() => stopSurvey()}
+                                        >
                                             Stop
                                         </LemonButton>
                                     )

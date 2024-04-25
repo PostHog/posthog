@@ -16,8 +16,9 @@ export type SharedListMiniFilter = {
 }
 
 export enum TimestampFormat {
-    Absolute = 'absolute',
     Relative = 'relative',
+    UTC = 'utc',
+    Device = 'device',
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
@@ -182,14 +183,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
-        setShowRecordingListProperties: (enabled: boolean) => ({ enabled }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
@@ -234,13 +233,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setSpeed: (_, { speed }) => speed,
             },
         ],
-        showRecordingListProperties: [
-            false,
-            { persist: true },
-            {
-                setShowRecordingListProperties: (_, { enabled }) => enabled,
-            },
-        ],
         timestampFormat: [
             TimestampFormat.Relative as TimestampFormat,
             { persist: true },
@@ -283,14 +275,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setTab: (_, { tab }) => tab,
-            },
-        ],
-
-        timestampMode: [
-            'relative' as 'absolute' | 'relative',
-            { persist: true },
-            {
-                setTimestampMode: (_, { mode }) => mode,
             },
         ],
 

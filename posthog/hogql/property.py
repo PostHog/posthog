@@ -34,6 +34,7 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
     RetentionEntity,
+    EmptyPropertyFilter,
 )
 
 
@@ -118,12 +119,13 @@ def property_to_expr(
             return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
+    elif isinstance(property, EmptyPropertyFilter):
+        return ast.Constant(value=True)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            # TODO: revert this when removing legacy insights?
             return ast.Constant(value=True)
     else:
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
@@ -237,7 +239,10 @@ def property_to_expr(
         elif operator == PropertyOperator.regex:
             return ast.Call(
                 name="ifNull",
-                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)]), ast.Constant(value=False)],
+                args=[
+                    ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
+                    ast.Constant(value=False),
+                ],
             )
         elif operator == PropertyOperator.not_regex:
             return ast.Call(
@@ -245,7 +250,11 @@ def property_to_expr(
                 args=[
                     ast.Call(
                         name="not",
-                        args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                        args=[
+                            ast.Call(
+                                name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]
+                            )
+                        ],
                     ),
                     ast.Constant(value=True),
                 ],
@@ -267,19 +276,32 @@ def property_to_expr(
 
         # For Boolean and untyped properties, treat "true" and "false" as boolean values
         if (
-            op == ast.CompareOperationOp.Eq
-            or op == ast.CompareOperationOp.NotEq
+            (op == ast.CompareOperationOp.Eq or op == ast.CompareOperationOp.NotEq)
             and team is not None
             and (value == "true" or value == "false")
         ):
-            property_types = PropertyDefinition.objects.filter(
-                team=team,
-                name=property.key,
-                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
-            )[0:1].values_list("property_type", flat=True)
-            property_type = property_types[0] if property_types else None
+            if property.type == "person":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.PERSON,
+                )
+            elif property.type == "group":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=property.group_type_index,
+                )
+            else:
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.EVENT,
+                )
+            property_type = property_types[0].property_type if len(property_types) > 0 else None
 
-            if not property_type or property_type == PropertyType.Boolean:
+            if property_type == PropertyType.Boolean:
                 if value == "true":
                     value = True
                 if value == "false":

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, TypedDict, Union
+from typing import Optional, TypedDict, Union, Literal
 
 SnapshotData = dict
 WindowId = Optional[str]
@@ -51,6 +51,7 @@ class RecordingMetadata(TypedDict):
     first_url: str
     duration: int
     active_seconds: int
+    snapshot_source: Literal["web", "mobile"]
 
 
 class RecordingMatchingEvents(TypedDict):

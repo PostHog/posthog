@@ -2423,7 +2423,7 @@ export const billingJson: BillingV2Type = {
             image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
             screenshot_url: null,
             icon_key: 'IconBolt',
-            docs_url: 'https://posthog.com/docs/apps',
+            docs_url: 'https://posthog.com/docs/cdp',
             subscribed: null,
             plans: [
                 {
@@ -2432,7 +2432,7 @@ export const billingJson: BillingV2Type = {
                     name: 'Free',
                     description: 'Connect PostHog to your favorite tools.',
                     image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
-                    docs_url: 'https://posthog.com/docs/apps',
+                    docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
                     free_allocation: null,
@@ -2472,9 +2472,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Transformations',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2492,7 +2492,7 @@ export const billingJson: BillingV2Type = {
                     name: 'Paid',
                     description: 'Connect PostHog to your favorite tools.',
                     image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
-                    docs_url: 'https://posthog.com/docs/apps',
+                    docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
                     free_allocation: null,
@@ -2532,17 +2532,18 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Transformations',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
                         },
                         {
                             key: 'app_metrics',
-                            name: 'App metrics',
-                            description: 'Get metrics on your apps to see their usage, reliability, and more.',
+                            name: 'Transformation & destination metrics',
+                            description:
+                                'Get metrics on your transformation and destination metrics to see their usage, reliability, and more.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2575,9 +2576,9 @@ export const billingJson: BillingV2Type = {
             features: [
                 {
                     key: 'apps',
-                    name: 'Apps',
+                    name: 'Transformations',
                     description:
-                        'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                        'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                     images: null,
                     icon_key: null,
                     type: null,
@@ -2617,8 +2618,9 @@ export const billingJson: BillingV2Type = {
                 },
                 {
                     key: 'app_metrics',
-                    name: 'App metrics',
-                    description: 'Get metrics on your apps to see their usage, reliability, and more.',
+                    name: 'Transformation & destination metrics',
+                    description:
+                        'Get metrics on your transformation and destination metrics to see their usage, reliability, and more.',
                     images: null,
                     icon_key: null,
                     type: null,

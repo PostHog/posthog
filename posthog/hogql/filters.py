@@ -4,7 +4,6 @@ from dateutil.parser import isoparse
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
 from posthog.models import Team
@@ -59,14 +58,14 @@ class ReplaceFilters(CloningVisitor):
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo)
+                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
-                    parse_expr(
-                        "timestamp < {timestamp}",
-                        {"timestamp": ast.Constant(value=parsed_date)},
-                        start=None,  # do not add location information for "timestamp" to the metadata
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=parsed_date),
                     )
                 )
 
@@ -74,14 +73,14 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom)
+                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
-                    parse_expr(
-                        "timestamp >= {timestamp}",
-                        {"timestamp": ast.Constant(value=parsed_date)},
-                        start=None,  # do not add location information for "timestamp" to the metadata
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=parsed_date),
                     )
                 )
 

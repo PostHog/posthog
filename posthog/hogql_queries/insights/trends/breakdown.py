@@ -131,7 +131,12 @@ class Breakdown:
             )
 
         # No need to filter if we're showing the "other" bucket, as we need to look at all events anyway.
-        if self.query.breakdownFilter is not None and not self.query.breakdownFilter.breakdown_hide_other_aggregation:
+        # Except when explicitly filtering
+        if (
+            self.query.breakdownFilter is not None
+            and not self.query.breakdownFilter.breakdown_hide_other_aggregation
+            and len(self.breakdown_values_override or []) == 0
+        ):
             return ast.Constant(value=True)
 
         if (

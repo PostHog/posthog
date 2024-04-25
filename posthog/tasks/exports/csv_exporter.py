@@ -79,7 +79,12 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
 def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
+    elif isinstance(data.get("result"), list):
+        results = data.get("result")
+    else:
+        return None
 
+    if isinstance(data.get("results"), list):
         # query like
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and "types" in data:
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
@@ -94,31 +99,26 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                 yield row_dict
             return
 
+    if isinstance(results, list):
+        first_result = results[0]
+
         # persons modal like
         if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
             yield from results[0].get("people")
             return
-
-        # Pagination object
-        yield from results
-        return
-    elif data.get("result") and isinstance(data.get("result"), list):
-        items = data["result"]
-        first_result = items[0]
-
-        if isinstance(first_result, list) or first_result.get("action_id"):
-            multiple_items = items if isinstance(first_result, list) else [items]
+        elif isinstance(first_result, list) or first_result.get("action_id"):
+            multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
 
             for items in multiple_items:
                 yield from (
                     {
-                        "name": x["custom_name"] or x["action_id"],
+                        "name": x.get("custom_name") or x.get("action_id", ""),
                         "breakdown_value": "::".join(x.get("breakdown_value", [])),
-                        "action_id": x["action_id"],
-                        "count": x["count"],
-                        "median_conversion_time (seconds)": x["median_conversion_time"],
-                        "average_conversion_time (seconds)": x["average_conversion_time"],
+                        "action_id": x.get("action_id", ""),
+                        "count": x.get("count", ""),
+                        "median_conversion_time (seconds)": x.get("median_conversion_time", ""),
+                        "average_conversion_time (seconds)": x.get("average_conversion_time", ""),
                     }
                     for x in items
                 )
@@ -126,7 +126,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
             period = data["filters"]["period"] or "Day"
-            for item in items:
+            for item in results:
                 line = {"person": item["person"]["name"]}
                 for index, data in enumerate(item["appearances"]):
                     line[f"{period} {index}"] = data
@@ -135,7 +135,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             return
         elif first_result.get("values") and first_result.get("label"):
             # RETENTION LIKE
-            for item in items:
+            for item in results:
                 if item.get("date"):
                     # Dated means we create a grid
                     line = {
@@ -143,7 +143,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                         "cohort size": item["values"][0]["count"],
                     }
                     for index, data in enumerate(item["values"]):
-                        line[items[index]["label"]] = data["count"]
+                        line[results[index]["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
                     line = {
@@ -157,7 +157,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             return
         elif isinstance(first_result.get("data"), list):
             # TRENDS LIKE
-            for index, item in enumerate(items):
+            for index, item in enumerate(results):
                 line = {"series": item.get("label", f"Series #{index + 1}")}
                 if item.get("action", {}).get("custom_name"):
                     line["custom name"] = item.get("action").get("custom_name")
@@ -170,17 +170,15 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                 yield line
 
             return
-        else:
-            return items
-    elif data.get("result") and isinstance(data.get("result"), dict):
-        result = data["result"]
-
-        if "bins" not in result:
+    elif results and isinstance(results, dict):
+        if "bins" in results:
+            for key, value in results["bins"]:
+                yield {"bin": key, "value": value}
             return
 
-        for key, value in result["bins"]:
-            yield {"bin": key, "value": value}
-    return None
+    # Pagination object
+    yield from results
+    return
 
 
 class UnexpectedEmptyJsonResponse(Exception):

@@ -135,6 +135,27 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return {item[0]: item[1] for item in result}
 
+    def get_count(self, safe_expose_ch_error=True) -> int:
+        try:
+            result = sync_execute(
+                """SELECT count() FROM
+                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
+                {
+                    "url_pattern": self.url_pattern,
+                    "access_key": self.credential.access_key,
+                    "access_secret": self.credential.access_secret,
+                    "format": self.format,
+                },
+            )
+        except Exception as err:
+            capture_exception(err)
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise err
+
+        return result[0][0]
+
     def hogql_definition(self) -> S3Table:
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")

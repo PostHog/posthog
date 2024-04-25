@@ -544,7 +544,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             const newSnapshotsCount = snapshots.length
 
             if ((cache.lastSnapshotsCount ?? newSnapshotsCount) === newSnapshotsCount) {
-                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + 1
+                // if we're getting no results from realtime polling we can increment faster
+                // so that we stop polling sooner
+                const increment = newSnapshotsCount === 0 ? 2 : 1
+                cache.lastSnapshotsUnchangedCount = (cache.lastSnapshotsUnchangedCount ?? 0) + increment
             } else {
                 cache.lastSnapshotsUnchangedCount = 0
             }
@@ -613,6 +616,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
+                    values.sessionPlayerMetaData,
                     0
                 )
                 // Reset cache now that final usage report has been sent
@@ -627,6 +631,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
+                values.sessionPlayerMetaData,
                 0
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
@@ -634,6 +639,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
+                values.sessionPlayerMetaData,
                 10
             )
         },
@@ -648,7 +654,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }
         },
     })),
-    selectors({
+    selectors(({ cache }) => ({
         sessionPlayerData: [
             (s, p) => [
                 s.sessionPlayerMetaData,
@@ -687,7 +693,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading],
             (snapshotSourcesLoading, snapshotsForSourceLoading): boolean => {
-                return snapshotSourcesLoading || snapshotsForSourceLoading
+                // if there's a realTimePollingTimeoutID, don't signal that we're loading
+                // we don't want the UI to flip to "loading" every time we poll
+                return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
@@ -864,7 +872,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 })
             },
         ],
-    }),
+    })),
     afterMount(({ cache }) => {
         resetTimingsCache(cache)
     }),

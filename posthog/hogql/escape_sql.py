@@ -123,6 +123,9 @@ class SQLValueEscaper:
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
+    def visit_fakedate(self, value: date):
+        return self.visit_date(value)
+
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
 

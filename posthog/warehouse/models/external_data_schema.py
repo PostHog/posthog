@@ -34,6 +34,12 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
 
     __repr__ = sane_repr("name")
 
+    @property
+    def is_incremental(self):
+        from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
+
+        return self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
+
 
 @database_sync_to_async
 def asave_external_data_schema(schema: ExternalDataSchema) -> None:
@@ -52,7 +58,7 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
 
 @database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
-    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    return ExternalDataSchema.objects.prefetch_related("source").get(id=schema_id, team_id=team_id)
 
 
 @database_sync_to_async

@@ -34,6 +34,7 @@ export function NewDashboardModal(): JSX.Element {
             onClose={hideNewDashboardModal}
             isOpen={newDashboardModalVisible}
             title={activeDashboardTemplate ? 'Choose your events' : 'Create a dashboard'}
+            data-attr="new-dashboard-chooser"
             description={
                 activeDashboardTemplate ? (
                     <p>

@@ -244,8 +244,8 @@ WHERE
             else n / self._sample_rate.numerator
         )
 
-    def _cache_key(self) -> str:
-        original = super()._cache_key()
+    def get_cache_key(self) -> str:
+        original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
 
