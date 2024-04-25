@@ -158,7 +158,7 @@ def stripe_source(
     end_date: Optional[Any] = None,
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
-        yield dlt.resource(
+        yield dlt.resource(  # type: ignore
             stripe_pagination,
             name=endpoint,
             write_disposition="append",
