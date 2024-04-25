@@ -1,5 +1,3 @@
-import math
-
 import freezegun
 from django.http import HttpResponse
 from parameterized import parameterized
@@ -191,42 +189,66 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ],
         }
 
+    @staticmethod
+    def heatmap_result(relative_x: float, count: int) -> dict:
+        return {
+            "count": count,
+            "pointer_relative_x": relative_x,
+            "pointer_target_fixed": True,
+            "pointer_y": 16,
+        }
+
+    @parameterized.expand(
+        [
+            [
+                {"date_from": "2023-03-08", "viewport_width_min": "150"},
+                [
+                    heatmap_result(0.09, 1),
+                    heatmap_result(0.1, 1),
+                    heatmap_result(0.11, 2),
+                ],
+            ],
+            [
+                {"date_from": "2023-03-08", "viewport_width_min": "161"},
+                [
+                    heatmap_result(0.09, 1),
+                    heatmap_result(0.1, 1),
+                ],
+            ],
+            [
+                {"date_from": "2023-03-08", "viewport_width_min": "177"},
+                [
+                    heatmap_result(0.09, 1),
+                ],
+            ],
+            [{"date_from": "2023-03-08", "viewport_width_min": "193"}, []],
+            [
+                {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
+                [heatmap_result(0.09, 1), heatmap_result(0.1, 3), heatmap_result(0.08, 1)],
+            ],
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_can_get_filter_by_min_viewport(self) -> None:
-        # all scale to 10
+    def test_can_filter_by_viewport(self, query_params: dict, expected_results: dict) -> None:
+        # all these xs = round(10/16) = 1
+
+        # viewport widths that scale to 10
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        # scale to 11
+        # viewport width that scales to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
-        # scales to 12
+        # viewport width that scales to 12
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
-
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "150"}, 5)
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "161"}, 2)
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "177"}, 1)
-        self._assert_heatmap_no_result_count({"date_from": "2023-03-08", "viewport_width_min": "193"})
-
-    @snapshot_clickhouse_queries
-    def test_can_get_filter_by_min_and_max_viewport(self) -> None:
-        # all scale to 10
-        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
-        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        # scale to 11
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
-        # scales to 12
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
-        # scales to 13
+        # viewport width that scales to 13
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
 
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192}, 2
-        )
+        response = self._get_heatmap(query_params)
+        assert response.json()["results"] == expected_results
 
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
-        # 3 items but 2 viitors
+        # 3 items but 2 visitors
         self._create_heatmap_event("session_1", "click", distinct_id="12345")
         self._create_heatmap_event("session_2", "click", distinct_id="12345")
         self._create_heatmap_event("session_3", "click", distinct_id="54321")
@@ -288,6 +310,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         date_from: str = "2023-03-08T09:00:00",
         viewport_width: int = 100,
         viewport_height: int = 100,
+        x: int = 10,
         y: int = 20,
         current_url: str | None = None,
         distinct_id: str = "user_distinct_id",
@@ -306,12 +329,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "team_id": team_id,
                 "distinct_id": distinct_id,
                 "timestamp": format_clickhouse_timestamp(date_from),
-                "x": 10 / 16,
-                "y": y / 16,
+                "x": round(x / 16),
+                "y": round(y / 16),
                 "scale_factor": 16,
                 # this adjustment is done at ingestion
-                "viewport_width": math.ceil(viewport_width / 16),
-                "viewport_height": math.ceil(viewport_height / 16),
+                "viewport_width": round(viewport_width / 16),
+                "viewport_height": round(viewport_height / 16),
                 "type": type,
                 "pointer_target_fixed": True,
                 "current_url": current_url if current_url else "http://posthog.com",
