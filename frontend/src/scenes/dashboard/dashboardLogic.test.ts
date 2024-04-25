@@ -442,7 +442,7 @@ describe('dashboardLogic', () => {
 
         it('allows consumers to respond', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                receivedErrorsFromAPI: true,
+                dashboardFailedToLoad: true,
             })
         })
     })
@@ -492,7 +492,7 @@ describe('dashboardLogic', () => {
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
-                        receivedErrorsFromAPI: false,
+                        dashboardFailedToLoad: false,
                     })
             })
         })
