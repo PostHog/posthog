@@ -1,7 +1,12 @@
+from datetime import datetime, timedelta, timezone
 import json
+from time import sleep
 from urllib.parse import quote
 
+from django.conf import settings
 from django.test.client import Client
+from django.urls import reverse
+from freezegun import freeze_time
 from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -9,6 +14,7 @@ from posthog.api.test.test_team import create_team
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.test.base import APIBaseTest, override_settings
 
@@ -451,3 +457,53 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         # Check if the cookies are not present in the response
         self.assertNotIn("ph_current_project_token", response.cookies)
         self.assertNotIn("ph_current_project_name", response.cookies)
+
+
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=30)
+class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
+    other_user: User
+
+    def setUp(self):
+        super().setUp()
+        # Reset back to initial team/org for each test
+        self.other_user = User.objects.create_and_join(
+            self.organization, email="other-user@posthog.com", password="123456"
+        )
+
+        self.user.is_staff = True
+        self.user.save()
+
+    def get_csrf_token_payload(self):
+        return {}
+
+    def login_as_other_user(self):
+        return self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
+            follow=True,
+        )
+
+    def test_staff_user_can_login(self):
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+        response = self.login_as_other_user()
+        assert response.status_code == 200
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+    def test_not_staff_user_cannot_login(self):
+        self.user.is_staff = False
+        self.user.save()
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+        response = self.login_as_other_user()
+        assert response.status_code == 200
+        assert self.client.get("/api/users/@me").json()["email"] == self.user.email
+
+    def test_after_timeout_api_requests_401(self):
+        now = datetime.now()
+        self.login_as_other_user()
+        client = self.client
+        assert client.get("/api/users/@me").status_code == 200
+
+        with freeze_time(now + timedelta(seconds=10)):
+            assert client.get("/api/users/@me").status_code == 200
+
+        with freeze_time(now + timedelta(seconds=35)):
+            assert client.get("/api/users/@me").status_code == 401
