@@ -1,6 +1,7 @@
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 
 import {
     AvailableFeature,
@@ -23,7 +24,8 @@ interface CustomizationProps {
 interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
-    const { whitelabelAvailable, surveysStylingAvailable } = useValues(surveysLogic)
+    const { surveysStylingAvailable } = useValues(surveysLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     return (
         <>
             <div className="flex flex-col">
@@ -107,11 +109,12 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                                 <span>Hide PostHog branding</span>
                             </div>
                         }
-                        onChange={(checked) => onAppearanceChange({ ...appearance, whiteLabel: checked })}
-                        checked={appearance?.whiteLabel}
-                        disabledReason={
-                            !whitelabelAvailable ? 'Upgrade to any paid plan to hide PostHog branding' : null
+                        onChange={(checked) =>
+                            guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                onAppearanceChange({ ...appearance, whiteLabel: checked })
+                            )
                         }
+                        checked={appearance?.whiteLabel}
                     />
                 </div>
             </div>
