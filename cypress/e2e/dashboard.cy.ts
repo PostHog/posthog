@@ -1,5 +1,6 @@
 import { randomString } from '../support/random'
 import { insight, dashboards, dashboard } from '../productAnalytics'
+import { urls } from 'scenes/urls'
 
 describe('Dashboard', () => {
     beforeEach(() => {
@@ -23,7 +24,7 @@ describe('Dashboard', () => {
         const dashboardName = randomString('Dashboard with matching filter')
         const insightName = randomString('insight to add to dashboard')
 
-        // create and visit a dashboard to get it into turbomode cache
+        // Create and visit a dashboard to get it into turbo mode cache
         dashboards.createAndGoToEmptyDashboard(dashboardName)
 
         insight.create(insightName)
@@ -61,12 +62,52 @@ describe('Dashboard', () => {
         }
     })
 
+    it.only('Dashboard filter updates are correctly isolated for one insight on multiple dashboards', () => {
+        const dashboardAName = randomString('Dashboard with insight A')
+        const dashboardBName = randomString('Dashboard with insight B')
+        const insightName = randomString('insight to add to dashboard')
+
+        // Create and visit two dashboards to get them into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardAName)
+        cy.clickNavMenu('dashboards')
+        dashboards.createAndGoToEmptyDashboard(dashboardBName)
+
+        insight.create(insightName)
+
+        // Add that one insight to both dashboards
+        insight.addInsightToDashboard(dashboardAName, { visitAfterAdding: false })
+        cy.get('[aria-label="close"]').click()
+        insight.addInsightToDashboard(dashboardBName, { visitAfterAdding: false })
+        cy.get('[aria-label="close"]').click()
+
+        // Let's get dashboard A mounted
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardAName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days')
+        // Now let's see dashboard B
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardBName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days')
+        // Override the time range on dashboard B
+        cy.get('[data-attr=date-filter]').contains('No date range override').click()
+        cy.get('div').contains('Yesterday').should('exist').click()
+        cy.get('[data-attr=date-filter]').contains('Yesterday')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Yesterday')
+        // Cool, now back to A and make sure the insight is still using the original range there, not the one from B
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardAName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days') // This must not be "Yesterday"!
+    })
+
     it('Adding new insight to dashboard does not clear filters', () => {
         const dashboardName = randomString('to add an insight to')
         const firstInsight = randomString('insight to add to dashboard')
         const secondInsight = randomString('another insight to add to dashboard')
 
-        // create and visit a dashboard to get it into turbomode cache
+        // Create and visit a dashboard to get it into turbo mode cache
         dashboards.createAndGoToEmptyDashboard(dashboardName)
         dashboard.addInsightToEmptyDashboard(firstInsight)
 
