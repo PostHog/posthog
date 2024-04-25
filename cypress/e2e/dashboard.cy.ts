@@ -62,7 +62,7 @@ describe('Dashboard', () => {
         }
     })
 
-    it.only('Dashboard filter updates are correctly isolated for one insight on multiple dashboards', () => {
+    it('Dashboard filter updates are correctly isolated for one insight on multiple dashboards', () => {
         const dashboardAName = randomString('Dashboard with insight A')
         const dashboardBName = randomString('Dashboard with insight B')
         const insightName = randomString('insight to add to dashboard')
