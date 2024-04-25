@@ -53,7 +53,7 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         dashboardFailedToLoad,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery, setStale } =
         useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -131,6 +131,7 @@ function DashboardScene(): JSX.Element {
                                             TaxonomicFilterGroupType.Elements,
                                             TaxonomicFilterGroupType.HogQLExpression,
                                         ]}
+                                        onPendingChanges={(stale: boolean) => setStale(stale)}
                                     />
                                 </div>
                             )}

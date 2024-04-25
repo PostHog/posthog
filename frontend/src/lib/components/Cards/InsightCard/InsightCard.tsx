@@ -133,6 +133,8 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     loadingQueued?: boolean
     /** Whether the insight is loading. */
     loading?: boolean
+    /** Whether the insight likely showing stale data. */
+    stale?: boolean
     /** Whether an error occurred on the server. */
     apiErrored?: boolean
     /** Whether the card should be highlighted with a blue border. */
@@ -165,7 +167,7 @@ function VizComponentFallback(): JSX.Element {
 }
 
 export interface FilterBasedCardContentProps
-    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style'> {
+    extends Pick<InsightCardProps, 'insight' | 'loading' | 'apiErrored' | 'timedOut' | 'style' | 'stale'> {
     insightProps: InsightLogicProps
     tooFewFunnelSteps?: boolean
     validationError?: string | null
@@ -186,6 +188,7 @@ export function FilterBasedCardContent({
     tooFewFunnelSteps,
     validationError,
     context,
+    stale,
 }: FilterBasedCardContentProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
@@ -211,6 +214,7 @@ export function FilterBasedCardContent({
                         : undefined
                 }
             >
+                {stale && !loading && <SpinnerOverlay mode="editing" />}
                 {loading && <SpinnerOverlay />}
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
@@ -237,6 +241,7 @@ function InsightCardInternal(
         ribbonColor,
         loadingQueued,
         loading,
+        stale,
         apiErrored,
         timedOut,
         highlighted,
@@ -338,6 +343,7 @@ function InsightCardInternal(
                         insight={insight}
                         insightProps={insightLogicProps}
                         loading={loading}
+                        stale={stale}
                         apiErrored={apiErrored}
                         timedOut={timedOut}
                         empty={empty}
