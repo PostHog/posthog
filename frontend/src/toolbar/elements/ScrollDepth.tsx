@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -7,7 +8,7 @@ import { useMousePosition } from './useMousePosition'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapElements, rawHeatmapLoading } = useValues(heatmapLogic)
+    const { heatmapElements, rawHeatmapLoading, shiftPressed } = useValues(heatmapLogic)
 
     const { y: mouseY } = useMousePosition()
 
@@ -35,8 +36,13 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
                 transform: 'translateY(-50%)',
             }}
         >
-            <div className="border-b w-full" />
-            <div className="bg-border whitespace-nowrap text-default rounded p-2 font-semibold">
+            <div className="border-b border-default w-full opacity-75" />
+            <div
+                className={clsx(
+                    'bg-default whitespace-nowrap text-white rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
+                    !shiftPressed ? 'pointer-events-auto' : 'pointer-events-none'
+                )}
+            >
                 {rawHeatmapLoading ? (
                     <>Loading...</>
                 ) : heatmapElements.length ? (
@@ -46,7 +52,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
                 )}
             </div>
 
-            <div className="border-b w-10" />
+            <div className="border-b border-default w-10 opacity-75" />
         </div>
     )
 }
