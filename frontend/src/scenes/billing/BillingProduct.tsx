@@ -41,8 +41,11 @@ export const getTierDescription = (
 }
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+    const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(
+        billingProductLogic({ product: addon, productRef })
+    )
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
         billingProductLogic({ product: addon })
     )
@@ -95,7 +98,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     return (
-        <div className="bg-side rounded p-6 flex flex-col">
+        <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
                     <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
