@@ -2,7 +2,6 @@ from datetime import datetime, date
 from typing import Any, List  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
-from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
@@ -17,17 +16,6 @@ from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstR
 from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-
-EXAMPLES_QUERY = """
-            select
-                session_id,
-                timestamp,
-                round((x / viewport_width), 2) as relative_client_x,
-                y * scale_factor as client_y
-             from heatmaps
-             where {predicates}
-            """
-
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
             from (
@@ -35,7 +23,9 @@ DEFAULT_QUERY = """
                         distinct_id,
                         pointer_target_fixed,
                         round((x / viewport_width), 2) as pointer_relative_x,
-                        y * scale_factor as client_y
+                        y * scale_factor as client_y,
+                        session_id,
+                        timestamp
                      from heatmaps
                      where {predicates}
                 )
@@ -106,8 +96,8 @@ class HeatmapsRequestSerializer(HeatmapsBaseRequestSerializer):
     viewport_width_max = serializers.IntegerField(required=False)
     aggregation = serializers.ChoiceField(
         required=False,
-        choices=["unique_visitors", "total_count"],
-        help_text="How to aggregate the response",
+        choices=["unique_visitors", "total_count", "recordings"],
+        help_text="What is aggregated in the response",
         default="total_count",
     )
 
@@ -133,11 +123,16 @@ class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
     results = HeatmapScrollDepthResponseItemSerializer(many=True)
 
 
-class HeatmapExampleItemSerializer(serializers.Serializer):
+class SessionRecordingSerializer(serializers.Serializer):
     session_id = serializers.CharField(required=True)
-    timestamp = serializers.DateTimeField(required=True)
-    pointer_relative_x = serializers.FloatField(required=True)
+    timestamp = serializers.IntegerField(required=True)
+
+
+class HeatmapExampleItemSerializer(serializers.Serializer):
+    session_recordings = SessionRecordingSerializer(many=True, required=True)
     pointer_y = serializers.IntegerField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_target_fixed = serializers.BooleanField(required=True)
 
 
 class HeatmapsExamplesResponseSerializer(serializers.Serializer):
@@ -155,47 +150,49 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def get_queryset(self):
         return None
 
-    @action(methods=["GET"], detail=False)
-    def examples(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        request_serializer = HeatmapsExamplesRequestSerializer(data=request.query_params, context={"team": self.team})
-        request_serializer.is_valid(raise_exception=True)
-
-        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-        exprs = self._predicate_expressions(placeholders)
-        stmt = parse_select(EXAMPLES_QUERY, {"predicates": ast.And(exprs=exprs)})
-        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
-        query_response = execute_hogql_query(
-            query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
-        )
-
-        return self._heatmaps_examples_response(query_response)
-
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
-        is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
-        raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
+        is_scroll_depth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
+        is_recordings_query = aggregation == "recordings"
 
-        aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
+        raw_query = SCROLL_DEPTH_QUERY if is_scroll_depth_query else DEFAULT_QUERY
+
+        aggregation_count = self._choose_aggregation(aggregation, is_scroll_depth_query)
         exprs = self._predicate_expressions(placeholders)
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
-        if is_scrolldepth_query:
+        if is_scroll_depth_query:
             return self._return_scroll_depth_response(results)
+        elif is_recordings_query:
+            return self._heatmaps_examples_response(results)
         else:
             return self._return_heatmap_coordinates_response(results)
 
-    def _choose_aggregation(self, aggregation, is_scrolldepth_query):
-        aggregation_value = "count(*) as cnt" if aggregation == "total_count" else "count(distinct distinct_id) as cnt"
-        if is_scrolldepth_query:
-            aggregation_value = "count(*)" if aggregation == "total_count" else "count(distinct distinct_id)"
+    @staticmethod
+    def _choose_aggregation(aggregation: str, is_scroll_depth_query: bool) -> Expr:
+        point_aggregations = {
+            "unique_visitors": "count(distinct distinct_id) as cnt",
+            "total_count": "count(*) as cnt",
+            "recordings": "groupArray((session_id, toUnixTimestamp(timestamp))) as session_recordings",
+        }
+        scroll_aggregations = {
+            "unique_visitors": "count(distinct distinct_id)",
+            "total_count": "count(*)",
+        }
+
+        if is_scroll_depth_query:
+            aggregation_value = scroll_aggregations[aggregation]
+        else:
+            aggregation_value = point_aggregations[aggregation]
+
         aggregation_count = parse_expr(aggregation_value)
         return aggregation_count
 
@@ -263,10 +260,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _heatmaps_examples_response(query_response: HogQLQueryResponse) -> response.Response:
         data = [
             {
-                "session_id": item[0],
-                "timestamp": item[1],
-                "pointer_relative_x": item[2],
-                "pointer_y": item[3],
+                "pointer_target_fixed": item[0],
+                "pointer_relative_x": item[1],
+                "pointer_y": item[2],
+                "session_recordings": [{"session_id": i[0], "timestamp": i[1]} for i in item[3]],
             }
             for item in query_response.results or []
         ]

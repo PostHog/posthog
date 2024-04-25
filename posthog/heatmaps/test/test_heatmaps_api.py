@@ -58,18 +58,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
 
-    def _get_examples(
-        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
-    ) -> HttpResponse:
-        if params is None:
-            params = {}
-
-        query_params = "&".join([f"{key}={value}" for key, value in params.items()])
-        response = self.client.get(f"/api/heatmap/examples?{query_params}")
-        assert response.status_code == expected_status_code, response.json()
-
-        return response
-
     def _get_heatmap(
         self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
     ) -> HttpResponse:
@@ -163,32 +151,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # scale factor collapses nearby clicks
         self._create_heatmap_event("session_3", "click", "2023-03-08T07:00:00", y=9, x=999)
 
-        """
-        in ingestion we do `math.round(value/16)` so:
-
-        math.round(9/16) is 1
-        math.round(10/16) is 1
-        math.round(11/16) is 1
-        math.round(999/16) is 62
-        math.round(1000/16) is 62
-        math.round(1001/16) is 63
-        """
-
-        examples_response = self._get_examples({"date_from": "2023-03-06", "type": "click", "x": 999, "y": 11})
+        examples_response = self._get_heatmap({"date_from": "2023-03-06", "type": "click", "aggregation": "recordings"})
 
         assert examples_response.json() == {
             "results": [
                 {
                     "pointer_relative_x": 10.33,
+                    "pointer_target_fixed": True,
                     "pointer_y": 16,
-                    "session_id": "session_3",
-                    "timestamp": "2023-03-08T07:00:00Z",
-                },
-                {
-                    "pointer_relative_x": 10.33,
-                    "pointer_y": 16,
-                    "session_id": "session_2",
-                    "timestamp": "2023-03-08T07:00:00Z",
+                    "session_recordings": [
+                        {"session_id": "session_3", "timestamp": 1678258800},
+                        {"session_id": "session_2", "timestamp": 1678258800},
+                    ],
                 },
             ],
         }
@@ -362,6 +336,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         [
             ["total_count", status.HTTP_200_OK],
             ["unique_visitors", status.HTTP_200_OK],
+            ["recordings", status.HTTP_200_OK],
             ["direction", status.HTTP_400_BAD_REQUEST],
             # equivalent to not providing it
             ["", status.HTTP_200_OK],

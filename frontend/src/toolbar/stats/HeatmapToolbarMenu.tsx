@@ -165,7 +165,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         </>
                                     )}
 
-                                    <LemonLabel>Aggregation</LemonLabel>
+                                    <LemonLabel>Show</LemonLabel>
                                     <div className="flex gap-2 justify-between items-center">
                                         <LemonSegmentedButton
                                             onChange={(e) => patchHeatmapFilters({ aggregation: e })}
@@ -178,6 +178,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                                 {
                                                     value: 'unique_visitors',
                                                     label: 'Unique visitors',
+                                                },
+                                                {
+                                                    value: 'recordings',
+                                                    label: 'Recordings',
                                                 },
                                             ]}
                                             size="small"

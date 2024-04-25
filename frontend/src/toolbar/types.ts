@@ -17,11 +17,7 @@ export type HeatmapRequestType = {
     url_pattern?: string
     viewport_width_min?: number
     viewport_width_max?: number
-    aggregation: 'total_count' | 'unique_visitors'
-}
-
-export type HeatmapReplayExamplesResponseType = {
-    results: { session_id: string; timestamp: number }[]
+    aggregation: 'total_count' | 'unique_visitors' | 'recordings'
 }
 
 export type HeatmapResponseType = {
@@ -36,6 +32,12 @@ export type HeatmapResponseType = {
               scroll_depth_bucket: number
               bucket_count: number
               cumulative_count: number
+          }
+        | {
+              pointer_relative_x: number
+              pointer_target_fixed: boolean
+              pointer_y: number
+              session_recordings: { session_id: string; timestamp: number }[]
           }
     )[]
 }
