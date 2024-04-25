@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Literal, TypeAlias, Tuple, List
+from typing import Optional, Literal, TypeAlias
 from uuid import UUID
 from pydantic import ConfigDict, BaseModel
 
@@ -18,7 +18,7 @@ ConstantDataType: TypeAlias = Literal[
 ]
 ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None
 ConstantSupportedData: TypeAlias = (
-    ConstantSupportedPrimitive | List[ConstantSupportedPrimitive] | Tuple[ConstantSupportedPrimitive, ...]
+    ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
 )
 
 # Keywords passed to ClickHouse without transformation
@@ -31,6 +31,8 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports.
 MAX_SELECT_RETURNED_ROWS = 10000  # sync with CSV_EXPORT_LIMIT
+# Max limit for heatmaps which don't really need 1 billion so have their own max
+MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 
@@ -47,6 +49,7 @@ class LimitContext(str, Enum):
     QUERY_ASYNC = "query_async"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
+    HEATMAPS = "heatmaps"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -54,6 +57,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_RETURNED_ROWS  # 10k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return MAX_SELECT_RETURNED_ROWS  # 10k
+    elif limit_context == LimitContext.HEATMAPS:
+        return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:
@@ -66,6 +71,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_RETURNED_ROWS  # 10k
     elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
         return DEFAULT_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.HEATMAPS:
+        return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     else:

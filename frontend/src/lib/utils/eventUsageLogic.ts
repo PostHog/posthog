@@ -43,6 +43,7 @@ import {
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
+    SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
 } from '~/types'
@@ -100,7 +101,7 @@ interface RecordingViewedProps {
     page_change_events_length: number
     recording_width?: number
     loadedFromBlobStorage: boolean
-
+    snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
@@ -355,8 +356,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
+            metadata: SessionRecordingType | null,
             delay?: number
-        ) => ({ playerData, durations, type, delay }),
+        ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -406,6 +408,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             existingCohort,
             newCohort,
         }),
+        reportExperimentInsightLoadFailed: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -488,7 +491,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey) => ({ survey }),
+        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
@@ -847,7 +850,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, metadata }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -862,6 +865,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                // older recordings did not store this and so "null" is equivalent to web
+                // but for reporting we want to distinguish between not loaded and no value to load
+                snapshot_source: metadata?.snapshot_source || 'unknown',
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -1015,6 +1021,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: newCohort.id,
             })
         },
+        reportExperimentInsightLoadFailed: () => {
+            posthog.capture('experiment load insight failed')
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1156,13 +1165,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey }) => {
+        reportSurveyCreated: ({ survey, isDuplicate }) => {
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
+                is_duplicate: isDuplicate ?? false,
             })
         },
         reportSurveyLaunched: ({ survey }) => {

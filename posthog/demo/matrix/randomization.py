@@ -1,10 +1,9 @@
 from enum import Enum
-from typing import Dict, List, Tuple
 
 import mimesis
 import mimesis.random
 
-WeightedPool = Tuple[List[str], List[int]]
+WeightedPool = tuple[list[str], list[int]]
 
 
 class Industry(str, Enum):
@@ -27,12 +26,12 @@ class PropertiesProvider(mimesis.BaseProvider):
         ["Desktop", "Mobile", "Tablet"],
         [8, 1, 1],
     )
-    OS_WEIGHTED_POOLS: Dict[str, WeightedPool] = {
+    OS_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Desktop": (["Windows", "Mac OS X", "Linux", "Chrome OS"], [18, 16, 7, 1]),
         "Mobile": (["iOS", "Android"], [1, 1]),
         "Tablet": (["iOS", "Android"], [1, 1]),
     }
-    BROWSER_WEIGHTED_POOLS: Dict[str, WeightedPool] = {
+    BROWSER_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Windows": (
             ["Chrome", "Firefox", "Opera", "Microsoft Edge", "Internet Explorer"],
             [12, 4, 2, 1, 1],
@@ -65,7 +64,7 @@ class PropertiesProvider(mimesis.BaseProvider):
 
     random: mimesis.random.Random
 
-    def device_type_os_browser(self) -> Tuple[str, str, str]:
+    def device_type_os_browser(self) -> tuple[str, str, str]:
         device_type_pool, device_type_weights = self.DEVICE_TYPE_WEIGHTED_POOL
         device_type = self.random.choices(device_type_pool, device_type_weights)[0]
         os_pool, os_weights = self.OS_WEIGHTED_POOLS[device_type]

@@ -23,17 +23,18 @@ from posthog.warehouse.models import (
     get_table_by_schema_id,
     aget_schema_by_id,
 )
+
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from typing import Dict, Type
 from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
-    hogql_type: Type[DatabaseField] = DatabaseField
+    hogql_type: type[DatabaseField] = DatabaseField
 
     if dlt_type is None:
         hogql_type = StringDatabaseField
@@ -67,7 +68,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
 
 async def validate_schema(
     credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int, row_count: int
-) -> Dict:
+) -> dict:
     params = {
         "credential": credential,
         "name": table_name,
@@ -95,7 +96,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
-    table_row_counts: Dict[str, int],
+    table_row_counts: dict[str, int],
 ) -> None:
     """
 
@@ -125,9 +126,11 @@ async def validate_schema_and_update_table(
 
     _schema_id = external_data_schema.id
     _schema_name: str = external_data_schema.name
+    incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
     new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+
     row_count = table_row_counts.get(_schema_name.lower(), 0)
 
     # Check
@@ -151,7 +154,10 @@ async def validate_schema_and_update_table(
                 table_created = None
             else:
                 table_created.url_pattern = new_url_pattern
-                table_created.row_count = row_count
+                if incremental:
+                    table_created.row_count = await sync_to_async(table_created.get_count)()
+                else:
+                    table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
 
         if not table_created:
@@ -160,7 +166,7 @@ async def validate_schema_and_update_table(
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:
                 schema_columns = schema.get("columns") or {}
-                db_columns: Dict[str, str] = await sync_to_async(table_created.get_columns)()
+                db_columns: dict[str, str] = await sync_to_async(table_created.get_columns)()
 
                 columns = {}
                 for column_name, db_column_type in db_columns.items():
@@ -201,7 +207,10 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
 
-    if last_successful_job:
+    if (
+        last_successful_job
+        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    ):
         try:
             last_successful_job.delete_data_in_bucket()
         except Exception as e:

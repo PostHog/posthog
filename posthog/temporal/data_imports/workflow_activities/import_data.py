@@ -17,7 +17,6 @@ from posthog.warehouse.models import (
     get_external_data_job,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from typing import Dict, Tuple
 import asyncio
 from django.conf import settings
 from django.utils import timezone
@@ -34,7 +33,7 @@ class ImportDataActivityInputs:
 
 
 @activity.defn
-async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchemaTables, Dict[str, int]]:  # noqa: F821
+async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchemaTables, dict[str, int]]:  # noqa: F821
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -81,6 +80,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
+            schema_id=str(inputs.schema_id),
             start_date=start_date,
             end_date=end_date,
         )
@@ -125,10 +125,11 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
         from posthog.temporal.data_imports.pipelines.zendesk.helpers import zendesk_support
 
         # NOTE: this line errors on CI mypy but not locally. Putting arguments within the function causes the opposite error
-        credentials = ZendeskCredentialsToken()
-        credentials.token = model.pipeline.job_inputs.get("zendesk_api_key")
-        credentials.subdomain = model.pipeline.job_inputs.get("zendesk_subdomain")
-        credentials.email = model.pipeline.job_inputs.get("zendesk_email_address")
+        credentials = ZendeskCredentialsToken(
+            token=model.pipeline.job_inputs.get("zendesk_api_key"),
+            subdomain=model.pipeline.job_inputs.get("zendesk_subdomain"),
+            email=model.pipeline.job_inputs.get("zendesk_email_address"),
+        )
 
         data_support = zendesk_support(credentials=credentials, endpoints=tuple(endpoints), team_id=inputs.team_id)
         # Uncomment to support zendesk chat and talk
@@ -148,7 +149,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
     heartbeat_task = asyncio.create_task(heartbeat())
 
     try:
-        table_row_counts = await DataImportPipeline(job_inputs, source, logger).run()
+        table_row_counts = await DataImportPipeline(job_inputs, source, logger, schema.is_incremental).run()
         total_rows_synced = sum(table_row_counts.values())
 
         await aupdate_job_count(inputs.run_id, inputs.team_id, total_rows_synced)

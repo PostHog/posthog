@@ -1,7 +1,7 @@
 import json
 from django.http import HttpRequest
 import structlog
-from typing import Dict, List, Optional, cast
+from typing import Optional, cast
 
 from django.core.cache import cache
 from django.db import models
@@ -59,7 +59,7 @@ class FeatureFlag(models.Model):
     # whether a feature is sending us rich analytics, like views & interactions.
     has_enriched_analytics: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
-    def get_analytics_metadata(self) -> Dict:
+    def get_analytics_metadata(self) -> dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
         payload_count = len(self._payloads)
@@ -135,7 +135,7 @@ class FeatureFlag(models.Model):
     def transform_cohort_filters_for_easy_evaluation(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     ):
         """
         Expands cohort filters into person property filters when possible.
@@ -243,7 +243,7 @@ class FeatureFlag(models.Model):
             if target_properties.type == PropertyOperatorType.AND:
                 return self.conditions
 
-            for prop_group in cast(List[PropertyGroup], target_properties.values):
+            for prop_group in cast(list[PropertyGroup], target_properties.values):
                 if (
                     len(prop_group.values) == 0
                     or not isinstance(prop_group.values[0], Property)
@@ -264,9 +264,9 @@ class FeatureFlag(models.Model):
     def get_cohort_ids(
         self,
         using_database: str = "default",
-        seen_cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+        seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
-    ) -> List[int]:
+    ) -> list[int]:
         from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
 
         if seen_cohorts_cache is None:
@@ -398,9 +398,9 @@ class FeatureFlagOverride(models.Model):
 
 def set_feature_flags_for_team_in_cache(
     team_id: int,
-    feature_flags: Optional[List[FeatureFlag]] = None,
+    feature_flags: Optional[list[FeatureFlag]] = None,
     using_database: str = "default",
-) -> List[FeatureFlag]:
+) -> list[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
@@ -422,7 +422,7 @@ def set_feature_flags_for_team_in_cache(
     return all_feature_flags
 
 
-def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFlag]]:
+def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[list[FeatureFlag]]:
     try:
         flag_data = cache.get(f"team_feature_flags_{team_id}")
     except Exception:

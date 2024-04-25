@@ -1,3 +1,6 @@
+[project]
+requires-python = ">=3.10"
+
 [tool.black]
 line-length = 120
 target-version = ['py310']
@@ -28,6 +31,8 @@ ignore = [
     "F403",
     "F541",
     "F601",
+    "UP007",
+    "UP032",
 ]
 select = [
     "B",
@@ -40,6 +45,7 @@ select = [
     "RUF015",
     "RUF019",
     "T2",
+    "UP",
     "W",
 ]
 

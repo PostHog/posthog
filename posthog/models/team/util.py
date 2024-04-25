@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, List
+from typing import Any
 
 from posthog.temporal.common.client import sync_connect
 from posthog.batch_exports.service import batch_export_delete_schedule
@@ -7,7 +7,7 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 
 
-def delete_bulky_postgres_data(team_ids: List[int]):
+def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
 
     from posthog.models.cohort import CohortPeople
@@ -29,7 +29,7 @@ def _raw_delete(queryset: Any):
     queryset._raw_delete(queryset.db)
 
 
-def delete_batch_exports(team_ids: List[int]):
+def delete_batch_exports(team_ids: list[int]):
     """Delete BatchExports for deleted teams.
 
     Using normal CASCADE doesn't trigger a delete from Temporal.

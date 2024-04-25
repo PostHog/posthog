@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import json
-from typing import Any, List, Type, cast, Dict, Tuple
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -134,6 +134,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "snapshot_source",
         ]
 
         read_only_fields = [
@@ -153,6 +154,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "snapshot_source",
         ]
 
 
@@ -189,7 +191,7 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    filter: SessionRecordingsFilter, request: request.Request, serializer_context: Dict[str, Any]
+    filter: SessionRecordingsFilter, request: request.Request, serializer_context: dict[str, Any]
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
@@ -209,7 +211,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
         else:
@@ -250,7 +252,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: List[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
+        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
         return JsonResponse(data={"results": matching_events})
 
     # Returns metadata about the recording
@@ -340,9 +342,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
-            sources: List[dict] = []
+            sources: list[dict] = []
 
-            blob_keys: List[str] | None = None
+            blob_keys: list[str] | None = None
             if recording.object_storage_path:
                 if recording.storage_version == "2023-08-01":
                     blob_prefix = recording.object_storage_path
@@ -601,8 +603,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: Dict[str, Any]
-) -> Tuple[Dict, Dict]:
+    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
+) -> tuple[dict, dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -615,7 +617,7 @@ def list_recordings(
 
     all_session_ids = filter.session_ids
 
-    recordings: List[SessionRecording] = []
+    recordings: list[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
 
@@ -653,7 +655,7 @@ def list_recordings(
         if all_session_ids:
             recordings = sorted(
                 recordings,
-                key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+                key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
             )
 
     if not request.user.is_authenticated:  # for mypy

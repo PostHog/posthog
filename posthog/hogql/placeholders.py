@@ -1,15 +1,15 @@
-from typing import Dict, Optional, List
+from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
-def replace_placeholders(node: ast.Expr, placeholders: Optional[Dict[str, ast.Expr]]) -> ast.Expr:
+def replace_placeholders(node: ast.Expr, placeholders: Optional[dict[str, ast.Expr]]) -> ast.Expr:
     return ReplacePlaceholders(placeholders).visit(node)
 
 
-def find_placeholders(node: ast.Expr) -> List[str]:
+def find_placeholders(node: ast.Expr) -> list[str]:
     finder = FindPlaceholders()
     finder.visit(node)
     return list(finder.found)
@@ -28,7 +28,7 @@ class FindPlaceholders(TraversingVisitor):
 
 
 class ReplacePlaceholders(CloningVisitor):
-    def __init__(self, placeholders: Optional[Dict[str, ast.Expr]]):
+    def __init__(self, placeholders: Optional[dict[str, ast.Expr]]):
         super().__init__()
         self.placeholders = placeholders
 
@@ -42,5 +42,5 @@ class ReplacePlaceholders(CloningVisitor):
             return new_node
         raise QueryError(
             f"Placeholder {{{node.field}}} is not available in this context. You can use the following: "
-            + ", ".join((f"{placeholder}" for placeholder in self.placeholders))
+            + ", ".join(f"{placeholder}" for placeholder in self.placeholders)
         )

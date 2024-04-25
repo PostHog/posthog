@@ -1,4 +1,4 @@
-import { IconFastForward, IconPause, IconPlay } from '@posthog/icons'
+import { IconFastForward, IconPause, IconPlay, IconSearch } from '@posthog/icons'
 import { LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -17,7 +17,13 @@ import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController(): JSX.Element {
+export function PlayerController({
+    inspectorExpanded,
+    toggleInspectorExpanded,
+}: {
+    inspectorExpanded: boolean
+    toggleInspectorExpanded: () => void
+}): JSX.Element {
     const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -64,8 +70,6 @@ export function PlayerController(): JSX.Element {
                                 {speed}x
                             </LemonButton>
                         </LemonMenu>
-                    </div>
-                    <div className="flex pl-2">
                         <LemonSwitch
                             data-attr="skip-inactivity"
                             checked={skipInactivitySetting}
@@ -81,22 +85,28 @@ export function PlayerController(): JSX.Element {
                             }
                         />
                     </div>
+                    <div className="flex pl-2">
+                        <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
+                            <LemonButton size="small" onClick={() => setIsFullScreen(!isFullScreen)}>
+                                <IconFullScreen
+                                    className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
+                                />
+                            </LemonButton>
+                        </Tooltip>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-1">
-                    <Tooltip title={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}>
-                        <LemonButton
-                            size="small"
-                            onClick={() => {
-                                setIsFullScreen(!isFullScreen)
-                            }}
-                        >
-                            <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
-                            />
-                        </LemonButton>
-                    </Tooltip>
-                </div>
+                {!inspectorExpanded && (
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        size="small"
+                        onClick={toggleInspectorExpanded}
+                        icon={<IconSearch />}
+                    >
+                        Inspector
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

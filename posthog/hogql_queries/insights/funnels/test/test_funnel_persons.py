@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, cast, Any
+from typing import Optional, cast, Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -32,11 +32,11 @@ PERSON_ID_COLUMN = 2
 
 
 def get_actors(
-    filters: Dict[str, Any],
+    filters: dict[str, Any],
     team: Team,
     funnelStep: Optional[int] = None,
-    funnelCustomSteps: Optional[List[int]] = None,
-    funnelStepBreakdown: Optional[str | float | List[str | float]] = None,
+    funnelCustomSteps: Optional[list[int]] = None,
+    funnelStepBreakdown: Optional[str | float | list[str | float]] = None,
     funnelTrendsDropOff: Optional[bool] = None,
     funnelTrendsEntrancePeriodStart: Optional[str] = None,
     offset: Optional[int] = None,

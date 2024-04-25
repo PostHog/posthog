@@ -2,7 +2,8 @@ import json
 import re
 import urllib.parse
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
+from collections.abc import Callable
 
 from zoneinfo import ZoneInfo
 from django.forms import ValidationError
@@ -104,7 +105,7 @@ class TrendsBreakdown:
         self.filter = filter
         self.team = team
         self.team_id = team.pk
-        self.params: Dict[str, Any] = {"team_id": team.pk}
+        self.params: dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.add_person_urls = add_person_urls
         self.person_on_events_mode = person_on_events_mode
@@ -122,7 +123,7 @@ class TrendsBreakdown:
         return self._person_id_alias
 
     @cached_property
-    def _props_to_filter(self) -> Tuple[str, Dict]:
+    def _props_to_filter(self) -> tuple[str, dict]:
         props_to_filter = self.filter.property_groups.combine_property_group(
             PropertyOperatorType.AND, self.entity.property_groups
         )
@@ -140,7 +141,7 @@ class TrendsBreakdown:
             hogql_context=self.filter.hogql_context,
         )
 
-    def get_query(self) -> Tuple[str, Dict, Callable]:
+    def get_query(self) -> tuple[str, dict, Callable]:
         date_params = {}
 
         query_date_range = QueryDateRange(filter=self.filter, team=self.team)
@@ -165,7 +166,7 @@ class TrendsBreakdown:
         )
 
         action_query = ""
-        action_params: Dict = {}
+        action_params: dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = self.entity.get_action()
             action_query, action_params = format_action_filter(
@@ -439,7 +440,7 @@ class TrendsBreakdown:
 
         return params, breakdown_filter, breakdown_filter_params, "value"
 
-    def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
+    def _breakdown_prop_params(self, aggregate_operation: str, math_params: dict):
         values_arr, has_more_values = get_breakdown_prop_values(
             self.filter,
             self.entity,
@@ -564,7 +565,7 @@ class TrendsBreakdown:
 
         return breakdown_value
 
-    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
+    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: list[int]):
         multi_if_conditionals = []
         values_arr = []
 
@@ -607,9 +608,9 @@ class TrendsBreakdown:
         return count_or_aggregated_value * -1, value.get("label")  # reverse it
 
     def _parse_single_aggregate_result(
-        self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
+        self, filter: Filter, entity: Entity, additional_values: dict[str, Any]
     ) -> Callable:
-        def _parse(result: List) -> List:
+        def _parse(result: list) -> list:
             parsed_results = []
             cache_invalidation_key = generate_short_id()
             for stats in result:
@@ -623,7 +624,7 @@ class TrendsBreakdown:
                     "breakdown_value": result_descriptors["breakdown_value"],
                     "breakdown_type": filter.breakdown_type or "event",
                 }
-                parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+                parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
                     "aggregated_value": float(
                         correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity.math)
@@ -647,7 +648,7 @@ class TrendsBreakdown:
         return _parse
 
     def _parse_trend_result(self, filter: Filter, entity: Entity) -> Callable:
-        def _parse(result: List) -> List:
+        def _parse(result: list) -> list:
             parsed_results = []
             for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
@@ -679,9 +680,9 @@ class TrendsBreakdown:
         filter: Filter,
         entity: Entity,
         team: Team,
-        point_dates: List[datetime],
+        point_dates: list[datetime],
         breakdown_value: Union[str, int],
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
         for point_date in point_dates:
@@ -705,7 +706,7 @@ class TrendsBreakdown:
                 "breakdown_value": breakdown_value,
                 "breakdown_type": filter.breakdown_type or "event",
             }
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {
                     "filter": extra_params,
@@ -744,7 +745,7 @@ class TrendsBreakdown:
         else:
             return str(value) or BREAKDOWN_NULL_DISPLAY
 
-    def _person_join_condition(self) -> Tuple[str, Dict]:
+    def _person_join_condition(self) -> tuple[str, dict]:
         if self.person_on_events_mode == PersonsOnEventsMode.person_id_no_override_properties_on_events:
             return "", {}
 
@@ -780,7 +781,7 @@ class TrendsBreakdown:
         else:
             return "", {}
 
-    def _groups_join_condition(self) -> Tuple[str, Dict]:
+    def _groups_join_condition(self) -> tuple[str, dict]:
         return GroupsJoinQuery(
             self.filter,
             self.team_id,
@@ -788,7 +789,7 @@ class TrendsBreakdown:
             person_on_events_mode=self.person_on_events_mode,
         ).get_join_query()
 
-    def _sessions_join_condition(self) -> Tuple[str, Dict]:
+    def _sessions_join_condition(self) -> tuple[str, dict]:
         session_query = SessionQuery(filter=self.filter, team=self.team)
         if session_query.is_used:
             query, session_params = session_query.get_query()
