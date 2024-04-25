@@ -1160,9 +1160,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             series=[
                 EventsNode(
                     event="$pageview",
-                    properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                 )
-            ]
+            ],
+            properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
