@@ -30,16 +30,28 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
         return insight.short_id
     }),
     path(['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic']),
-    connect((props: AddToDashboardModalLogicProps) => ({
-        actions: [
-            insightLogic({ dashboardItemId: props.insight.short_id, cachedInsight: props.insight }),
-            ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
-            eventUsageLogic,
-            ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
-            newDashboardLogic,
-            ['showNewDashboardModal'],
-        ],
-    })),
+    connect((props: AddToDashboardModalLogicProps) => {
+        const builtInsightLogic = insightLogic({
+            dashboardItemId: props.insight.short_id,
+            dashboardId: props.fromDashboard,
+            cachedInsight: props.insight,
+        })
+        return {
+            values: [builtInsightLogic, ['insight']],
+            actions: [
+                builtInsightLogic,
+                ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
+                eventUsageLogic,
+                [
+                    'reportSavedInsightToDashboard',
+                    'reportRemovedInsightFromDashboard',
+                    'reportCreatedDashboardFromModal',
+                ],
+                newDashboardLogic,
+                ['showNewDashboardModal'],
+            ],
+        }
+    }),
     actions({
         addNewDashboard: true,
         setSearchQuery: (query: string) => ({ query }),
@@ -79,8 +91,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
                     : nameSortedDashboards,
         ],
         currentDashboards: [
-            (s, p) => [s.filteredDashboards, p.insight],
-            (filteredDashboards, insight: InsightModel): DashboardBasicType[] =>
+            (s) => [s.filteredDashboards, s.insight],
+            (filteredDashboards, insight): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],
         availableDashboards: [
