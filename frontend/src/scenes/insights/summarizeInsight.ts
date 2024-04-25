@@ -296,7 +296,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 .join(' & ')
         )
     } else if (isLifecycleQuery(query)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+        return `${capitalizeFirstLetter(
+            context.aggregationLabel(query.aggregation_group_type_index, true).singular
+        )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
     } else {
         return ''
     }
