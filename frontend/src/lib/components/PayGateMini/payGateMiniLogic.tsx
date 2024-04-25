@@ -36,11 +36,14 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         productWithFeature: [
             (s) => [s.billing],
             (billing) => {
-                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined =
-                    billing?.products?.find((product) => product.features?.some((f) => f.key === props.featureKey))
+                const allAddons = billing?.products?.map((product) => product.addons).flat() || []
+                let foundProduct: BillingProductV2Type | BillingProductV2AddonType | undefined = allAddons.find(
+                    (addon) => addon.features?.some((f) => f.key === props.featureKey)
+                )
                 if (!foundProduct) {
-                    const allAddons = billing?.products?.map((product) => product.addons).flat() || []
-                    foundProduct = allAddons.find((addon) => addon.features?.some((f) => f.key === props.featureKey))
+                    foundProduct = billing?.products?.find((product) =>
+                        product.features?.some((f) => f.key === props.featureKey)
+                    )
                 }
                 return foundProduct
             },
