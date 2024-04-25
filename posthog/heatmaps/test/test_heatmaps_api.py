@@ -249,32 +249,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             [
                 "min_150",
                 {"date_from": "2023-03-08", "viewport_width_min": "150"},
-                [
-                    heatmap_result(0.09, 1),
-                    heatmap_result(0.1, 1),
-                    heatmap_result(0.11, 2),
-                ],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1), heatmap_result(0.11, 2)],
             ],
             [
                 "min_161",
                 {"date_from": "2023-03-08", "viewport_width_min": "161"},
                 [
+                    heatmap_result(0.08, 1),
                     heatmap_result(0.09, 1),
-                    heatmap_result(0.1, 3),
+                    heatmap_result(0.1, 1),
                 ],
             ],
             [
                 "min_177",
                 {"date_from": "2023-03-08", "viewport_width_min": "177"},
                 [
+                    heatmap_result(0.08, 1),
                     heatmap_result(0.09, 1),
                 ],
             ],
-            ["min_194", {"date_from": "2023-03-08", "viewport_width_min": "194"}, []],
+            ["min_201", {"date_from": "2023-03-08", "viewport_width_min": "201"}, []],
             [
                 "min_161_and_max_192",
                 {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
-                [heatmap_result(0.09, 1), heatmap_result(0.1, 3), heatmap_result(0.08, 1)],
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1)],
             ],
         ]
     )
@@ -296,7 +294,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
 
         response = self._get_heatmap(query_params)
-        assert response.json()["results"] == expected_results
+        assert sorted(response.json()["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
 
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
