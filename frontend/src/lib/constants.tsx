@@ -154,7 +154,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    SIGNUP_BENEFITS: 'signup-benefits', // experiment, owner: @zlwaterfield
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
