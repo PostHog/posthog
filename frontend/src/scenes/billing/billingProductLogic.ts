@@ -52,6 +52,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         }),
         reportSurveyDismissed: (surveyID: string) => ({ surveyID }),
         setSurveyID: (surveyID: string) => ({ surveyID }),
+        setBillingProductLoading: (productKey: string) => ({ productKey }),
     }),
     reducers({
         billingLimitInput: [
@@ -106,6 +107,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
             '',
             {
                 setSurveyID: (_, { surveyID }) => surveyID,
+            },
+        ],
+        billingProductLoading: [
+            null as string | null,
+            {
+                setBillingProductLoading: (_, { productKey }) => productKey,
             },
         ],
         comparisonModalHighlightedFeatureKey: [
