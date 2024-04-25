@@ -15,9 +15,7 @@ class DashboardTemplateCreationJSONSchemaParser(JSONParser):
     The template is sent in the "template" key"""
 
     def parse(self, stream, media_type=None, parser_context=None):
-        data = super(DashboardTemplateCreationJSONSchemaParser, self).parse(
-            stream, media_type or "application/json", parser_context
-        )
+        data = super().parse(stream, media_type or "application/json", parser_context)
         try:
             template = data["template"]
             jsonschema.validate(template, dashboard_template_schema)

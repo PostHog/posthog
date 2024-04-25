@@ -222,6 +222,7 @@ describe('PersonState.update()', () => {
                     created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
                 })
             )
+            expect(fakePerson.force_upgrade).toBeUndefined()
 
             // verify there is no Postgres person
             const persons = await fetchPostgresPersonsH()
@@ -232,11 +233,11 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it('merging with lazy person creation creates an override', async () => {
+        it('merging with lazy person creation creates an override and force_upgrade works', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
             const hubParam = undefined
-            const processPerson = true
+            let processPerson = true
             const lazyPersonCreation = true
             await personState(
                 {
@@ -265,6 +266,33 @@ describe('PersonState.update()', () => {
                         version: 1,
                     }),
                 ])
+            )
+
+            // Using the `distinct_id` again with `processPerson=false` results in
+            // `force_upgrade=true` and real Person `uuid` and `created_at`
+            processPerson = false
+            const event_uuid = new UUIDT().toString()
+            const fakePerson = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(fakePerson).toEqual(
+                expect.objectContaining({
+                    team_id: teamId,
+                    uuid: oldUserUuid, // *old* user, because it existed before the merge
+                    properties: {}, // empty even though there was a $set attempted
+                    created_at: timestamp, // *not* the fake person created_at
+                    force_upgrade: true,
+                })
             )
         })
 

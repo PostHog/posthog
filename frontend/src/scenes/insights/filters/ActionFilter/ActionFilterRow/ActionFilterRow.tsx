@@ -390,7 +390,7 @@ export function ActionFilterRow({
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    TaxonomicFilterGroupType.Sessions,
+                                                    TaxonomicFilterGroupType.SessionProperties,
                                                 ]}
                                                 schemaColumns={
                                                     filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name

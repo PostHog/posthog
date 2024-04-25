@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 from warnings import warn
 
 from django.db import models
@@ -45,7 +45,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         def _join_function(
             from_table: str,
             to_table: str,
-            requested_fields: Dict[str, Any],
+            requested_fields: dict[str, Any],
             context: HogQLContext,
             node: SelectQuery,
         ):

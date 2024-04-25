@@ -292,7 +292,7 @@ async def assert_clickhouse_records_in_s3(
 
     assert len(s3_data) == len(expected_records)
     assert s3_data[0] == expected_records[0]
-    assert s3_data == expected_records
+    assert s3_data == expected_records, f"Not all s3 records match expected records. Not printing due to large size."
 
 
 TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [

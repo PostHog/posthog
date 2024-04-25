@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Callable, Optional
+from typing import Optional
+from collections.abc import Callable
 from unittest.mock import call, patch
 
 import pytest

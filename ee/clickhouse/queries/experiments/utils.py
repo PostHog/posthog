@@ -1,4 +1,4 @@
-from typing import Set, Union
+from typing import Union
 
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
@@ -20,7 +20,7 @@ def requires_flag_warning(filter: Filter, team: Team) -> bool:
     {parsed_date_to}
     """
 
-    events: Set[Union[int, str]] = set()
+    events: set[Union[int, str]] = set()
     entities_to_use = filter.entities
 
     for entity in entities_to_use:

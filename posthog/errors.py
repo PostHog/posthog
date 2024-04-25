@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Dict, Optional
+from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -91,7 +91,7 @@ def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 #
 # Remember to add back the `user_safe` args though!
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
-CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
+CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
     1: ErrorCodeMeta("UNSUPPORTED_METHOD"),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),

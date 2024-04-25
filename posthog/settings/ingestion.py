@@ -17,6 +17,9 @@ BUFFER_CONVERSION_SECONDS = get_from_env("BUFFER_CONVERSION_SECONDS", default=60
 # partitioning-related settings below.
 CAPTURE_ALLOW_RANDOM_PARTITIONING = get_from_env("CAPTURE_ALLOW_RANDOM_PARTITIONING", True, type_cast=str_to_bool)
 
+# TOOD: make default after rollout on both prods: remove the superfluous hashing of the Kafka message key
+CAPTURE_SKIP_KEY_HASHING = get_from_env("CAPTURE_SKIP_KEY_HASHING", type_cast=bool, default=False)
+
 # A list of <team_id:distinct_id> pairs (in the format 2:myLovelyId) that we should use
 # random partitioning for when producing events to the Kafka topic consumed by the plugin server.
 # This is a measure to handle hot partitions in ad-hoc cases.

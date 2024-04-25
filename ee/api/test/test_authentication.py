@@ -364,7 +364,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -407,7 +406,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -474,7 +472,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -514,7 +511,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -552,7 +548,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -594,7 +589,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
@@ -683,7 +677,6 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         with open(
             os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
-            "r",
             encoding="utf_8",
         ) as f:
             saml_response = f.read()
