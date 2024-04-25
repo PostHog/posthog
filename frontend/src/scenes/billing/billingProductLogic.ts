@@ -24,7 +24,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey']],
+        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError']],
         actions: [
             billingLogic,
             [
@@ -34,6 +34,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'deactivateProduct',
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
+                'deactivateProductSuccess',
             ],
         ],
     }),
@@ -250,6 +251,14 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
+        },
+        deactivateProductSuccess: () => {
+            if (!values.unsubscribeError) {
+                const textAreaNotEmpty = values.surveyResponse['$survey_response']?.length > 0
+                textAreaNotEmpty
+                    ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
+                    : actions.reportSurveyDismissed(values.surveyID)
+            }
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {
