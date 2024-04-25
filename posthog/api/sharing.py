@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -87,7 +87,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
     def get_serializer_context(
         self,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         context = super().get_serializer_context()
 
         dashboard_id = context.get("dashboard_id")
@@ -113,7 +113,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return context
 
-    def _get_sharing_configuration(self, context: Dict[str, Any]):
+    def _get_sharing_configuration(self, context: dict[str, Any]):
         """
         Gets but does not create a SharingConfiguration. Only once enabled do we actually store it
         """
@@ -247,7 +247,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "user_permissions": UserPermissions(cast(User, request.user), resource.team),
             "is_shared": True,
         }
-        exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
+        exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if isinstance(resource, SharingConfiguration) and request.path.endswith(f".png"):
             exported_data["accessToken"] = resource.access_token

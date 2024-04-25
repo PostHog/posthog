@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
@@ -33,7 +33,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns"]
 
-    def get_columns(self, view: DataWarehouseSavedQuery) -> List[SerializedField]:
+    def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
         context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
 

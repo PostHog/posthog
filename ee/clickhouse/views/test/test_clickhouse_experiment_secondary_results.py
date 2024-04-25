@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 from flaky import flaky
 
 
@@ -7,7 +7,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
-DEFAULT_JOURNEYS_FOR_PAYLOAD: Dict[str, List[Dict[str, Any]]] = {
+DEFAULT_JOURNEYS_FOR_PAYLOAD: dict[str, list[dict[str, Any]]] = {
     # For a trend pageview metric
     "person1": [
         {

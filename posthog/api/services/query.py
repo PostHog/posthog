@@ -11,7 +11,7 @@ from posthog.hogql.database.database import create_hogql_database, serialize_dat
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
@@ -41,7 +41,7 @@ from posthog.schema import (
 
 logger = structlog.get_logger(__name__)
 
-QUERY_WITH_RUNNER = (
+QUERY_WITH_RUNNER_USING_CACHE = (
     TrendsQuery
     | FunnelsQuery
     | RetentionQuery
@@ -82,41 +82,48 @@ def process_query_model(
 ) -> dict:
     result: dict | BaseModel
 
-    if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.run(execution_mode=execution_mode)
-    elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-        result = query_runner.calculate()
-    elif isinstance(query, HogQLAutocomplete):
-        result = get_hogql_autocomplete(query=query, team=team)
-    elif isinstance(query, HogQLMetadata):
-        metadata_query = HogQLMetadata.model_validate(query)
-        metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-        result = metadata_response
-    elif isinstance(query, DatabaseSchemaQuery):
-        database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-        context = HogQLContext(team_id=team.pk, team=team, database=database)
-        result = serialize_database(context)
-    elif isinstance(query, TimeToSeeDataSessionsQuery):
-        sessions_query_serializer = SessionsQuerySerializer(data=query)
-        sessions_query_serializer.is_valid(raise_exception=True)
-        result = {"results": get_sessions(sessions_query_serializer).data}
-    elif isinstance(query, TimeToSeeDataQuery):
-        serializer = SessionEventsQuerySerializer(
-            data={
-                "team_id": team.pk,
-                "session_start": query.sessionStart,
-                "session_end": query.sessionEnd,
-                "session_id": query.sessionId,
-            }
-        )
-        serializer.is_valid(raise_exception=True)
-        result = get_session_events(serializer) or {}
-    elif hasattr(query, "source") and isinstance(query.source, BaseModel):
-        result = process_query_model(team, query.source)
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not isinstance(
+        query,
+        QUERY_WITH_RUNNER_USING_CACHE,  # type: ignore
+    ):
+        result = CacheMissResponse(cache_key=None)
     else:
-        raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+        if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
+            query_runner = get_query_runner(query, team, limit_context=limit_context)
+            result = query_runner.run(execution_mode=execution_mode)
+        elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
+            # TODO: These queries should be using the QueryRunner caching layer too
+            query_runner = get_query_runner(query, team, limit_context=limit_context)
+            result = query_runner.calculate()
+        elif isinstance(query, HogQLAutocomplete):
+            result = get_hogql_autocomplete(query=query, team=team)
+        elif isinstance(query, HogQLMetadata):
+            metadata_query = HogQLMetadata.model_validate(query)
+            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
+            result = metadata_response
+        elif isinstance(query, DatabaseSchemaQuery):
+            database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
+            context = HogQLContext(team_id=team.pk, team=team, database=database)
+            result = serialize_database(context)
+        elif isinstance(query, TimeToSeeDataSessionsQuery):
+            sessions_query_serializer = SessionsQuerySerializer(data=query)
+            sessions_query_serializer.is_valid(raise_exception=True)
+            result = {"results": get_sessions(sessions_query_serializer).data}
+        elif isinstance(query, TimeToSeeDataQuery):
+            serializer = SessionEventsQuerySerializer(
+                data={
+                    "team_id": team.pk,
+                    "session_start": query.sessionStart,
+                    "session_end": query.sessionEnd,
+                    "session_id": query.sessionId,
+                }
+            )
+            serializer.is_valid(raise_exception=True)
+            result = get_session_events(serializer) or {}
+        elif hasattr(query, "source") and isinstance(query.source, BaseModel):
+            result = process_query_model(team, query.source)
+        else:
+            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
 
     if isinstance(result, BaseModel):
         return result.model_dump()

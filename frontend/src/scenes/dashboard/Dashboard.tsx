@@ -96,7 +96,7 @@ function DashboardScene(): JSX.Element {
         [setDashboardMode, dashboardMode, placement]
     )
 
-    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
+    if (!dashboard && !itemsLoading && !receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 

@@ -326,12 +326,14 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
     job_1, job_1_inputs = await setup_job_1()
     job_2, job_2_inputs = await setup_job_2()
 
-    with mock.patch("stripe.Customer.list") as mock_customer_list, mock.patch(
-        "stripe.Charge.list"
-    ) as mock_charge_list, override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    with (
+        mock.patch("stripe.Customer.list") as mock_customer_list,
+        mock.patch("stripe.Charge.list") as mock_charge_list,
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
     ):
         mock_customer_list.return_value = {
             "data": [
@@ -406,10 +408,13 @@ async def test_run_stripe_job_cancelled(activity_environment, team, minio_client
 
     job_1, job_1_inputs = await setup_job_1()
 
-    with mock.patch("stripe.Customer.list") as mock_customer_list, override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    with (
+        mock.patch("stripe.Customer.list") as mock_customer_list,
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
     ):
         mock_customer_list.return_value = {
             "data": [
@@ -471,12 +476,14 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
 
     job_1, job_1_inputs = await setup_job_1()
 
-    with mock.patch("stripe.Customer.list") as mock_customer_list, mock.patch(
-        "posthog.temporal.data_imports.pipelines.helpers.CHUNK_SIZE", 0
-    ), override_settings(
-        BUCKET_URL=f"s3://{BUCKET_NAME}",
-        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    with (
+        mock.patch("stripe.Customer.list") as mock_customer_list,
+        mock.patch("posthog.temporal.data_imports.pipelines.helpers.CHUNK_SIZE", 0),
+        override_settings(
+            BUCKET_URL=f"s3://{BUCKET_NAME}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
     ):
         mock_customer_list.return_value = {
             "data": [
@@ -533,9 +540,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     async def mock_async_func(inputs):
         return {}
 
-    with mock.patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
-    ), mock.patch.object(DataImportPipeline, "run", mock_async_func):
+    with (
+        mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
+        mock.patch.object(DataImportPipeline, "run", mock_async_func),
+    ):
         with override_settings(AIRBYTE_BUCKET_KEY="test-key", AIRBYTE_BUCKET_SECRET="test-secret"):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
@@ -677,13 +685,17 @@ async def test_check_schedule_activity_with_missing_schema_id_but_with_schedule(
         should_sync=True,
     )
 
-    with mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=True
-    ), mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
-    ), mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_trigger_external_data_workflow"
-    ) as mock_a_trigger_external_data_workflow:
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=True
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_trigger_external_data_workflow"
+        ) as mock_a_trigger_external_data_workflow,
+    ):
         should_exit = await activity_environment.run(
             check_schedule_activity,
             ExternalDataWorkflowInputs(
@@ -717,13 +729,17 @@ async def test_check_schedule_activity_with_missing_schema_id_and_no_schedule(ac
         should_sync=True,
     )
 
-    with mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=False
-    ), mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
-    ), mock.patch(
-        "posthog.temporal.data_imports.external_data_job.a_sync_external_data_job_workflow"
-    ) as mock_a_sync_external_data_job_workflow:
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_external_data_workflow_exists", return_value=False
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_delete_external_data_schedule", return_value=True
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.a_sync_external_data_job_workflow"
+        ) as mock_a_sync_external_data_job_workflow,
+    ):
         should_exit = await activity_environment.run(
             check_schedule_activity,
             ExternalDataWorkflowInputs(

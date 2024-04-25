@@ -29,13 +29,12 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from typing import Dict, Type
 from posthog.utils import camel_to_snake_case
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
 def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
-    hogql_type: Type[DatabaseField] = DatabaseField
+    hogql_type: type[DatabaseField] = DatabaseField
 
     if dlt_type is None:
         hogql_type = StringDatabaseField
@@ -69,7 +68,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
 
 async def validate_schema(
     credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int, row_count: int
-) -> Dict:
+) -> dict:
     params = {
         "credential": credential,
         "name": table_name,
@@ -97,7 +96,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     table_schema: TSchemaTables,
-    table_row_counts: Dict[str, int],
+    table_row_counts: dict[str, int],
 ) -> None:
     """
 
@@ -160,7 +159,7 @@ async def validate_schema_and_update_table(
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:
                 schema_columns = schema.get("columns") or {}
-                db_columns: Dict[str, str] = await sync_to_async(table_created.get_columns)()
+                db_columns: dict[str, str] = await sync_to_async(table_created.get_columns)()
 
                 columns = {}
                 for column_name, db_column_type in db_columns.items():

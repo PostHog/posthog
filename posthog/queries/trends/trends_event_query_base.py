@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -29,7 +29,7 @@ class TrendsEventQueryBase(EventQuery):
         self._entity = entity
         super().__init__(*args, **kwargs)
 
-    def get_query_base(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query_base(self) -> tuple[str, dict[str, Any]]:
         """
         Returns part of the event query with only FROM, JOINs and WHERE clauses.
         """
@@ -114,9 +114,9 @@ class TrendsEventQueryBase(EventQuery):
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
 
-    def _get_date_filter(self) -> Tuple[str, Dict]:
+    def _get_date_filter(self) -> tuple[str, dict]:
         date_query = ""
-        date_params: Dict[str, Any] = {}
+        date_params: dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
@@ -145,7 +145,7 @@ class TrendsEventQueryBase(EventQuery):
 
         return date_query, date_params
 
-    def _get_entity_query(self, *, deep_filtering: bool) -> Tuple[str, Dict]:
+    def _get_entity_query(self, *, deep_filtering: bool) -> tuple[str, dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
             allowed_entities=[self._entity],
             team_id=self._team_id,

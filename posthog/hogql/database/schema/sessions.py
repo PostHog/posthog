@@ -1,4 +1,4 @@
-from typing import Dict, List, cast, Any, TYPE_CHECKING
+from typing import cast, Any, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -19,7 +19,7 @@ from posthog.hogql.errors import ResolutionError
 if TYPE_CHECKING:
     pass
 
-RAW_SESSIONS_FIELDS: Dict[str, FieldOrTable] = {
+RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="session_id"),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
@@ -44,7 +44,7 @@ RAW_SESSIONS_FIELDS: Dict[str, FieldOrTable] = {
     "autocapture_count": IntegerDatabaseField(name="autocapture_count"),
 }
 
-LAZY_SESSIONS_FIELDS: Dict[str, FieldOrTable] = {
+LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="session_id"),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
     "session_id": StringDatabaseField(name="session_id"),
@@ -75,7 +75,7 @@ LAZY_SESSIONS_FIELDS: Dict[str, FieldOrTable] = {
 
 
 class RawSessionsTable(Table):
-    fields: Dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
+    fields: dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -83,7 +83,7 @@ class RawSessionsTable(Table):
     def to_printed_hogql(self):
         return "raw_sessions"
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         # our clickhouse driver can't return aggregate states
         return [
             "entry_url",
@@ -100,7 +100,7 @@ class RawSessionsTable(Table):
 
 
 def select_from_sessions_table(
-    requested_fields: Dict[str, List[str | int]], node: ast.SelectQuery, context: HogQLContext
+    requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
 ):
     from posthog.hogql import ast
 
@@ -166,8 +166,8 @@ def select_from_sessions_table(
     }
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
 
-    select_fields: List[ast.Expr] = []
-    group_by_fields: List[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
+    select_fields: list[ast.Expr] = []
+    group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
@@ -189,9 +189,9 @@ def select_from_sessions_table(
 
 
 class SessionsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
+    fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node: ast.SelectQuery):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node: ast.SelectQuery):
         return select_from_sessions_table(requested_fields, node, context)
 
     def to_printed_clickhouse(self, context):
@@ -202,7 +202,7 @@ class SessionsTable(LazyTable):
 
 
 def join_events_table_to_sessions_table(
-    from_table: str, to_table: str, requested_fields: Dict[str, Any], context: HogQLContext, node: ast.SelectQuery
+    from_table: str, to_table: str, requested_fields: dict[str, Any], context: HogQLContext, node: ast.SelectQuery
 ) -> ast.JoinExpr:
     from posthog.hogql import ast
 

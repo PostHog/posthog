@@ -616,6 +616,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
+                    values.sessionPlayerMetaData,
                     0
                 )
                 // Reset cache now that final usage report has been sent
@@ -630,6 +631,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
+                values.sessionPlayerMetaData,
                 0
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
@@ -637,6 +639,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
+                values.sessionPlayerMetaData,
                 10
             )
         },

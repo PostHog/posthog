@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from django.db import models, transaction
 from django.db.models import F, Q
@@ -21,15 +21,15 @@ class PersonManager(models.Manager):
             return person
 
     @staticmethod
-    def distinct_ids_exist(team_id: int, distinct_ids: List[str]) -> bool:
+    def distinct_ids_exist(team_id: int, distinct_ids: list[str]) -> bool:
         return PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).exists()
 
 
 class Person(models.Model):
-    _distinct_ids: Optional[List[str]]
+    _distinct_ids: Optional[list[str]]
 
     @property
-    def distinct_ids(self) -> List[str]:
+    def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
             return [id.distinct_id for id in self.distinct_ids_cache]
         if hasattr(self, "_distinct_ids") and self._distinct_ids:
@@ -46,7 +46,7 @@ class Person(models.Model):
         PersonDistinctId.objects.create(person=self, distinct_id=distinct_id, team_id=self.team_id)
 
     # :DEPRECATED: This should happen through the plugin server
-    def _add_distinct_ids(self, distinct_ids: List[str]) -> None:
+    def _add_distinct_ids(self, distinct_ids: list[str]) -> None:
         for distinct_id in distinct_ids:
             self.add_distinct_id(distinct_id)
 
@@ -274,7 +274,7 @@ class FlatPersonOverride(models.Model):
         ]
 
 
-def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
+def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> list[str]:
     """_summary_
     Fetching distinct_ids for a person from CH is slow, so we
     fetch them from PG for certain queries. Therfore we need

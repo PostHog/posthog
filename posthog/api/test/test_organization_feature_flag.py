@@ -11,7 +11,7 @@ from posthog.models.feedback.survey import Survey
 from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from typing import Any, Dict
+from typing import Any
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -382,7 +382,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
