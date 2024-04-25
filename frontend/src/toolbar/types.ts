@@ -20,6 +20,10 @@ export type HeatmapRequestType = {
     aggregation: 'total_count' | 'unique_visitors'
 }
 
+export type HeatmapReplayExamplesResponseType = {
+    results: { session_id: string; timestamp: number }[]
+}
+
 export type HeatmapResponseType = {
     results: (
         | {

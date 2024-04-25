@@ -16,6 +16,7 @@ import {
     CountedHTMLElement,
     ElementsEventType,
     HeatmapElement,
+    HeatmapReplayExamplesResponseType,
     HeatmapRequestType,
     HeatmapResponseType,
 } from '~/toolbar/types'
@@ -212,6 +213,47 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
                     } as PaginatedResponse<ElementsEventType>
+                },
+            },
+        ],
+
+        heatmapReplayExamples: [
+            null as HeatmapReplayExamplesResponseType | null,
+            {
+                loadExamples: async ({ x, y }: { x: number; y: number }) => {
+                    const { href, wildcardHref } = values
+                    const { date_from, date_to } = values.commonFilters
+                    const { type } = values.heatmapFilters
+                    const urlExact = wildcardHref === href ? href : undefined
+                    const urlRegex = wildcardHref !== href ? wildcardHref : undefined
+
+                    const response = await toolbarFetch(
+                        `/api/heatmap/examples${encodeParams(
+                            {
+                                type,
+                                date_from,
+                                date_to,
+                                url_exact: urlExact,
+                                url_pattern: urlRegex,
+                                viewport_width_min: values.viewportRange.min,
+                                viewport_width_max: values.viewportRange.max,
+                                x,
+                                y,
+                            },
+                            '?'
+                        )}`,
+                        'GET'
+                    )
+
+                    if (response.status === 403) {
+                        toolbarConfigLogic.actions.authenticate()
+                    }
+
+                    if (response.status !== 200) {
+                        throw new Error('API error')
+                    }
+
+                    return await response.json()
                 },
             },
         ],

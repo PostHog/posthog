@@ -2,6 +2,7 @@ from datetime import datetime, date
 from typing import Any, List  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
+from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import TemporaryTokenAuthentication
@@ -15,6 +16,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
 from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+
+EXAMPLES_QUERY = """
+            select
+                session_id,
+                timestamp,
+                round((x / viewport_width), 2) as relative_client_x,
+                y * scale_factor as client_y
+             from heatmaps
+             where {predicates}
+            """
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, relative_client_x, client_y, {aggregation_count}
@@ -51,20 +63,12 @@ ORDER BY bucket
 """
 
 
-class HeatmapsRequestSerializer(serializers.Serializer):
-    viewport_width_min = serializers.IntegerField(required=False)
-    viewport_width_max = serializers.IntegerField(required=False)
+class HeatmapsBaseRequestSerializer(serializers.Serializer):
     type = serializers.CharField(required=False, default="click")
     date_from = serializers.CharField(required=False, default="-7d")
     date_to = serializers.DateField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
-    aggregation = serializers.ChoiceField(
-        required=False,
-        choices=["unique_visitors", "total_count"],
-        help_text="How to aggregate the response",
-        default="total_count",
-    )
 
     def validate_date_from(self, value) -> date:
         try:
@@ -92,6 +96,22 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         return values
 
 
+class HeatmapsExamplesRequestSerializer(HeatmapsBaseRequestSerializer):
+    x = serializers.IntegerField(required=False)
+    y = serializers.IntegerField(required=False)
+
+
+class HeatmapsRequestSerializer(HeatmapsBaseRequestSerializer):
+    viewport_width_min = serializers.IntegerField(required=False)
+    viewport_width_max = serializers.IntegerField(required=False)
+    aggregation = serializers.ChoiceField(
+        required=False,
+        choices=["unique_visitors", "total_count"],
+        help_text="How to aggregate the response",
+        default="total_count",
+    )
+
+
 class HeatmapResponseItemSerializer(serializers.Serializer):
     count = serializers.IntegerField(required=True)
     pointer_y = serializers.IntegerField(required=True)
@@ -113,6 +133,17 @@ class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
     results = HeatmapScrollDepthResponseItemSerializer(many=True)
 
 
+class HeatmapExampleItemSerializer(serializers.Serializer):
+    session_id = serializers.CharField(required=True)
+    timestamp = serializers.DateTimeField(required=True)
+    pointer_relative_x = serializers.FloatField(required=True)
+    pointer_y = serializers.IntegerField(required=True)
+
+
+class HeatmapsExamplesResponseSerializer(serializers.Serializer):
+    results = HeatmapExampleItemSerializer(many=True)
+
+
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
 
@@ -123,6 +154,21 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_queryset(self):
         return None
+
+    @action(methods=["GET"], detail=False)
+    def examples(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_serializer = HeatmapsExamplesRequestSerializer(data=request.query_params, context={"team": self.team})
+        request_serializer.is_valid(raise_exception=True)
+
+        placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
+        exprs = self._predicate_expressions(placeholders)
+        stmt = parse_select(EXAMPLES_QUERY, {"predicates": ast.And(exprs=exprs)})
+        context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        query_response = execute_hogql_query(
+            query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
+        )
+
+        return self._heatmaps_examples_response(query_response)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
@@ -163,10 +209,13 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "type": "`type` = {type}",
             # optional
             "date_to": "timestamp <= {date_to} + interval 1 day",
-            "viewport_width_min": "viewport_width >= ceil({viewport_width_min} / 16)",
-            "viewport_width_max": "viewport_width <= ceil({viewport_width_max} / 16)",
+            "viewport_width_min": "viewport_width >= round({viewport_width_min} / 16)",
+            "viewport_width_max": "viewport_width <= round({viewport_width_max} / 16)",
             "url_exact": "current_url = {url_exact}",
             "url_pattern": "match(current_url, {url_pattern})",
+            # stored x and y were scaled by the scale factor
+            "x": "x = round({x} / 16)",
+            "y": "y = round({y} / 16)",
         }
 
         for predicate_key in placeholders.keys():
@@ -207,6 +256,22 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ]
 
         response_serializer = HeatmapsScrollDepthResponseSerializer(data={"results": data})
+        response_serializer.is_valid(raise_exception=True)
+        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _heatmaps_examples_response(query_response: HogQLQueryResponse) -> response.Response:
+        data = [
+            {
+                "session_id": item[0],
+                "timestamp": item[1],
+                "pointer_relative_x": item[2],
+                "pointer_y": item[3],
+            }
+            for item in query_response.results or []
+        ]
+
+        response_serializer = HeatmapsExamplesResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
         return response.Response(response_serializer.data, status=status.HTTP_200_OK)
 

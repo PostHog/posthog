@@ -1,5 +1,3 @@
-import math
-
 import freezegun
 from django.http import HttpResponse
 from parameterized import parameterized
@@ -59,6 +57,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self._get_heatmap(params)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
+
+    def _get_examples(
+        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+    ) -> HttpResponse:
+        if params is None:
+            params = {}
+
+        query_params = "&".join([f"{key}={value}" for key, value in params.items()])
+        response = self.client.get(f"/api/heatmap/examples?{query_params}")
+        assert response.status_code == expected_status_code, response.json()
+
+        return response
 
     def _get_heatmap(
         self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
@@ -142,6 +152,46 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count(
             {"date_from": "2023-03-08", "url_pattern": "http://example.com*", "type": "rageclick"}, 3
         )
+
+    @snapshot_clickhouse_queries
+    def test_can_get_example_sessions(self) -> None:
+        # type doesn't match
+        self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, x=1000)
+
+        # does match
+        self._create_heatmap_event("session_2", "click", "2023-03-08T07:00:00", y=10, x=1000)
+        # scale factor collapses nearby clicks
+        self._create_heatmap_event("session_3", "click", "2023-03-08T07:00:00", y=9, x=999)
+
+        """
+        in ingestion we do `math.round(value/16)` so:
+
+        math.round(9/16) is 1
+        math.round(10/16) is 1
+        math.round(11/16) is 1
+        math.round(999/16) is 62
+        math.round(1000/16) is 62
+        math.round(1001/16) is 63
+        """
+
+        examples_response = self._get_examples({"date_from": "2023-03-06", "type": "click", "x": 999, "y": 11})
+
+        assert examples_response.json() == {
+            "results": [
+                {
+                    "pointer_relative_x": 10.33,
+                    "pointer_y": 16,
+                    "session_id": "session_3",
+                    "timestamp": "2023-03-08T07:00:00Z",
+                },
+                {
+                    "pointer_relative_x": 10.33,
+                    "pointer_y": 16,
+                    "session_id": "session_2",
+                    "timestamp": "2023-03-08T07:00:00Z",
+                },
+            ],
+        }
 
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
@@ -288,6 +338,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         date_from: str = "2023-03-08T09:00:00",
         viewport_width: int = 100,
         viewport_height: int = 100,
+        x: int = 10,
         y: int = 20,
         current_url: str | None = None,
         distinct_id: str = "user_distinct_id",
@@ -306,12 +357,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "team_id": team_id,
                 "distinct_id": distinct_id,
                 "timestamp": format_clickhouse_timestamp(date_from),
-                "x": 10 / 16,
-                "y": y / 16,
+                "x": int(round(x / 16)),
+                "y": int(round(y / 16)),
                 "scale_factor": 16,
                 # this adjustment is done at ingestion
-                "viewport_width": math.ceil(viewport_width / 16),
-                "viewport_height": math.ceil(viewport_height / 16),
+                "viewport_width": int(round(viewport_width / 16)),
+                "viewport_height": int(round(viewport_height / 16)),
                 "type": type,
                 "pointer_target_fixed": True,
                 "current_url": current_url if current_url else "http://posthog.com",
