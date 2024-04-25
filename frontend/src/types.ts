@@ -617,7 +617,6 @@ export enum PipelineTab {
 }
 
 export enum PipelineStage {
-    Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',

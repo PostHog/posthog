@@ -35,7 +35,10 @@ export function Pipeline(): JSX.Element {
     }
 
     const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
-    const showNewButton = maybeKind && (currentTab !== PipelineTab.Destinations || canEnableNewDestinations)
+    const showNewButton =
+        maybeKind &&
+        currentTab !== PipelineTab.ImportApps &&
+        (currentTab !== PipelineTab.Destinations || canEnableNewDestinations)
 
     return (
         <div className="pipeline-scene">
