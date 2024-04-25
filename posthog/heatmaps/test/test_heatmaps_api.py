@@ -201,6 +201,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             [
+                "min_150",
                 {"date_from": "2023-03-08", "viewport_width_min": "150"},
                 [
                     heatmap_result(0.09, 1),
@@ -209,38 +210,43 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 ],
             ],
             [
+                "min_161",
                 {"date_from": "2023-03-08", "viewport_width_min": "161"},
                 [
                     heatmap_result(0.09, 1),
-                    heatmap_result(0.1, 1),
+                    heatmap_result(0.1, 3),
                 ],
             ],
             [
+                "min_177",
                 {"date_from": "2023-03-08", "viewport_width_min": "177"},
                 [
                     heatmap_result(0.09, 1),
                 ],
             ],
-            [{"date_from": "2023-03-08", "viewport_width_min": "193"}, []],
+            ["min_194", {"date_from": "2023-03-08", "viewport_width_min": "194"}, []],
             [
+                "min_161_and_max_192",
                 {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
                 [heatmap_result(0.09, 1), heatmap_result(0.1, 3), heatmap_result(0.08, 1)],
             ],
         ]
     )
     @snapshot_clickhouse_queries
-    def test_can_filter_by_viewport(self, query_params: dict, expected_results: dict) -> None:
+    def test_can_filter_by_viewport(self, _name: str, query_params: dict, expected_results: dict) -> None:
         # all these xs = round(10/16) = 1
 
-        # viewport widths that scale to 10
+        # viewport widths that scale to 9
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
+
+        # viewport widths that scale to 10
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        # viewport width that scales to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
-        # viewport width that scales to 12
+
+        # viewport width that scales to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
-        # viewport width that scales to 13
+        # viewport width that scales to 12
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
 
         response = self._get_heatmap(query_params)
