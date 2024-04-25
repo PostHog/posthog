@@ -39,12 +39,6 @@ export interface BatchExportBasedNode extends PipelineNodeBase {
     interval: BatchExportConfiguration['interval']
 }
 
-// Stage: Filters
-
-export interface Filter extends PluginBasedNode {
-    stage: PipelineStage.Filter
-}
-
 // Stage: Transformations
 
 export interface Transformation extends PluginBasedNode {
@@ -75,7 +69,7 @@ export interface ImportApp extends PluginBasedNode {
 
 // Final
 
-export type PipelineNode = Filter | Transformation | Destination | SiteApp | ImportApp
+export type PipelineNode = Transformation | Destination | SiteApp | ImportApp
 
 // Utils
 
@@ -88,9 +82,7 @@ function isPluginConfig(
 export function convertToPipelineNode<S extends PipelineStage>(
     candidate: PluginConfigWithPluginInfoNew | BatchExportConfiguration,
     stage: S
-): S extends PipelineStage.Filter
-    ? Filter
-    : S extends PipelineStage.Transformation
+): S extends PipelineStage.Transformation
     ? Transformation
     : S extends PipelineStage.Destination
     ? Destination
@@ -101,10 +93,7 @@ export function convertToPipelineNode<S extends PipelineStage>(
     : never {
     let node: PipelineNode
     if (isPluginConfig(candidate)) {
-        const almostNode: Omit<
-            Filter | Transformation | WebhookDestination | SiteApp | ImportApp,
-            'frequency' | 'order'
-        > = {
+        const almostNode: Omit<Transformation | WebhookDestination | SiteApp | ImportApp, 'frequency' | 'order'> = {
             stage: stage,
             backend: PipelineBackend.Plugin,
             id: candidate.id,
@@ -128,13 +117,11 @@ export function convertToPipelineNode<S extends PipelineStage>(
                 stage,
                 interval: 'realtime',
             }
-        } else if (stage === PipelineStage.SiteApp || stage === PipelineStage.ImportApp) {
+        } else {
             node = {
                 ...almostNode,
                 stage,
             }
-        } else {
-            node = almostNode as Filter
         }
     } else {
         node = {

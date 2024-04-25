@@ -8,7 +8,6 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { SurprisedHog } from 'lib/components/hedgehogs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -30,10 +29,6 @@ import { BillingProduct } from './BillingProduct'
 export const scene: SceneExport = {
     component: Billing,
     logic: billingLogic,
-}
-
-export function BillingPageHeader(): JSX.Element {
-    return <PageHeader />
 }
 
 export function Billing(): JSX.Element {
@@ -71,7 +66,6 @@ export function Billing(): JSX.Element {
     if (!billing && billingLoading) {
         return (
             <>
-                <BillingPageHeader />
                 <SpinnerOverlay sceneLevel />
             </>
         )
@@ -80,7 +74,6 @@ export function Billing(): JSX.Element {
     if (!billing && !billingLoading) {
         return (
             <div className="space-y-4">
-                {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
                     {
                         'There was an issue retrieving your current billing information. If this message persists, please '
@@ -138,7 +131,6 @@ export function Billing(): JSX.Element {
 
     return (
         <div ref={ref}>
-            {!isOnboarding && <BillingPageHeader />}
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">

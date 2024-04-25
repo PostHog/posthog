@@ -11,6 +11,10 @@ argcomplete==2.0.0
     # via datamodel-code-generator
 asgiref==3.7.2
     # via django
+async-timeout==4.0.2
+    # via
+    #   aiohttp
+    #   redis
 attrs==23.2.0
     # via
     #   aiohttp
@@ -53,6 +57,8 @@ docopt==0.6.2
     # via pytest-watch
 email-validator==2.0.0.post2
     # via pydantic
+exceptiongroup==1.2.1
+    # via pytest
 faker==17.5.0
 fakeredis==2.11.0
 flaky==3.7.0
@@ -203,7 +209,14 @@ sqlparse==0.4.4
     # via django
 syrupy==4.6.0
 toml==0.10.1
-    # via coverage
+    # via
+    #   coverage
+    #   datamodel-code-generator
+tomli==2.0.1
+    # via
+    #   black
+    #   mypy
+    #   pytest
 types-awscrt==0.20.9
     # via botocore-stubs
 types-freezegun==1.1.10
@@ -221,10 +234,14 @@ types-s3transfer==0.10.1
 types-tzlocal==5.1.0.1
 typing-extensions==4.7.1
     # via
+    #   asgiref
+    #   black
+    #   boto3-stubs
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
     #   mypy
+    #   mypy-boto3-s3
     #   pydantic
     #   pydantic-core
 uritemplate==4.1.1
