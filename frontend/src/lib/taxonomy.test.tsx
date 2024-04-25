@@ -26,10 +26,10 @@ describe('taxonomy', () => {
     })
 
     describe('session properties', () => {
-        const sessionPropertyNames = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.sessions)
+        const sessionPropertyNames = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties)
         it('should have an $initial_referring_domain property', () => {
             const property: CoreFilterDefinition =
-                CORE_FILTER_DEFINITIONS_BY_GROUP.sessions['$initial_referring_domain']
+                CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties['$initial_referring_domain']
             expect(property.label).toEqual('Initial Referring Domain')
         })
         it(`should have every property in SESSION_PROPERTIES_ADAPTED_FROM_PERSON`, () => {
