@@ -71,6 +71,7 @@ ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
 }
 
 
