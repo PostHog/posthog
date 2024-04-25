@@ -208,7 +208,7 @@ class SessionsTable(LazyTable):
     def to_printed_hogql(self):
         return "sessions"
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         return [
             "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
         ]
