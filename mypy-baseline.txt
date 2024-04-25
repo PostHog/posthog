@@ -194,12 +194,7 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Argument 1 to "visit" of "Resolver" has incompatible type "SampleExpr | None"; expected "Expr"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 2 to "convert_hogqlx_tag" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/hogql/resolver.py:0: error: Invalid index type "str | int" for "dict[str, BaseTableType | SelectUnionQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType]"; expected type "str"  [index]
-posthog/hogql/resolver.py:0: error: Argument 2 to "lookup_field_by_name" has incompatible type "str | int"; expected "str"  [arg-type]
 posthog/hogql/resolver.py:0: error: Argument 2 to "lookup_cte_by_name" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql/resolver.py:0: error: Argument 1 to "get_child" of "Type" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Alias")  [assignment]
-posthog/hogql/resolver.py:0: error: Argument "alias" to "Alias" has incompatible type "str | int"; expected "str"  [arg-type]
-posthog/hogql/resolver.py:0: error: Argument 1 to "join" of "str" has incompatible type "list[str | int]"; expected "Iterable[str]"  [arg-type]
 posthog/hogql/transforms/lazy_tables.py:0: error: Incompatible default for argument "context" (default has type "None", argument has type "HogQLContext")  [assignment]
 posthog/hogql/transforms/lazy_tables.py:0: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 posthog/hogql/transforms/lazy_tables.py:0: note: Use https://github.com/hauntsaninja/no_implicit_optional to automatically upgrade your codebase
