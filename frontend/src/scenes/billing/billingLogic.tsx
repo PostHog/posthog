@@ -173,7 +173,7 @@ export const billingLogic = kea<billingLogicType>([
                         if (error.detail && error.detail.includes('open invoice')) {
                             actions.setUnsubscribeError({
                                 detail: error.detail,
-                                link: <Link to={values.billing?.stripe_portal_url}>See Invoices</Link>,
+                                link: <Link to={values.billing?.stripe_portal_url} target="_blank">View invoices</Link>,
                             } as UnsubscribeError)
                         } else {
                             actions.setUnsubscribeError({
