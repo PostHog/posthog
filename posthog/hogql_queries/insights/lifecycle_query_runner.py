@@ -340,7 +340,7 @@ class LifecycleQueryRunner(QueryRunner):
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),
-                    "group_by": [ast.Field(chain=["target"])],
+                    "group_by": ast.Field(chain=["target"]),
                 },
                 timings=self.timings,
             )

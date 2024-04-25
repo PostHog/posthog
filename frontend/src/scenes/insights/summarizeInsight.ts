@@ -106,7 +106,9 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
         }
         return summary
     } else if (isLifecycleFilter(filters)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
+        return `${capitalizeFirstLetter(
+            context.aggregationLabel(filters.aggregation_group_type_index, true).singular
+        )} lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
     } else if (isFunnelsFilter(filters)) {
         let summary
         const linkSymbol =
