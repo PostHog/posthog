@@ -69,6 +69,7 @@ STR_TO_HOGQL_MAPPING = {
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "file is empty": "The provided file contains no data",
 }
 
 
