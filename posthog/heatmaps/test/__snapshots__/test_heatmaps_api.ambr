@@ -18,7 +18,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.1
@@ -40,7 +41,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_exact_url.2
@@ -62,7 +64,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_0_min_150
@@ -84,7 +87,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_1_min_161
@@ -106,7 +110,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_2_min_177
@@ -128,7 +133,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_3_min_201
@@ -150,7 +156,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_filter_by_viewport_4_min_161_and_max_192
@@ -172,7 +179,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_all_data_response
@@ -194,7 +202,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation
@@ -216,7 +225,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_count_by_aggregation.1
@@ -238,7 +248,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_empty_response
@@ -260,7 +271,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click
@@ -282,7 +294,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_click.1
@@ -304,7 +317,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_date_from
@@ -326,7 +340,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_filter_by_relative_date_from
@@ -348,7 +363,8 @@
            client_y
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestSessionRecordings.test_can_get_scrolldepth_counts
@@ -370,6 +386,7 @@
   ORDER BY bucket ASC
   LIMIT 1000000 SETTINGS readonly=2,
                          max_execution_time=60,
-                         allow_experimental_object_type=1
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0
   '''
 # ---
