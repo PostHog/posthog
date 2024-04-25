@@ -189,6 +189,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
                         size="small"
                         type="secondary"
                         to={urls.debugQuery(query)}
+                        className="mt-4"
                     >
                         Open in query debugger
                     </LemonButton>
@@ -275,7 +276,7 @@ export function InsightValidationError({
                 </h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
                 {query ? (
-                    <p className="text-sm text-center text-balance">
+                    <p className="text-center text-balance">
                         <LemonButton
                             data-attr="insight-error-query"
                             targetBlank
