@@ -1,5 +1,4 @@
 import uuid
-from typing import List
 from unittest.mock import patch, MagicMock, call, Mock
 
 from rest_framework import status
@@ -32,7 +31,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             # this mock simulates a recording whose blob storage has been deleted by TTL
             # but which has been stored in LTS blob storage
             if path == lts_storage_path:
@@ -88,7 +87,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "1234-5678"
 
-        def list_objects_func(_path: str) -> List[str]:
+        def list_objects_func(_path: str) -> list[str]:
             return []
 
         mock_list_objects.side_effect = list_objects_func
@@ -138,7 +137,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             # this mock simulates a recording whose blob storage has been deleted by TTL
             # but which has been stored in LTS blob storage
             if path == lts_storage_path:
@@ -208,7 +207,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         lts_storage_path = "1234-5678"
 
-        def list_objects_func(path: str) -> List[str]:
+        def list_objects_func(path: str) -> list[str]:
             return []
 
         mock_list_objects.side_effect = list_objects_func

@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Any, Dict, List
+from typing import Any, List  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
 
@@ -80,7 +80,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         except Exception:
             raise serializers.ValidationError("Error parsing provided date_from: {}".format(value))
 
-    def validate(self, values) -> Dict:
+    def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
         if isinstance(url_exact, str) and isinstance(url_pattern, str):
@@ -154,10 +154,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     @staticmethod
-    def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
-        predicate_expressions: List[ast.Expr] = []
+    def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
+        predicate_expressions: list[ast.Expr] = []
 
-        predicate_mapping: Dict[str, str] = {
+        predicate_mapping: dict[str, str] = {
             # should always have values
             "date_from": "timestamp >= {date_from}",
             "type": "`type` = {type}",

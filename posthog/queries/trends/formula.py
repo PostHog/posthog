@@ -2,7 +2,7 @@ import math
 from itertools import accumulate
 import re
 from string import ascii_uppercase
-from typing import Any, Dict, List
+from typing import Any
 
 from sentry_sdk import push_scope
 
@@ -22,7 +22,7 @@ class TrendsFormula:
     def _run_formula_query(self, filter: Filter, team: Team):
         letters = [ascii_uppercase[i] for i in range(0, len(filter.entities))]
         queries = []
-        params: Dict[str, Any] = {}
+        params: dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
             _, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
             sql = PARAM_DISAMBIGUATION_REGEX.sub(f"%({idx}_", sql)
@@ -96,7 +96,7 @@ class TrendsFormula:
             )
             response = []
             for item in result:
-                additional_values: Dict[str, Any] = {"label": self._label(filter, item)}
+                additional_values: dict[str, Any] = {"label": self._label(filter, item)}
                 if filter.breakdown:
                     additional_values["breakdown_value"] = additional_values["label"]
 
@@ -113,7 +113,7 @@ class TrendsFormula:
                 response.append(parse_response(item, filter, additional_values=additional_values))
         return response
 
-    def _label(self, filter: Filter, item: List) -> str:
+    def _label(self, filter: Filter, item: list) -> str:
         if filter.breakdown:
             if filter.breakdown_type == "cohort":
                 return get_breakdown_cohort_name(item[2])

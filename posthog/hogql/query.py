@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, Optional, Union, cast
+from typing import Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
@@ -32,7 +32,7 @@ def execute_hogql_query(
     *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
@@ -175,7 +175,7 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, (ExposedCHQueryError, ExposedHogQLError)):
+                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     error = str(e)
                 else:
                     error = "Unknown error"

@@ -1,4 +1,4 @@
-from typing import List, Optional, cast, Union
+from typing import Optional, cast, Union
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -13,8 +13,8 @@ class QueryAlternator:
     """Allows query_builder to modify the query without having to expost the whole AST interface"""
 
     _query: ast.SelectQuery
-    _selects: List[ast.Expr]
-    _group_bys: List[ast.Expr]
+    _selects: list[ast.Expr]
+    _group_bys: list[ast.Expr]
     _select_from: ast.JoinExpr | None
 
     def __init__(self, query: ast.SelectQuery | ast.SelectUnionQuery):
@@ -143,7 +143,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "p99_count_per_actor",
         ]
 
-    def _math_func(self, method: str, override_chain: Optional[List[str | int]]) -> ast.Call:
+    def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 
@@ -167,7 +167,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return ast.Call(name=method, args=[ast.Field(chain=chain)])
 
-    def _math_quantile(self, percentile: float, override_chain: Optional[List[str | int]]) -> ast.Call:
+    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
         if self.series.math_property == "$session_duration":
             chain = ["session_duration"]
         else:

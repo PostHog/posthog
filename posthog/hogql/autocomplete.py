@@ -1,5 +1,6 @@
 from copy import copy, deepcopy
-from typing import Callable, Dict, List, Optional, cast
+from typing import Optional, cast
+from collections.abc import Callable
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import (
@@ -38,7 +39,7 @@ from posthog.schema import (
 class GetNodeAtPositionTraverser(TraversingVisitor):
     start: int
     end: int
-    selects: List[ast.SelectQuery] = []
+    selects: list[ast.SelectQuery] = []
     node: Optional[AST] = None
     parent_node: Optional[AST] = None
     last_node: Optional[AST] = None
@@ -100,13 +101,13 @@ def convert_field_or_table_to_type_string(field_or_table: FieldOrTable) -> str |
         return "Object"
     if isinstance(field_or_table, ast.ExpressionField):
         return "Expression"
-    if isinstance(field_or_table, (ast.Table, ast.LazyJoin)):
+    if isinstance(field_or_table, ast.Table | ast.LazyJoin):
         return "Table"
 
     return None
 
 
-def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dict[str, CTE]]) -> None | Table:
+def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dict[str, CTE]]) -> None | Table:
     assert context.database is not None
 
     def resolve_fields_on_table(table: Table | None, table_query: ast.SelectQuery) -> Table | None:
@@ -120,7 +121,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
                 return None
 
             selected_columns = node.type.columns
-            new_fields: Dict[str, FieldOrTable] = {}
+            new_fields: dict[str, FieldOrTable] = {}
             for name, field in selected_columns.items():
                 if isinstance(field, ast.FieldAliasType):
                     underlying_field_name = field.alias
@@ -145,7 +146,7 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
 
             # Return a new table with a reduced field set
             class AnonTable(Table):
-                fields: Dict[str, FieldOrTable] = new_fields
+                fields: dict[str, FieldOrTable] = new_fields
 
                 def to_printed_hogql(self):
                     # Use the base table name for resolving property definitions later
@@ -184,8 +185,8 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[Dic
     return None
 
 
-def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[str, ast.Table]:
-    tables: Dict[str, ast.Table] = {}
+def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> dict[str, ast.Table]:
+    tables: dict[str, ast.Table] = {}
 
     if query.select_from is not None and query.select_from.alias is not None:
         table = get_table(context, query.select_from, query.ctes)
@@ -207,7 +208,7 @@ def get_tables_aliases(query: ast.SelectQuery, context: HogQLContext) -> Dict[st
 # Replaces all ast.FieldTraverser with the underlying node
 def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table:
     new_table = deepcopy(table)
-    new_fields: Dict[str, FieldOrTable] = {}
+    new_fields: dict[str, FieldOrTable] = {}
     for key, field in list(new_table.fields.items()):
         if not isinstance(field, ast.FieldTraverser):
             new_fields[key] = field
@@ -234,9 +235,9 @@ def resolve_table_field_traversers(table: Table, context: HogQLContext) -> Table
     return new_table
 
 
-def append_table_field_to_response(table: Table, suggestions: List[AutocompleteCompletionItem]) -> None:
-    keys: List[str] = []
-    details: List[str | None] = []
+def append_table_field_to_response(table: Table, suggestions: list[AutocompleteCompletionItem]) -> None:
+    keys: list[str] = []
+    details: list[str | None] = []
     table_fields = list(table.fields.items())
     for field_name, field_or_table in table_fields:
         # Skip over hidden fields
@@ -258,11 +259,11 @@ def append_table_field_to_response(table: Table, suggestions: List[AutocompleteC
 
 
 def extend_responses(
-    keys: List[str],
-    suggestions: List[AutocompleteCompletionItem],
+    keys: list[str],
+    suggestions: list[AutocompleteCompletionItem],
     kind: Kind = Kind.Variable,
     insert_text: Optional[Callable[[str], str]] = None,
-    details: Optional[List[str | None]] = None,
+    details: Optional[list[str | None]] = None,
 ) -> None:
     suggestions.extend(
         [

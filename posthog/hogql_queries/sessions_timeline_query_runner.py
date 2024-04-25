@@ -1,6 +1,6 @@
 from datetime import timedelta
 import json
-from typing import Dict, cast
+from typing import cast
 from posthog.api.element import ElementSerializer
 
 
@@ -138,7 +138,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
         assert query_result.results is not None
-        timeline_entries_map: Dict[str, TimelineEntry] = {}
+        timeline_entries_map: dict[str, TimelineEntry] = {}
         for (
             uuid,
             timestamp_parsed,

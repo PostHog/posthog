@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -21,7 +21,7 @@ from posthog.test.base import BaseTest
 class TestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
-    other_attr: Optional[List[Any]] = []
+    other_attr: Optional[list[Any]] = []
 
 
 class TestQueryRunner(BaseTest):

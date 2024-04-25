@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, List, Tuple, Dict
+from typing import Any
 
 import structlog
 from rest_framework import filters, serializers, status, viewsets
@@ -71,7 +71,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return latest_completed_run.created_at if latest_completed_run else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: List[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
         any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
@@ -122,7 +122,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["source_id"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
@@ -193,7 +193,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
-        active_schemas: List[ExternalDataSchema] = []
+        active_schemas: list[ExternalDataSchema] = []
 
         for schema in enabled_schemas:
             active_schemas.append(
@@ -289,7 +289,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_postgres_source(
         self, request: Request, *args: Any, **kwargs: Any
-    ) -> Tuple[ExternalDataSource, List[Any]]:
+    ) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]

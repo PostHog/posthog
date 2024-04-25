@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from enum import Enum
-from functools import lru_cache
+from functools import cache
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
@@ -65,7 +65,7 @@ def default_client():
     )
 
 
-@lru_cache(maxsize=None)
+@cache
 def make_ch_pool(**overrides) -> ChPool:
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,

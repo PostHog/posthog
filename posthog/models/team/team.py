@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import posthoganalytics
 import pydantic
@@ -64,7 +64,7 @@ class TeamManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEPRECATED_ATTRS)
 
-    def set_test_account_filters(self, organization: Optional[Any]) -> List:
+    def set_test_account_filters(self, organization: Optional[Any]) -> list:
         filters = [
             {
                 "key": "$host",
@@ -150,7 +150,7 @@ class TeamManager(models.Manager):
         return result[0]
 
 
-def get_default_data_attributes() -> List[str]:
+def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
 
 
@@ -477,7 +477,7 @@ def groups_on_events_querying_enabled():
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):
-    available_product_features: Optional[List[Dict[str, str]]] = (
+    available_product_features: Optional[list[dict[str, str]]] = (
         Team.objects.select_related("organization")
         .values_list("organization__available_product_features", flat=True)
         .get(id=team_id)

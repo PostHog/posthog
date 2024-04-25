@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Optional
+from collections.abc import Callable
 
 import posthoganalytics
 import structlog

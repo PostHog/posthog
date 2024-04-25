@@ -37,7 +37,7 @@ TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = (
     f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 
-with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json"), "r") as f:
+with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json")) as f:
     CHANNEL_DEFINITIONS = json.loads(f.read())
 
 
@@ -54,7 +54,7 @@ CHANNEL_DEFINITION_DATA_SQL = f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
 ''',
-'''.join((f'({" ,".join(map(format_value, x))})' for x in CHANNEL_DEFINITIONS))},
+'''.join(f'({" ,".join(map(format_value, x))})' for x in CHANNEL_DEFINITIONS)},
 ;
 """
 
