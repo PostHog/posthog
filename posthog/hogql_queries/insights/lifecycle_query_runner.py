@@ -278,9 +278,34 @@ class LifecycleQueryRunner(QueryRunner):
         else:
             return ast.And(exprs=event_filters)
 
+    @property
+    def group_type_index(self) -> int | None:
+        return self.query.aggregation_group_type_index
+
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
+            target_field = "person_id"
+
+            event_filters = [self.event_filter]
+
+            if self.group_type_index is not None:
+                group_index = int(self.group_type_index)
+                if 0 <= group_index <= 4:
+                    target_field = f"$group_{group_index}"
+
+                    event_filters.append(
+                        ast.Not(
+                            expr=ast.Call(
+                                name="has",
+                                args=[
+                                    ast.Array(exprs=[ast.Constant(value="")]),
+                                    ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
+                                ],
+                            ),
+                        ),
+                    )
+
             events_query = parse_select(
                 """
                     SELECT
@@ -296,14 +321,16 @@ class LifecycleQueryRunner(QueryRunner):
                         arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) as temp_concat,
                         arrayJoin(temp_concat) as period_status_pairs,
                         period_status_pairs.1 as start_of_period,
-                        period_status_pairs.2 as status
+                        period_status_pairs.2 as status,
+                        {target}
                     FROM events
                     WHERE {event_filter}
-                    GROUP BY person_id
+                    GROUP BY {group_by}
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
-                    "event_filter": self.event_filter,
+                    "target": ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
+                    "event_filter": ast.And(exprs=event_filters),
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])
                     ),
@@ -313,6 +340,7 @@ class LifecycleQueryRunner(QueryRunner):
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),
+                    "group_by": [ast.Field(chain=["target"])],
                 },
                 timings=self.timings,
             )
