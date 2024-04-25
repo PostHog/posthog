@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from math import ceil
 from time import sleep
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 import zoneinfo
 from rest_framework import request
 
@@ -37,7 +37,7 @@ def should_refresh_insight(
     *,
     request: request.Request,
     is_shared=False,
-) -> Tuple[bool, timedelta]:
+) -> tuple[bool, timedelta]:
     """Return whether the insight should be refreshed now, and what's the minimum wait time between refreshes.
 
     If a refresh already is being processed somewhere else, this function will wait for that to finish (or time out).

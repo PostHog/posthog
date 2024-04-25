@@ -1,5 +1,5 @@
 from datetime import timezone, datetime, date
-from typing import Optional, Dict, cast
+from typing import Optional, cast
 import pytest
 from django.test import override_settings
 from uuid import UUID
@@ -28,7 +28,7 @@ from posthog.test.base import BaseTest
 class TestResolver(BaseTest):
     maxDiff = None
 
-    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),

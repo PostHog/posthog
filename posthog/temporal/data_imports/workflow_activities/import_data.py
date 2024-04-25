@@ -17,7 +17,6 @@ from posthog.warehouse.models import (
     get_external_data_job,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from typing import Dict, Tuple
 import asyncio
 from django.conf import settings
 from django.utils import timezone
@@ -34,7 +33,7 @@ class ImportDataActivityInputs:
 
 
 @activity.defn
-async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchemaTables, Dict[str, int]]:  # noqa: F821
+async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchemaTables, dict[str, int]]:  # noqa: F821
     model: ExternalDataJob = await get_external_data_job(
         job_id=inputs.run_id,
     )
@@ -81,7 +80,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> Tuple[TSchem
             endpoints=tuple(endpoints),
             team_id=inputs.team_id,
             job_id=inputs.run_id,
-            source_id=str(inputs.source_id),
+            schema_id=str(inputs.schema_id),
             start_date=start_date,
             end_date=end_date,
         )

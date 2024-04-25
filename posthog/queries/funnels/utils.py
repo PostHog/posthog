@@ -1,11 +1,9 @@
-from typing import Type
-
 from posthog.constants import FunnelOrderType
 from posthog.models.filters import Filter
 from posthog.queries.funnels import ClickhouseFunnelBase
 
 
-def get_funnel_order_class(filter: Filter) -> Type[ClickhouseFunnelBase]:
+def get_funnel_order_class(filter: Filter) -> type[ClickhouseFunnelBase]:
     from posthog.queries.funnels import (
         ClickhouseFunnel,
         ClickhouseFunnelStrict,

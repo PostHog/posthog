@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 
 import jwt
 import requests
@@ -53,7 +53,7 @@ class BillingManager:
     def __init__(self, license):
         self.license = license or get_cached_instance_license()
 
-    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
+    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
             billing_service_response = self._get_billing(organization)
 
@@ -63,7 +63,7 @@ class BillingManager:
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: Dict[str, Any] = {"available_features": []}
+            response: dict[str, Any] = {"available_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -102,7 +102,7 @@ class BillingManager:
 
         return response
 
-    def update_billing(self, organization: Organization, data: Dict[str, Any]) -> None:
+    def update_billing(self, organization: Organization, data: dict[str, Any]) -> None:
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization),

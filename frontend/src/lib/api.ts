@@ -388,6 +388,10 @@ class ApiRequest {
             .withQueryString(queryParams)
     }
 
+    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -1212,6 +1216,23 @@ const api = {
         },
     },
 
+    sessions: {
+        async propertyDefinitions({
+            teamId = ApiConfig.getCurrentTeamId(),
+            search,
+            properties,
+        }: {
+            teamId?: TeamType['id']
+            search?: string
+            properties?: string[]
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .sessionPropertyDefinitions(teamId)
+                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .get()
+        },
+    },
+
     cohorts: {
         async get(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDetail(cohortId).get()
@@ -1953,6 +1974,9 @@ const api = {
         },
         async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
             await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
+        },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
     },
 

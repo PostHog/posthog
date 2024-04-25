@@ -53,7 +53,6 @@ import argparse
 import json
 import uuid
 from sys import stderr, stdout
-from typing import List
 
 import numpy
 from faker import Faker
@@ -144,7 +143,7 @@ def get_parser():
 def chunked(
     data: str,
     chunk_size: int,
-) -> List[str]:
+) -> list[str]:
     return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 

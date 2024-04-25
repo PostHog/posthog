@@ -114,10 +114,15 @@ export class PersonState {
     async update(): Promise<Person> {
         if (!this.processPerson) {
             if (this.lazyPersonCreation) {
-                const person = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
-                if (person) {
+                const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+                if (existingPerson) {
+                    const person = existingPerson as Person
+
                     // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                     person.properties = {}
+
+                    // See documentation on the field.
+                    person.force_upgrade = true
 
                     return person
                 }

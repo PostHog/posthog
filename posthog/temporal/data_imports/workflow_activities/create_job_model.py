@@ -3,7 +3,6 @@ import uuid
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
-from typing import Tuple
 
 # TODO: remove dependency
 from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
@@ -24,7 +23,7 @@ class CreateExternalDataJobModelActivityInputs:
 
 
 @activity.defn
-async def create_external_data_job_model_activity(inputs: CreateExternalDataJobModelActivityInputs) -> Tuple[str, bool]:
+async def create_external_data_job_model_activity(inputs: CreateExternalDataJobModelActivityInputs) -> tuple[str, bool]:
     run = await sync_to_async(create_external_data_job)(
         team_id=inputs.team_id,
         external_data_source_id=inputs.source_id,

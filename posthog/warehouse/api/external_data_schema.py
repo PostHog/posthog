@@ -1,8 +1,8 @@
 from rest_framework import serializers
 import structlog
 import temporalio
-from posthog.warehouse.models import ExternalDataSchema
-from typing import Optional, Dict, Any
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
+from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.models import User
 from posthog.hogql.database.database import create_hogql_database
+
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
     is_any_external_data_job_paused,
@@ -18,6 +19,8 @@ from posthog.warehouse.data_load.service import (
     pause_external_data_schedule,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
+    cancel_external_data_workflow,
+    delete_data_import_folder,
 )
 
 logger = structlog.get_logger(__name__)
@@ -44,7 +47,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
-    def update(self, instance: ExternalDataSchema, validated_data: Dict[str, Any]) -> ExternalDataSchema:
+    def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         should_sync = validated_data.get("should_sync", None)
         schedule_exists = external_data_workflow_exists(str(instance.id))
 
@@ -74,7 +77,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
@@ -100,13 +103,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             trigger_external_data_workflow(instance)
-
         except temporalio.service.RPCError as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
 
         except Exception as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
             raise
+
+        instance.status = ExternalDataSchema.Status.RUNNING
+        instance.save()
+        return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def resync(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
+        latest_running_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+
+        if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+
+        all_jobs = ExternalDataJob.objects.filter(
+            schema_id=instance.pk, team_id=instance.team_id, status="Completed"
+        ).all()
+
+        # Unnecessary to iterate for incremental jobs since they'll all by identified by the schema_id. Be over eager just to clear remnants
+        for job in all_jobs:
+            try:
+                delete_data_import_folder(job.folder_path)
+            except Exception as e:
+                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
+                pass
+
+        try:
+            trigger_external_data_workflow(instance)
+        except temporalio.service.RPCError as e:
+            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
 
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save()

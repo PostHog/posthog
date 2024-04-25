@@ -1,6 +1,6 @@
 import ast
 import operator
-from typing import Any, Dict, List
+from typing import Any
 
 
 class FormulaAST:
@@ -12,9 +12,9 @@ class FormulaAST:
         ast.Mod: operator.mod,
         ast.Pow: operator.pow,
     }
-    zipped_data: List[tuple[float]]
+    zipped_data: list[tuple[float]]
 
-    def __init__(self, data: List[List[float]]):
+    def __init__(self, data: list[list[float]]):
         self.zipped_data = list(zip(*data))
 
     def call(self, node: str):
@@ -27,8 +27,8 @@ class FormulaAST:
             res.append(result)
         return res
 
-    def _evaluate(self, node, const_map: Dict[str, Any]):
-        if isinstance(node, (list, tuple)):
+    def _evaluate(self, node, const_map: dict[str, Any]):
+        if isinstance(node, list | tuple):
             return [self._evaluate(sub_node, const_map) for sub_node in node]
 
         elif isinstance(node, str):

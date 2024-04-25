@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.forms import ValidationError
 
@@ -50,7 +50,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
-) -> Tuple[List[Any], bool]:
+) -> tuple[list[Any], bool]:
     """
     Returns the top N breakdown prop values for event/person breakdown
 
@@ -77,13 +77,13 @@ def get_breakdown_prop_values(
         props_to_filter = filter.property_groups
 
     person_join_clauses = ""
-    person_join_params: Dict = {}
+    person_join_params: dict = {}
 
     groups_join_clause = ""
-    groups_join_params: Dict = {}
+    groups_join_params: dict = {}
 
     sessions_join_clause = ""
-    sessions_join_params: Dict = {}
+    sessions_join_params: dict = {}
 
     null_person_filter = (
         f"AND notEmpty(e.person_id)" if team.person_on_events_mode != PersonsOnEventsMode.disabled else ""
@@ -248,14 +248,14 @@ def get_breakdown_prop_values(
 
 def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
-    breakdown: Union[str, List[Union[str, int]], None],
+    breakdown: Union[str, list[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
     hogql_context: HogQLContext,
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
-) -> Tuple[str, Dict]:
-    params: Dict[str, Any] = {}
+) -> tuple[str, dict]:
+    params: dict[str, Any] = {}
     if breakdown_type == "session":
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
@@ -321,7 +321,7 @@ def _to_bucketing_expression(bin_count: int) -> str:
     return f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))"
 
 
-def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
+def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
     entity = kwargs.pop("entity", None)
 
     date_params = {}
@@ -354,7 +354,7 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     return query, {**date_params, **prop_filter_params}
 
 
-def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
+def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> tuple[str, list, dict]:
     entity = kwargs.pop("entity", None)
     cohorts = (
         Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in filter.breakdown if b != "all"])
@@ -371,9 +371,9 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: List[Cohort], hogql_context: HogQLContext) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: list[Cohort], hogql_context: HogQLContext) -> tuple[list[str], dict]:
     queries = []
-    params: Dict[str, Any] = {}
+    params: dict[str, Any] = {}
 
     for idx, cohort in enumerate(cohorts):
         person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
