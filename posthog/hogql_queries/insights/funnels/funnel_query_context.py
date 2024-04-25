@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Optional, Union
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.query_context import QueryContext
@@ -25,7 +25,7 @@ class FunnelQueryContext(QueryContext):
 
     interval: IntervalType
 
-    breakdown: List[Union[str, int]] | None
+    breakdown: list[Union[str, int]] | str | int | None
     breakdownType: BreakdownType
     breakdownAttributionType: BreakdownAttributionType
 
@@ -34,6 +34,11 @@ class FunnelQueryContext(QueryContext):
 
     actorsQuery: FunnelsActorsQuery | None
 
+    includeTimestamp: Optional[bool]
+    includePrecedingTimestamp: Optional[bool]
+    includeProperties: list[str]
+    includeFinalMatchingEvents: Optional[bool]
+
     def __init__(
         self,
         query: FunnelsQuery,
@@ -41,6 +46,10 @@ class FunnelQueryContext(QueryContext):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        include_timestamp: Optional[bool] = None,
+        include_preceding_timestamp: Optional[bool] = None,
+        include_properties: Optional[list[str]] = None,
+        include_final_matching_events: Optional[bool] = None,
     ):
         super().__init__(query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
@@ -58,6 +67,11 @@ class FunnelQueryContext(QueryContext):
         self.funnelWindowIntervalUnit = (
             self.funnelsFilter.funnelWindowIntervalUnit or FunnelConversionWindowTimeUnit.day
         )
+
+        self.includeTimestamp = include_timestamp
+        self.includePrecedingTimestamp = include_preceding_timestamp
+        self.includeProperties = include_properties or []
+        self.includeFinalMatchingEvents = include_final_matching_events
 
         # the API accepts either:
         #   a string (single breakdown) in parameter "breakdown"
@@ -84,10 +98,12 @@ class FunnelQueryContext(QueryContext):
             "hogql",
             None,
         ]:
-            boxed_breakdown: List[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
+            boxed_breakdown: list[Union[str, int]] = box_value(self.breakdownFilter.breakdown)
             self.breakdown = boxed_breakdown
         else:
             self.breakdown = self.breakdownFilter.breakdown  # type: ignore
+
+        self.actorsQuery = None
 
     @cached_property
     def max_steps(self) -> int:

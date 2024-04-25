@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import call, patch
 
 from django.core.cache import cache
@@ -82,6 +82,166 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
+
+    def test_cant_create_flag_with_invalid_filters(self):
+        count = FeatureFlag.objects.count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["@posthog.com"],
+                                    "operator": "icontains",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_value",
+                "detail": "Invalid value for operator icontains: ['@posthog.com']",
+                "attr": "filters",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["@posthog.com"],
+                                    "operator": "regex",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_value",
+                "detail": "Invalid value for operator regex: ['@posthog.com']",
+                "attr": "filters",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["@posthog.com"],
+                                    "operator": "not_icontains",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_value",
+                "detail": "Invalid value for operator not_icontains: ['@posthog.com']",
+                "attr": "filters",
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": ["@posthog.com"],
+                                    "operator": "not_regex",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_value",
+                "detail": "Invalid value for operator not_regex: ['@posthog.com']",
+                "attr": "filters",
+            },
+        )
+        self.assertEqual(FeatureFlag.objects.count(), count)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags",
+            {
+                "name": "Beta feature",
+                "key": "beta-x",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 65,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": '["@posthog.com"]',  # fine as long as a string
+                                    "operator": "not_regex",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_cant_update_flag_with_duplicate_key(self):
         another_feature_flag = FeatureFlag.objects.create(
@@ -1327,7 +1487,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         dashboard = instance.usage_dashboard
-        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -1421,7 +1581,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance.refresh_from_db()
 
         dashboard = instance.usage_dashboard
-        tiles = sorted([tile for tile in dashboard.tiles.all()], key=lambda x: x.insight.name)
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -3497,10 +3657,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: List[Dict]):
+    def assert_feature_flag_activity(self, flag_id: Optional[int], expected: list[dict]):
         activity_response = self._get_feature_flag_activity(flag_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         assert activity == expected
 
@@ -3738,7 +3898,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
         # check deleting the dashboard doesn't delete flag, but deletes the relationship
         dashboard.delete()
@@ -3768,7 +3928,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
     def test_feature_flag_dashboard_already_exists(self):
         another_feature_flag = FeatureFlag.objects.create(
@@ -3794,7 +3954,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
 
-        self.assertEquals(len(response_json["analytics_dashboards"]), 1)
+        self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
     @freeze_time("2021-01-01")
     @snapshot_clickhouse_queries
@@ -3828,8 +3988,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         flush_persons_and_events()
 
-        with snapshot_postgres_queries_context(self), self.settings(
-            CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+        with (
+            snapshot_postgres_queries_context(self),
+            self.settings(
+                CELERY_TASK_ALWAYS_EAGER=True, PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False
+            ),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/{flag.id}/create_static_cohort_for_flag",
@@ -4962,7 +5125,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
@@ -4972,7 +5135,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
@@ -4981,7 +5144,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent correct group property overrides
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -4994,7 +5157,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(1):
+            with self.assertNumQueries(3):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -5060,7 +5223,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -5158,7 +5321,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to set statement timeout
             # 1 query to get person properties
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -5168,9 +5331,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
             mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -5200,6 +5367,109 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
+
+    def test_feature_flags_v3_with_skip_database_setting(self, mock_postgres_check):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "tim@posthog.com",
+                                    "type": "person",
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
+            # No queries because of config parameter
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+            mock_postgres_check.assert_not_called()
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
+        # db is slow and times out, but shouldn't matter to us
+        with (
+            self.assertNumQueries(0),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
+            self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
+        ):
+            mock_postgres_check.return_value = False
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+            mock_postgres_check.assert_not_called()
+
+            # decide was sent email parameter with correct email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "random",
+                    property_value_overrides={"email": "tim@posthog.com"},
+                )
+                self.assertTrue(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)
+                mock_postgres_check.assert_not_called()
+
+            # # now db is down, but decide was sent email parameter with different email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "example_id",
+                    property_value_overrides={"email": "tom@posthog.com"},
+                )
+                self.assertFalse(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)
+                mock_postgres_check.assert_not_called()
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):
@@ -5268,7 +5538,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             # 1 query to get person properties
             # 1 query to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
@@ -5278,10 +5548,15 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
-        ), self.assertNumQueries(2):
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
+            self.assertNumQueries(4),
+        ):
             # no extra queries to get person properties for the second flag after first one failed
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
@@ -5360,7 +5635,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(8):
             # one query to get group type mappings, another to get group properties
             # 2 queries to set statement timeout
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
@@ -5369,11 +5644,15 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # now db is slow
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
                 self.assertTrue("group-flag" not in all_flags)
@@ -5382,7 +5661,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is slow, but decide was sent correct group property overrides
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -5404,7 +5683,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 )
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -5471,7 +5750,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(17):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])
@@ -5479,9 +5758,13 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertFalse(errors)
 
         # db is slow and times out
-        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
-            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
-            500,
+        with (
+            snapshot_postgres_queries_context(self),
+            connection.execute_wrapper(slow_query),
+            patch(
+                "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS",
+                500,
+            ),
         ):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
@@ -5491,7 +5774,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
             # # now db is slow, but decide was sent email parameter with correct email
             # still need to get hash key override from db, so should time out
-            with self.assertNumQueries(2):
+            with self.assertNumQueries(4):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -5563,7 +5846,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(5), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
+        with self.assertNumQueries(9), self.settings(DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES=True):
             all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
 
             self.assertTrue(all_flags["property-flag"])

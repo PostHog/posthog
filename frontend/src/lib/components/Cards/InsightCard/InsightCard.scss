@@ -16,10 +16,12 @@
         outline: 1px solid var(--primary-3000);
     }
 
-    .ant-alert {
-        width: 100%;
-        margin: 1rem;
-        overflow: auto;
+    &.react-draggable::after {
+        // During dashboard layout editing, we need an overlay to prevent accidental interaction with card content
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-content-overlay);
+        content: '';
     }
 }
 

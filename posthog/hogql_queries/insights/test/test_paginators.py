@@ -1,3 +1,5 @@
+from typing import cast
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.constants import (
     LimitContext,
     get_default_limit_for_context,
@@ -136,8 +138,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         """Test consistency of response_params method."""
         paginator = HogQLHasMorePaginator(limit=5, offset=10)
         paginator.response = paginator.execute_hogql_query(
-            "test_query",
-            parse_select("SELECT * FROM persons"),
+            cast(SelectQuery, parse_select("SELECT * FROM persons")),
+            query_type="test_query",
             team=self.team,
         )
         params = paginator.response_params()

@@ -1,7 +1,6 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconExperiment } from 'lib/lemon-ui/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -18,7 +17,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
 import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 import { NotFound } from 'lib/components/NotFound'
-import { IconFlag } from '@posthog/icons'
+import { IconFlag, IconFlask } from '@posthog/icons'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
@@ -60,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         <div>
             <BindLogic logic={experimentLogic} props={{ experimentId: id }}>
                 <div className="flex items-center gap-2 p-3">
-                    <IconExperiment className="text-lg" />
+                    <IconFlask className="text-lg" />
                     {experimentLoading ? (
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (

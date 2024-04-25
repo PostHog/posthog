@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, cast, Any
+from typing import Optional, cast, Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -32,11 +32,11 @@ PERSON_ID_COLUMN = 2
 
 
 def get_actors(
-    filters: Dict[str, Any],
+    filters: dict[str, Any],
     team: Team,
     funnelStep: Optional[int] = None,
-    funnelCustomSteps: Optional[List[int]] = None,
-    funnelStepBreakdown: Optional[str | float | List[str | float]] = None,
+    funnelCustomSteps: Optional[list[int]] = None,
+    funnelStepBreakdown: Optional[str | float | list[str | float]] = None,
     funnelTrendsDropOff: Optional[bool] = None,
     funnelTrendsEntrancePeriodStart: Optional[str] = None,
     offset: Optional[int] = None,
@@ -626,3 +626,45 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+    def test_parses_step_breakdown_correctly(self):
+        person1 = _create_person(
+            distinct_ids=["person1"],
+            team_id=self.team.pk,
+            properties={"$country": "PL"},
+        )
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "sign up",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"$browser": "test''123"},
+                    },
+                    {
+                        "event": "play movie",
+                        "timestamp": datetime(2020, 1, 1, 13),
+                        "properties": {"$browser": "test''123"},
+                    },
+                ],
+            },
+            self.team,
+            create_people=False,
+        )
+
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "interval": "day",
+            "funnel_window_days": 7,
+            "events": [
+                {"id": "sign up", "order": 0},
+                {"id": "play movie", "order": 1},
+            ],
+            "breakdown_type": "event",
+            "breakdown": "$browser",
+        }
+
+        results = get_actors(filters, self.team, funnelStep=1, funnelStepBreakdown=["test'123"])
+        self.assertCountEqual([results[0][0]], [person1.uuid])

@@ -1,5 +1,4 @@
 import os
-from typing import Dict
 
 from posthog.settings.utils import get_list, get_from_env
 
@@ -24,6 +23,6 @@ UNCONSTRAINED_TIMESTAMP_TEAM_IDS = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_T
 CLICKHOUSE_MAX_EXECUTION_TIME = get_from_env("CLICKHOUSE_MAX_EXECUTION_TIME", 0, type_cast=int)
 CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT = get_from_env("CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT", 10000, type_cast=int)
 # Comma separated list of overrides in the format "team_id:block_size"
-CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: Dict[int, int] = dict(
+CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )

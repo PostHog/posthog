@@ -1,11 +1,11 @@
 import inspect
 from collections import Counter
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -49,7 +49,7 @@ class Entity(PropertyMixin):
     """
 
     id: Optional[int | str]
-    type: Literal["events", "actions"]
+    type: Literal["events", "actions", "data_warehouse"]
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
@@ -63,13 +63,20 @@ class Entity(PropertyMixin):
     # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
     index: int
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    # data warehouse fields
+    id_field: Optional[str]
+    timestamp_field: Optional[str]
+
+    def __init__(self, data: dict[str, Any]) -> None:
         self.id = data.get("id")
         if data.get("type") not in [
             TREND_FILTER_TYPE_ACTIONS,
             TREND_FILTER_TYPE_EVENTS,
+            TREND_FILTER_TYPE_DATA_WAREHOUSE,
         ]:
-            raise ValueError("Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS")
+            raise ValueError(
+                "Type needs to be either TREND_FILTER_TYPE_ACTIONS or TREND_FILTER_TYPE_EVENTS OR TREND_FILTER_TYPE_DATA_WAREHOUSE"
+            )
         self.type = data["type"]
         order_provided = data.get("order")
         if order_provided is not None:
@@ -86,6 +93,8 @@ class Entity(PropertyMixin):
         self.math_group_type_index = validate_group_type_index(
             "math_group_type_index", data.get("math_group_type_index")
         )
+        self.id_field = data.get("id_field")
+        self.timestamp_field = data.get("timestamp_field")
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
@@ -93,7 +102,7 @@ class Entity(PropertyMixin):
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             self.name = "All events" if self.id is None else str(self.id)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": self.type,
@@ -171,10 +180,10 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
     with extra parameters for exclusion semantics.
     """
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         super().__init__(data)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):

@@ -1,19 +1,19 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
 
-import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
+import { SessionRecordingErrors } from './errors/SessionRecordingErrors'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
@@ -33,10 +33,11 @@ export function SessionsRecordings(): JSX.Element {
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-    const { guardAvailableFeature } = useActions(sceneLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Recent })
     const { playlists } = useValues(playlistsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const hasErrorClustering = useFeatureFlag('REPLAY_ERROR_CLUSTERING')
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         actionId: null,
@@ -64,6 +65,16 @@ export function SessionsRecordings(): JSX.Element {
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
                             <>
+                                <LemonMenu
+                                    items={[
+                                        {
+                                            label: 'Playback from file',
+                                            to: urls.replayFilePlayback(),
+                                        },
+                                    ]}
+                                >
+                                    <LemonButton icon={<IconEllipsis />} />
+                                </LemonMenu>
                                 <NotebookSelectButton
                                     resource={{
                                         type: NotebookNodeType.RecordingPlaylist,
@@ -78,8 +89,6 @@ export function SessionsRecordings(): JSX.Element {
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
-                                            'recording playlists',
-                                            "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                             () => {
                                                 // choose the type of playlist handler so that analytics correctly report
                                                 // whether filters have been changed before saving
@@ -87,8 +96,7 @@ export function SessionsRecordings(): JSX.Element {
                                                     ? newPlaylistHandler.onEvent?.(e)
                                                     : saveFiltersPlaylistHandler.onEvent?.(e)
                                             },
-                                            undefined,
-                                            playlists.count
+                                            { currentUsage: playlists.count }
                                         )
                                     }
                                 >
@@ -110,11 +118,8 @@ export function SessionsRecordings(): JSX.Element {
                                 onClick={(e) =>
                                     guardAvailableFeature(
                                         AvailableFeature.RECORDINGS_PLAYLISTS,
-                                        'recording playlists',
-                                        "Playlists allow you to save certain session recordings as a group to easily find and watch them again in the future. You've unfortunately run out of playlists on your current subscription plan.",
                                         () => newPlaylistHandler.onEvent?.(e),
-                                        undefined,
-                                        playlists.count
+                                        { currentUsage: playlists.count }
                                     )
                                 }
                                 data-attr="save-recordings-playlist-button"
@@ -129,20 +134,23 @@ export function SessionsRecordings(): JSX.Element {
             <LemonTabs
                 activeKey={tab}
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-                tabs={Object.values(ReplayTabs).map((replayTab) => ({
-                    label: humanFriendlyTabName(replayTab),
-                    key: replayTab,
-                }))}
+                tabs={Object.values(ReplayTabs)
+                    .filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                    .map((replayTab) => {
+                        return {
+                            label: humanFriendlyTabName(replayTab),
+                            key: replayTab,
+                        }
+                    })}
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
-                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner
                         type="info"
                         action={{
-                            type: 'secondary',
+                            type: 'primary',
                             icon: <IconGear />,
                             onClick: () => openSettingsPanel({ sectionId: 'project-replay' }),
                             children: 'Configure',
@@ -176,8 +184,8 @@ export function SessionsRecordings(): JSX.Element {
                     </div>
                 ) : tab === ReplayTabs.Playlists ? (
                     <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
-                ) : tab === ReplayTabs.FilePlayback ? (
-                    <SessionRecordingFilePlayback />
+                ) : tab === ReplayTabs.Errors ? (
+                    <SessionRecordingErrors />
                 ) : null}
             </div>
         </div>

@@ -1,6 +1,8 @@
 import { Meta } from '@storybook/react'
+import { BindLogic } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -100,11 +102,19 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
 }
 
 export const DashboardSharing = (): JSX.Element => {
-    return <Template title="Dashboard permissions" dashboardId={123} />
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+            <Template title="Dashboard permissions" dashboardId={123} />
+        </BindLogic>
+    )
 }
 
 export const DashboardSharingLicensed = (): JSX.Element => {
-    return <Template title="Dashboard permissions" licensed dashboardId={123} />
+    return (
+        <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+            <Template title="Dashboard permissions" licensed dashboardId={123} />
+        </BindLogic>
+    )
 }
 
 export const InsightSharing = (): JSX.Element => {

@@ -4,4 +4,4 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-red.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
 Please see [PostHog Storybook](https://storybook.posthog.net/).
-Specifically, [Lemon UI Overview](https://storybook.posthog.net/?path=/docs/lemon-ui-overview--page).
+Specifically, [Lemon UI Overview](https://storybook.posthog.net/?path=/docs/lemon-ui-overview--docs).

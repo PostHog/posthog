@@ -1,4 +1,4 @@
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import posthog from 'posthog-js'
 import { NotebooksListFilters } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 
@@ -38,16 +38,12 @@ export function ContainsTypeFilters({
     return (
         <div className="flex items-center gap-2">
             <span>Containing:</span>
-            <LemonSelectMultiple
+            <LemonInputSelect
                 mode="multiple"
-                selectClassName="min-w-[10rem]"
                 placeholder="Any content"
                 options={Object.entries(fromNodeTypeToLabel)
                     .filter((entry) => entry[1] !== '')
-                    .reduce((acc, [type, label]) => {
-                        acc[type] = { label }
-                        return acc
-                    }, {})}
+                    .map(([type, label]) => ({ key: type, label }))}
                 value={filters.contains}
                 onChange={(newValue: string[]) => {
                     posthog.capture('notebook containing filter applied')

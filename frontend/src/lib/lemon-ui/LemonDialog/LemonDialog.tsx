@@ -1,14 +1,27 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { createRoot } from 'react-dom/client'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { createRoot, Root } from 'react-dom/client'
 
-export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline' | 'footer'> & {
+import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
+
+export type LemonFormDialogProps = LemonDialogFormPropsType &
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'tertiaryButton'> & {
+        initialValues: Record<string, any>
+        onSubmit: (values: Record<string, any>) => void | Promise<void>
+    }
+
+export type LemonDialogProps = Pick<
+    LemonModalProps,
+    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
+> & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null
+    initialFormValues?: Record<string, any>
     content?: ReactNode
     onClose?: () => void
     onAfterClose?: () => void
@@ -22,6 +35,7 @@ export function LemonDialog({
     tertiaryButton,
     secondaryButton,
     content,
+    initialFormValues,
     closeOnNavigate = true,
     footer,
     ...props
@@ -87,7 +101,43 @@ export function LemonDialog({
     )
 }
 
-LemonDialog.open = (props: LemonDialogProps) => {
+export const LemonFormDialog = ({
+    initialValues = {},
+    onSubmit,
+    errors,
+    ...props
+}: LemonFormDialogProps): JSX.Element => {
+    const logic = lemonDialogLogic({ errors })
+    const { form, isFormValid, formValidationErrors } = useValues(logic)
+    const { setFormValues } = useActions(logic)
+
+    const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
+
+    const primaryButton: LemonDialogProps['primaryButton'] = {
+        type: 'primary',
+        children: 'Submit',
+        htmlType: 'submit',
+        onClick: () => void onSubmit(form),
+        disabledReason: !isFormValid ? firstError : undefined,
+    }
+
+    const secondaryButton: LemonDialogProps['secondaryButton'] = {
+        type: 'secondary',
+        children: 'Cancel',
+    }
+
+    useEffect(() => {
+        setFormValues(initialValues)
+    }, [])
+
+    return (
+        <Form logic={lemonDialogLogic} formKey="form">
+            <LemonDialog {...props} primaryButton={primaryButton} secondaryButton={secondaryButton} />
+        </Form>
+    )
+}
+
+function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {
@@ -98,6 +148,15 @@ LemonDialog.open = (props: LemonDialogProps) => {
     }
 
     document.body.appendChild(div)
-    root.render(<LemonDialog {...props} onAfterClose={destroy} />)
-    return
+    return { root, onDestroy: destroy }
+}
+
+LemonDialog.open = (props: LemonDialogProps) => {
+    const { root, onDestroy } = createAndInsertRoot()
+    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
+}
+
+LemonDialog.openForm = (props: LemonFormDialogProps) => {
+    const { root, onDestroy } = createAndInsertRoot()
+    root.render(<LemonFormDialog {...props} onAfterClose={onDestroy} />)
 }

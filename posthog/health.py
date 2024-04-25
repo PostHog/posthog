@@ -17,16 +17,11 @@
 # changes to them are deliberate, as otherwise we could introduce unexpected
 # behaviour in deployments.
 
-from typing import Callable, Dict, List, Literal, cast, get_args
+from typing import Literal, cast, get_args
+from collections.abc import Callable
 
-import amqp.exceptions
-import django_redis.exceptions
-import kombu.exceptions
-import redis.exceptions
-from clickhouse_driver.errors import Error as ClickhouseError
 from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
-from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.db.migrations.executor import MigrationExecutor
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -34,13 +29,14 @@ from structlog import get_logger
 
 from posthog.celery import app
 from posthog.client import sync_execute
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
 ServiceRole = Literal["events", "web", "worker", "decide"]
 
-service_dependencies: Dict[ServiceRole, List[str]] = {
+service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
     "web": [
         "http",
@@ -71,8 +67,8 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
 
 # if atleast one of the checks is True, then the service is considered healthy
 # for the given role
-service_conditional_dependencies: Dict[ServiceRole, List[str]] = {
-    "decide": ["cache", "postgres"],
+service_conditional_dependencies: dict[ServiceRole, list[str]] = {
+    "decide": ["cache", "postgres_flags"],
 }
 
 
@@ -115,9 +111,10 @@ def readyz(request: HttpRequest):
     if role and role not in get_args(ServiceRole):
         return JsonResponse({"error": "InvalidRole"}, status=400)
 
-    available_checks = {
+    available_checks: dict[str, Callable] = {
         "clickhouse": is_clickhouse_connected,
         "postgres": is_postgres_connected,
+        "postgres_flags": lambda: is_postgres_connected(DATABASE_FOR_FLAG_MATCHING),
         "postgres_migrations_uptodate": are_postgres_migrations_uptodate,
         "kafka_connected": is_kafka_connected,
         "celery_broker": is_celery_broker_connected,
@@ -156,7 +153,7 @@ def readyz(request: HttpRequest):
     else:
         status = prelim_status
 
-    return JsonResponse(evaluated_checks, status=status)
+    return JsonResponse({**evaluated_checks, **evaluated_conditional_checks}, status=status)
 
 
 def is_kafka_connected() -> bool:
@@ -171,17 +168,17 @@ def is_kafka_connected() -> bool:
     return can_connect_to_kafka()
 
 
-def is_postgres_connected() -> bool:
+def is_postgres_connected(db_alias=DEFAULT_DB_ALIAS) -> bool:
     """
     Check we can reach the main postgres and perform a super simple query
 
     Returns `True` if so, `False` otherwise
     """
     try:
-        with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+        with connections[db_alias].cursor() as cursor:
             cursor.execute("SELECT 1")
-    except DjangoDatabaseError:
-        logger.debug("postgres_connection_failure", exc_info=True)
+    except Exception:
+        logger.exception("postgres_connection_failure", exc_info=True)
         return False
 
     return True
@@ -197,7 +194,7 @@ def are_postgres_migrations_uptodate() -> bool:
     try:
         executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
         plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    except DjangoDatabaseError:
+    except Exception:
         logger.debug("postgres_migrations_check_failure", exc_info=True)
         return False
 
@@ -212,7 +209,7 @@ def is_clickhouse_connected() -> bool:
     """
     try:
         sync_execute("SELECT 1")
-    except ClickhouseError:
+    except Exception:
         logger.debug("clickhouse_connection_failure", exc_info=True)
         return False
 
@@ -229,9 +226,7 @@ def is_celery_broker_connected() -> bool:
         # NOTE: Possibly not the best way to test that celery broker, it is
         # possibly testing more than just is the broker reachable.
         app.connection_for_read().ensure_connection(timeout=0, max_retries=0)
-    except (amqp.exceptions.AMQPError, kombu.exceptions.KombuError):
-        # NOTE: I wasn't sure exactly what could be raised, so we get all AMPQ
-        # and Kombu errors
+    except Exception:
         logger.debug("celery_broker_connection_failure", exc_info=True)
         return False
 
@@ -254,12 +249,8 @@ def is_cache_backend_connected() -> bool:
         # have a `check_health` exposed in some generic way, as the python redis
         # client does appear to have something for this task.
         cache.has_key("_connection_test_key")  # noqa: W601
-    except (redis.exceptions.RedisError, django_redis.exceptions.ConnectionInterrupted):
-        # NOTE: There doesn't seems to be a django cache specific exception
-        # here, so we will just have to add which ever exceptions the cache
-        # backend uses. For our case we're using django_redis, which does define
-        # some exceptions but appears to mostly just pass through the underlying
-        # redis exception.
+    except Exception:
+        # NOTE: We catch all exceptions here because we never want to throw from these checks
         logger.debug("cache_backend_connection_failure", exc_info=True)
         return False
 

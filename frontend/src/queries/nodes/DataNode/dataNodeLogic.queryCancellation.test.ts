@@ -39,6 +39,9 @@ describe('dataNodeLogic - query cancellation', () => {
                     )
                 },
             },
+            delete: {
+                '/api/projects/:team_id/query/uuid-first': [200, {}],
+            },
         })
     })
     afterEach(() => logic?.unmount())

@@ -18,7 +18,10 @@ import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
 const hogQLInsightsRetentionFlagEnabled = (): boolean =>
-    Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
+    Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
+            featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
+    )
 
 export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     props({} as InsightLogicProps),

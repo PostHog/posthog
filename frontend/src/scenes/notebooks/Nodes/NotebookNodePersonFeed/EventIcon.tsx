@@ -1,6 +1,6 @@
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconEye } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { IconAdsClick, IconExclamation, IconEyeHidden, IconEyeVisible } from 'lib/lemon-ui/icons'
+import { IconAdsClick, IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 
 import { EventType } from '~/types'
@@ -11,7 +11,7 @@ export const EventIcon = ({ event }: EventIconProps): JSX.Element => {
     let Component
     switch (event.event) {
         case '$pageview':
-            Component = IconEyeVisible
+            Component = IconEye
             break
         case '$pageleave':
             Component = IconEyeHidden

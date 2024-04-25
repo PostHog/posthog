@@ -343,81 +343,80 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
                 const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
-                const sectionOne: NavbarItem[] = [
-                    {
-                        identifier: Scene.Dashboards,
-                        label: 'Dashboards',
-                        icon: <IconDashboard />,
-                        logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.dashboards(),
-                        sideAction: {
-                            identifier: 'pinned-dashboards-dropdown',
-                            dropdown: {
-                                overlay: (
-                                    <LemonMenuOverlay
-                                        items={[
-                                            {
-                                                title: 'Pinned dashboards',
-                                                items: pinnedDashboards.map((dashboard) => ({
-                                                    label: dashboard.name,
-                                                    to: urls.dashboard(dashboard.id),
-                                                })),
-                                                footer: dashboardsLoading && (
-                                                    <div className="px-2 py-1 text-text-secondary-3000">
-                                                        <Spinner /> Loading…
-                                                    </div>
-                                                ),
-                                            },
-                                        ]}
-                                    />
-                                ),
-                                placement: 'bottom-end',
-                            },
-                        },
-                    },
-                    {
-                        identifier: Scene.Notebooks,
-                        label: 'Notebooks',
-                        icon: <IconNotebook />,
-                        to: urls.notebooks(),
-                    },
-                    {
-                        identifier: Scene.DataManagement,
-                        label: 'Data management',
-                        icon: <IconDatabase />,
-                        logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                    },
-                    {
-                        identifier: Scene.PersonsManagement,
-                        label: 'People',
-                        icon: <IconPeople />,
-                        logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.persons(),
-                    },
-                    {
-                        identifier: Scene.Events,
-                        label: 'Activity',
-                        icon: <IconLive />,
-                        to: urls.events(),
-                    },
-                ]
-
-                sectionOne.unshift(
-                    hasOnboardedAnyProduct
-                        ? {
+                const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
+                    ? [
+                          {
                               identifier: Scene.ProjectHomepage,
                               label: 'Home',
                               icon: <IconHome />,
                               to: urls.projectHomepage(),
-                          }
-                        : {
+                          },
+                          {
+                              identifier: Scene.Dashboards,
+                              label: 'Dashboards',
+                              icon: <IconDashboard />,
+                              logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
+                              to: isUsingSidebar ? undefined : urls.dashboards(),
+                              sideAction: {
+                                  identifier: 'pinned-dashboards-dropdown',
+                                  dropdown: {
+                                      overlay: (
+                                          <LemonMenuOverlay
+                                              items={[
+                                                  {
+                                                      title: 'Pinned dashboards',
+                                                      items: pinnedDashboards.map((dashboard) => ({
+                                                          label: dashboard.name,
+                                                          to: urls.dashboard(dashboard.id),
+                                                      })),
+                                                      footer: dashboardsLoading && (
+                                                          <div className="px-2 py-1 text-text-secondary-3000">
+                                                              <Spinner /> Loading…
+                                                          </div>
+                                                      ),
+                                                  },
+                                              ]}
+                                          />
+                                      ),
+                                      placement: 'bottom-end',
+                                  },
+                              },
+                          },
+                          {
+                              identifier: Scene.Notebooks,
+                              label: 'Notebooks',
+                              icon: <IconNotebook />,
+                              to: urls.notebooks(),
+                          },
+                          {
+                              identifier: Scene.DataManagement,
+                              label: 'Data management',
+                              icon: <IconDatabase />,
+                              logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                              to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                          },
+                          {
+                              identifier: Scene.PersonsManagement,
+                              label: 'People',
+                              icon: <IconPeople />,
+                              logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
+                              to: isUsingSidebar ? undefined : urls.persons(),
+                          },
+                          {
+                              identifier: Scene.Events,
+                              label: 'Activity',
+                              icon: <IconLive />,
+                              to: urls.events(),
+                          },
+                      ]
+                    : [
+                          {
                               identifier: Scene.Products,
                               label: 'Welcome to PostHog',
                               icon: <IconLogomark />,
                               to: urls.products(),
-                          }
-                )
+                          },
+                      ]
 
                 return [
                     sectionOne,
@@ -478,20 +477,24 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.earlyAccessFeatures(),
                               }
                             : null,
-                        {
-                            identifier: Scene.DataWarehouse,
-                            label: 'Data warehouse',
-                            icon: <IconServer />,
-                            to: urls.dataWarehouse(),
-                            featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
-                            tag: 'beta' as const,
-                        },
-                        {
-                            identifier: Scene.Apps,
-                            label: 'Data pipeline',
-                            icon: <IconDecisionTree />,
-                            to: urls.projectApps(),
-                        },
+                        hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.DataWarehouse,
+                                  label: 'Data warehouse',
+                                  icon: <IconServer />,
+                                  to: urls.dataWarehouse(),
+                                  featureFlag: FEATURE_FLAGS.DATA_WAREHOUSE,
+                                  tag: 'beta' as const,
+                              }
+                            : null,
+                        hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.Apps,
+                                  label: 'Data pipeline',
+                                  icon: <IconDecisionTree />,
+                                  to: urls.projectApps(),
+                              }
+                            : null,
                         {
                             identifier: Scene.Pipeline,
                             label: 'Data pipeline 3000',

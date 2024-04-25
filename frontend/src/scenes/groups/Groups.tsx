@@ -7,6 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -50,9 +51,10 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
             key: 'group_key',
             render: function Render(_, group: Group) {
                 return (
-                    <Link to={urls.group(group.group_type_index.toString(), group.group_key)}>
-                        {groupDisplayId(group.group_key, group.group_properties)}
-                    </Link>
+                    <LemonTableLink
+                        to={urls.group(group.group_type_index.toString(), group.group_key)}
+                        title={groupDisplayId(group.group_key, group.group_properties)}
+                    />
                 )
             },
         },

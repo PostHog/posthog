@@ -1,53 +1,46 @@
-.correlation-matrix {
-    .ant-modal-body {
-        display: flex;
-        justify-content: center;
-    }
+.correlation-table-wrapper {
+    table {
+        margin: 0 auto;
+        border-spacing: 0;
+        border-collapse: separate;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
 
-    .correlation-table-wrapper {
-        table {
-            margin: 0 auto;
-            border-spacing: 0;
-            border-collapse: separate;
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
+        td {
+            padding: 0.5rem 1rem;
+            text-align: center;
+            border-top: 1px solid var(--border);
+            border-left: 1px solid var(--border);
+
+            .percentage {
+                padding-bottom: 0.25rem;
+                font-weight: bold;
+            }
+
+            &:first-child {
+                border-left: none;
+            }
+        }
+
+        .table-title {
+            color: var(--muted-alt);
 
             td {
-                padding: 0.5rem 1rem;
-                text-align: center;
-                border-top: 1px solid var(--border);
-                border-left: 1px solid var(--border);
-
-                .percentage {
-                    padding-bottom: 0.25rem;
-                    font-weight: bold;
-                }
-
-                &:first-child {
-                    border-left: none;
-                }
+                border-top: none;
             }
+        }
 
-            .table-title {
-                color: var(--muted-alt);
+        thead,
+        .horizontal-header {
+            font-weight: bold;
+            color: var(--muted);
+            text-transform: uppercase;
+            background-color: var(--mid);
+        }
 
-                td {
-                    border-top: none;
-                }
-            }
-
-            thead,
-            .horizontal-header {
-                font-weight: bold;
-                color: var(--muted);
-                text-transform: uppercase;
-                background-color: var(--antd-table-background-dark);
-            }
-
-            tbody {
-                td:not(.horizontal-header) {
-                    text-align: right;
-                }
+        tbody {
+            td:not(.horizontal-header) {
+                text-align: right;
             }
         }
     }

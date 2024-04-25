@@ -1,9 +1,11 @@
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconArrowRight } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconArrowRight, IconSync } from 'lib/lemon-ui/icons'
+import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -53,15 +55,15 @@ const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
                 const isCurrentTeam = team.id === currentTeamId
                 const linkText = isCurrentTeam ? `${team.name} (current)` : team.name
 
-                return isCurrentTeam ? (
-                    <span className="font-semibold">{linkText}</span>
-                ) : (
-                    <Link
-                        className="row-name"
-                        to={urls.project(team.id, record.flag_id ? urls.featureFlag(record.flag_id) : '')}
-                    >
-                        {linkText}
-                    </Link>
+                return (
+                    <LemonTableLink
+                        to={
+                            !isCurrentTeam
+                                ? urls.project(team.id, record.flag_id ? urls.featureFlag(record.flag_id) : '')
+                                : undefined
+                        }
+                        title={linkText}
+                    />
                 )
             },
         },

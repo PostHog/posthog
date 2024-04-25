@@ -99,7 +99,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
                     // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
-                        await breakpoint(150)
+                        await breakpoint(500)
                     } else {
                         // These connected values below might be read before they are available due to circular logic mounting.
                         // Adding a slight delay (breakpoint) fixes this.
@@ -347,8 +347,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
-        setSearchQuery: async (_query, breakpoint) => {
-            await breakpoint(300)
+        setSearchQuery: async () => {
             if (values.hasRemoteDataSource) {
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {

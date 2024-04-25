@@ -39,7 +39,7 @@ export function CopyToClipboardInline({
     style,
     ...props
 }: InlineProps): JSX.Element {
-    const copy = async (): Promise<boolean> => await copyToClipboard((explicitValue ?? children) as string, description)
+    const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
 
     let content = (
         <LemonButton

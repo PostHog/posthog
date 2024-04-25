@@ -202,6 +202,78 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     })
 })
 
+test.concurrent(
+    `event ingestion: $process_person_profile=false drops expected fields, doesn't include person properties`,
+    async () => {
+        const teamId = await createTeam(organizationId)
+        const distinctId = new UUIDT().toString()
+
+        // Normal ("full") event creates person with a property.
+        await capture({
+            teamId,
+            distinctId,
+            uuid: new UUIDT().toString(),
+            event: '$identify',
+            properties: {
+                distinct_id: distinctId,
+                $set: { prop: 'value' },
+            },
+        })
+
+        // Propertyless event tries to $set, $set_once, $unset and use groups, but none of these
+        // should work.
+        const properylessUuid = new UUIDT().toString()
+        await capture({
+            teamId,
+            distinctId,
+            uuid: properylessUuid,
+            event: 'custom event',
+            properties: {
+                $process_person_profile: false,
+                $group_0: 'group_key',
+                $set: {
+                    c: 3,
+                },
+                $set_once: {
+                    d: 4,
+                },
+                $unset: ['prop'],
+            },
+            $set: {
+                a: 1,
+            },
+            $set_once: {
+                b: 2,
+            },
+        })
+        await waitForExpect(async () => {
+            const [event] = await fetchEvents(teamId, properylessUuid)
+            expect(event).toEqual(
+                expect.objectContaining({
+                    person_properties: {},
+                    properties: { uuid: properylessUuid, $sent_at: expect.any(String), $process_person_profile: false },
+                    person_mode: 'propertyless',
+                })
+            )
+        })
+
+        // Another normal ("full") event sees the existing person property (it wasn't $unset)
+        const secondUuid = new UUIDT().toString()
+        await capture({ teamId, distinctId, uuid: secondUuid, event: 'custom event', properties: {} })
+        await waitForExpect(async () => {
+            const [event] = await fetchEvents(teamId, secondUuid)
+            expect(event).toEqual(
+                expect.objectContaining({
+                    person_properties: expect.objectContaining({
+                        prop: 'value',
+                    }),
+                    person_mode: 'full',
+                })
+            )
+        })
+    }
+)
+
 test.concurrent(`event ingestion: can $set and update person properties with top level $set`, async () => {
     // We support $set at the top level. This is as the time of writing how the
     // posthog-js library works.

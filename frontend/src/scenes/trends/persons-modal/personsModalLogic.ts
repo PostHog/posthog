@@ -14,6 +14,8 @@ import { query as performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
+    FunnelCorrelationActorsQuery,
+    FunnelsActorsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
@@ -35,7 +37,7 @@ import type { personsModalLogicType } from './personsModalLogicType'
 const RESULTS_PER_PAGE = 100
 
 export interface PersonModalLogicProps {
-    query?: InsightActorsQuery | null
+    query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]

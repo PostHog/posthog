@@ -18,7 +18,7 @@ import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, Dict, cast, Optional
+from typing import Any, cast, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -40,7 +40,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import (
-    CSV_EXPORT_LIMIT,
     INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
     INSIGHT_PATHS,
@@ -50,6 +49,7 @@ from posthog.constants import (
     OFFSET,
     PropertyOperatorType,
 )
+from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
@@ -100,6 +100,9 @@ class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
 
+    # If this cohort is an exposure cohort for an experiment
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
     class Meta:
         model = Cohort
         fields = [
@@ -117,6 +120,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "experiment_set",
         ]
         read_only_fields = [
             "id",
@@ -126,9 +130,10 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
+            "experiment_set",
         ]
 
-    def _handle_static(self, cohort: Cohort, context: Dict, validated_data: Dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
@@ -144,7 +149,7 @@ class CohortSerializer(serializers.ModelSerializer):
             if filter_data:
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data)
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
@@ -160,7 +165,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            update_cohort(cohort)
+            update_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -171,7 +176,7 @@ class CohortSerializer(serializers.ModelSerializer):
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
 
-    def validate_query(self, query: Optional[Dict]) -> Optional[Dict]:
+    def validate_query(self, query: Optional[dict]) -> Optional[dict]:
         if not query:
             return None
         if not isinstance(query, dict):
@@ -181,7 +186,7 @@ class CohortSerializer(serializers.ModelSerializer):
         ActorsQuery.model_validate(query)
         return query
 
-    def validate_filters(self, request_filters: Dict):
+    def validate_filters(self, request_filters: dict):
         if isinstance(request_filters, dict) and "properties" in request_filters:
             if self.context["request"].method == "PATCH":
                 parsed_filter = Filter(data=request_filters)
@@ -220,7 +225,7 @@ class CohortSerializer(serializers.ModelSerializer):
         else:
             raise ValidationError("Filters must be a dictionary with a 'properties' key.")
 
-    def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
+    def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         user = cast(User, request.user)
 
@@ -235,6 +240,9 @@ class CohortSerializer(serializers.ModelSerializer):
         if is_deletion_change:
             cohort.deleted = deleted_state
             if deleted_state:
+                # De-attach from experiments
+                cohort.experiment_set.set([])
+
                 AsyncDeletion.objects.get_or_create(
                     deletion_type=DeletionType.Cohort_full,
                     team_id=cohort.team.pk,
@@ -261,7 +269,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                update_cohort(cohort)
+                update_cohort(cohort, initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -292,7 +300,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
-        return queryset.prefetch_related("created_by", "team").order_by("-created_at")
+        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     @action(
         methods=["GET"],
@@ -490,7 +498,7 @@ def insert_cohort_query_actors_into_ch(cohort: Cohort):
     insert_actors_into_cohort_by_query(cohort, query, {}, context)
 
 
-def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
+def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: dict):
     from_existing_cohort_id = filter_data.get("from_cohort_id")
     context: HogQLContext
 
@@ -553,7 +561,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     insert_actors_into_cohort_by_query(cohort, query, params, context)
 
 
-def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any], context: HogQLContext):
+def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: dict[str, Any], context: HogQLContext):
     try:
         sync_execute(
             INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
@@ -592,7 +600,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
     cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
     matcher_cache = FlagsMatcherCache(team_id)
     uuids_to_add_to_cohort = []
-    cohorts_cache: Dict[int, CohortOrEmpty] = {}
+    cohorts_cache: dict[int, CohortOrEmpty] = {}
 
     if feature_flag.uses_cohorts:
         # TODO: Consider disabling flags with cohorts for creating static cohorts
@@ -701,7 +709,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         capture_exception(err)
 
 
-def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortOrEmpty]):
+def get_default_person_property(prop: Property, cohorts_cache: dict[int, CohortOrEmpty]):
     default_person_properties = {}
 
     if prop.operator not in ("is_set", "is_not_set") and prop.type == "person":
@@ -717,7 +725,7 @@ def get_default_person_property(prop: Property, cohorts_cache: Dict[int, CohortO
     return default_person_properties
 
 
-def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: Dict[int, CohortOrEmpty]) -> Dict[str, str]:
+def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: dict[int, CohortOrEmpty]) -> dict[str, str]:
     """
     Returns a dictionary of default person properties to use when evaluating a feature flag
     """

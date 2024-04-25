@@ -29,22 +29,25 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     const partitionKey = partitionKeyHash.digest('hex')
 
     await hub.kafkaProducer.queueMessage({
-        topic: hub.KAFKA_CONSUMPTION_TOPIC!,
-        messages: [
-            {
-                key: partitionKey,
-                value: JSON.stringify({
-                    distinct_id: data.distinct_id,
-                    ip: '',
-                    site_url: '',
-                    data: JSON.stringify(data),
-                    team_id: pluginConfig.team_id,
-                    now: data.timestamp,
-                    sent_at: data.timestamp,
-                    uuid: data.uuid,
-                } as RawEventMessage),
-            },
-        ],
+        kafkaMessage: {
+            topic: hub.KAFKA_CONSUMPTION_TOPIC!,
+            messages: [
+                {
+                    key: partitionKey,
+                    value: JSON.stringify({
+                        distinct_id: data.distinct_id,
+                        ip: '',
+                        site_url: '',
+                        data: JSON.stringify(data),
+                        team_id: pluginConfig.team_id,
+                        now: data.timestamp,
+                        sent_at: data.timestamp,
+                        uuid: data.uuid,
+                    } as RawEventMessage),
+                },
+            ],
+        },
+        waitForAck: true,
     })
 }
 

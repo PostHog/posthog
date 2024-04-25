@@ -15,7 +15,7 @@ from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 class DebugCHQueries(viewsets.ViewSet):
     """
-    Show recent queries for this user
+    List recent CH queries initiated by this user.
     """
 
     def _get_path(self, query: str) -> Optional[str]:
@@ -30,16 +30,28 @@ class DebugCHQueries(viewsets.ViewSet):
 
         response = sync_execute(
             """
-            select
-                query, query_start_time, exception, toInt8(type), query_duration_ms
-            from clusterAllReplicas(%(cluster)s, system, query_log)
-            where
-                query LIKE %(query)s and
-                query_start_time > %(start_time)s and
-                type != 1 and
-                query not like %(not_query)s
-            order by query_start_time desc
-            limit 100""",
+            SELECT
+                query_id,
+                argMax(query, type) AS query,
+                argMax(query_json, type) AS query_json,
+                argMax(query_start_time, type) AS query_start_time,
+                argMax(exception, type) AS exception,
+                argMax(query_duration_ms, type) AS query_duration_ms,
+                max(type) AS status
+            FROM (
+                SELECT
+                    query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
+                    JSONExtractRaw(log_comment, 'query') as query_json
+                FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                WHERE
+                    query LIKE %(query)s AND
+                    query NOT LIKE %(not_query)s AND
+                    query_start_time > %(start_time)s
+                ORDER BY query_start_time DESC
+                LIMIT 100
+            )
+            GROUP BY query_id
+            ORDER BY query_start_time DESC""",
             {
                 "query": f"/* user_id:{request.user.pk} %",
                 "start_time": (now() - relativedelta(minutes=10)).timestamp(),
@@ -50,12 +62,14 @@ class DebugCHQueries(viewsets.ViewSet):
         return Response(
             [
                 {
-                    "query": resp[0],
-                    "timestamp": resp[1],
-                    "exception": resp[2],
-                    "type": resp[3],
-                    "execution_time": resp[4],
-                    "path": self._get_path(resp[0]),
+                    "query_id": resp[0],
+                    "query": resp[1],
+                    "queryJson": resp[2],
+                    "timestamp": resp[3],
+                    "exception": resp[4],
+                    "execution_time": resp[5],
+                    "status": resp[6],
+                    "path": self._get_path(resp[1]),
                 }
                 for resp in response
             ]

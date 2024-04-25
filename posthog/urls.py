@@ -1,4 +1,5 @@
-from typing import Any, Callable, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
@@ -60,7 +61,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-ee_urlpatterns: List[Any] = []
+ee_urlpatterns: list[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns

@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Dict, List, cast
+from typing import cast
 from unittest import mock
 from unittest.mock import ANY, Mock, patch
 from urllib.parse import quote
@@ -326,7 +326,7 @@ class TestUserAPI(APIBaseTest):
         )
 
     def _assert_set_scene_choice(
-        self, scene: str, dashboard: Dashboard, user: User, expected_choices: List[Dict]
+        self, scene: str, dashboard: Dashboard, user: User, expected_choices: list[dict]
     ) -> None:
         response = self.client.post(
             "/api/users/@me/scene_personalisation",

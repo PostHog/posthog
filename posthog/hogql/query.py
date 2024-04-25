@@ -1,10 +1,11 @@
-from typing import Dict, Optional, Union, cast
+import dataclasses
+from typing import Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -28,9 +29,10 @@ INCREASED_MAX_EXECUTION_TIME = 600
 def execute_hogql_query(
     query: Union[str, ast.SelectQuery, ast.SelectUnionQuery],
     team: Team,
+    *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
@@ -38,9 +40,13 @@ def execute_hogql_query(
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
     pretty: Optional[bool] = True,
+    context: Optional[HogQLContext] = None,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
+
+    if context is None:
+        context = HogQLContext(team_id=team.pk)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
 
@@ -56,7 +62,7 @@ def execute_hogql_query(
         placeholders = placeholders or {}
 
         if "filters" in placeholders and filters is not None:
-            raise HogQLException(
+            raise ValueError(
                 f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
             )
         if "filters" in placeholders_in_query:
@@ -65,7 +71,7 @@ def execute_hogql_query(
 
         if len(placeholders_in_query) > 0:
             if len(placeholders) == 0:
-                raise HogQLException(
+                raise ValueError(
                     f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(placeholders_in_query)}"
                 )
             select_query = replace_placeholders(select_query, placeholders)
@@ -81,13 +87,16 @@ def execute_hogql_query(
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
         with timings.measure("prepare_ast"):
-            hogql_query_context = HogQLContext(
+            hogql_query_context = dataclasses.replace(
+                context,
+                # set the team.pk here so someone can't pass a context for a different team 🤷‍️
                 team_id=team.pk,
                 team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
             )
+
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
             select_query_hogql = cast(
@@ -124,13 +133,16 @@ def execute_hogql_query(
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
-        clickhouse_context = HogQLContext(
+        clickhouse_context = dataclasses.replace(
+            context,
+            # set the team.pk here so someone can't pass a context for a different team 🤷‍️
             team_id=team.pk,
             team=team,
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
         )
+
         clickhouse_sql = print_ast(
             select_query,
             context=clickhouse_context,
@@ -147,6 +159,7 @@ def execute_hogql_query(
             has_joins="JOIN" in clickhouse_sql,
             has_json_operations="JSONExtract" in clickhouse_sql or "JSONHas" in clickhouse_sql,
             timings=timings_dict,
+            modifiers={k: v for k, v in modifiers.model_dump().items() if v is not None} if modifiers else {},
         )
 
         error = None
@@ -162,7 +175,7 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, (ExposedCHQueryError, HogQLException)):
+                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     error = str(e)
                 else:
                     error = "Unknown error"

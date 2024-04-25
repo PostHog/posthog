@@ -1,6 +1,6 @@
 from datetime import datetime
 from dateutil.parser import isoparse
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parser
@@ -32,7 +32,7 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
     return parser().parse(candidate)
 
 
-def active_teams() -> Set[int]:
+def active_teams() -> set[int]:
     """
     Teams are stored in a sorted set. [{team_id: score}, {team_id: score}].
     Their "score" is the number of seconds since last event.
@@ -43,7 +43,7 @@ def active_teams() -> Set[int]:
     This assumes that the list of active teams is small enough to reasonably load in one go.
     """
     redis = get_client()
-    all_teams: List[Tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
+    all_teams: list[tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
     if not all_teams:
         teams_by_recency = sync_execute(
             """
@@ -58,12 +58,12 @@ def active_teams() -> Set[int]:
             return set()
         redis.zadd(
             RECENTLY_ACCESSED_TEAMS_REDIS_KEY,
-            {team: score for team, score in teams_by_recency},
+            dict(teams_by_recency),
         )
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
 
-    return set(int(team_id) for team_id, _ in all_teams)
+    return {int(team_id) for team_id, _ in all_teams}
 
 
 def stale_cache_invalidation_disabled(team: Team) -> bool:
@@ -106,7 +106,7 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
         return False
 
     last_refresh = (
-        cached_result.get("last_refresh", None) if isinstance(cached_result, Dict) else cached_result.last_refresh
+        cached_result.get("last_refresh", None) if isinstance(cached_result, dict) else cached_result.last_refresh
     )
     date_to = min([date_to, datetime.now(tz=ZoneInfo("UTC"))])  # can't be later than now
 

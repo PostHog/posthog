@@ -259,12 +259,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         {workingButton}
                         <div className="LemonButtonWithSideAction__side-button">
                             <SideComponent
-                                // We don't want secondary style as it creates double borders
-                                type={type !== 'secondary' ? type : undefined}
+                                type={type}
                                 size={size}
                                 status={status}
                                 dropdown={sideDropdown as LemonButtonDropdown}
                                 noPadding
+                                active={active}
                                 {...sideActionRest}
                             />
                         </div>

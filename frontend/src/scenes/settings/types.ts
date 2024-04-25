@@ -57,6 +57,7 @@ export type SettingId =
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-ip-allowlist'
     | 'project-rbac'
     | 'project-delete'
     | 'organization-display-name'
@@ -74,6 +75,7 @@ export type SettingId =
     | 'optout'
     | 'theme'
     | 'replay-ai-config'
+    | 'heatmaps'
 
 export type Setting = {
     id: SettingId

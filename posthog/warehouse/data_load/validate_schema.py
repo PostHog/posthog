@@ -1,33 +1,81 @@
+import uuid
 from django.conf import settings
+from dlt.common.schema.typing import TSchemaTables
+from dlt.common.data_types.typing import TDataType
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateTimeDatabaseField,
+    IntegerDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+)
 
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
     get_or_create_datawarehouse_credential,
-    get_table_by_url_pattern_and_source,
     DataWarehouseTable,
     DataWarehouseCredential,
-    aget_schema_if_exists,
     get_external_data_job,
     asave_datawarehousetable,
     acreate_datawarehousetable,
     asave_external_data_schema,
+    get_table_by_schema_id,
+    aget_schema_by_id,
 )
+
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from clickhouse_driver.errors import ServerException
 from asgiref.sync import sync_to_async
-from typing import Dict
+from posthog.utils import camel_to_snake_case
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
+
+def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
+    hogql_type: type[DatabaseField] = DatabaseField
+
+    if dlt_type is None:
+        hogql_type = StringDatabaseField
+    elif dlt_type == "text":
+        hogql_type = StringDatabaseField
+    elif dlt_type == "double":
+        hogql_type = IntegerDatabaseField
+    elif dlt_type == "bool":
+        hogql_type = BooleanDatabaseField
+    elif dlt_type == "timestamp":
+        hogql_type = DateTimeDatabaseField
+    elif dlt_type == "bigint":
+        hogql_type = IntegerDatabaseField
+    elif dlt_type == "binary":
+        raise Exception("DLT type 'binary' is not a supported column type")
+    elif dlt_type == "complex":
+        hogql_type = StringJSONDatabaseField
+    elif dlt_type == "decimal":
+        hogql_type = IntegerDatabaseField
+    elif dlt_type == "wei":
+        raise Exception("DLT type 'wei' is not a supported column type")
+    elif dlt_type == "date":
+        hogql_type = DateTimeDatabaseField
+    elif dlt_type == "time":
+        hogql_type = DateTimeDatabaseField
+    else:
+        raise Exception(f"DLT type '{dlt_type}' is not a supported column type")
+
+    return hogql_type.__name__
 
 
 async def validate_schema(
-    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int
-) -> Dict:
+    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int, row_count: int
+) -> dict:
     params = {
         "credential": credential,
         "name": table_name,
         "format": "Parquet",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
+        "row_count": row_count,
     }
 
     table = DataWarehouseTable(**params)
@@ -39,10 +87,17 @@ async def validate_schema(
         "format": "Parquet",
         "url_pattern": new_url_pattern,
         "team_id": team_id,
+        "row_count": row_count,
     }
 
 
-async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[str]) -> None:
+async def validate_schema_and_update_table(
+    run_id: str,
+    team_id: int,
+    schema_id: uuid.UUID,
+    table_schema: TSchemaTables,
+    table_row_counts: dict[str, int],
+) -> None:
     """
 
     Validates the schemas of data that has been synced by external data job.
@@ -51,76 +106,111 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
     Arguments:
         run_id: The id of the external data job
         team_id: The id of the team
-        schemas: The list of schemas that have been synced by the external data job
+        schema_id: The schema for which the data job relates to
+        table_schema: The DLT schema from the data load stage
+        table_row_counts: The count of synced rows from DLT
     """
 
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
-    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(job.team_id, job.pipeline_id)
+    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(team_id, job.pipeline_id)
 
     credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
-        team_id=job.team_id,
+        team_id=team_id,
         access_key=settings.AIRBYTE_BUCKET_KEY,
         access_secret=settings.AIRBYTE_BUCKET_SECRET,
     )
 
-    for _schema_name in schemas:
-        table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
-        new_url_pattern = job.url_pattern_by_schema(_schema_name)
+    external_data_schema: ExternalDataSchema = await aget_schema_by_id(schema_id, team_id)
 
-        # Check
-        try:
-            data = await validate_schema(
-                credential=credential, table_name=table_name, new_url_pattern=new_url_pattern, team_id=team_id
-            )
-        except ServerException as err:
-            if err.code == 636:
-                logger.exception(
-                    f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
-                    exc_info=err,
-                )
-            continue
-        except Exception as e:
-            # TODO: handle other exceptions here
-            logger.exception(
-                f"Data Warehouse: Could not validate schema for external data job {job.pk}",
-                exc_info=e,
-            )
-            continue
+    _schema_id = external_data_schema.id
+    _schema_name: str = external_data_schema.name
+    incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+
+    table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
+    new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+
+    row_count = table_row_counts.get(_schema_name.lower(), 0)
+
+    # Check
+    try:
+        data = await validate_schema(
+            credential=credential,
+            table_name=table_name,
+            new_url_pattern=new_url_pattern,
+            team_id=team_id,
+            row_count=row_count,
+        )
 
         # create or update
         table_created = None
         if last_successful_job:
-            old_url_pattern = last_successful_job.url_pattern_by_schema(_schema_name)
             try:
-                table_created = await get_table_by_url_pattern_and_source(
-                    team_id=job.team_id, source_id=job.pipeline.id, url_pattern=old_url_pattern
-                )
+                table_created = await get_table_by_schema_id(_schema_id, team_id)
+                if not table_created:
+                    raise DataWarehouseTable.DoesNotExist
             except Exception:
                 table_created = None
             else:
                 table_created.url_pattern = new_url_pattern
+                if incremental:
+                    table_created.row_count = await sync_to_async(table_created.get_count)()
+                else:
+                    table_created.row_count = row_count
                 await asave_datawarehousetable(table_created)
 
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
-        # TODO: this should be async too
-        table_created.columns = await sync_to_async(table_created.get_columns)()
+        for schema in table_schema.values():
+            if schema.get("resource") == _schema_name:
+                schema_columns = schema.get("columns") or {}
+                db_columns: dict[str, str] = await sync_to_async(table_created.get_columns)()
+
+                columns = {}
+                for column_name, db_column_type in db_columns.items():
+                    dlt_column = schema_columns.get(column_name)
+                    if dlt_column is not None:
+                        dlt_data_type = dlt_column.get("data_type")
+                        hogql_type = dlt_to_hogql_type(dlt_data_type)
+                    else:
+                        hogql_type = dlt_to_hogql_type(None)
+
+                    columns[column_name] = {
+                        "clickhouse": db_column_type,
+                        "hogql": hogql_type,
+                    }
+                table_created.columns = columns
+                break
+
         await asave_datawarehousetable(table_created)
 
         # schema could have been deleted by this point
-        schema_model = await aget_schema_if_exists(
-            schema_name=_schema_name, team_id=job.team_id, source_id=job.pipeline.id
-        )
+        schema_model = await aget_schema_by_id(schema_id=_schema_id, team_id=team_id)
 
         if schema_model:
             schema_model.table = table_created
             schema_model.last_synced_at = job.created_at
             await asave_external_data_schema(schema_model)
 
-    if last_successful_job:
+    except ServerException as err:
+        if err.code == 636:
+            logger.exception(
+                f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
+                exc_info=err,
+            )
+    except Exception as e:
+        # TODO: handle other exceptions here
+        logger.exception(
+            f"Data Warehouse: Could not validate schema for external data job {job.pk}",
+            exc_info=e,
+        )
+
+    if (
+        last_successful_job
+        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    ):
         try:
             last_successful_job.delete_data_in_bucket()
         except Exception as e:
@@ -128,4 +218,3 @@ async def validate_schema_and_update_table(run_id: str, team_id: int, schemas: l
                 f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
                 exc_info=e,
             )
-            pass

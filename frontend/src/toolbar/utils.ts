@@ -2,9 +2,13 @@ import { finder } from '@medv/finder'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { CSSProperties } from 'react'
 
-import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
+import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType, StringMatching } from '~/types'
+
+export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -70,8 +74,8 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     }
 }
 
-export function getToolbarElement(): HTMLElement | null {
-    return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
+export function getToolbarRootElement(): HTMLElement | null {
+    return window.document.getElementById(TOOLBAR_ID) || null
 }
 
 export function hasCursorPointer(element: HTMLElement): boolean {
@@ -94,8 +98,8 @@ export function trimElement(element: HTMLElement): HTMLElement | null {
     if (!element) {
         return null
     }
-    const toolbarElement = getToolbarElement()
-    if (toolbarElement && isParentOf(element, toolbarElement)) {
+    const rootElement = getToolbarRootElement()
+    if (rootElement && isParentOf(element, rootElement)) {
         return null
     }
 
@@ -155,7 +159,7 @@ export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoo
     })
 
     const shadowElements = allElements
-        .filter((el) => el.shadowRoot && el.getAttribute('id') !== '__POSTHOG_TOOLBAR__')
+        .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot) : []))
         .reduce((a, b) => [...a, ...b], [])
     const selectedElements = [...elements, ...pointerElements, ...shadowElements]
@@ -243,26 +247,21 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     return null
 }
 
-export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): BoxColor | undefined {
+export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): CSSProperties | undefined {
     if (color === 'blue') {
         return {
             backgroundBlendMode: 'multiply',
             background: `hsla(240, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px ${hover ? 4 : 2}px`,
+            boxShadow: `hsla(240, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 4 : 0}px`,
+            outline: `hsla(240, 90%, 58%, 0.5) solid 1px`,
         }
     }
     if (color === 'red') {
         return {
             backgroundBlendMode: 'multiply',
             background: `hsla(4, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
-        }
-    }
-    if (color === 'green') {
-        return {
-            backgroundBlendMode: 'multiply',
-            background: `hsla(97, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(97, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+            boxShadow: `hsla(4, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 5 : 0}px`,
+            outline: `hsla(4, 90%, 58%, 0.5) solid 1px`,
         }
     }
 }
@@ -324,14 +323,6 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
         selector: selector_selected ? rest.selector || null : null,
         url: url_selected ? rest.url || null : null,
     }
-}
-
-export function clearSessionToolbarToken(): void {
-    window.sessionStorage?.removeItem('_postHogToolbarParams')
-    window.localStorage?.removeItem('_postHogToolbarParams')
-    // keeping these around for compatibility, should be eventually removed
-    window.sessionStorage?.removeItem('_postHogEditorParams')
-    window.localStorage?.removeItem('_postHogEditorParams')
 }
 
 export function getRectForElement(element: HTMLElement): ElementRect {

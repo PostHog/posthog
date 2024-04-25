@@ -1,9 +1,8 @@
 import { BindLogic, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { Modifiers } from 'scenes/debug/Modifiers'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
@@ -62,78 +61,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />
                 </div>
-                <div className="flex gap-2">
-                    <LemonLabel>
-                        POE:
-                        <LemonSelect
-                            options={[
-                                { value: 'disabled', label: 'Disabled' },
-                                { value: 'v1_enabled', label: 'V1 Enabled' },
-                                { value: 'v1_mixed', label: 'V1 Mixed' },
-                                { value: 'v2_enabled', label: 'V2 Enabled' },
-                            ]}
-                            onChange={(value) =>
-                                setQuery({
-                                    ...query,
-                                    modifiers: { ...query.modifiers, personsOnEventsMode: value },
-                                } as HogQLQuery)
-                            }
-                            value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
-                        />
-                    </LemonLabel>
-                    <LemonLabel>
-                        Persons ArgMax:
-                        <LemonSelect
-                            options={[
-                                { value: 'v1', label: 'V1' },
-                                { value: 'v2', label: 'V2' },
-                            ]}
-                            onChange={(value) =>
-                                setQuery({
-                                    ...query,
-                                    modifiers: { ...query.modifiers, personsArgMaxVersion: value },
-                                } as HogQLQuery)
-                            }
-                            value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
-                        />
-                    </LemonLabel>
-                    <LemonLabel>
-                        In Cohort Via:
-                        <LemonSelect
-                            options={[
-                                { value: 'auto', label: 'auto' },
-                                { value: 'leftjoin', label: 'join' },
-                                { value: 'subquery', label: 'subquery' },
-                                { value: 'leftjoin_conjoined', label: 'leftjoin conjoined' },
-                            ]}
-                            onChange={(value) =>
-                                setQuery({
-                                    ...query,
-                                    modifiers: { ...query.modifiers, inCohortVia: value },
-                                } as HogQLQuery)
-                            }
-                            value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
-                        />
-                    </LemonLabel>
-                    <LemonLabel>
-                        Materialization Mode:
-                        <LemonSelect
-                            options={[
-                                { value: 'auto', label: 'auto' },
-                                { value: 'legacy_null_as_string', label: 'legacy_null_as_string' },
-                                { value: 'legacy_null_as_null', label: 'legacy_null_as_null' },
-                                { value: 'disabled', label: 'disabled' },
-                            ]}
-                            onChange={(value) =>
-                                setQuery({
-                                    ...query,
-                                    modifiers: { ...query.modifiers, materializationMode: value },
-                                } as HogQLQuery)
-                            }
-                            value={query.modifiers?.materializationMode ?? response?.modifiers?.materializationMode}
-                        />
-                    </LemonLabel>
-                </div>
+                <Modifiers setQuery={setQuery} query={query} response={response} />
                 {dataLoading ? (
                     <>
                         <h2>Running query...</h2>

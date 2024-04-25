@@ -6,10 +6,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
@@ -44,6 +44,7 @@ export function ActionsLineGraph({
         isLifecycle,
         isStickiness,
         isTrends,
+        isDataWarehouseSeries,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -54,21 +55,21 @@ export function ActionsLineGraph({
         []
 
     const isLifecycleQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]) &&
         isLifecycle &&
         query &&
         isInsightVizNode(query) &&
         isLifecycleQuery(query.source)
 
     const isStickinessQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) &&
         isStickiness &&
         query &&
         isInsightVizNode(query) &&
         isStickinessQuery(query.source)
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -109,7 +110,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(formula)
+                !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
                     : (payload) => {
                           const { index, points, crossDataset } = payload
@@ -142,15 +143,13 @@ export function ActionsLineGraph({
                           ) {
                               openPersonsModal({
                                   title,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: query.source,
-                                      day,
-                                      status: dataset.status,
-                                      series: dataset.action?.order ?? 0,
-                                      breakdown: dataset.breakdown_value,
-                                      compare: dataset.compare_label,
-                                  },
+                                  query: datasetToActorsQuery({ dataset, query: query.source, day }),
+                                  additionalSelect: isLifecycle
+                                      ? {}
+                                      : {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
                               })
                           } else {
                               const datasetUrls = urlsForDatasets(

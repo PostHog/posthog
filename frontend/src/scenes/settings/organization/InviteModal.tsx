@@ -236,15 +236,15 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 description={
                     preflight?.email_service_available ? (
                         <p>
-                            Invite others to your project to collaborate together in PostHog. An invite is specific to
-                            an email address and expires after 3 days. Name can be provided for the team member's
+                            Invite others to your organization to collaborate together in PostHog. An invite is specific
+                            to an email address and expires after 3 days. Name can be provided for the team member's
                             convenience.
                         </p>
                     ) : (
                         <p>
                             This PostHog instance isn't configured to send emails. In the meantime, you can generate a
                             link for each team member you want to invite. You can always invite others at a later time.{' '}
-                            <strong>Make sure you share links with the project members you want to invite.</strong>
+                            <strong>Make sure you share links with the organization members you want to invite.</strong>
                         </p>
                     )
                 }

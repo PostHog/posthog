@@ -1,3 +1,4 @@
+from typing import Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -6,6 +7,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -20,17 +22,20 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.warehouse.models.util import remove_named_tuples
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
+from .external_table_definitions import external_tables
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
+    "DateTime": DateTimeDatabaseField,
     "Date": DateDatabaseField,
     "Date32": DateDatabaseField,
     "UInt8": IntegerDatabaseField,
@@ -50,6 +55,16 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
     "Decimal": IntegerDatabaseField,
+}
+
+STR_TO_HOGQL_MAPPING = {
+    "BooleanDatabaseField": BooleanDatabaseField,
+    "DateDatabaseField": DateDatabaseField,
+    "DateTimeDatabaseField": DateTimeDatabaseField,
+    "IntegerDatabaseField": IntegerDatabaseField,
+    "StringArrayDatabaseField": StringArrayDatabaseField,
+    "StringDatabaseField": StringDatabaseField,
+    "StringJSONDatabaseField": StringJSONDatabaseField,
 }
 
 ExtractErrors = {
@@ -83,14 +98,25 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    row_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="How many rows are currently synced in this table"
+    )
+
     __repr__ = sane_repr("name")
 
-    def get_columns(self, safe_expose_ch_error=True):
+    def table_name_without_prefix(self) -> str:
+        if self.external_data_source is not None and self.external_data_source.prefix is not None:
+            prefix = self.external_data_source.prefix
+        else:
+            prefix = ""
+        return self.name[len(prefix) :]
+
+    def get_columns(self, safe_expose_ch_error=True) -> dict[str, str]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
                 SELECT * FROM
-                    s3Cluster('posthog', %(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
+                    s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)
                 LIMIT 1
             )""",
                 {
@@ -109,24 +135,63 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return {item[0]: item[1] for item in result}
 
+    def get_count(self, safe_expose_ch_error=True) -> int:
+        try:
+            result = sync_execute(
+                """SELECT count() FROM
+                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
+                {
+                    "url_pattern": self.url_pattern,
+                    "access_key": self.credential.access_key,
+                    "access_secret": self.credential.access_secret,
+                    "format": self.format,
+                },
+            )
+        except Exception as err:
+            capture_exception(err)
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise err
+
+        return result[0][0]
+
     def hogql_definition(self) -> S3Table:
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
-        fields = {}
+        fields: dict[str, FieldOrTable] = {}
         structure = []
         for column, type in self.columns.items():
-            if type.startswith("Nullable("):
-                type = type.replace("Nullable(", "")[:-1]
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                clickhouse_type = type
+            else:
+                clickhouse_type = type["clickhouse"]
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
 
             # TODO: remove when addressed https://github.com/ClickHouse/ClickHouse/issues/37594
-            if type.startswith("Array("):
-                type = remove_named_tuples(type)
+            if clickhouse_type.startswith("Array("):
+                clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            structure.append(f"{column} {type}")
-            type = type.partition("(")[0]
-            type = CLICKHOUSE_HOGQL_MAPPING[type]
-            fields[column] = type(name=column)
+            structure.append(f"{column} {clickhouse_type}")
+
+            # Support for 'old' style columns
+            if isinstance(type, str):
+                hogql_type_str = clickhouse_type.partition("(")[0]
+                hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
+            else:
+                hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+
+            fields[column] = hogql_type(name=column)
+
+        # Replace fields with any redefined fields if they exist
+        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        if external_table_fields is not None:
+            default_fields = external_tables.get("*", {})
+            fields = {**external_table_fields, **default_fields}
 
         return S3Table(
             name=self.name,
@@ -137,6 +202,17 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields=fields,
             structure=", ".join(structure),
         )
+
+    def get_clickhouse_column_type(self, column_name: str) -> Optional[str]:
+        clickhouse_type = self.columns.get(column_name, None)
+
+        if isinstance(clickhouse_type, dict) and self.columns[column_name].get("clickhouse"):
+            clickhouse_type = self.columns[column_name].get("clickhouse")
+
+            if clickhouse_type.startswith("Nullable("):
+                clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
+
+        return clickhouse_type
 
     def _safe_expose_ch_error(self, err):
         err = wrap_query_error(err)
@@ -151,6 +227,11 @@ def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_
     return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
         team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
     )
+
+
+@database_sync_to_async
+def get_table_by_schema_id(schema_id: str, team_id: int):
+    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id).table
 
 
 @database_sync_to_async

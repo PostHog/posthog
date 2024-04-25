@@ -49,7 +49,6 @@ done
 export DEBUG=1
 export NO_RESTART_LOOP=1
 export CYPRESS_BASE_URL=http://localhost:8080
-export OPT_OUT_CAPTURE="${OPT_OUT_CAPTURE:=1}"
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export KAFKA_HOSTS=kafka:9092

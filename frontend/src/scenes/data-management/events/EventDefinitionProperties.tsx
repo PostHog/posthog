@@ -1,13 +1,17 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useEffect } from 'react'
-import { PropertyDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
+
+import { DefinitionHeader } from './DefinitionHeader'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
@@ -22,21 +26,21 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
         {
             title: 'Property',
             key: 'property',
-            className: 'definition-column-name',
             render: function Render(_, _definition: PropertyDefinition) {
-                return <PropertyDefinitionHeader definition={_definition} event={definition} hideIcon asLink />
+                return (
+                    <DefinitionHeader
+                        definition={_definition}
+                        to={urls.propertyDefinition(_definition.id)}
+                        taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
+                    />
+                )
             },
         },
         {
             title: 'Type',
             key: 'type',
-            className: 'definition-column-type',
             render: function Render(_, _definition: PropertyDefinition) {
-                return _definition.property_type ? (
-                    <div className="definition-pill-value uppercase">{_definition.property_type}</div>
-                ) : (
-                    <span className="text-muted">—</span>
-                )
+                return <LemonTag type="muted">{_definition.property_type ?? '-'}</LemonTag>
             },
         },
         ...(hasDashboardCollaboration
@@ -54,21 +58,20 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             title: 'Example',
             key: 'example',
             align: 'right',
-            className: 'definition-example-type',
             render: function Render(_, _definition: PropertyDefinition) {
-                return _definition.example ? (
-                    <div className="definition-pill-value font-mono">{_definition.example}</div>
-                ) : (
-                    <span className="text-muted">—</span>
+                return (
+                    <LemonTag className="font-mono" type="muted">
+                        {_definition.example ?? '-'}
+                    </LemonTag>
                 )
             },
         },
     ]
 
     return (
-        <div className="event-properties-wrapper">
-            <span className="event-properties-header">Top properties</span>
-            <p className="event-properties-subtext">
+        <div>
+            <h3>Top properties</h3>
+            <p>
                 Please note that description and tags are shared across events. PostHog properties are excluded from
                 this list.
             </p>
@@ -76,7 +79,6 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                 id={`event-properties-definition-table-${definition.id}`}
                 data-attr="event-properties-definition-nested-table"
                 columns={columns}
-                className={`event-properties-definition-table-${definition.id}`}
                 dataSource={eventPropertiesCacheMap?.[definition.id]?.results ?? []}
                 emptyState="This event has no properties"
                 nouns={['property definition', 'property definitions']}

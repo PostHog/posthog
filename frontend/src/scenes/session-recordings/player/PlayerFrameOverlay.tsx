@@ -1,9 +1,10 @@
 import './PlayerFrameOverlay.scss'
 
+import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -14,11 +15,8 @@ import { SessionPlayerState } from '~/types'
 import { PlayerUpNext } from './PlayerUpNext'
 import { SimilarRecordings } from './SimilarRecordings'
 
-const PlayerFrameOverlayContent = ({
-    currentPlayerState,
-}: {
-    currentPlayerState: SessionPlayerState
-}): JSX.Element | null => {
+const PlayerFrameOverlayContent = (): JSX.Element | null => {
+    const { currentPlayerState, endReached } = useValues(sessionRecordingPlayerLogic)
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
@@ -61,7 +59,11 @@ const PlayerFrameOverlayContent = ({
         )
     }
     if (pausedState) {
-        content = <IconPlay className="text-6xl text-white" />
+        content = endReached ? (
+            <IconSync className="text-6xl text-white" />
+        ) : (
+            <IconPlay className="text-6xl text-white" />
+        )
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
@@ -80,7 +82,7 @@ const PlayerFrameOverlayContent = ({
 }
 
 export function PlayerFrameOverlay(): JSX.Element {
-    const { currentPlayerState, playlistLogic } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
     const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
 
@@ -93,7 +95,7 @@ export function PlayerFrameOverlay(): JSX.Element {
             onMouseMove={() => setInterrupted(true)}
             onMouseOut={() => setInterrupted(false)}
         >
-            <PlayerFrameOverlayContent currentPlayerState={currentPlayerState} />
+            <PlayerFrameOverlayContent />
             {hasSimilarRecordings && <SimilarRecordings />}
             {playlistLogic ? (
                 <PlayerUpNext

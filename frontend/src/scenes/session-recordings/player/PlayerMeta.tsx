@@ -1,11 +1,13 @@
 import './PlayerMeta.scss'
 
-import { Link } from '@posthog/lemon-ui'
+import { IconDownload, IconEllipsis, IconMagic, IconSearch, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -16,31 +18,14 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
 import { PlayerMetaLinks } from './PlayerMetaLinks'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
-
-function SessionPropertyMeta(props: {
-    fullScreen: boolean
-    iconProperties: Record<string, any>
-    predicate: (x: string) => boolean
-}): JSX.Element {
-    const gatheredProperties = gatherIconProperties(props.iconProperties)
-
-    return (
-        <PropertyIcons
-            recordingProperties={gatheredProperties}
-            iconClassnames="text-muted-alt"
-            showTooltip={false}
-            showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
-        />
-    )
-}
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (!lastUrl) {
@@ -82,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta(): JSX.Element {
+export function PlayerMeta({ linkIconsOnly = false }: { linkIconsOnly?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -94,7 +79,6 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
@@ -163,7 +147,7 @@ export function PlayerMeta(): JSX.Element {
             >
                 <div
                     className={clsx(
-                        'PlayerMeta__top flex items-center gap-2 shrink-0 p-2',
+                        'PlayerMeta__top flex items-center gap-1 shrink-0 p-2',
                         isFullScreen ? ' text-xs' : 'border-b'
                     )}
                 >
@@ -193,20 +177,14 @@ export function PlayerMeta(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                        <div className="text-muted">
-                            {sessionPlayerMetaDataLoading ? (
-                                <LemonSkeleton className="w-1/4 h-4 my-1" />
-                            ) : sessionProperties ? (
-                                <SessionPropertyMeta
-                                    fullScreen={isFullScreen}
-                                    iconProperties={sessionProperties}
-                                    predicate={(x) => !!x}
-                                />
-                            ) : null}
-                        </div>
                     </div>
 
-                    {sessionRecordingId && <PlayerMetaLinks />}
+                    {sessionRecordingId && (
+                        <div className="flex items-center gap-0.5">
+                            <PlayerMetaLinks iconsOnly={linkIconsOnly} />
+                            {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
+                        </div>
+                    )}
                 </div>
                 <div
                     className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
@@ -248,5 +226,70 @@ export function PlayerMeta(): JSX.Element {
                 </div>
             </div>
         </DraggableToNotebook>
+    )
+}
+
+const MenuActions = (): JSX.Element => {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { exportRecordingToFile, openExplorer, deleteRecording, setIsFullScreen } =
+        useActions(sessionRecordingPlayerLogic)
+    const { fetchSimilarRecordings } = useActions(sessionRecordingDataLogic(logicProps))
+
+    const hasMobileExport = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
+    const hasSimilarRecordings = useFeatureFlag('REPLAY_SIMILAR_RECORDINGS')
+
+    const onDelete = (): void => {
+        setIsFullScreen(false)
+        LemonDialog.open({
+            title: 'Delete recording',
+            description: 'Are you sure you want to delete this recording? This cannot be undone.',
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: deleteRecording,
+            },
+        })
+    }
+
+    const items: LemonMenuItems = [
+        {
+            label: 'Export to file',
+            onClick: exportRecordingToFile,
+            icon: <IconDownload />,
+            tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
+        },
+        {
+            label: 'Explore DOM',
+            onClick: openExplorer,
+            icon: <IconSearch />,
+        },
+        hasMobileExport && {
+            label: 'Export mobile replay to file',
+            onClick: () => exportRecordingToFile(true),
+            tooltip:
+                'DEBUG ONLY - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
+            icon: <IconDownload />,
+        },
+        hasSimilarRecordings && {
+            label: 'Find similar recordings',
+            onClick: fetchSimilarRecordings,
+            icon: <IconMagic />,
+            tooltip: 'DEBUG ONLY - Find similar recordings based on distance calculations via embeddings.',
+        },
+        logicProps.playerKey !== 'modal' && {
+            label: 'Delete recording',
+            status: 'danger',
+            onClick: onDelete,
+            icon: <IconTrash />,
+        },
+    ]
+
+    return (
+        <LemonMenu items={items}>
+            <LemonButton size="small" icon={<IconEllipsis />} />
+        </LemonMenu>
     )
 }

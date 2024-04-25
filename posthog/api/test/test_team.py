@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import List, cast, Dict, Optional, Any
+from typing import cast, Optional, Any
 from unittest import mock
 from unittest.mock import MagicMock, call, patch, ANY
 
@@ -27,7 +27,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestTeamAPI(APIBaseTest):
-    def _assert_activity_log(self, expected: List[Dict], team_id: Optional[int] = None) -> None:
+    def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
         if not team_id:
             team_id = self.team.pk
 
@@ -35,7 +35,7 @@ class TestTeamAPI(APIBaseTest):
         assert starting_log_response.status_code == 200
         assert starting_log_response.json()["results"] == expected
 
-    def _assert_organization_activity_log(self, expected: List[Dict]) -> None:
+    def _assert_organization_activity_log(self, expected: list[dict]) -> None:
         starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
         assert starting_log_response.status_code == 200
         assert starting_log_response.json()["results"] == expected
@@ -87,7 +87,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_retrieve_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.get(f"/api/projects/{team.pk}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -95,7 +95,7 @@ class TestTeamAPI(APIBaseTest):
 
     @patch("posthog.api.team.get_geoip_properties")
     def test_ip_location_is_used_for_new_project_week_day_start(self, get_geoip_properties_mock: MagicMock):
-        self.organization.available_features = cast(List[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
+        self.organization.available_features = cast(list[str], [AvailableFeature.ORGANIZATIONS_PROJECTS])
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -131,9 +131,9 @@ class TestTeamAPI(APIBaseTest):
     def test_cant_create_a_second_project_without_license(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
-
         self.assertEqual(Team.objects.count(), 1)
+
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -144,10 +144,10 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
         # another request without the is_demo parameter
         response = self.client.post("/api/projects/", {"name": "Hedgebox"})
-        self.assertEqual(Team.objects.count(), 1)
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
@@ -158,6 +158,7 @@ class TestTeamAPI(APIBaseTest):
             },
             response_data,
         )
+        self.assertEqual(Team.objects.count(), 1)
 
     @freeze_time("2022-02-08")
     def test_update_project_timezone(self):
@@ -188,7 +189,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -231,7 +232,7 @@ class TestTeamAPI(APIBaseTest):
 
     def test_cant_update_project_from_another_org(self):
         org = Organization.objects.create(name="New Org")
-        team = Team.objects.create(organization=org, name="Default Project")
+        team = Team.objects.create(organization=org, name="Default project")
 
         response = self.client.patch(f"/api/projects/{team.pk}/", {"timezone": "Africa/Accra"})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -282,7 +283,7 @@ class TestTeamAPI(APIBaseTest):
                 "created_at": ANY,
                 "detail": {
                     "changes": None,
-                    "name": "Default Project",
+                    "name": "Default project",
                     "short_id": None,
                     "trigger": None,
                     "type": None,
@@ -458,7 +459,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -492,7 +493,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["primary_dashboard"], d.id)
 
     def test_cant_set_primary_dashboard_to_another_teams_dashboard(self):
-        team_2 = Team.objects.create(organization=self.organization, name="Default Project")
+        team_2 = Team.objects.create(organization=self.organization, name="Default project")
         d = Dashboard.objects.create(name="Test", team=team_2)
 
         response = self.client.patch("/api/projects/@current/", {"primary_dashboard": d.id})
@@ -565,7 +566,7 @@ class TestTeamAPI(APIBaseTest):
                                 "type": "Team",
                             },
                         ],
-                        "name": "Default Project",
+                        "name": "Default project",
                         "short_id": None,
                         "trigger": None,
                         "type": None,
@@ -805,32 +806,58 @@ class TestTeamAPI(APIBaseTest):
                 "invalid_input",
                 "Must provide a dictionary or None.",
             ],
-            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
+            ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
             [
                 "unexpected json - no id",
                 {"key": "something"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - no key",
                 {"id": 1},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "invalid_input",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
             [
                 "unexpected json - neither",
                 {"wat": "wat"},
                 "invalid_input",
-                "Must provide a dictionary with only 'id' and 'key' keys.",
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
             ],
         ]
     )
     def test_invalid_session_recording_linked_flag(
-        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+        self, _name: str, provided_value: Any, expected_code: str, expected_error: str
     ) -> None:
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": provided_value})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
+
         assert response.json() == {
             "attr": "session_recording_linked_flag",
             "code": expected_code,
@@ -839,21 +866,18 @@ class TestTeamAPI(APIBaseTest):
         }
 
     def test_can_set_and_unset_session_recording_linked_flag(self) -> None:
-        first_patch_response = self.client.patch(
-            "/api/projects/@current/",
-            {"session_recording_linked_flag": {"id": 1, "key": "provided_value"}},
-        )
-        assert first_patch_response.status_code == status.HTTP_200_OK
-        get_response = self.client.get("/api/projects/@current/")
-        assert get_response.json()["session_recording_linked_flag"] == {
-            "id": 1,
-            "key": "provided_value",
-        }
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value"})
 
-        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": None})
-        assert response.status_code == status.HTTP_200_OK
-        second_get_response = self.client.get("/api/projects/@current/")
-        assert second_get_response.json()["session_recording_linked_flag"] is None
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
+
+    def test_can_set_and_unset_session_recording_linked_flag_variant(self) -> None:
+        self._patch_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+        self._assert_linked_flag_config({"id": 1, "key": "provided_value", "variant": "test"})
+
+        self._patch_linked_flag_config(None)
+        self._assert_linked_flag_config(None)
 
     @parameterized.expand(
         [
@@ -1015,7 +1039,7 @@ class TestTeamAPI(APIBaseTest):
         # and the existing second level nesting is not preserved
         self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
-    def _assert_replay_config_is(self, expected: Dict[str, Any] | None) -> HttpResponse:
+    def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
         get_response = self.client.get("/api/projects/@current/")
         assert get_response.status_code == status.HTTP_200_OK, get_response.json()
         assert get_response.json()["session_replay_config"] == expected
@@ -1023,7 +1047,7 @@ class TestTeamAPI(APIBaseTest):
         return get_response
 
     def _patch_session_replay_config(
-        self, config: Dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
+        self, config: dict[str, Any] | None, expected_status: int = status.HTTP_200_OK
     ) -> HttpResponse:
         patch_response = self.client.patch(
             "/api/projects/@current/",
@@ -1032,6 +1056,17 @@ class TestTeamAPI(APIBaseTest):
         assert patch_response.status_code == expected_status, patch_response.json()
 
         return patch_response
+
+    def _assert_linked_flag_config(self, expected_config: dict | None) -> HttpResponse:
+        response = self.client.get("/api/projects/@current/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["session_recording_linked_flag"] == expected_config
+        return response
+
+    def _patch_linked_flag_config(self, config: dict | None, expected_status: int = status.HTTP_200_OK) -> HttpResponse:
+        response = self.client.patch("/api/projects/@current/", {"session_recording_linked_flag": config})
+        assert response.status_code == expected_status, response.json()
+        return response
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

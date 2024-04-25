@@ -1,5 +1,3 @@
-from typing import List
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
@@ -11,7 +9,7 @@ class FunnelStrict(FunnelBase):
 
         breakdown_exprs = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             *self._get_count_columns(max_steps),
             *self._get_step_time_avgs(max_steps),
             *self._get_step_time_median(max_steps),
@@ -28,15 +26,15 @@ class FunnelStrict(FunnelBase):
         max_steps = self.context.max_steps
         breakdown_exprs = self._get_breakdown_prop_expr()
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
-        person_and_group_properties = self._get_person_and_group_properties()
+        person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
-        group_by_columns: List[ast.Expr] = [
+        group_by_columns: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["steps"]),
             *breakdown_exprs,
         ]
 
-        outer_select: List[ast.Expr] = [
+        outer_select: list[ast.Expr] = [
             *group_by_columns,
             *self._get_step_time_avgs(max_steps, inner_query=True),
             *self._get_step_time_median(max_steps, inner_query=True),
@@ -50,7 +48,7 @@ class FunnelStrict(FunnelBase):
             f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
         )
 
-        inner_select: List[ast.Expr] = [
+        inner_select: list[ast.Expr] = [
             *group_by_columns,
             max_steps_expr,
             *self._get_step_time_names(max_steps),
@@ -77,7 +75,7 @@ class FunnelStrict(FunnelBase):
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
 
-        select_inner: List[ast.Expr] = [
+        select_inner: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["timestamp"]),
             *self._get_partition_cols(1, max_steps),
@@ -87,7 +85,7 @@ class FunnelStrict(FunnelBase):
         select_from_inner = self._get_inner_event_query(skip_entity_filter=True, skip_step_filter=True)
         inner_query = ast.SelectQuery(select=select_inner, select_from=ast.JoinExpr(table=select_from_inner))
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["*"]),
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
             *self._get_step_times(max_steps),
@@ -101,7 +99,7 @@ class FunnelStrict(FunnelBase):
         return ast.SelectQuery(select=select, select_from=select_from, where=where)
 
     def _get_partition_cols(self, level_index: int, max_steps: int):
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         for i in range(0, max_steps):
             exprs.append(ast.Field(chain=[f"step_{i}"]))

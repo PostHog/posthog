@@ -1,7 +1,9 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import Any, Callable, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 
+from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
@@ -23,6 +25,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
+from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -64,7 +67,7 @@ cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "tr
 
 
 class AllowIPMiddleware:
-    trusted_proxies: List[str] = []
+    trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:
@@ -92,7 +95,7 @@ class AllowIPMiddleware:
                 client_ip = forwarded_for.pop(0)
                 if settings.TRUST_ALL_PROXIES:
                     return client_ip
-                proxies = [closest_proxy] + forwarded_for
+                proxies = [closest_proxy, *forwarded_for]
                 for proxy in proxies:
                     if proxy not in self.trusted_proxies:
                         return None
@@ -155,8 +158,26 @@ class AutoProjectMiddleware:
         if request.user.is_authenticated:
             path_parts = request.path.strip("/").split("/")
             project_id_in_url = None
+            user = cast(User, request.user)
+
+            if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+                try:
+                    new_team = Team.objects.get(api_token=path_parts[1])
+
+                    if not self.can_switch_to_team(new_team, request):
+                        raise Team.DoesNotExist
+
+                    path_parts[1] = str(new_team.pk)
+                    return redirect("/" + "/".join(path_parts))
+
+                except Team.DoesNotExist:
+                    if user.team:
+                        path_parts[1] = str(user.team.pk)
+                        return redirect("/" + "/".join(path_parts))
+
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
+
             elif (
                 len(path_parts) >= 3
                 and path_parts[0] == "api"
@@ -165,11 +186,7 @@ class AutoProjectMiddleware:
             ):
                 project_id_in_url = int(path_parts[2])
 
-            if (
-                project_id_in_url is not None
-                and request.user.team is not None
-                and request.user.team.pk != project_id_in_url
-            ):
+            if project_id_in_url and user.team and user.team.pk != project_id_in_url:
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
                     self.switch_team_if_allowed(new_team, request)
@@ -183,6 +200,8 @@ class AutoProjectMiddleware:
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
+        # TODO: Remove this method, as all relevant links now have `project_id_in_url``
+
         path_parts = request.path.strip("/").split("/")
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
@@ -220,11 +239,8 @@ class AutoProjectMiddleware:
 
     def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
-        user_permissions = UserPermissions(user)
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
-            # Do something to indicate that they don't have access to the team...
+
+        if not self.can_switch_to_team(new_team, request):
             return
 
         old_team_id = user.current_team_id
@@ -234,6 +250,21 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+
+    def can_switch_to_team(self, new_team: Team, request: HttpRequest):
+        user = cast(User, request.user)
+        user_permissions = UserPermissions(user)
+        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+        #   However this should be a rare operation!
+        if user_permissions.team(new_team).effective_membership_level is None:
+            if user.is_staff:
+                # Staff users get a popup with suggested users to log in as, facilating support
+                request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
+                    new_team.all_users_with_access().order_by("first_name", "last_name", "id"), many=True
+                ).data
+            return False
+
+        return True
 
 
 class CHQueries:
@@ -381,7 +412,7 @@ class CaptureMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        middlewares: List[Any] = []
+        middlewares: list[Any] = []
         # based on how we're using these middlewares, only middlewares that
         # have a process_request and process_response attribute can be valid here.
         # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
@@ -456,7 +487,7 @@ class CaptureMiddleware:
 
 
 def per_request_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     We get some default logging context from the django-structlog middleware,
@@ -487,7 +518,7 @@ def per_request_logging_context_middleware(
 
 
 def user_logging_context_middleware(
-    get_response: Callable[[HttpRequest], HttpResponse]
+    get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
     This middleware adds the team_id to the logging context if it exists. Note

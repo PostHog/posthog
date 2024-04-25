@@ -334,6 +334,22 @@
                     "enum": ["left", "right", "center"],
                     "type": "string"
                 },
+                "paddingBottom": {
+                    "description": "maps to CSS padding-bottom. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
+                },
+                "paddingLeft": {
+                    "description": "maps to CSS padding-left. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
+                },
+                "paddingRight": {
+                    "description": "maps to CSS padding-right. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
+                },
+                "paddingTop": {
+                    "description": "maps to CSS padding-top. Expects a number (treated as pixels) or a string that is a number followed by px e.g. 16px",
+                    "type": ["string", "number"]
+                },
                 "verticalAlign": {
                     "description": "vertical alignment with respect to its parent",
                     "enum": ["top", "bottom", "center"],

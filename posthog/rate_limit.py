@@ -1,7 +1,8 @@
+import hashlib
 import re
 import time
 from functools import lru_cache
-from typing import List, Optional
+from typing import Optional
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
@@ -35,7 +36,7 @@ DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
 
 
 @lru_cache(maxsize=1)
-def get_team_allow_list(_ttl: int) -> List[str]:
+def get_team_allow_list(_ttl: int) -> list[str]:
     """
     The "allow list" will change way less frequently than it will be called
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
@@ -222,6 +223,26 @@ class DecideRateThrottle(BaseThrottle):
         return ident
 
 
+class UserOrEmailRateThrottle(SimpleRateThrottle):
+    """
+    Typically throttling is on the user or the IP address.
+    For unauthenticated signup/login requests we want to throttle on the email address.
+    """
+
+    scope = "user"
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            # For unauthenticated requests, we want to throttle on something unique to the user they are trying to work with
+            # This could be email for example when logging in or uuid when verifying email
+            ident = request.data.get("email") or request.data.get("uuid") or self.get_ident(request)
+            ident = hashlib.sha256(ident.encode()).hexdigest()
+
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class BurstRateThrottle(TeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -262,3 +283,24 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
     rate = "40/day"
+
+
+class UserPasswordResetThrottle(UserOrEmailRateThrottle):
+    scope = "user_password_reset"
+    rate = "6/day"
+
+
+class UserAuthenticationThrottle(UserOrEmailRateThrottle):
+    scope = "user_authentication"
+    rate = "5/minute"
+
+    def allow_request(self, request, view):
+        # only throttle non-GET requests
+        if request.method == "GET":
+            return True
+        return super().allow_request(request, view)
+
+
+class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
+    scope = "user_email_verification"
+    rate = "6/day"

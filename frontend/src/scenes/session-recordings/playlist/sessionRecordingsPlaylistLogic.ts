@@ -10,7 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
-    AnyPropertyFilter,
+    DurationType,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -25,6 +25,7 @@ import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPro
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 
 export type PersonUUID = string
+export type SessionOrderingType = DurationType | 'start_time' | 'console_error_count'
 
 interface Params {
     filters?: RecordingFilters
@@ -90,59 +91,6 @@ export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => 
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
-export const defaultPageviewPropertyEntityFilter = (
-    filters: RecordingFilters,
-    property: string,
-    value?: string
-): Partial<RecordingFilters> => {
-    const existingPageview = filters.events?.find(({ name }) => name === '$pageview')
-    const eventEntityFilters = filters.events ?? []
-    const propToAdd = value
-        ? {
-              key: property,
-              value: [value],
-              operator: PropertyOperator.Exact,
-              type: 'event',
-          }
-        : {
-              key: property,
-              value: PropertyOperator.IsNotSet,
-              operator: PropertyOperator.IsNotSet,
-              type: 'event',
-          }
-
-    // If pageview exists, add property to the first pageview event
-    if (existingPageview) {
-        return {
-            events: eventEntityFilters.map((eventFilter) =>
-                eventFilter.order === existingPageview.order
-                    ? {
-                          ...eventFilter,
-                          properties: [
-                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
-                                  []),
-                              propToAdd,
-                          ],
-                      }
-                    : eventFilter
-            ),
-        }
-    } else {
-        return {
-            events: [
-                ...eventEntityFilters,
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: eventEntityFilters.length,
-                    properties: [propToAdd],
-                },
-            ],
-        }
-    }
-}
-
 const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     // capture only the partial filters applied (not the full filters object)
     // take each key from the filter and change it to `partial_filter_chosen_${key}`
@@ -200,6 +148,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
+        setOrderBy: (orderBy: SessionOrderingType) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
@@ -212,6 +161,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -263,15 +213,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const params = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
+                        target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (direction === 'older') {
-                        params['date_to'] = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                    }
+                    if (values.orderBy === 'start_time') {
+                        if (direction === 'older') {
+                            params['date_to'] =
+                                values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
+                        }
 
-                    if (direction === 'newer') {
-                        params['date_from'] = values.sessionRecordings[0]?.start_time
+                        if (direction === 'newer') {
+                            params['date_from'] = values.sessionRecordings[0]?.start_time
+                        }
+                    } else {
+                        if (direction === 'older') {
+                            params['offset'] = values.sessionRecordings.length
+                        }
+
+                        if (direction === 'newer') {
+                            params['offset'] = 0
+                        }
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -324,6 +286,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props }) => ({
+        orderBy: [
+            'start_time' as SessionOrderingType,
+            { persist: true },
+            {
+                setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
         sessionBeingSummarized: [
             null as null | SessionRecordingType['id'],
             {
@@ -458,6 +427,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        isRecordingsListCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -475,6 +451,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
+        },
+
+        setOrderBy: () => {
+            actions.loadSessionRecordings()
         },
 
         resetFilters: () => {
@@ -610,24 +590,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId],
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.orderBy],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
-                selectedRecordingId
+                selectedRecordingId,
+                orderBy
             ): SessionRecordingType[] => {
-                return sessionRecordings.filter((rec) => {
-                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                        return false
-                    }
+                return sessionRecordings
+                    .filter((rec) => {
+                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                            return false
+                        }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                        return false
-                    }
+                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                            return false
+                        }
 
-                    return true
-                })
+                        return true
+                    })
+                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
             },
         ],
 

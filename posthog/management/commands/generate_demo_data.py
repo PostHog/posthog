@@ -124,7 +124,7 @@ class Command(BaseCommand):
                     else f"\nDemo data ready for {email}!\n\n"
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8000/login?email={email}\n"
-                    f"The password is {password}.\n\n"
+                    f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
                     f"http://localhost:8000/signup?email={email}\n"
                 )
@@ -163,7 +163,7 @@ class Command(BaseCommand):
                             summary_lines.append("            No events")
                         else:
                             assert person.first_seen_at is not None and person.last_seen_at is not None
-                            session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
+                            session_count = len({event.properties.get("$session_id") for event in person.all_events})
                             summary_lines.append(
                                 f"            {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "

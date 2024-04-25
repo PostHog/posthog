@@ -1,7 +1,7 @@
 import json
 import random
 from datetime import timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -199,11 +199,11 @@ class WebDataGenerator(DataGenerator):
             return super().make_person(index)
 
     @cached_property
-    def demo_data(self) -> List[Dict[str, Any]]:
-        with open(get_absolute_path("demo/legacy/demo_people.json"), "r") as demo_data_file:
+    def demo_data(self) -> list[dict[str, Any]]:
+        with open(get_absolute_path("demo/legacy/demo_people.json")) as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
-    def demo_recording(self) -> Dict[str, Any]:
-        with open(get_absolute_path("demo/legacy/hogflix_session_recording.json"), "r") as demo_session_file:
+    def demo_recording(self) -> dict[str, Any]:
+        with open(get_absolute_path("demo/legacy/hogflix_session_recording.json")) as demo_session_file:
             return json.load(demo_session_file)

@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import json
-from typing import Any, List, Type, cast, Dict, Tuple
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -49,6 +49,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from ee.session_recordings.ai.similar_recordings import similar_recordings
+from ee.session_recordings.ai.error_clustering import error_clustering
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -133,6 +134,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "snapshot_source",
         ]
 
         read_only_fields = [
@@ -152,6 +154,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "snapshot_source",
         ]
 
 
@@ -188,7 +191,7 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    filter: SessionRecordingsFilter, request: request.Request, serializer_context: Dict[str, Any]
+    filter: SessionRecordingsFilter, request: request.Request, serializer_context: dict[str, Any]
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
@@ -208,7 +211,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
         else:
@@ -249,7 +252,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: List[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
+        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
         return JsonResponse(data={"results": matching_events})
 
     # Returns metadata about the recording
@@ -320,8 +323,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         might_have_realtime = True
         newest_timestamp = None
 
-        use_v3_storage = request.GET.get("version", None) == "3"
-
         event_properties = {
             "team_id": self.team.pk,
             "request_source": source,
@@ -341,9 +342,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
-            sources: List[dict] = []
+            sources: list[dict] = []
 
-            blob_keys: List[str] | None = None
+            blob_keys: list[str] | None = None
             if recording.object_storage_path:
                 if recording.storage_version == "2023-08-01":
                     blob_prefix = recording.object_storage_path
@@ -361,13 +362,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     might_have_realtime = False
             else:
                 blob_prefix = recording.build_blob_ingestion_storage_path()
-
-                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
-                    blob_prefix = blob_prefix.replace(
-                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER,
-                        settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER,
-                    )
-
                 blob_keys = object_storage.list_objects(blob_prefix)
 
             if blob_keys:
@@ -413,19 +407,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            if request.GET.get("version", None) == "3" and settings.RECORDINGS_INGESTER_URL:
-                with requests.get(
-                    url=f"{settings.RECORDINGS_INGESTER_URL}/api/projects/{self.team.pk}/session_recordings/{str(recording.session_id)}/snapshots",
-                    stream=True,
-                ) as r:
-                    if r.status_code == 404:
-                        return Response({"snapshots": []})
-
-                    response = HttpResponse(content=r.raw, content_type="application/json")
-                    response["Content-Disposition"] = "inline"
-                    return response
-            else:
-                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
@@ -439,8 +421,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         elif source == "blob":
             blob_key = request.GET.get("blob_key", "")
-            if not blob_key:
-                raise exceptions.ValidationError("Must provide a snapshot file blob key")
+            self._validate_blob_key(blob_key)
 
             # very short-lived pre-signed URL
             if recording.object_storage_path:
@@ -451,9 +432,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     file_key = convert_original_version_lts_recording(recording)
             else:
                 blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                if use_v3_storage and settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER:
-                    blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_V3_FOLDER
-
                 file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
             url = object_storage.get_presigned_url(file_key, expiration=60)
             if not url:
@@ -479,6 +457,18 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = SessionRecordingSnapshotsSerializer(response_data)
 
         return Response(serializer.data)
+
+    @staticmethod
+    def _validate_blob_key(blob_key: Any) -> None:
+        if not blob_key:
+            raise exceptions.ValidationError("Must provide a snapshot file blob key")
+
+        if not isinstance(blob_key, str):
+            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
+
+        # blob key should be a string of the form 1619712000-1619712060
+        if not all(x.isdigit() for x in blob_key.split("-")):
+            raise exceptions.ValidationError("Invalid blob key: " + blob_key)
 
     @staticmethod
     def _distinct_id_from_request(request):
@@ -583,10 +573,38 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         r = Response(recordings, headers={"Cache-Control": "max-age=15"})
         return r
 
+    @action(methods=["GET"], detail=False)
+    def error_clusters(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        refresh_clusters = request.GET.get("refresh")
+
+        cache_key = f"cluster_errors_{self.team.pk}"
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response and not refresh_clusters:
+            return Response(cached_response)
+
+        user = cast(User, request.user)
+
+        if not posthoganalytics.feature_enabled("session-replay-error-clustering", str(user.distinct_id)):
+            raise exceptions.ValidationError("clustered errors is not enabled for this user")
+
+        # Clustering will eventually be done during a scheduled background task
+        clusters = error_clustering(self.team)
+
+        if clusters:
+            cache.set(cache_key, clusters, settings.CACHED_RESULTS_TTL)
+
+        # let the browser cache for half the time we cache on the server
+        r = Response(clusters, headers={"Cache-Control": "max-age=15"})
+        return r
+
 
 def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: Dict[str, Any]
-) -> Tuple[Dict, Dict]:
+    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
+) -> tuple[dict, dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -599,7 +617,7 @@ def list_recordings(
 
     all_session_ids = filter.session_ids
 
-    recordings: List[SessionRecording] = []
+    recordings: list[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
 
@@ -637,7 +655,7 @@ def list_recordings(
         if all_session_ids:
             recordings = sorted(
                 recordings,
-                key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+                key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
             )
 
     if not request.user.is_authenticated:  # for mypy

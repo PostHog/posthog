@@ -1,7 +1,7 @@
+import { IconHome } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
-import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -66,7 +66,7 @@ const DashboardRelationRow = ({
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
                     <span className="flex items-center">
-                        <IconCottage className="text-warning text-base" />
+                        <IconHome className="text-warning text-base" />
                     </span>
                 </Tooltip>
             )}

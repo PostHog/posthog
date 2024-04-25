@@ -1,4 +1,4 @@
-from typing import List, cast
+from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -21,9 +21,9 @@ class TestWhereClauseExtractor(BaseTest):
         select_query = cast(ast.SelectQuery, clone_expr(parse_select(query), clear_locations=True))
         return cast(ast.SelectQuery, resolve_types(select_query, self.context, dialect="clickhouse"))
 
-    def _compare_operators(self, query: ast.SelectQuery, table_name: str) -> List[ast.Expr]:
+    def _compare_operators(self, query: ast.SelectQuery, table_name: str) -> list[ast.Expr]:
         assert query.where is not None and query.type is not None
-        return WhereClauseExtractor(query.where, table_name, query.type).compare_operators
+        return WhereClauseExtractor(query.where, table_name, query.type, self.context).compare_operators
 
     def test_with_simple_equality_clause(self):
         query = self._select(

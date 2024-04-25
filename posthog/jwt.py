@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any
 
 import jwt
 from django.conf import settings
@@ -32,7 +32,7 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
     return encoded_jwt
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> Dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
     info = jwt.decode(token, settings.SECRET_KEY, audience=audience.value, algorithms=["HS256"])
 
     return info

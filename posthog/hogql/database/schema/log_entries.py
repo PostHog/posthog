@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     Table,
@@ -9,9 +7,8 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.schema import HogQLQueryModifiers
 
-LOG_ENTRIES_FIELDS: Dict[str, FieldOrTable] = {
+LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "log_source": StringDatabaseField(name="log_source"),
     "log_source_id": StringDatabaseField(name="log_source_id"),
@@ -23,7 +20,7 @@ LOG_ENTRIES_FIELDS: Dict[str, FieldOrTable] = {
 
 
 class LogEntriesTable(Table):
-    fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
+    fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "log_entries"
@@ -33,10 +30,10 @@ class LogEntriesTable(Table):
 
 
 class ReplayConsoleLogsLogEntriesTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
+    fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
-        fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+        fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,
@@ -56,10 +53,10 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
 
 
 class BatchExportLogEntriesTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
+    fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
-        fields: List[ast.Expr] = [ast.Field(chain=["log_entries"] + chain) for name, chain in requested_fields.items()]
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+        fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
             select=fields,

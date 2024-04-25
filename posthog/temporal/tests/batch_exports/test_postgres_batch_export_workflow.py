@@ -1,8 +1,8 @@
 import asyncio
 import datetime as dt
 import json
+import uuid
 from random import randint
-from uuid import uuid4
 
 import psycopg
 import pytest
@@ -18,9 +18,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresBatchExportInputs,
@@ -30,6 +30,7 @@ from posthog.temporal.batch_exports.postgres_batch_export import (
     postgres_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -122,8 +123,8 @@ async def assert_clickhouse_records_in_postgres(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     assert inserted_column_names == expected_column_names
     assert inserted_records[0] == expected_records[0]
@@ -348,7 +349,7 @@ async def test_postgres_export_workflow(
                 event_name=event_name,
             )
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(postgres_batch_export.id),
@@ -364,9 +365,9 @@ async def test_postgres_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_postgres_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -385,6 +386,8 @@ async def test_postgres_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
+    assert run.records_total_count == 100
 
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
@@ -403,7 +406,7 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
     """Test that Postgres Export Workflow can gracefully handle errors when inserting Postgres data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(postgres_batch_export.id),
@@ -422,9 +425,9 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_postgres_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -443,6 +446,8 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_postgres_export_workflow_handles_insert_activity_non_retryable_errors(
@@ -451,7 +456,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     """Test that Postgres Export Workflow can gracefully handle non-retryable errors when inserting Postgres data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(postgres_batch_export.id),
@@ -473,9 +478,9 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_postgres_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -494,13 +499,15 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "InsufficientPrivilege: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
     """Test that Postgres Export Workflow can gracefully handle cancellations when inserting Postgres data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
-    workflow_id = str(uuid4())
+    workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(postgres_batch_export.id),
@@ -521,9 +528,9 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -546,3 +553,5 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
     run = runs[0]
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
+    assert run.records_completed is None
+    assert run.records_total_count == 1

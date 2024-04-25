@@ -62,9 +62,6 @@
         display: flex;
         flex-direction: column;
         width: 30rem;
-
-        // transition: height 0.5s ease, border 0.5s ease;
-
         max-height: 0;
         margin-left: -15rem;
         overflow: hidden;
@@ -73,11 +70,18 @@
         background-color: var(--bg-3000);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
+        transition: opacity 150ms ease, max-height 150ms ease;
     }
 
     &--visible {
         .ToolbarMenu__content {
             border: 1px solid var(--border-bold-3000);
+        }
+    }
+
+    &--blurred {
+        .ToolbarMenu__content {
+            opacity: 0;
         }
     }
 
@@ -107,7 +111,7 @@
     justify-content: space-between;
 
     // fixed width so that animations work when changing width
-    width: 15.2rem;
+    width: 18.2rem;
     overflow: hidden;
     color: var(--text-3000);
     background-color: var(--bg-3000);
@@ -139,9 +143,5 @@
         &.Toolbar--hedgehog-mode {
             transform: var(--toolbar-translate) scale(0);
         }
-    }
-
-    &--unauthenticated {
-        width: calc(5rem + 1px); // Account for border
     }
 }

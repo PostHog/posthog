@@ -1,22 +1,21 @@
+from collections import Counter
+from unittest import mock
+
 import base64
 import gzip
 import json
+from django.test import override_settings
+import lzstring
 import pathlib
+import pytest
 import random
 import string
+import structlog
 import zlib
-from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Dict, List, Union, cast
-from unittest import mock
-from unittest.mock import ANY, MagicMock, call, patch
-from urllib.parse import quote
-import lzstring
-import pytest
-import structlog
 from django.http import HttpResponse
-from django.test.client import Client, MULTIPART_CONTENT
+from django.test.client import MULTIPART_CONTENT, Client
 from django.utils import timezone
 from freezegun import freeze_time
 from kafka.errors import KafkaError
@@ -26,7 +25,11 @@ from parameterized import parameterized
 from prance import ResolvingParser
 from rest_framework import status
 from token_bucket import Limiter, MemoryStorage
+from typing import Any, Union, cast
+from unittest.mock import ANY, MagicMock, call, patch
+from urllib.parse import quote
 
+from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api import capture
 from posthog.api.capture import (
     LIKELY_ANONYMOUS_IDS,
@@ -39,7 +42,9 @@ from posthog.kafka_client.client import KafkaProducer, sessionRecordingKafkaProd
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 )
+from posthog.redis import get_client
 from posthog.settings import (
     DATA_UPLOAD_MAX_MEMORY_SIZE,
     KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
@@ -55,10 +60,10 @@ parser = ResolvingParser(
     url=str(pathlib.Path(__file__).parent / "../../../openapi/capture.yaml"),
     strict=True,
 )
-openapi_spec = cast(Dict[str, Any], parser.specification)
+openapi_spec = cast(dict[str, Any], parser.specification)
 
 large_data_array = [
-    {"key": random.choice(string.ascii_letters) for _ in range(512 * 1024)}
+    {"key": "".join(random.choice(string.ascii_letters) for _ in range(512 * 1024))}
 ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
 
 android_json = {
@@ -157,7 +162,7 @@ class TestCapture(BaseTest):
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
 
-    def _to_json(self, data: Union[Dict, List]) -> str:
+    def _to_json(self, data: Union[dict, list]) -> str:
         return json.dumps(data)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -183,7 +188,7 @@ class TestCapture(BaseTest):
     def _send_original_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | None = {},
+        event_data: dict | None = None,
         snapshot_source=3,
         snapshot_type=1,
         session_id="abc123",
@@ -191,6 +196,8 @@ class TestCapture(BaseTest):
         distinct_id="ghi789",
         timestamp=1658516991883,
     ) -> dict:
+        if event_data is None:
+            event_data = {}
         if event_data is None:
             event_data = {}
 
@@ -222,18 +229,19 @@ class TestCapture(BaseTest):
     def _send_august_2023_version_session_recording_event(
         self,
         number_of_events: int = 1,
-        event_data: Dict | List[Dict] | None = None,
+        event_data: dict | list[dict] | None = None,
         session_id="abc123",
         window_id="def456",
         distinct_id="ghi789",
         timestamp=1658516991883,
         content_type: str | None = None,
+        query_params: str = "",
     ) -> HttpResponse:
         if event_data is None:
             # event_data is an array of RRWeb events
             event_data = [{"type": 3, "data": {"source": 1}}, {"type": 3, "data": {"source": 2}}]
 
-        if isinstance(event_data, Dict):
+        if isinstance(event_data, dict):
             event_data = [event_data]
 
         event = {
@@ -252,7 +260,7 @@ class TestCapture(BaseTest):
             "distinct_id": distinct_id,
         }
 
-        post_data: List[Dict[str, Any]] | Dict[str, Any]
+        post_data: list[dict[str, Any]] | dict[str, Any]
 
         if content_type == "application/json":
             post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
@@ -260,7 +268,7 @@ class TestCapture(BaseTest):
             post_data = {"api_key": self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
 
         return self.client.post(
-            "/s/",
+            "/s/" + "?" + query_params if query_params else "/s/",
             data=post_data,
             content_type=content_type or MULTIPART_CONTENT,
         )
@@ -276,8 +284,7 @@ class TestCapture(BaseTest):
             assert is_randomly_partitioned(override_key) is True
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_randomly_partitions_with_likely_anonymous_ids(self, kafka_produce):
-        """Test is_randomly_partitioned in the prescence of likely anonymous ids."""
+    def _do_test_capture_with_likely_anonymous_ids(self, kafka_produce, expect_random_partitioning: bool):
         for distinct_id in LIKELY_ANONYMOUS_IDS:
             data = {
                 "event": "$autocapture",
@@ -293,8 +300,22 @@ class TestCapture(BaseTest):
                 )
 
             kafka_produce.assert_called_with(
-                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=ANY, key=None, headers=None
+                topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+                data=ANY,
+                key=None if expect_random_partitioning else ANY,
+                headers=None,
             )
+
+            if not expect_random_partitioning:
+                assert kafka_produce.mock_calls[0].kwargs["key"] is not None
+
+    def test_capture_randomly_partitions_with_likely_anonymous_ids(self):
+        """Test is_randomly_partitioned in the prescence of likely anonymous ids, if enabled."""
+        with override_settings(CAPTURE_ALLOW_RANDOM_PARTITIONING=True):
+            self._do_test_capture_with_likely_anonymous_ids(expect_random_partitioning=True)
+
+        with override_settings(CAPTURE_ALLOW_RANDOM_PARTITIONING=False):
+            self._do_test_capture_with_likely_anonymous_ids(expect_random_partitioning=False)
 
     def test_cached_is_randomly_partitioned(self):
         """Assert the behavior of is_randomly_partitioned under certain cache settings.
@@ -1233,7 +1254,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
+            "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -1262,7 +1283,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?_=%s&data=%s" % (int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
+            "/e/?_={}&data={}".format(int(tomorrow_sent_at.timestamp()), quote(self._to_json(data))),
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
@@ -1505,9 +1526,9 @@ class TestCapture(BaseTest):
             ),
         ]
     )
-    def test_cors_allows_tracing_headers(self, _: str, path: str, headers: List[str]) -> None:
-        expected_headers = ",".join(["X-Requested-With", "Content-Type"] + headers)
-        presented_headers = ",".join(headers + ["someotherrandomheader"])
+    def test_cors_allows_tracing_headers(self, _: str, path: str, headers: list[str]) -> None:
+        expected_headers = ",".join(["X-Requested-With", "Content-Type", *headers])
+        presented_headers = ",".join([*headers, "someotherrandomheader"])
         response = self.client.options(
             path,
             HTTP_ORIGIN="https://localhost",
@@ -1596,13 +1617,95 @@ class TestCapture(BaseTest):
             assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_overflow_from_forced_tokens(self, kafka_produce) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+            REPLAY_OVERFLOW_FORCED_TOKENS={"another", self.team.api_token},
+            REPLAY_OVERFLOW_SESSIONS_ENABLED=False,
+        ):
+            self._send_august_2023_version_session_recording_event(event_data=large_data_array)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_overflow_from_redis_instructions(self, kafka_produce) -> None:
+        with self.settings(SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_OVERFLOW_SESSIONS_ENABLED=True):
+            redis = get_client()
+            redis.zadd(
+                "@posthog/capture-overflow/replay",
+                {
+                    "overflowing": timezone.now().timestamp() + 1000,
+                    "expired_overflow": timezone.now().timestamp() - 1000,
+                },
+            )
+
+            # Session is currently overflowing
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="overflowing"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: 1})
+
+            # This session's entry is expired, data should go to the main topic
+            kafka_produce.reset_mock()
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="expired_overflow"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_ignores_overflow_from_redis_if_disabled(self, kafka_produce) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480, REPLAY_OVERFLOW_SESSIONS_ENABLED=False
+        ):
+            redis = get_client()
+            redis.zadd(
+                "@posthog/capture-overflow/replay",
+                {
+                    "overflowing": timezone.now().timestamp() + 1000,
+                },
+            )
+
+            # Session is currently overflowing but REPLAY_OVERFLOW_SESSIONS_ENABLED is false
+            self._send_august_2023_version_session_recording_event(
+                event_data=large_data_array, session_id="overflowing"
+            )
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            assert topic_counter == Counter({KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: 1})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_recording_ingestion_can_write_headers_with_the_message(self, kafka_produce: MagicMock) -> None:
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
             self._send_august_2023_version_session_recording_event()
 
-            assert kafka_produce.mock_calls[0].kwargs["headers"] == [("token", "token123")]
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
+                ("token", "token123"),
+                (
+                    # without setting a version in the URL the default is unknown
+                    "lib_version",
+                    "unknown",
+                ),
+            ]
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_ingestion_can_read_version_from_request(self, kafka_produce: MagicMock) -> None:
+        with self.settings(
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
+        ):
+            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+
+            assert kafka_produce.mock_calls[0].kwargs["headers"] == [
+                ("token", "token123"),
+                (
+                    # without setting a version in the URL the default is unknown
+                    "lib_version",
+                    "1.123.4",
+                ),
+            ]
 
     @patch("posthog.kafka_client.client.SessionRecordingKafkaProducer")
     def test_create_session_recording_kafka_with_expected_hosts(
@@ -1721,10 +1824,12 @@ class TestCapture(BaseTest):
         replace_limited_team_tokens(
             QuotaResource.RECORDINGS,
             {self.team.api_token: timezone.now().timestamp() + 10000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         replace_limited_team_tokens(
             QuotaResource.EVENTS,
             {self.team.api_token: timezone.now().timestamp() + 10000},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         self._send_august_2023_version_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
@@ -1732,7 +1837,10 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     @pytest.mark.ee
     def test_quota_limits(self, kafka_produce: MagicMock) -> None:
-        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        from ee.billing.quota_limiting import (
+            QuotaResource,
+            replace_limited_team_tokens,
+        )
 
         def _produce_events():
             kafka_produce.reset_mock()
@@ -1776,13 +1884,16 @@ class TestCapture(BaseTest):
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
                 {self.team.api_token: timezone.now().timestamp() + 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
+
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 1)  # Only the recording event
 
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
                 {self.team.api_token: timezone.now().timestamp() + 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 0)  # No events
@@ -1790,11 +1901,14 @@ class TestCapture(BaseTest):
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
                 {self.team.api_token: timezone.now().timestamp() - 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
                 {self.team.api_token: timezone.now().timestamp() - 10000},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
+
             _produce_events()
             self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
 

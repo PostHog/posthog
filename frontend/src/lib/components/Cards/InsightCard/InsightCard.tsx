@@ -28,6 +28,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -259,6 +260,7 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
+    const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId: dashboardId,
@@ -298,6 +300,8 @@ function InsightCardInternal(
             className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
             ref={ref}
         >
             <BindLogic logic={insightLogic} props={insightLogicProps}>

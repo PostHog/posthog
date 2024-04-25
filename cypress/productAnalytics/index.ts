@@ -16,43 +16,6 @@ export const savedInsights = {
     },
 }
 
-export function interceptInsightLoad(insightType: string): string {
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/trend\//).as('loadNewTrendsInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\//).as('loadNewFunnelInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/retention\//).as('loadNewRetentionInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/insights\/path\//).as('loadNewPathsInsight')
-    cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
-
-    let networkInterceptAlias: string = ''
-    switch (insightType) {
-        case 'TRENDS':
-        case 'STICKINESS':
-        case 'LIFECYCLE':
-            networkInterceptAlias = 'loadNewTrendsInsight'
-            break
-        case 'FUNNELS':
-            networkInterceptAlias = 'loadNewFunnelInsight'
-            break
-        case 'RETENTION':
-            networkInterceptAlias = 'loadNewRetentionInsight'
-            break
-        case 'PATH':
-        case 'PATHS':
-            networkInterceptAlias = 'loadNewPathsInsight'
-            break
-        case 'SQL':
-        case 'JSON':
-            networkInterceptAlias = 'loadNewQueryInsight'
-            break
-    }
-
-    if (networkInterceptAlias === '') {
-        throw new Error('Unknown insight type: ' + insightType)
-    }
-
-    return networkInterceptAlias
-}
-
 export const insight = {
     applyFilter: (): void => {
         cy.get('[data-attr$=add-filter-group]').click()
@@ -75,13 +38,16 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     clickTab: (tabName: string): void => {
-        const networkInterceptAlias = interceptInsightLoad(tabName)
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         cy.get(`[data-attr="insight-${(tabName === 'PATHS' ? 'PATH' : tabName).toLowerCase()}-tab"]`).click()
-        cy.wait(`@${networkInterceptAlias}`)
+        if (tabName !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@loadNewQueryInsight`)
+        }
     },
     newInsight: (insightType: string = 'TRENDS'): void => {
-        const networkInterceptAlias = interceptInsightLoad(insightType)
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         if (insightType === 'JSON') {
             cy.clickNavMenu('savedinsights')
@@ -94,18 +60,26 @@ export const insight = {
             cy.get(`[data-attr-insight-type="${insightType}"]`).click()
         }
 
-        cy.wait(`@${networkInterceptAlias}`)
+        if (insightType !== 'FUNNELS') {
+            // funnel insights require two steps before making an api call
+            cy.wait(`@loadNewQueryInsight`)
+        }
+    },
+    visitInsight: (insightName: string): void => {
+        cy.clickNavMenu('savedinsights')
+        cy.contains('.row-name > .Link', insightName).click()
     },
     create: (insightName: string, insightType: string = 'TRENDS'): void => {
         cy.clickNavMenu('savedinsights')
         cy.get('[data-attr="saved-insights-new-insight-dropdown"]').click()
         cy.get(`[data-attr-insight-type="${insightType}"]`).click()
 
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
         cy.get('[data-attr="top-bar-name"] button').click()
         cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
         cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
+
+        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
+        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')

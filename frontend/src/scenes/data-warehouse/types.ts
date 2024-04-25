@@ -31,6 +31,10 @@ export interface DataWarehouseTableBaseType {
     name: string
     type: DataWarehouseRowType
     columns: DatabaseSchemaQueryResponseField[]
+    // used for selecting in trends series
+    id_field?: string
+    timestamp_field?: string
+    distinct_id_field?: string
 }
 
 export interface DataWarehousePostHogTableType extends DataWarehouseTableBaseType {
@@ -38,7 +42,7 @@ export interface DataWarehousePostHogTableType extends DataWarehouseTableBaseTyp
     payload: DatabaseTableListRow
 }
 
-export interface DataWarehouseExternalTablType extends DataWarehouseTableBaseType {
+export interface DataWarehouseExternalTableType extends DataWarehouseTableBaseType {
     type: DataWarehouseRowType.ExternalTable
     payload: DataWarehouseTable
 }
@@ -50,5 +54,10 @@ export interface DataWarehouseViewType extends DataWarehouseTableBaseType {
 
 export type DataWarehouseTableType =
     | DataWarehousePostHogTableType
-    | DataWarehouseExternalTablType
+    | DataWarehouseExternalTableType
     | DataWarehouseViewType
+
+export enum DataWarehouseSceneTab {
+    Tables = 'tables',
+    Joins = 'joins',
+}

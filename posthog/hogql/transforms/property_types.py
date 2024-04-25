@@ -1,4 +1,4 @@
-from typing import Dict, Set, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -6,17 +6,17 @@ from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
-def resolve_property_types(node: ast.Expr, context: Optional[HogQLContext] = None) -> ast.Expr:
+def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
     from posthog.models import PropertyDefinition
 
     if not context or not context.team_id:
         return node
 
     # find all properties
-    property_finder = PropertyFinder()
+    property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
     # fetch them
@@ -77,18 +77,21 @@ def resolve_property_types(node: ast.Expr, context: Optional[HogQLContext] = Non
 
 
 class PropertyFinder(TraversingVisitor):
-    def __init__(self):
+    context: HogQLContext
+
+    def __init__(self, context: HogQLContext):
         super().__init__()
-        self.person_properties: Set[str] = set()
-        self.event_properties: Set[str] = set()
-        self.group_properties: Dict[int, Set[str]] = {}
+        self.person_properties: set[str] = set()
+        self.event_properties: set[str] = set()
+        self.group_properties: dict[int, set[str]] = {}
         self.found_timestamps = False
+        self.context = context
 
     def visit_property_type(self, node: ast.PropertyType):
         if node.field_type.name == "properties" and len(node.chain) == 1:
             if isinstance(node.field_type.table_type, ast.BaseTableType):
                 table_type = node.field_type.table_type
-                table_name = table_type.resolve_database_table().to_printed_hogql()
+                table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
                 property_name = str(node.chain[0])
                 if table_name == "persons" or table_name == "raw_persons":
                     self.person_properties.add(property_name)
@@ -111,7 +114,7 @@ class PropertyFinder(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
         if isinstance(node.type, ast.FieldType) and isinstance(
-            node.type.resolve_database_field(), DateTimeDatabaseField
+            node.type.resolve_database_field(self.context), DateTimeDatabaseField
         ):
             self.found_timestamps = True
 
@@ -120,9 +123,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: Dict[str, str],
-        person_properties: Dict[str, str],
-        group_properties: Dict[str, str],
+        event_properties: dict[str, str],
+        person_properties: dict[str, str],
+        group_properties: dict[str, str],
         context: HogQLContext,
     ):
         super().__init__(clear_types=False)
@@ -134,7 +137,7 @@ class PropertySwapper(CloningVisitor):
 
     def visit_field(self, node: ast.Field):
         if isinstance(node.type, ast.FieldType):
-            if isinstance(node.type.resolve_database_field(), DateTimeDatabaseField):
+            if isinstance(node.type.resolve_database_field(self.context), DateTimeDatabaseField):
                 return ast.Call(
                     name="toTimeZone",
                     args=[node, ast.Constant(value=self.timezone)],
@@ -156,7 +159,7 @@ class PropertySwapper(CloningVisitor):
                     return self._convert_string_property_to_type(node, "person", property_name)
             elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table_type = type.field_type.table_type
-                table_name = table_type.resolve_database_table().to_printed_hogql()
+                table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
                 if table_name == "persons" or table_name == "raw_persons":
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
@@ -174,7 +177,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
-                table = type.field_type.table_type.resolve_database_table().to_printed_hogql()
+                table = type.field_type.table_type.resolve_database_table(self.context).to_printed_hogql()
                 if table == "events":
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
@@ -221,10 +224,10 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)

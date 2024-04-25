@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import datetime
-from typing import Dict, List, cast
+from typing import cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -52,10 +52,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_plugin_activity(self, expected: List[Dict]):
+    def assert_plugin_activity(self, expected: list[dict]):
         activity_response = self._get_plugin_activity()
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         self.assertEqual(activity, expected)
 
@@ -586,7 +586,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                cast(Dict[str, str], response.json())["detail"],
+                cast(dict[str, str], response.json())["detail"],
                 f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "{FROZEN_POSTHOG_VERSION.next_minor()}".',
             )
 
@@ -608,7 +608,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                cast(Dict[str, str], response.json())["detail"],
+                cast(dict[str, str], response.json())["detail"],
                 f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement ">= {FROZEN_POSTHOG_VERSION.next_major()}".',
             )
 
@@ -620,7 +620,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                cast(Dict[str, str], response.json())["detail"],
+                cast(dict[str, str], response.json())["detail"],
                 f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "< {FROZEN_POSTHOG_VERSION}".',
             )
 
@@ -642,7 +642,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             )
             self.assertEqual(response.status_code, 400)
             self.assertEqual(
-                cast(Dict[str, str], response.json())["detail"],
+                cast(dict[str, str], response.json())["detail"],
                 'Invalid PostHog semantic version requirement "< ..."!',
             )
 
@@ -804,7 +804,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         try:
             PluginSourceFile.objects.get(plugin_id=id)
-            assert False, "Should have thrown DoesNotExist"
+            raise AssertionError("Should have thrown DoesNotExist")
         except PluginSourceFile.DoesNotExist:
             assert True
 

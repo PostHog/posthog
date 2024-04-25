@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import List, Optional, Any, Dict, cast
+from typing import Optional, Any, cast
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -23,6 +23,7 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     StickinessQuery,
     HogQLQueryModifiers,
@@ -31,12 +32,12 @@ from posthog.schema import (
 
 
 class SeriesWithExtras:
-    series: EventsNode | ActionsNode
+    series: EventsNode | ActionsNode | DataWarehouseNode
     is_previous_period_series: Optional[bool]
 
     def __init__(
         self,
-        series: EventsNode | ActionsNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode,
         is_previous_period_series: Optional[bool],
     ):
         self.series = series
@@ -46,11 +47,11 @@ class SeriesWithExtras:
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
     query_type = StickinessQuery
-    series: List[SeriesWithExtras]
+    series: list[SeriesWithExtras]
 
     def __init__(
         self,
-        query: StickinessQuery | Dict[str, Any],
+        query: StickinessQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -81,7 +82,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def _aggregation_expressions(self, series: EventsNode | ActionsNode) -> ast.Expr:
+    def _aggregation_expressions(self, series: EventsNode | ActionsNode | DataWarehouseNode) -> ast.Expr:
         if series.math == "hogql" and series.math_hogql is not None:
             return parse_expr(series.math_hogql)
         elif series.math == "unique_group" and series.math_group_type_index is not None:
@@ -133,7 +134,7 @@ class StickinessQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectUnionQuery:
         return ast.SelectUnionQuery(select_queries=self.to_queries())
 
-    def to_queries(self) -> List[ast.SelectQuery]:
+    def to_queries(self) -> list[ast.SelectQuery]:
         queries = []
 
         for series in self.series:
@@ -173,7 +174,7 @@ class StickinessQueryRunner(QueryRunner):
         return queries
 
     def to_actors_query(self, interval_num: Optional[int] = None) -> ast.SelectQuery | ast.SelectUnionQuery:
-        queries: List[ast.SelectQuery] = []
+        queries: list[ast.SelectQuery] = []
 
         for series in self.series:
             events_query = self._events_query(series)
@@ -211,6 +212,7 @@ class StickinessQueryRunner(QueryRunner):
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
 
             if response.timings is not None:
@@ -246,12 +248,12 @@ class StickinessQueryRunner(QueryRunner):
 
                 res.append(series_object)
 
-        return StickinessQueryResponse(results=res, timings=timings)
+        return StickinessQueryResponse(results=res, timings=timings, modifiers=self.modifiers)
 
     def where_clause(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
         date_range = self.date_range(series_with_extra)
         series = series_with_extra.series
-        filters: List[ast.Expr] = []
+        filters: list[ast.Expr] = []
 
         # Dates
         filters.extend(
@@ -323,9 +325,13 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
-    def series_event(self, series: EventsNode | ActionsNode) -> str | None:
+    def series_event(self, series: EventsNode | ActionsNode | DataWarehouseNode) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
+
+        if isinstance(series, DataWarehouseNode):
+            return series.table_name
+
         if isinstance(series, ActionsNode):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)
@@ -338,7 +344,7 @@ class StickinessQueryRunner(QueryRunner):
         else:
             return delta.days
 
-    def setup_series(self) -> List[SeriesWithExtras]:
+    def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [
             SeriesWithExtras(
                 series,

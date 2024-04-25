@@ -12,6 +12,7 @@ class TrendsDisplay:
         else:
             self.display_type = ChartDisplayType.ActionsAreaGraph
 
+    # No time range
     def should_aggregate_values(self) -> bool:
         return (
             self.display_type == ChartDisplayType.BoldNumber
@@ -86,4 +87,5 @@ class TrendsDisplay:
                 ),
             ],
             select_from=ast.JoinExpr(table=inner_query),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
         )

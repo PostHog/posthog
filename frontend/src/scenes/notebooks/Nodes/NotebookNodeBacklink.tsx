@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconExperiment, IconLive, IconCohort } from 'lib/lemon-ui/icons'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
@@ -16,7 +16,9 @@ import {
     IconChat,
     IconDashboard,
     IconFlag,
+    IconFlask,
     IconGraph,
+    IconLive,
     IconLogomark,
     IconNotebook,
     IconPerson,
@@ -66,7 +68,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'experiments',
         regex: new RegExp(urls.experiment('(.+)')),
-        icon: <IconExperiment />,
+        icon: <IconFlask />,
         getTitle: async (path: string) => {
             const id = path.split('/')[2]
             const experiment = await api.experiments.get(Number(id))

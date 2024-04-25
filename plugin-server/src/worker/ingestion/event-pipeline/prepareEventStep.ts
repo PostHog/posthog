@@ -6,13 +6,17 @@ import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
 import { EventPipelineRunner } from './runner'
 
-export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
+export async function prepareEventStep(
+    runner: EventPipelineRunner,
+    event: PluginEvent,
+    processPerson: boolean
+): Promise<PreIngestionEvent> {
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         invalidTimestampCounter.labels(type).inc()
 
-        tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db, team_id, type, details))
+        tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db.kafkaProducer, team_id, type, details))
     }
 
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
@@ -20,7 +24,8 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
         event,
         team_id,
         parseEventTimestamp(event, invalidTimestampCallback),
-        uuid! // it will throw if it's undefined,
+        uuid!, // it will throw if it's undefined,
+        processPerson
     )
     await Promise.all(tsParsingIngestionWarnings)
 

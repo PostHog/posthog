@@ -1,13 +1,9 @@
-from typing import Dict, Literal, cast, Optional
+from typing import Literal, cast, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.errors import (
-    HogQLException,
-    NotImplementedException,
-    SyntaxException,
-)
+from posthog.hogql.errors import NotImplementedError, QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
@@ -22,11 +18,11 @@ def translate_hogql(
     metadata_source: Optional[ast.SelectQuery] = None,
     *,
     events_table_alias: Optional[str] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
 ) -> str:
     """Translate a HogQL expression into a ClickHouse expression."""
     if query == "":
-        raise HogQLException("Empty query")
+        raise QueryError("Empty query")
 
     try:
         # Create a fake query that selects from "events" to have fields to select from.
@@ -54,5 +50,5 @@ def translate_hogql(
             dialect=dialect,
             stack=[prepared_select_query],
         )
-    except (NotImplementedException, SyntaxException):
+    except (NotImplementedError, SyntaxError):
         raise

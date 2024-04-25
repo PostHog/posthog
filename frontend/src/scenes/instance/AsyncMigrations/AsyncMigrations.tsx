@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -71,14 +72,7 @@ export function AsyncMigrations(): JSX.Element {
                 'https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/' +
                 asyncMigration.name +
                 '.py'
-            return (
-                <>
-                    <div className="row-name">
-                        <Link to={link}>{asyncMigration.name}</Link>
-                    </div>
-                    <div className="row-description">{asyncMigration.description}</div>
-                </>
-            )
+            return <LemonTableLink to={link} title={asyncMigration.name} description={asyncMigration.description} />
         },
     }
     const progressColumn: AsyncMigrationColumnType = {

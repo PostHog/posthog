@@ -21,6 +21,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useState } from 'react'
@@ -61,7 +62,7 @@ export function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
 
-    const [tab, setSurveyTab] = useState(SurveysTabs.Active)
+    const [tab, setSurveyTab] = useState(filters.archived ? SurveysTabs.Archived : SurveysTabs.Active)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
 
     return (
@@ -206,11 +207,10 @@ export function Surveys(): JSX.Element {
                                     title: 'Name',
                                     render: function RenderName(_, survey) {
                                         return (
-                                            <>
-                                                <Link to={urls.survey(survey.id)} className="row-name">
-                                                    {stringWithWBR(survey.name, 17)}
-                                                </Link>
-                                            </>
+                                            <LemonTableLink
+                                                to={urls.survey(survey.id)}
+                                                title={stringWithWBR(survey.name, 17)}
+                                            />
                                         )
                                     },
                                 },
@@ -368,7 +368,7 @@ export function StatusTag({ survey }: { survey: Survey }): JSX.Element {
     } as Record<ProgressStatus, LemonTagType>
     const status = getSurveyStatus(survey)
     return (
-        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }}>
+        <LemonTag type={statusColors[status]} style={{ fontWeight: 600 }} data-attr="status">
             {status.toUpperCase()}
         </LemonTag>
     )

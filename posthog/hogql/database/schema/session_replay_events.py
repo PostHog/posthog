@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from posthog.hogql.database.models import (
     Table,
     StringDatabaseField,
@@ -15,11 +13,10 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from posthog.schema import HogQLQueryModifiers
 
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
-SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
+SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -37,7 +34,7 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "event_count": IntegerDatabaseField(name="event_count"),
     "message_count": IntegerDatabaseField(name="message_count"),
     "pdi": LazyJoin(
-        from_field="distinct_id",
+        from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),
         join_function=join_with_person_distinct_ids_table,
     ),
@@ -47,14 +44,14 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
 
 
 class RawSessionReplayEventsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
         "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
         "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
         "first_url": DatabaseField(name="first_url"),
     }
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         return ["first_url"]
 
     def to_printed_clickhouse(self, context):
@@ -64,7 +61,7 @@ class RawSessionReplayEventsTable(Table):
         return "raw_session_replay_events"
 
 
-def select_from_session_replay_events_table(requested_fields: Dict[str, List[str]]):
+def select_from_session_replay_events_table(requested_fields: dict[str, list[str | int]]):
     from posthog.hogql import ast
 
     table_name = "raw_session_replay_events"
@@ -86,8 +83,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
     }
 
-    select_fields: List[ast.Expr] = []
-    group_by_fields: List[ast.Expr] = []
+    select_fields: list[ast.Expr] = []
+    group_by_fields: list[ast.Expr] = []
 
     for name, chain in requested_fields.items():
         if name in RAW_ONLY_FIELDS:
@@ -97,8 +94,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         if name in aggregate_fields:
             select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
-            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)))
-            group_by_fields.append(ast.Field(chain=[table_name] + chain))
+            select_fields.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
+            group_by_fields.append(ast.Field(chain=[table_name, *chain]))
 
     return ast.SelectQuery(
         select=select_fields,
@@ -108,14 +105,14 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
 
 
 class SessionReplayEventsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **{k: v for k, v in SESSION_REPLAY_EVENTS_COMMON_FIELDS.items() if k not in RAW_ONLY_FIELDS},
         "start_time": DateTimeDatabaseField(name="start_time"),
         "end_time": DateTimeDatabaseField(name="end_time"),
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

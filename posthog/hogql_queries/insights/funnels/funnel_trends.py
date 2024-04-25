@@ -1,6 +1,6 @@
 from datetime import datetime
 from itertools import groupby
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
@@ -58,7 +58,7 @@ class FunnelTrends(FunnelBase):
         self.just_summarize = just_summarize
         self.funnel_order = get_funnel_order_class(self.context.funnelsFilter)(context=self.context)
 
-    def _format_results(self, results) -> List[Dict[str, Any]]:
+    def _format_results(self, results) -> list[dict[str, Any]]:
         query = self.context.query
 
         breakdown_clause = self._get_breakdown_prop()
@@ -75,7 +75,7 @@ class FunnelTrends(FunnelBase):
 
             if breakdown_clause:
                 if isinstance(period_row[-1], str) or (
-                    isinstance(period_row[-1], List) and all(isinstance(item, str) for item in period_row[-1])
+                    isinstance(period_row[-1], list) and all(isinstance(item, str) for item in period_row[-1])
                 ):
                     serialized_result.update({"breakdown_value": (period_row[-1])})
                 else:
@@ -145,7 +145,7 @@ class FunnelTrends(FunnelBase):
 
         breakdown_clause = self._get_breakdown_prop_expr()
 
-        data_select: List[ast.Expr] = [
+        data_select: list[ast.Expr] = [
             ast.Field(chain=["entrance_period_start"]),
             parse_expr(f"countIf({reached_from_step_count_condition}) AS reached_from_step_count"),
             parse_expr(f"countIf({reached_to_step_count_condition}) AS reached_to_step_count"),
@@ -163,10 +163,10 @@ class FunnelTrends(FunnelBase):
             args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_to))])],
         )
         data_select_from = ast.JoinExpr(table=step_counts)
-        data_group_by: List[ast.Expr] = [ast.Field(chain=["entrance_period_start"]), *breakdown_clause]
+        data_group_by: list[ast.Expr] = [ast.Field(chain=["entrance_period_start"]), *breakdown_clause]
         data_query = ast.SelectQuery(select=data_select, select_from=data_select_from, group_by=data_group_by)
 
-        fill_select: List[ast.Expr] = [
+        fill_select: list[ast.Expr] = [
             ast.Alias(
                 alias="entrance_period_start",
                 expr=ast.ArithmeticOperation(
@@ -203,7 +203,16 @@ class FunnelTrends(FunnelBase):
                 [
                     ast.Alias(
                         alias="breakdown_value",
-                        expr=ast.Array(exprs=[parse_expr(str(value)) for value in self.breakdown_values]),
+                        expr=ast.Array(
+                            exprs=[
+                                (
+                                    ast.Array(exprs=[ast.Constant(value=sub_value) for sub_value in value])
+                                    if isinstance(value, list)
+                                    else ast.Constant(value=value)
+                                )
+                                for value in self.breakdown_values
+                            ]
+                        ),
                         hidden=False,
                     )
                 ]
@@ -240,7 +249,7 @@ class FunnelTrends(FunnelBase):
             ),
         )
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["fill", "entrance_period_start"]),
             ast.Field(chain=["reached_from_step_count"]),
             ast.Field(chain=["reached_to_step_count"]),
@@ -254,7 +263,7 @@ class FunnelTrends(FunnelBase):
             alias="data",
             next_join=fill_join,
         )
-        order_by: List[ast.OrderExpr] = [
+        order_by: list[ast.OrderExpr] = [
             ast.OrderExpr(expr=ast.Field(chain=["fill", "entrance_period_start"]), order="ASC")
         ]
 
@@ -272,7 +281,7 @@ class FunnelTrends(FunnelBase):
 
         steps_per_person_query = self.funnel_order.get_step_counts_without_aggregation_query()
 
-        event_select_clause: List[ast.Expr] = []
+        event_select_clause: list[ast.Expr] = []
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
@@ -282,7 +291,7 @@ class FunnelTrends(FunnelBase):
 
         breakdown_clause = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Alias(alias="entrance_period_start", expr=get_start_of_interval_hogql(interval.value, team=team)),
             parse_expr("max(steps) AS steps_completed"),
@@ -300,7 +309,7 @@ class FunnelTrends(FunnelBase):
             if specific_entrance_period_start
             else None
         )
-        group_by: List[ast.Expr] = [
+        group_by: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["entrance_period_start"]),
             *breakdown_clause,
@@ -308,7 +317,7 @@ class FunnelTrends(FunnelBase):
 
         return ast.SelectQuery(select=select, select_from=select_from, where=where, group_by=group_by)
 
-    def get_steps_reached_conditions(self) -> Tuple[str, str, str]:
+    def get_steps_reached_conditions(self) -> tuple[str, str, str]:
         funnelsFilter, max_steps = self.context.funnelsFilter, self.context.max_steps
 
         # How many steps must have been done to count for the denominator of a funnel trends data point

@@ -25,7 +25,6 @@ import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/Note
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
@@ -46,27 +45,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightLogic
     const logic = insightLogic(insightLogicProps)
-    const {
-        insightProps,
-        canEditInsight,
-        insight,
-        insightChanged,
-        insightSaving,
-        hasDashboardItemId,
-        exporterResourceParams,
-    } = useValues(logic)
+    const { insightProps, canEditInsight, insight, insightChanged, insightSaving, hasDashboardItemId } =
+        useValues(logic)
     const { setInsightMetadata } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL, exportContext } = useValues(insightDataLogic(insightProps))
     const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -144,7 +135,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Share or embed
                                             </LemonButton>
                                             <SubscribeButton insightShortId={insight.short_id} />
-                                            {exporterResourceParams ? (
+                                            {exportContext ? (
                                                 <ExportButton
                                                     fullWidth
                                                     items={[
@@ -154,11 +145,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                         },
                                                         {
                                                             export_format: ExporterFormat.CSV,
-                                                            export_context: exporterResourceParams,
+                                                            export_context: exportContext,
                                                         },
                                                         {
                                                             export_format: ExporterFormat.XLSX,
-                                                            export_context: exporterResourceParams,
+                                                            export_context: exportContext,
                                                         },
                                                     ]}
                                                 />
@@ -299,14 +290,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 mode={!canEditInsight ? 'view' : undefined}
                                 data-attr="insight-description"
                                 compactButtons
-                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                paywallFeature={AvailableFeature.TEAM_COLLABORATION}
                             />
                         )}
                         {canEditInsight ? (
                             <ObjectTags
                                 tags={insight.tags ?? []}
                                 saving={insightSaving}
-                                onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
+                                onChange={(tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
                                 className="mt-2"
                                 data-attr="insight-tags"

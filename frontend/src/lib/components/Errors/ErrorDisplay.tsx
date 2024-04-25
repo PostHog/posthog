@@ -124,6 +124,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $active_feature_flags,
         $sentry_url,
         $sentry_exception,
+        $level,
     } = eventProperties
 
     let $exception_stack_trace_raw = eventProperties.$exception_stack_trace_raw
@@ -151,6 +152,7 @@ export function getExceptionPropertiesFrom(eventProperties: Record<string, any>)
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
+        $level,
     }
 }
 
@@ -172,13 +174,14 @@ export function ErrorDisplay({ event }: { event: EventType | RecordingEventType 
         $active_feature_flags,
         $sentry_url,
         $exception_stack_trace_raw,
+        $level,
     } = getExceptionPropertiesFrom(event.properties)
 
     return (
         <div className="flex flex-col space-y-2 pr-4 pb-2">
             <h1 className="mb-0">{$exception_message}</h1>
             <div className="flex flex-row gap-2 flex-wrap">
-                <LemonTag type="danger">{$exception_type}</LemonTag>
+                <LemonTag type="danger">{$exception_type || $level}</LemonTag>
                 <TitledSnack
                     type="success"
                     title="captured by"

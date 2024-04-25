@@ -62,6 +62,7 @@ export interface LemonSelectPropsBase<T>
         | 'onClick'
         | 'tabIndex'
         | 'type'
+        | 'tooltip'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -130,7 +131,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
         <LemonMenu
             items={items}
             tooltipPlacement={optionTooltipPlacement}
-            sameWidth={dropdownMatchSelectWidth}
+            matchWidth={dropdownMatchSelectWidth}
             placement={dropdownPlacement}
             className={menu?.className}
             maxContentWidth={dropdownMaxContentWidth}
@@ -154,6 +155,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                           }
                         : null
                 }
+                tooltip={activeLeaf?.tooltip}
                 {...buttonProps}
             >
                 <span className="flex flex-1">

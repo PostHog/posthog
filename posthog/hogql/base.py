@@ -1,11 +1,13 @@
 import re
 from dataclasses import dataclass, field
 
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from posthog.hogql.constants import ConstantDataType
-from posthog.hogql.errors import NotImplementedException
+from posthog.hogql.errors import NotImplementedError
 
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 # Given a string like "CorrectHorseBS", match the "H" and "B", so that we can convert this to "correct_horse_bs"
 camel_case_pattern = re.compile(r"(?<!^)(?<![A-Z])(?=[A-Z])")
@@ -30,18 +32,18 @@ class AST:
             return visit(self)
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
-        raise NotImplementedException(f"Visitor has no method {method_name}")
+        raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
 
 
 @dataclass(kw_only=True)
 class Type(AST):
-    def get_child(self, name: str) -> "Type":
-        raise NotImplementedException("Type.get_child not overridden")
+    def get_child(self, name: str, context: "HogQLContext") -> "Type":
+        raise NotImplementedError("Type.get_child not overridden")
 
-    def has_child(self, name: str) -> bool:
-        return self.get_child(name) is not None
+    def has_child(self, name: str, context: "HogQLContext") -> bool:
+        return self.get_child(name, context) is not None
 
-    def resolve_constant_type(self) -> Optional["ConstantType"]:
+    def resolve_constant_type(self, context: "HogQLContext") -> Optional["ConstantType"]:
         return UnknownType()
 
 
@@ -64,11 +66,11 @@ class CTE(Expr):
 class ConstantType(Type):
     data_type: ConstantDataType
 
-    def resolve_constant_type(self) -> "ConstantType":
+    def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self
 
     def print_type(self) -> str:
-        raise NotImplementedException("ConstantType.print_type not implemented")
+        raise NotImplementedError("ConstantType.print_type not implemented")
 
 
 @dataclass(kw_only=True)

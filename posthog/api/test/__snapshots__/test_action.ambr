@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.1
@@ -35,6 +35,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -57,6 +58,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -79,7 +81,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.10
@@ -133,7 +135,7 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+           "posthog_action"."name" ASC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.11
@@ -157,7 +159,7 @@
                                              3,
                                              4,
                                              5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  ORDER BY "posthog_actionstep"."id" ASC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.12
@@ -188,7 +190,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.13
@@ -196,6 +198,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -218,6 +221,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -240,7 +244,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.14
@@ -260,17 +264,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.15
@@ -284,17 +290,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.16
@@ -348,7 +356,7 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+           "posthog_action"."name" ASC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.17
@@ -372,7 +380,7 @@
                                              3,
                                              4,
                                              5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  ORDER BY "posthog_actionstep"."id" ASC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.2
@@ -392,17 +400,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.3
@@ -413,7 +423,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.4
@@ -427,17 +437,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.5
@@ -491,7 +503,7 @@
   GROUP BY "posthog_action"."id",
            "posthog_user"."id"
   ORDER BY "posthog_action"."last_calculated_at" DESC,
-           "posthog_action"."name" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+           "posthog_action"."name" ASC
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.6
@@ -522,7 +534,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.7
@@ -530,6 +542,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -552,6 +565,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -574,7 +588,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.8
@@ -594,17 +608,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.9
@@ -618,16 +634,18 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
+  LIMIT 21
   '''
 # ---

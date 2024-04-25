@@ -77,6 +77,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
@@ -93,6 +94,8 @@ export interface PluginsServerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
+    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
+    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -113,6 +116,7 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -169,8 +173,6 @@ export interface PluginsServerConfig {
     JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
-    PISCINA_USE_ATOMICS: boolean // corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)
-    PISCINA_ATOMICS_TIMEOUT: number // (advanced) corresponds to the length of time a piscina worker should block for when looking for tasks
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     CONVERSION_BUFFER_ENABLED: boolean
@@ -207,6 +209,8 @@ export interface PluginsServerConfig {
     RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
+    CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
+    LAZY_PERSON_CREATION_TEAMS: string
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -226,9 +230,14 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
     SESSION_RECORDING_DEBUG_PARTITION: string | undefined
+    // overflow detection, updating Redis for capture to move the traffic away
+    SESSION_RECORDING_OVERFLOW_ENABLED: boolean
+    SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
+    SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -285,6 +294,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
     poeWritesExcludeTeams: ValueMatcher<number>
+    lazyPersonCreationTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -300,6 +310,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
@@ -627,6 +638,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Parsed event row from ClickHouse. */
@@ -647,6 +659,7 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
+    person_mode: 'full' | 'propertyless'
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -722,9 +735,17 @@ export interface RawPerson extends BasePerson {
 }
 
 /** Usable Person model. */
-export interface Person extends BasePerson {
+export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Person model exposed outside of person-specific DB logic. */
+export interface Person {
+    team_id: number
+    properties: Properties
+    uuid: string
+    created_at: DateTime
 }
 
 /** Clickhouse Person model. */
@@ -865,6 +886,14 @@ export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
 
+export interface DataWarehousePropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse'
+}
+
+export interface DataWarehousePersonPropertyFilter extends PropertyFilterWithOperator {
+    type: 'data_warehouse_person_property'
+}
+
 /** Sync with posthog/frontend/src/types.ts */
 export interface ElementPropertyFilter extends PropertyFilterWithOperator {
     type: 'element'
@@ -880,7 +909,13 @@ export interface CohortPropertyFilter extends PropertyFilterBase {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
-export type PropertyFilter = EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter
+export type PropertyFilter =
+    | EventPropertyFilter
+    | PersonPropertyFilter
+    | ElementPropertyFilter
+    | CohortPropertyFilter
+    | DataWarehousePropertyFilter
+    | DataWarehousePersonPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
@@ -1074,4 +1109,27 @@ export type RRWebEvent = Record<string, any> & {
 
 export interface ValueMatcher<T> {
     (value: T): boolean
+}
+
+export type RawClickhouseHeatmapEvent = {
+    /**
+     * session id lets us offer example recordings on high traffic parts of the page,
+     * and could let us offer more advanced filtering of heatmap data
+     * we will break the relationship between particular sessions and clicks in aggregating this data
+     * it should always be treated as an exemplar and not as concrete values
+     */
+    session_id: string
+    distinct_id: string
+    viewport_width: number
+    viewport_height: number
+    pointer_target_fixed: boolean
+    current_url: string
+    // x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    x: number
+    // y is the y with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    y: number
+    scale_factor: 16 // in the future we may support other values
+    timestamp: string
+    type: string
+    team_id: number
 }

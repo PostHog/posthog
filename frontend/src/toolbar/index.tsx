@@ -1,7 +1,7 @@
 import '~/styles'
 import './styles.scss'
 
-import { PostHog } from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { initKea } from '~/initKea'

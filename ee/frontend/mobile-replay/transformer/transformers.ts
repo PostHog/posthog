@@ -11,6 +11,7 @@ import {
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
+import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
     attributes,
@@ -42,7 +43,7 @@ import {
     wireframeText,
     wireframeToggle,
 } from '../mobile.types'
-import { makeNavigationBar, makeStatusBar } from './screen-chrome'
+import { makeNavigationBar, makeOpenKeyboardPlaceholder, makeStatusBar } from './screen-chrome'
 import { ConversionContext, ConversionResult } from './types'
 import {
     asStyleString,
@@ -56,7 +57,7 @@ import {
     makeStylesString,
 } from './wireframeStyle'
 
-const BACKGROUND = '#f3f4ef'
+export const BACKGROUND = '#f3f4ef'
 const FOREGROUND = '#35373e'
 
 /**
@@ -93,7 +94,7 @@ const NAVIGATION_BAR_PARENT_ID = 7
 export const NAVIGATION_BAR_ID = 8
 // the keyboard so that it is still before the nav bar
 const KEYBOARD_PARENT_ID = 9
-const KEYBOARD_ID = 10
+export const KEYBOARD_ID = 10
 export const STATUS_BAR_PARENT_ID = 11
 export const STATUS_BAR_ID = 12
 
@@ -103,6 +104,10 @@ function isKeyboardEvent(x: unknown): x is keyboardEvent {
 
 export function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
+}
+
+function _isNullish(x: unknown): x is null | undefined {
+    return x === null || x === undefined
 }
 
 function isRemovedNodeMutation(x: addedNodeMutation | removedNodeMutation): x is removedNodeMutation {
@@ -124,28 +129,10 @@ export const makeCustomEvent = (
         const adds: addedNodeMutation[] = []
         const removes = []
         if (mobileCustomEvent.data.payload.open) {
-            const shouldAbsolutelyPosition =
-                _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
-                _isPositiveInteger(mobileCustomEvent.data.payload.y)
-            const keyboardPlaceHolder = makePlaceholderElement(
-                {
-                    id: KEYBOARD_ID,
-                    type: 'placeholder',
-                    label: 'keyboard',
-                    height: mobileCustomEvent.data.payload.height,
-                    width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
-                        ? mobileCustomEvent.data.payload.width
-                        : '100vw',
-                },
-                [],
-                {
-                    timestamp: mobileCustomEvent.timestamp,
-                    idSequence: globalIdSequence,
-                    styleOverride: {
-                        ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
-                    },
-                }
-            )
+            const keyboardPlaceHolder = makeOpenKeyboardPlaceholder(mobileCustomEvent, {
+                timestamp: mobileCustomEvent.timestamp,
+                idSequence: globalIdSequence,
+            })
             if (keyboardPlaceHolder) {
                 adds.push({
                     parentId: KEYBOARD_PARENT_ID,
@@ -236,6 +223,17 @@ function makeTextElement(
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
     const id = context.idSequence.next().value
+
+    const childNodes = [...children]
+    if (!_isNullish(wireframe.text)) {
+        childNodes.unshift({
+            type: NodeType.Text,
+            textContent: wireframe.text,
+            // since the text node is wrapped, we assign it a synthetic id
+            id,
+        })
+    }
+
     return {
         result: {
             type: NodeType.Element,
@@ -245,15 +243,7 @@ function makeTextElement(
                 'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
-            childNodes: [
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.text,
-                    // since the text node is wrapped, we assign it a synthetic id
-                    id: id,
-                },
-                ...children,
-            ],
+            childNodes,
         },
         context,
     }
@@ -272,7 +262,7 @@ function makeWebViewElement(
     return makePlaceholderElement(labelledWireframe, children, context)
 }
 
-function makePlaceholderElement(
+export function makePlaceholderElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
     context: ConversionContext
@@ -288,6 +278,9 @@ function makePlaceholderElement(
                     horizontalAlign: 'center',
                     backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                     color: wireframe.style?.color || FOREGROUND,
+                    backgroundImage: PLACEHOLDER_SVG_DATA_IMAGE_URL,
+                    backgroundSize: 'auto',
+                    backgroundRepeat: 'unset',
                     ...context.styleOverride,
                 }),
                 'data-rrweb-id': wireframe.id,
@@ -1001,6 +994,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
 
 function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe, context)
+
     if (!converted) {
         return null
     }
@@ -1349,7 +1343,7 @@ export const makeFullEvent = (
                                 tagName: 'head',
                                 attributes: { 'data-rrweb-id': HEAD_ID },
                                 id: HEAD_ID,
-                                childNodes: [],
+                                childNodes: [makeCSSReset(conversionContext)],
                             },
                             {
                                 type: NodeType.Element,
@@ -1375,5 +1369,43 @@ export const makeFullEvent = (
                 left: 0,
             },
         },
+    }
+}
+
+function makeCSSReset(context: ConversionContext): serializedNodeWithId {
+    // we need to normalize CSS so browsers don't do unexpected things
+    return {
+        type: NodeType.Element,
+        tagName: 'style',
+        attributes: {
+            type: 'text/css',
+        },
+        id: context.idSequence.next().value,
+        childNodes: [
+            {
+                type: NodeType.Text,
+                textContent: `
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                        padding-block: 0 !important;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                `,
+                id: context.idSequence.next().value,
+            },
+        ],
     }
 }

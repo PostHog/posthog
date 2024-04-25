@@ -1,32 +1,39 @@
-import { IconBug } from '@posthog/icons'
+import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     lemonToast,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import { AvailableFeature } from '~/types'
+
+import {
+    SEVERITY_LEVEL_TO_NAME,
+    SUPPORT_TICKET_TEMPLATES,
+    supportLogic,
+    SupportTicketKind,
+    TARGET_AREA_TO_NAME,
+} from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
         value: 'support',
         label: 'Question',
-        icon: <IconHelpOutline />,
+        icon: <IconQuestion />,
     },
     {
         value: 'feedback',
@@ -51,7 +58,8 @@ export function SupportForm(): JSX.Element | null {
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
+    // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -64,7 +72,32 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
+    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
+        const message = supportLogic.values.sendSupportRequest.message
+
+        // do not overwrite modified message
+        if (
+            !(
+                message === SUPPORT_TICKET_TEMPLATES.bug ||
+                message === SUPPORT_TICKET_TEMPLATES.feedback ||
+                message === SUPPORT_TICKET_TEMPLATES.support ||
+                !message
+            )
+        ) {
+            return
+        }
+
+        if (kind === 'bug') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
+        } else if (kind === 'feedback') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
+        } else if (kind === 'support') {
+            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
+        }
+    }
+
     useEffect(() => {
+        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -90,53 +123,20 @@ export function SupportForm(): JSX.Element | null {
                     </LemonField>
                 </>
             )}
-            <LemonField name="kind" label="What type of message is this?">
+            <LemonField name="kind" label="Message type">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
-                sendSupportRequest.target_area === 'session_replay' && (
-                    <LemonBanner type="info">
-                        <>
-                            We're pretty proud of our docs. Check out these helpful links:
-                            <ul>
-                                <li>
-                                    <Link target="_blank" to="https://posthog.com/docs/session-replay/troubleshooting">
-                                        Session replay troubleshooting
-                                    </Link>
-                                </li>
-                                <li>
-                                    <Link
-                                        target="_blank"
-                                        to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
-                                    >
-                                        How to control which sessions you record
-                                    </Link>
-                                </li>
-                            </ul>
-                        </>
-                    </LemonBanner>
-                )}
-            {posthog.getFeatureFlag('show-troubleshooting-docs-in-support-form') === 'test-replay-banner' &&
-                sendSupportRequest.target_area === 'toolbar' && (
-                    <LemonBanner type="info">
-                        <>
-                            We're pretty proud of our docs.{' '}
-                            <Link target="_blank" to="https://posthog.com/docs/toolbar#troubleshooting-and-faq">
-                                Check out this troubleshooting guide
-                            </Link>
-                        </>
-                    </LemonBanner>
-                )}
-            <LemonField name="target_area" label="What area does this best relate to?">
-                <LemonSelect fullWidth type="secondary" options={TARGET_AREA_TO_NAME} />
-            </LemonField>
-            <LemonField name="severity_level" label="What is the severity of this issue?">
+            <LemonField name="target_area" label="Topic">
                 <LemonSelect
+                    disabledReason={
+                        !user
+                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                            : !hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
+                            ? 'You can only create billing related issues while viewing the billing page.'
+                            : null
+                    }
                     fullWidth
-                    options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                    }))}
+                    options={TARGET_AREA_TO_NAME}
                 />
             </LemonField>
             <LemonField
@@ -163,6 +163,30 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
+            <div className="flex gap-2 flex-col">
+                <div className="flex justify-between items-center">
+                    <label className="LemonLabel">
+                        Severity level
+                        <Tooltip title="Severity levels help us prioritize your request.">
+                            <span>
+                                <IconInfo className="opacity-75" />
+                            </span>
+                        </Tooltip>
+                    </label>
+                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                        Definitions
+                    </Link>
+                </div>
+                <LemonField name="severity_level">
+                    <LemonSelect
+                        fullWidth
+                        options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
+                            label: value,
+                            value: key,
+                        }))}
+                    />
+                </LemonField>
+            </div>
         </Form>
     )
 }

@@ -66,7 +66,7 @@ export interface LemonMenuProps
             LemonDropdownProps,
             | 'placement'
             | 'fallbackPlacements'
-            | 'sameWidth'
+            | 'matchWidth'
             | 'maxContentWidth'
             | 'visible'
             | 'onVisibilityChange'
@@ -120,22 +120,29 @@ export interface LemonMenuOverlayProps {
     items: LemonMenuItems
     tooltipPlacement?: TooltipProps['placement']
     itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]>
+    /** @default 'small' */
+    buttonSize?: 'small' | 'medium'
 }
 
-export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMenuOverlayProps): JSX.Element {
+export function LemonMenuOverlay({
+    items,
+    tooltipPlacement,
+    itemsRef,
+    buttonSize = 'small',
+}: LemonMenuOverlayProps): JSX.Element {
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList
             sections={sectionsOrItems as LemonMenuSection[]}
-            buttonSize="small"
+            buttonSize={buttonSize}
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
         />
     ) : (
         <LemonMenuItemList
             items={sectionsOrItems as LemonMenuItem[]}
-            buttonSize="small"
+            buttonSize={buttonSize}
             tooltipPlacement={tooltipPlacement}
             itemsRef={itemsRef}
             itemIndexOffset={0}

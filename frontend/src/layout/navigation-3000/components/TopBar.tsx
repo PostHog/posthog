@@ -4,6 +4,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -29,6 +30,7 @@ export function TopBar(): JSX.Element | null {
 
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
     const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
+    const isOnboarding = router.values.location.pathname.includes('/onboarding/')
 
     useLayoutEffect(() => {
         function handleScroll(): void {
@@ -94,10 +96,14 @@ export function TopBar(): JSX.Element | null {
                                     <div className="TopBar3000__separator" />
                                 </React.Fragment>
                             ))}
-                            <Breadcrumb breadcrumb={breadcrumbs[breadcrumbs.length - 1]} here />
+                            <Breadcrumb
+                                breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
+                                here
+                                isOnboarding={isOnboarding}
+                            />
                         </div>
                     )}
-                    <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} />
+                    <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
                 <div className="TopBar3000__actions" ref={setActionsContainer} />
             </div>
@@ -108,21 +114,24 @@ export function TopBar(): JSX.Element | null {
 interface BreadcrumbProps {
     breadcrumb: IBreadcrumb
     here?: boolean
+    isOnboarding?: boolean
 }
 
-function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
+function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
+    const breadcrumbName = isOnboarding && here ? 'Onboarding' : (breadcrumb.name as string)
+
     let nameElement: JSX.Element
     if (breadcrumb.name != null && breadcrumb.onRename) {
         nameElement = (
             <EditableField
                 name="item-name-small"
-                value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
+                value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumbName}
                 onChange={(newName) => tentativelyRename(joinedKey, newName)}
                 onSave={(newName) => {
                     void breadcrumb.onRename?.(newName)
@@ -130,7 +139,7 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
                 mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
                 onModeToggle={(newMode) => {
                     if (newMode === 'edit') {
-                        tentativelyRename(joinedKey, breadcrumb.name as string)
+                        tentativelyRename(joinedKey, breadcrumbName)
                     } else {
                         finishRenaming()
                     }
@@ -142,7 +151,7 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
             />
         )
     } else {
-        nameElement = <span>{breadcrumb.name || <i>Unnamed</i>}</span>
+        nameElement = <span>{breadcrumbName || <i>Unnamed</i>}</span>
     }
 
     const Component = breadcrumb.path ? Link : 'div'
@@ -191,13 +200,15 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
 
 interface HereProps {
     breadcrumb: IBreadcrumb
+    isOnboarding?: boolean
 }
 
-function Here({ breadcrumb }: HereProps): JSX.Element {
+function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
+    const hereName = isOnboarding ? 'Onboarding' : (breadcrumb.name as string)
 
     return (
         <h1 className="TopBar3000__here" data-attr="top-bar-name">
@@ -206,7 +217,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
             ) : breadcrumb.onRename ? (
                 <EditableField
                     name="item-name-large"
-                    value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
+                    value={renameState && renameState[0] === joinedKey ? renameState[1] : hereName}
                     onChange={(newName) => {
                         tentativelyRename(joinedKey, newName)
                         if (breadcrumb.forceEditMode) {
@@ -222,7 +233,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                         !breadcrumb.forceEditMode
                             ? (newMode) => {
                                   if (newMode === 'edit') {
-                                      tentativelyRename(joinedKey, breadcrumb.name as string)
+                                      tentativelyRename(joinedKey, hereName)
                                   } else {
                                       finishRenaming()
                                   }
@@ -235,7 +246,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     autoFocus
                 />
             ) : (
-                <span>{breadcrumb.name}</span>
+                <span>{hereName}</span>
             )}
         </h1>
     )

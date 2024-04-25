@@ -17,7 +17,7 @@ import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
 import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
-import { bufferFileDir, convertToPersistedMessage, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
+import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 import { RealtimeManager } from './realtime-manager'
 
@@ -136,6 +136,7 @@ export class SessionManager {
             partition,
             topic,
             sessionId,
+            teamId,
         })
     }
 
@@ -157,6 +158,11 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
+            if (this.debug) {
+                status.warn('🚽', '[session-manager] add called but we are in a destroying state', {
+                    ...this.logContext(),
+                })
+            }
             return
         }
 
@@ -171,14 +177,23 @@ export class SessionManager {
                 message.metadata.timestamp
             )
 
-            const messageData = convertToPersistedMessage(message)
-            this.setEventsRangeFrom(message)
+            const content =
+                convertForPersistence(message.eventsByWindowId)
+                    .map((x) => JSON.stringify(x))
+                    .join('\n') + '\n'
 
-            const content = JSON.stringify(messageData) + '\n'
             this.buffer.count += 1
             this.buffer.sizeEstimate += content.length
-            this.buffer.offsets.lowest = minDefined(this.buffer.offsets.lowest, message.metadata.offset)
-            this.buffer.offsets.highest = maxDefined(this.buffer.offsets.highest, message.metadata.offset)
+            this.buffer.offsets.lowest = minDefined(this.buffer.offsets.lowest, message.metadata.lowOffset)
+            this.buffer.offsets.highest = maxDefined(this.buffer.offsets.highest, message.metadata.highOffset)
+            this.buffer.eventsRange = {
+                firstTimestamp:
+                    minDefined(message.eventsRange.start, this.buffer.eventsRange?.firstTimestamp) ??
+                    message.eventsRange.start,
+                lastTimestamp:
+                    maxDefined(message.eventsRange.end, this.buffer.eventsRange?.lastTimestamp) ??
+                    message.eventsRange.end,
+            }
 
             if (!this.buffer.fileStream.write(content, 'utf-8')) {
                 writeStreamBlocked.inc()
@@ -190,8 +205,17 @@ export class SessionManager {
         }
 
         // NOTE: This is uncompressed size estimate but that's okay as we currently want to over-flush to see if we can shake out a bug
-        if (this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024) {
+        const shouldAttemptFlush =
+            this.buffer.sizeEstimate >= this.serverConfig.SESSION_RECORDING_MAX_BUFFER_SIZE_KB * 1024
+        if (shouldAttemptFlush) {
             await this.flush('buffer_size')
+        }
+        if (this.debug) {
+            status.info('🚽', `[session-manager] added message`, {
+                ...this.logContext(),
+                metadata: message.metadata,
+                shouldAttemptFlush,
+            })
         }
     }
 
@@ -472,27 +496,6 @@ export class SessionManager {
             this.captureException(error)
             throw error
         }
-    }
-
-    private setEventsRangeFrom(message: IncomingRecordingMessage) {
-        const start = message.events.at(0)?.timestamp
-        const end = message.events.at(-1)?.timestamp ?? start
-
-        if (!start || !end) {
-            captureMessage("[session-manager]: can't set events range from message without events summary", {
-                extra: { message },
-                tags: {
-                    team_id: this.teamId,
-                    session_id: this.sessionId,
-                },
-            })
-            return
-        }
-
-        const firstTimestamp = minDefined(start, this.buffer.eventsRange?.firstTimestamp) ?? start
-        const lastTimestamp = maxDefined(end, this.buffer.eventsRange?.lastTimestamp) ?? end
-
-        this.buffer.eventsRange = { firstTimestamp, lastTimestamp }
     }
 
     private startRealtime() {

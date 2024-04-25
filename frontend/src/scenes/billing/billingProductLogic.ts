@@ -1,4 +1,6 @@
+import { LemonDialog } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import posthog from 'posthog-js'
 import React from 'react'
 
@@ -9,7 +11,7 @@ import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
-const DEFAULT_BILLING_LIMIT = 500
+const DEFAULT_BILLING_LIMIT: number = 500
 
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
@@ -26,8 +28,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         actions: [
             billingLogic,
             [
-                'loadBillingSuccess',
+                'updateBillingLimits',
                 'updateBillingLimitsSuccess',
+                'loadBillingSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
                 'setScrollToProductKey',
@@ -40,7 +43,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: true,
         setShowTierBreakdown: (showTierBreakdown: boolean) => ({ showTierBreakdown }),
         toggleIsPricingModalOpen: true,
-        toggleIsPlanComparisonModalOpen: true,
+        toggleIsPlanComparisonModalOpen: (highlightedFeatureKey?: string) => ({ highlightedFeatureKey }),
         setSurveyResponse: (surveyResponse: string, key: string) => ({ surveyResponse, key }),
         reportSurveyShown: (surveyID: string, productType: string) => ({ surveyID, productType }),
         reportSurveySent: (surveyID: string, surveyResponse: Record<string, string>) => ({
@@ -51,6 +54,16 @@ export const billingProductLogic = kea<billingProductLogicType>([
         setSurveyID: (surveyID: string) => ({ surveyID }),
     }),
     reducers({
+        billingLimitInput: [
+            { input: DEFAULT_BILLING_LIMIT },
+            {
+                setBillingLimitInput: (_, { billingLimitInput }) => {
+                    return {
+                        input: billingLimitInput,
+                    }
+                },
+            },
+        ],
         isEditingBillingLimit: [
             false,
             {
@@ -61,12 +74,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
             false,
             {
                 setShowTierBreakdown: (_, { showTierBreakdown }) => showTierBreakdown,
-            },
-        ],
-        billingLimitInput: [
-            DEFAULT_BILLING_LIMIT as number | undefined,
-            {
-                setBillingLimitInput: (_, { billingLimitInput }) => billingLimitInput,
             },
         ],
         isPricingModalOpen: [
@@ -101,6 +108,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 setSurveyID: (_, { surveyID }) => surveyID,
             },
         ],
+        comparisonModalHighlightedFeatureKey: [
+            null as string | null,
+            {
+                toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
+            },
+        ],
     }),
     selectors(({ values }) => ({
         customLimitUsd: [
@@ -116,7 +129,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product) => {
                 const currentPlanIndex = product.plans.findIndex((plan: BillingV2PlanType) => plan.current_plan)
-                const currentPlan = product.plans?.[currentPlanIndex]
+                const currentPlan = currentPlanIndex >= 0 ? product.plans?.[currentPlanIndex] : null
                 const upgradePlan =
                     // If in debug mode and with no license there will be
                     // no currentPlan. So we want to upgrade to the highest plan.
@@ -158,7 +171,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 ) as BillingV2TierType[][]
                 return product.tiers
                     ? isEditingBillingLimit
-                        ? convertAmountToUsage(`${billingLimitInput}`, productAndAddonTiers, billing?.discount_percent)
+                        ? convertAmountToUsage(
+                              `${billingLimitInput.input}`,
+                              productAndAddonTiers,
+                              billing?.discount_percent
+                          )
                         : convertAmountToUsage(customLimitUsd || '', productAndAddonTiers, billing?.discount_percent)
                     : 0
             },
@@ -202,14 +219,17 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
     })),
     listeners(({ actions, values, props }) => ({
-        loadBillingSuccess: actions.billingLoaded,
-        updateBillingLimitsSuccess: actions.billingLoaded,
+        updateBillingLimitsSuccess: () => {
+            actions.billingLoaded()
+        },
         billingLoaded: () => {
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
-                parseInt(values.customLimitUsd || '0') ||
-                    (props.product.tiers ? parseInt(props.product.projected_amount_usd || '0') * 1.5 : 0) ||
-                    DEFAULT_BILLING_LIMIT
+                values.customLimitUsd
+                    ? parseInt(values.customLimitUsd)
+                    : props.product.tiers && parseInt(props.product.projected_amount_usd || '0')
+                    ? parseInt(props.product.projected_amount_usd || '0') * 1.5
+                    : DEFAULT_BILLING_LIMIT
             )
         },
         reportSurveyShown: ({ surveyID }) => {
@@ -271,9 +291,78 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
     })),
+    forms(({ actions, props, values }) => ({
+        billingLimitInput: {
+            errors: ({ input }) => ({
+                input: input === undefined || Number.isInteger(input) ? undefined : 'Please enter a whole number',
+            }),
+            submit: async ({ input }) => {
+                const addonTiers =
+                    'addons' in props.product
+                        ? props.product.addons
+                              ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+                              ?.map((addon: BillingProductV2AddonType) => addon.tiers)
+                        : []
+
+                const productAndAddonTiers: BillingV2TierType[][] = [props.product.tiers, ...addonTiers].filter(
+                    Boolean
+                ) as BillingV2TierType[][]
+
+                const newAmountAsUsage = props.product.tiers
+                    ? convertAmountToUsage(`${input}`, productAndAddonTiers, values.billing?.discount_percent)
+                    : 0
+
+                if (props.product.current_usage && newAmountAsUsage < props.product.current_usage) {
+                    LemonDialog.open({
+                        title: 'Billing limit warning',
+                        description:
+                            'Your new billing limit will be below your current usage. Your bill will not increase for this period but parts of the product will stop working and data may be lost.',
+                        primaryButton: {
+                            status: 'danger',
+                            children: 'I understand',
+                            onClick: () =>
+                                actions.updateBillingLimits({
+                                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                                }),
+                        },
+                        secondaryButton: {
+                            children: 'I changed my mind',
+                        },
+                    })
+                    return
+                }
+
+                if (props.product.projected_usage && newAmountAsUsage < props.product.projected_usage) {
+                    LemonDialog.open({
+                        title: 'Billing limit warning',
+                        description:
+                            'Your predicted usage is above your billing limit which is likely to result in usage being throttled.',
+                        primaryButton: {
+                            children: 'I understand',
+                            onClick: () =>
+                                actions.updateBillingLimits({
+                                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                                }),
+                        },
+                        secondaryButton: {
+                            children: 'I changed my mind',
+                        },
+                    })
+                    return
+                }
+                actions.updateBillingLimits({
+                    [props.product.type]: typeof input === 'number' ? `${input}` : null,
+                })
+            },
+            options: {
+                alwaysShowErrors: true,
+            },
+        },
+    })),
     events(({ actions, values }) => ({
         afterMount: () => {
             actions.setScrollToProductKey(values.scrollToProductKey)
+            actions.billingLoaded()
         },
     })),
 ])

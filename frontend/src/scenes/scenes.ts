@@ -102,7 +102,18 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.EVENT_DEFINITION,
         defaultDocsPath: '/docs/data/events',
     },
+    [Scene.EventDefinitionEdit]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
+    },
     [Scene.PropertyDefinition]: {
+        projectBased: true,
+        name: 'Data management',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
+    },
+    [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.PROPERTY_DEFINITION,
@@ -122,6 +133,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplayFilePlayback]: {
+        projectBased: true,
+        name: 'File playback',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
@@ -425,6 +442,7 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
+    '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -466,12 +484,14 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.DataManagement,
     [urls.eventDefinitions()]: Scene.DataManagement,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
+    [urls.eventDefinitionEdit(':id')]: Scene.EventDefinitionEdit,
     [urls.batchExports()]: Scene.BatchExports,
     [urls.batchExportNew()]: Scene.BatchExportEdit,
     [urls.batchExport(':id')]: Scene.BatchExport,
     [urls.batchExportEdit(':id')]: Scene.BatchExportEdit,
     [urls.propertyDefinitions()]: Scene.DataManagement,
     [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
+    [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
     [urls.events()]: Scene.Events,
@@ -481,6 +501,7 @@ export const routes: Record<string, Scene> = {
         acc[urls.replay(tab)] = Scene.Replay
         return acc
     }, {} as Record<string, Scene>),
+    [urls.replayFilePlayback()]: Scene.ReplayFilePlayback,
     [urls.replaySingle(':id')]: Scene.ReplaySingle,
     [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
     [urls.personByDistinctId('*', false)]: Scene.Person,

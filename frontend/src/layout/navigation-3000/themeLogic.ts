@@ -1,16 +1,20 @@
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { themeLogicType } from './themeLogicType'
+import { Theme, themes } from './themes'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
-        values: [userLogic, ['themeMode']],
+        values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
+        setTheme: (theme: string | null) => ({ theme }),
     }),
     reducers({
         darkModeSystemPreference: [
@@ -19,11 +23,32 @@ export const themeLogic = kea<themeLogicType>([
                 syncDarkModePreference: (_, { darkModePreference }) => darkModePreference,
             },
         ],
+        selectedTheme: [
+            null as string | null,
+            { persist: true },
+            {
+                setTheme: (_, { theme }) => theme,
+            },
+        ],
     }),
     selectors({
+        theme: [
+            (s) => [s.selectedTheme, s.featureFlags],
+            (selectedTheme, featureFlags): Theme | null => {
+                const flagVariant = featureFlags[FEATURE_FLAGS.THEME]
+                return (
+                    (selectedTheme ? themes.find((theme) => theme.id === selectedTheme) : null) ??
+                    (typeof flagVariant === 'string' ? themes.find((theme) => theme.id === flagVariant) : null) ??
+                    null
+                )
+            },
+        ],
         isDarkModeOn: [
-            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig],
-            (themeMode, darkModeSystemPreference, sceneConfig) => {
+            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
+            (themeMode, darkModeSystemPreference, sceneConfig, theme) => {
+                if (theme) {
+                    return !!theme?.dark
+                }
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||

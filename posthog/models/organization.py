@@ -1,15 +1,6 @@
 import json
 import sys
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    TypedDict,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 import structlog
 from django.conf import settings
@@ -24,7 +15,12 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
-from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.models.utils import (
+    LowercaseSlugField,
+    UUIDModel,
+    create_with_slug,
+    sane_repr,
+)
 from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
@@ -49,7 +45,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
-    period: Optional[List[str]]
+    period: Optional[list[str]]
 
 
 class OrganizationManager(models.Manager):
@@ -60,15 +56,15 @@ class OrganizationManager(models.Manager):
         self,
         user: Optional["User"],
         *,
-        team_fields: Optional[Dict[str, Any]] = None,
+        team_fields: Optional[dict[str, Any]] = None,
         **kwargs,
-    ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
+    ) -> tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
-        from .team import Team  # Avoiding circular import
+        from .project import Project  # Avoiding circular import
 
         with transaction.atomic():
             organization = Organization.objects.create(**kwargs)
-            team = Team.objects.create(organization=organization, **(team_fields or {}))
+            _, team = Project.objects.create_with_team(organization=organization, team_fields=team_fields)
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
@@ -126,6 +122,8 @@ class Organization(UUIDModel):
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
 
+    is_hipaa: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     ## Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
@@ -138,6 +136,8 @@ class Organization(UUIDModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
     never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    # Scoring levels defined in billing::customer::TrustScores
+    customer_trust_scores: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -157,7 +157,7 @@ class Organization(UUIDModel):
     __repr__ = sane_repr("name")
 
     @property
-    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
+    def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:
         """
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
@@ -176,7 +176,7 @@ class Organization(UUIDModel):
                 return (license.plan, "ee")
         return (None, None)
 
-    def update_available_features(self) -> List[Union[AvailableFeature, str]]:
+    def update_available_features(self) -> list[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
         if is_cloud() or self.usage:
             # Since billing V2 we just use the available features which are updated when the billing service is called

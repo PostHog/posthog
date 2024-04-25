@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.1
@@ -38,7 +38,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" IN ('constance:posthog:SLACK_APP_CLIENT_ID',
                                             'constance:posthog:SLACK_APP_CLIENT_SECRET',
-                                            'constance:posthog:SLACK_APP_SIGNING_SECRET') /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+                                            'constance:posthog:SLACK_APP_SIGNING_SECRET')
   '''
 # ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.2
@@ -46,6 +46,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -68,6 +69,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -97,6 +99,6 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  LIMIT 21
   '''
 # ---

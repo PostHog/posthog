@@ -1,6 +1,7 @@
+import { IconLetter } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { IconMail, IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
-import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { IconSlack, IconSlackExternal } from 'lib/lemon-ui/icons'
+import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +34,7 @@ export const urlForSubscription = (
 }
 
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { value: 'email', label: 'Email', icon: <IconMail /> },
+    { value: 'email', label: 'Email', icon: <IconLetter /> },
     { value: 'slack', label: 'Slack', icon: <IconSlack /> },
     // { value: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
 ]
@@ -83,7 +84,7 @@ export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => (
 export const getSlackChannelOptions = (
     value: string,
     slackChannels?: SlackChannelType[] | null
-): LemonSelectMultipleOptionItem[] => {
+): LemonInputSelectOption[] => {
     return slackChannels
         ? slackChannels.map((x) => ({
               key: `${x.id}|#${x.name}`,

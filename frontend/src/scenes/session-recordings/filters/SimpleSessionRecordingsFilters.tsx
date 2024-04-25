@@ -1,13 +1,15 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconGear, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonMenu, Popover } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useMemo } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
+import { useMemo, useRef, useState } from 'react'
 
 import { EntityTypes, EventPropertyFilter, PropertyFilterType, PropertyOperator, RecordingFilters } from '~/types'
+
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export const SimpleSessionRecordingsFilters = ({
     filters,
@@ -16,9 +18,10 @@ export const SimpleSessionRecordingsFilters = ({
     filters: RecordingFilters
     setFilters: (filters: RecordingFilters) => void
 }): JSX.Element => {
-    const { currentTeam } = useValues(teamLogic)
-
-    const displayNameProperties = useMemo(() => currentTeam?.person_display_name_properties ?? [], [currentTeam])
+    const { quickFilterProperties } = useValues(playerSettingsLogic)
+    const { setQuickFilterProperties } = useActions(playerSettingsLogic)
+    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
+    const buttonRef = useRef<HTMLButtonElement>(null)
 
     const pageviewEvent = filters.events?.find((event) => event.id === '$pageview')
 
@@ -58,35 +61,33 @@ export const SimpleSessionRecordingsFilters = ({
         })
     }
 
-    const items = useMemo(() => {
-        const personKeys = personProperties.map((p) => p.key)
+    const defaultItems = useMemo(() => {
         const eventKeys = eventProperties.map((p: EventPropertyFilter) => p.key)
 
-        const properties = [
-            !personKeys.includes('$geoip_country_name') && {
-                label: 'Country',
-                key: '$geoip_country_name',
-                onClick: () => onClickPersonProperty('$geoip_country_name'),
-            },
+        return [
             !eventKeys.includes('$current_url') && {
-                label: 'URL',
+                label: <PropertyKeyInfo disablePopover disableIcon value="$current_url" />,
                 key: '$current_url',
                 onClick: onClickCurrentUrl,
             },
-        ]
+        ].filter(Boolean)
+    }, [eventProperties])
 
-        displayNameProperties.forEach((property) => {
-            properties.push(
-                !personKeys.includes(property) && {
-                    label: property,
-                    key: property,
-                    onClick: () => onClickPersonProperty(property),
-                }
-            )
-        })
+    const personPropertyItems = useMemo(() => {
+        const personKeys = personProperties.map((p) => p.key)
 
-        return properties.filter(Boolean)
-    }, [displayNameProperties, personProperties, eventProperties])
+        return quickFilterProperties
+            .map((property) => {
+                return (
+                    !personKeys.includes(property) && {
+                        label: <PropertyKeyInfo disablePopover disableIcon value={property} />,
+                        key: property,
+                        onClick: () => onClickPersonProperty(property),
+                    }
+                )
+            })
+            .filter(Boolean)
+    }, [quickFilterProperties, personProperties])
 
     return (
         <div className="space-y-3">
@@ -122,29 +123,96 @@ export const SimpleSessionRecordingsFilters = ({
                     allowNew={false}
                     openOnInsert
                 />
-                <LemonMenu
-                    items={[
-                        items.length > 0 && {
-                            title: 'Preferred properties',
-                            items: items,
-                        },
-                        {
-                            items: [
-                                {
-                                    label: `${
-                                        displayNameProperties.length === 0 ? 'Add' : 'Edit'
-                                    } person display properties`,
-                                    to: urls.settings('project-product-analytics', 'person-display-name'),
-                                },
-                            ],
-                        },
-                    ]}
+                <Popover
+                    visible={showPropertySelector}
+                    onClickOutside={() => setShowPropertySelector(false)}
+                    overlay={
+                        <Configuration
+                            properties={quickFilterProperties}
+                            onChange={(value) => {
+                                setQuickFilterProperties(value)
+                            }}
+                        />
+                    }
+                    referenceElement={buttonRef.current}
+                    placement="right-start"
                 >
-                    <LemonButton size="small" type="secondary" icon={<IconPlus />}>
-                        Choose quick filter
-                    </LemonButton>
-                </LemonMenu>
+                    <LemonMenu
+                        items={[
+                            defaultItems.length > 0 && { items: defaultItems },
+                            personPropertyItems.length > 0 && {
+                                title: 'Person properties',
+                                items: personPropertyItems,
+                            },
+                        ]}
+                        onVisibilityChange={() => setShowPropertySelector(false)}
+                    >
+                        <LemonButton
+                            ref={buttonRef}
+                            size="small"
+                            type="secondary"
+                            sideAction={{
+                                icon: <IconGear />,
+                                tooltip: 'Edit properties',
+                                onClick: () => setShowPropertySelector(true),
+                            }}
+                        >
+                            Choose quick filter
+                        </LemonButton>
+                    </LemonMenu>
+                </Popover>
             </div>
+        </div>
+    )
+}
+
+const Configuration = ({
+    properties,
+    onChange,
+}: {
+    properties: string[]
+    onChange: (properties: string[]) => void
+}): JSX.Element => {
+    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
+
+    return (
+        <div className="font-medium">
+            {properties.map((property) => (
+                <div className="flex items-center p-1 gap-2" key={property}>
+                    <span className="flex-1">
+                        <PropertyKeyInfo value={property} />
+                    </span>
+                    <LemonButton
+                        size="xsmall"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => {
+                            const newProperties = properties.filter((p) => p != property)
+                            onChange(newProperties)
+                        }}
+                    />
+                </div>
+            ))}
+            <Popover
+                visible={showPropertySelector}
+                onClickOutside={() => setShowPropertySelector(false)}
+                placement="right-start"
+                overlay={
+                    <TaxonomicFilter
+                        onChange={(_, value) => {
+                            properties.push(value as string)
+                            onChange([...properties])
+                            setShowPropertySelector(false)
+                        }}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
+                        excludedProperties={{ [TaxonomicFilterGroupType.PersonProperties]: properties }}
+                    />
+                }
+            >
+                <LemonButton onClick={() => setShowPropertySelector(!showPropertySelector)} fullWidth>
+                    Add person properties
+                </LemonButton>
+            </Popover>
         </div>
     )
 }

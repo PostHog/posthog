@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconDashboard, IconGear, IconTerminal } from '@posthog/icons'
+import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -13,7 +13,7 @@ import useResizeObserver from 'use-resize-observer'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import { IconWindow } from '../../icons'
-import { playerSettingsLogic } from '../../playerSettingsLogic'
+import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
@@ -42,6 +42,10 @@ const typeToIconAndDescription = {
         Icon: IconOffline,
         tooltip: 'browser went offline or returned online',
     },
+    ['browser-visibility']: {
+        Icon: IconEye,
+        tooltip: 'browser tab/window became visible or hidden',
+    },
     ['$session_config']: {
         Icon: IconGear,
         tooltip: 'Session recording config',
@@ -64,7 +68,7 @@ export function PlayerInspectorListItem({
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { tab, durationMs, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
-    const { timestampMode } = useValues(playerSettingsLogic)
+    const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
@@ -175,6 +179,8 @@ export function PlayerInspectorListItem({
                     <div className="flex items-start p-2 text-xs">
                         {item.offline ? 'Browser went offline' : 'Browser returned online'}
                     </div>
+                ) : item.type === 'browser-visibility' ? (
+                    <div className="flex items-start p-2 text-xs">Window became {item.status}</div>
                 ) : item.type === SessionRecordingPlayerTab.DOCTOR ? (
                     <ItemDoctor item={item} {...itemProps} />
                 ) : null}
@@ -195,8 +201,13 @@ export function PlayerInspectorListItem({
             {!isExpanded ? (
                 <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
-                        {timestampMode === 'absolute' ? (
-                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
+                        {timestampFormat != TimestampFormat.Relative ? (
+                            <TZLabel
+                                time={TimestampFormat.UTC ? item.timestamp.tz('utc') : item.timestamp}
+                                formatDate="DD, MMM"
+                                formatTime="HH:mm:ss"
+                                noStyles
+                            />
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (
@@ -204,7 +215,7 @@ export function PlayerInspectorListItem({
                                         title="This event occured before the recording started, likely as the page was loading."
                                         placement="left"
                                     >
-                                        <span>{colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}</span>
+                                        <span className="text-muted">load</span>
                                     </Tooltip>
                                 ) : (
                                     colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)

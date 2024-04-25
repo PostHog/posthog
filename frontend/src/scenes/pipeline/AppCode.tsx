@@ -137,15 +137,14 @@ export function AppCode({
                                 thing={currentFile}
                                 maxLinesWithoutExpansion={20}
                                 actions={
-                                    canEdit
-                                        ? [
-                                              {
-                                                  icon: <IconPencil />,
-                                                  title: 'Edit the code',
-                                                  callback: editAppCode,
-                                              },
-                                          ]
-                                        : undefined
+                                    canEdit ? (
+                                        <LemonButton
+                                            onClick={editAppCode}
+                                            icon={<IconPencil />}
+                                            title="Edit the code"
+                                            noPadding
+                                        />
+                                    ) : undefined
                                 }
                                 wrap
                             >

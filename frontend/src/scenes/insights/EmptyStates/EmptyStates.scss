@@ -36,7 +36,14 @@
     }
 
     .empty-state-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         max-width: 600px;
+
+        .illustration-main {
+            font-size: 2.5rem;
+        }
 
         h2 {
             text-align: center;

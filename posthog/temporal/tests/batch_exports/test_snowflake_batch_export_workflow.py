@@ -26,18 +26,20 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
+    SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
     snowflake_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -173,7 +175,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         # contents as a string in `staged_files`.
         if match := re.match(r"^PUT file://(?P<file_path>.*) @%(?P<table_name>.*)$", sql_text):
             file_path = match.group("file_path")
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 staged_files.append(f.read())
 
             if fail == "put":
@@ -406,15 +408,18 @@ async def test_snowflake_export_workflow_exports_events(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with unittest.mock.patch(
-                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
-            ) as mock, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+            with (
+                unittest.mock.patch(
+                    "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
+                ) as mock,
+                override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+            ):
                 fake_conn = FakeSnowflakeConnection()
                 mock.return_value = fake_conn
 
@@ -454,6 +459,7 @@ async def test_snowflake_export_workflow_exports_events(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 10
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
@@ -473,16 +479,19 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with responses.RequestsMock(
-                target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
-                assert_all_requests_are_fired=False,
-            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+            with (
+                responses.RequestsMock(
+                    target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
+                    assert_all_requests_are_fired=False,
+                ) as rsps,
+                override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2),
+            ):
                 queries, staged_files = add_mock_snowflake_api(rsps)
                 await activity_environment.client.execute_workflow(
                     SnowflakeBatchExportWorkflow.run,
@@ -556,9 +565,9 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -622,9 +631,9 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -673,9 +682,9 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -694,6 +703,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_errors(ateam, s
     run = runs[0]
     assert run.status == "FailedRetryable"
     assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(ateam, snowflake_batch_export):
@@ -719,9 +730,9 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_snowflake_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -740,6 +751,8 @@ async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_e
     run = runs[0]
     assert run.status == "Failed"
     assert run.latest_error == "ForbiddenError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snowflake_batch_export):
@@ -767,9 +780,9 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -874,8 +887,8 @@ def assert_clickhouse_records_in_snowflake(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter("event"))
@@ -1084,9 +1097,9 @@ async def test_snowflake_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1169,9 +1182,9 @@ async def test_snowflake_export_workflow_with_many_files(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1239,9 +1252,9 @@ async def test_snowflake_export_workflow_handles_cancellation(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_snowflake_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -1342,3 +1355,19 @@ async def test_insert_into_snowflake_activity_heartbeats(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
     )
+
+
+@pytest.mark.parametrize("details", [(str(dt.datetime.now()), 1)])
+def test_snowflake_heartbeat_details_parses_from_tuple(details):
+    class FakeActivity:
+        def info(self):
+            return FakeInfo()
+
+    class FakeInfo:
+        def __init__(self):
+            self.heartbeat_details = details
+
+    snowflake_details = SnowflakeHeartbeatDetails.from_activity(FakeActivity())
+
+    assert snowflake_details.last_inserted_at == dt.datetime.fromisoformat(details[0])
+    assert snowflake_details.file_no == details[1]

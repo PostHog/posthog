@@ -119,7 +119,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 41
+        cls.base_app_num_queries = 42
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
         other_org = create_organization(name="test org")
@@ -309,6 +309,21 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+    def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
+        res = self.client.get(f"/project/{self.second_team.api_token}/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}/home"
+
+    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
+        res = self.client.get(f"/project/phc_123/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+
+    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(self):
+        res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud

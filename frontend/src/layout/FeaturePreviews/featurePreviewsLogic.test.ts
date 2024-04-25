@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { featurePreviewsLogic } from './featurePreviewsLogic'
@@ -10,6 +11,11 @@ describe('featurePreviewsLogic', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            post: {
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
+            },
+        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()

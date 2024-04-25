@@ -3,7 +3,7 @@ import './YearInHogButton.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { HeartHog } from 'lib/components/hedgehogs'
-import { XmasTree } from 'lib/lemon-ui/icons'
+import { IconXmasTree } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 export function YearInHogButton({ url }: { url: string | null }): JSX.Element | null {
@@ -21,7 +21,7 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
             />
             <div className="absolute top-0 left-0 w-full h-full YearInHog__mask" />
             <LemonButton
-                icon={<XmasTree />}
+                icon={<IconXmasTree />}
                 type="secondary"
                 to={url}
                 targetBlank={true}

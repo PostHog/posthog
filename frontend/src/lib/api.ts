@@ -2,6 +2,7 @@ import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -25,15 +26,17 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
+    ErrorClusterResponse,
     EventDefinition,
     EventDefinitionType,
     EventsListQueryParams,
     EventType,
     Experiment,
     ExportedAssetType,
-    ExternalDataPostgresSchema,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
+    ExternalDataSourceSyncSchema,
+    ExternalDataSourceType,
     ExternalDataStripeSource,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
@@ -41,6 +44,7 @@ import {
     GroupListParams,
     InsightModel,
     IntegrationType,
+    ListOrganizationMembersParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     NotebookListItemType,
@@ -48,6 +52,7 @@ import {
     NotebookType,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
+    OrganizationMemberType,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonalAPIKeyType,
@@ -114,6 +119,23 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
+export class ApiError extends Error {
+    /** Django REST Framework `detail` - used in downstream error handling. */
+    detail: string | null
+    /** Django REST Framework `code` - used in downstream error handling. */
+    code: string | null
+    /** Django REST Framework `statusText` - used in downstream error handling. */
+    statusText: string | null
+
+    constructor(message?: string, public status?: number, public data?: any) {
+        message = message || `API request failed with status: ${status ?? 'unknown'}`
+        super(message)
+        this.statusText = data?.statusText || null
+        this.detail = data?.detail || null
+        this.code = data?.code || null
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -131,11 +153,11 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-export async function getJSONOrThrow(response: Response): Promise<any> {
+export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText, status: response.status }
+        return null
     }
 }
 
@@ -458,6 +480,10 @@ class ApiRequest {
         return this.experiments(teamId).addPathComponent(experimentId)
     }
 
+    public experimentCreateExposureCohort(experimentId: Experiment['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.experimentsDetail(experimentId, teamId).addPathComponent('create_exposure_cohort_for_experiment')
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -473,6 +499,15 @@ class ApiRequest {
 
     public roleMembershipsDetail(roleId: RoleType['id'], userUuid: UserType['uuid']): ApiRequest {
         return this.roleMemberships(roleId).addPathComponent(userUuid)
+    }
+
+    // # OrganizationMembers
+    public organizationMembers(): ApiRequest {
+        return this.organizations().current().addPathComponent('members')
+    }
+
+    public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
+        return this.organizationMembers().addPathComponent(uuid)
     }
 
     // # Persons
@@ -883,9 +918,6 @@ const api = {
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async getCount(actionId: ActionType['id']): Promise<number> {
-            return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
@@ -1281,6 +1313,31 @@ const api = {
         async get(id: number): Promise<Experiment> {
             return new ApiRequest().experimentsDetail(id).get()
         },
+        async createExposureCohort(id: number): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().experimentCreateExposureCohort(id).create()
+        },
+    },
+
+    organizationMembers: {
+        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+            return await new ApiRequest().organizationMembers().withQueryString(params).get()
+        },
+
+        async listAll(params: ListOrganizationMembersParams = {}): Promise<OrganizationMemberType[]> {
+            const url = new ApiRequest().organizationMembers().withQueryString(params).assembleFullUrl()
+            return api.loadPaginatedResults<OrganizationMemberType>(url)
+        },
+
+        async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
+            return await new ApiRequest().organizationMember(uuid).delete()
+        },
+
+        async update(
+            uuid: string,
+            data: Partial<Pick<OrganizationMemberType, 'level'>>
+        ): Promise<OrganizationMemberType> {
+            return new ApiRequest().organizationMember(uuid).update({ data })
+        },
     },
 
     resourceAccessPermissions: {
@@ -1438,6 +1495,9 @@ const api = {
         async update(id: PluginConfigTypeNew['id'], data: FormData): Promise<PluginConfigWithPluginInfoNew> {
             return await new ApiRequest().pluginConfig(id).update({ data })
         },
+        async create(data: FormData): Promise<PluginConfigWithPluginInfoNew> {
+            return await new ApiRequest().pluginConfigs().create({ data })
+        },
         async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
             return await new ApiRequest().pluginConfigs().get()
         },
@@ -1576,6 +1636,10 @@ const api = {
 
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
+        },
+
+        async errorClusters(refresh?: boolean): Promise<ErrorClusterResponse> {
+            return await new ApiRequest().recordings().withAction('error_clusters').withQueryString({ refresh }).get()
         },
 
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
@@ -1737,22 +1801,18 @@ const api = {
         ): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).update({ data })
         },
-
         async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExports().create({ data })
         },
         async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).delete()
         },
-
         async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('pause').create()
         },
-
         async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('unpause').create()
         },
-
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
@@ -1852,10 +1912,10 @@ const api = {
     },
 
     externalDataSources: {
-        async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
-            return await new ApiRequest().externalDataSources().get()
+        async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataStripeSource>> {
+            return await new ApiRequest().externalDataSources().get(options)
         },
-        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<{ id: string }> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
@@ -1865,20 +1925,22 @@ const api = {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
         },
         async database_schema(
-            host: string,
-            port: string,
-            dbname: string,
-            user: string,
-            password: string,
-            schema: string
-        ): Promise<ExternalDataPostgresSchema[]> {
-            const queryParams = toParams({ host, port, dbname, user, password, schema })
-
+            source_type: ExternalDataSourceType,
+            payload: Record<string, any>
+        ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
                 .externalDataSources()
                 .withAction('database_schema')
-                .withQueryString(queryParams)
-                .get()
+                .create({ data: { source_type, ...payload } })
+        },
+        async source_prefix(
+            source_type: ExternalDataSourceType,
+            prefix: string
+        ): Promise<ExternalDataSourceSyncSchema[]> {
+            return await new ApiRequest()
+                .externalDataSources()
+                .withAction('source_prefix')
+                .create({ data: { source_type, prefix } })
         },
     },
 
@@ -1888,6 +1950,12 @@ const api = {
             data: Partial<ExternalDataSourceSchema>
         ): Promise<ExternalDataSourceSchema> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
+        },
+        async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
+        },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
     },
 
@@ -1906,7 +1974,10 @@ const api = {
         },
         async update(
             viewId: DataWarehouseViewLink['id'],
-            data: Pick<DataWarehouseViewLink, 'saved_query_id' | 'from_join_key' | 'table' | 'to_join_key'>
+            data: Pick<
+                DataWarehouseViewLink,
+                'source_table_name' | 'source_table_key' | 'joining_table_name' | 'joining_table_key' | 'field_name'
+            >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
         },
@@ -2029,114 +2100,83 @@ const api = {
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         const res = await api.getResponse(url, options)
-        return await getJSONOrThrow(res)
+        return await getJSONOrNull(res)
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        let response
-        const startTime = new Date().getTime()
-        try {
-            response = await fetch(url, {
+        return await handleFetch(url, 'GET', () => {
+            return fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
-        } catch (e) {
-            throw { status: 0, message: e }
-        }
-
-        if (!response.ok) {
-            reportError('GET', url, response, startTime)
-            const data = await getJSONOrThrow(response)
-            throw { status: response.status, ...data }
-        }
-        return response
+        })
     },
 
     async update(url: string, data: any, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'PATCH',
-            headers: {
-                ...objectClean(options?.headers ?? {}),
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-            body: isFormData ? data : JSON.stringify(data),
-            signal: options?.signal,
+
+        const response = await handleFetch(url, 'PATCH', async () => {
+            return await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    ...objectClean(options?.headers ?? {}),
+                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+                body: isFormData ? data : JSON.stringify(data),
+                signal: options?.signal,
+            })
         })
 
-        if (!response.ok) {
-            reportError('PATCH', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
-            if (Array.isArray(jsonData)) {
-                throw jsonData
-            }
-            throw { status: response.status, ...jsonData }
-        }
-        return await getJSONOrThrow(response)
+        return await getJSONOrNull(response)
     },
 
     async create(url: string, data?: any, options?: ApiMethodOptions): Promise<any> {
         const res = await api.createResponse(url, data, options)
-        return await getJSONOrThrow(res)
+        return await getJSONOrNull(res)
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                ...objectClean(options?.headers ?? {}),
-                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-            body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-            signal: options?.signal,
-        })
 
-        if (!response.ok) {
-            reportError('POST', url, response, startTime)
-            const jsonData = await getJSONOrThrow(response)
-            if (Array.isArray(jsonData)) {
-                throw jsonData
-            }
-            throw { status: response.status, ...jsonData }
-        }
-        return response
+        return await handleFetch(url, 'POST', () =>
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    ...objectClean(options?.headers ?? {}),
+                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                signal: options?.signal,
+            })
+        )
     },
 
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        const startTime = new Date().getTime()
-        const response = await fetch(url, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
-            },
-        })
-
-        if (!response.ok) {
-            reportError('DELETE', url, response, startTime)
-            const data = await getJSONOrThrow(response)
-            throw { status: response.status, ...data }
-        }
-        return response
+        return await handleFetch(url, 'DELETE', () =>
+            fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+            })
+        )
     },
 
     async loadPaginatedResults<T extends Record<string, any>>(
@@ -2157,10 +2197,36 @@ const api = {
     },
 }
 
-function reportError(method: string, url: string, response: Response, startTime: number): void {
-    const duration = new Date().getTime() - startTime
-    const pathname = new URL(url, location.origin).pathname
-    posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {
+    const startTime = new Date().getTime()
+
+    let response
+    let error
+    try {
+        response = await fetcher()
+    } catch (e) {
+        error = e
+    }
+
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
+
+    if (error || !response) {
+        if (error && (error as any).name === 'AbortError') {
+            throw error
+        }
+        throw new ApiError(error as any, response?.status)
+    }
+
+    if (!response.ok) {
+        const duration = new Date().getTime() - startTime
+        const pathname = new URL(url, location.origin).pathname
+        posthog.capture('client_request_failure', { pathname, method, duration, status: response.status })
+
+        const data = await getJSONOrNull(response)
+        throw new ApiError('Non-OK response', response.status, data)
+    }
+
+    return response
 }
 
 export default api

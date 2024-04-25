@@ -15,23 +15,31 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
     })),
 
     actions({
-        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+        openCorrelationDetailsModal: (payload: FunnelCorrelation) => ({ payload }),
+        closeCorrelationDetailsModal: true,
     }),
 
     reducers({
-        funnelCorrelationDetails: [
+        correlationDetailsModalOpen: [
+            false,
+            {
+                openCorrelationDetailsModal: () => true,
+                closeCorrelationDetailsModal: () => false,
+            },
+        ],
+        correlationDetails: [
             null as null | FunnelCorrelation,
             {
-                setFunnelCorrelationDetails: (_, { payload }) => payload,
+                openCorrelationDetailsModal: (_, { payload }) => payload,
             },
         ],
     }),
 
     selectors({
         correlationMatrixAndScore: [
-            (s) => [s.funnelCorrelationDetails, s.steps],
+            (s) => [s.correlationDetails, s.steps],
             (
-                funnelCorrelationDetails,
+                correlationDetails,
                 steps
             ): {
                 truePositive: number
@@ -41,7 +49,7 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
                 correlationScore: number
                 correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
             } => {
-                if (!funnelCorrelationDetails) {
+                if (!correlationDetails) {
                     return {
                         truePositive: 0,
                         falsePositive: 0,
@@ -54,8 +62,8 @@ export const funnelCorrelationDetailsLogic = kea<funnelCorrelationDetailsLogicTy
 
                 const successTotal = steps[steps.length - 1].count
                 const failureTotal = steps[0].count - successTotal
-                const success = funnelCorrelationDetails.success_count
-                const failure = funnelCorrelationDetails.failure_count
+                const success = correlationDetails.success_count
+                const failure = correlationDetails.failure_count
 
                 const truePositive = success // has property, converted
                 const falseNegative = failure // has property, but dropped off

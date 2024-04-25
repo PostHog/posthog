@@ -1,9 +1,11 @@
-import { IconCheckCircle, IconChevronDown, IconInfo, IconPlus } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconArticle, IconCheckCircleOutline, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -24,8 +26,6 @@ import { billingProductLogic } from './billingProductLogic'
 import { PlanComparisonModal } from './PlanComparison'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
-
-const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
 
 export const getTierDescription = (
     tiers: BillingV2TierType[],
@@ -97,7 +97,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
+                    <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
@@ -125,9 +125,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
-                        <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
-                        </Tooltip>
+                        <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
                     )}
                     {addon.subscribed ? (
                         <>
@@ -214,7 +212,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
-    const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
+    const { featureFlags } = useValues(featureFlagLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
     const downgradePlan = currentAndUpgradePlans?.downgradePlan
@@ -226,7 +224,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         : currentPlan?.features?.filter(
               (feature) =>
                   !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
-          )
+          ) || []
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -342,23 +340,22 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
         >
             <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
-                <div className="border-b border-border bg-mid p-4">
+                <div className="border-b border-border rounded-t bg-mid p-4">
                     <div className="flex gap-4 items-center justify-between">
-                        {getProductIcon(product.icon_key, 'text-2xl')}
+                        {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
                             <h3 className="font-bold mb-0">{product.name}</h3>
                             <div>{product.description}</div>
                         </div>
                         <div className="flex grow justify-end gap-x-2 items-center">
                             {product.docs_url && (
-                                <Tooltip title="Read the docs">
-                                    <LemonButton
-                                        icon={<IconArticle />}
-                                        size="small"
-                                        to={product.docs_url}
-                                        className="justify-end"
-                                    />
-                                </Tooltip>
+                                <LemonButton
+                                    icon={<IconDocument />}
+                                    size="small"
+                                    to={product.docs_url}
+                                    className="justify-end"
+                                    tooltip="Read the docs"
+                                />
                             )}
                             {product.contact_support ? (
                                 <>
@@ -417,12 +414,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     </div>
                 </div>
                 <div className="px-8">
-                    {product.percentage_usage > 1 ? (
-                        <LemonBanner type="error">
+                    {product.percentage_usage > 1 && (
+                        <LemonBanner className="mt-6" type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
-                    ) : null}
+                    )}
                     <div className="flex w-full items-center gap-x-8">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
@@ -513,7 +510,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 </div>
                                             ) : null}
                                         </>
-                                    ) : (
+                                    ) : product.current_amount_usd ? (
                                         <div className="my-8">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
@@ -528,7 +525,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 </div>
                                             </Tooltip>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </>
                             )
                         )}
@@ -589,28 +586,45 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons.map((addon, i) => {
-                                    return <BillingProductAddon key={i} addon={addon} />
-                                })}
+                                {product.addons
+                                    .filter((addon) => !addon.inclusion_only)
+                                    .map((addon, i) => {
+                                        return <BillingProductAddon key={i} addon={addon} />
+                                    })}
                             </div>
                         </div>
                     )}
                 </div>
-                {(showUpgradeCTA || (isOnboarding && !product.contact_support)) && (
+                {(upgradePlan ||
+                    (!upgradePlan && !product.current_amount_usd) ||
+                    (isOnboarding && !product.contact_support)) && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
-                            product.subscribed ? 'bg-success-highlight' : 'bg-warning-highlight'
+                            !upgradePlan ? 'bg-success-highlight' : 'bg-warning-highlight'
                         }`}
                     >
                         <div>
-                            <h4 className={`${product.subscribed ? 'text-success-dark' : 'text-warning-dark'}`}>
-                                You're on the {product.subscribed ? 'paid' : 'free'} plan for {product.name}.
-                            </h4>
+                            {currentPlan && (
+                                <h4 className={`${!upgradePlan ? 'text-success-dark' : 'text-warning-dark'}`}>
+                                    You're on the {currentPlan.name} plan for {product.name}.
+                                </h4>
+                            )}
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
                                     <p className="ml-0 max-w-200">
-                                        {product.subscribed ? 'You now' : 'Upgrade to'} get sweet features such as:
+                                        {!upgradePlan && product.subscribed
+                                            ? 'You now'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                            ? 'Subscribe to'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              !billing?.has_active_subscription
+                                            ? 'Add a credit card to'
+                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
+                                              billing?.has_active_subscription
+                                            ? 'Add paid plan'
+                                            : 'Upgrade to'}{' '}
+                                        get sweet features such as:
                                     </p>
                                     <div>
                                         {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
@@ -620,7 +634,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         className="flex gap-x-2 items-center mb-2"
                                                         key={'additional-features-' + product.type + i}
                                                     >
-                                                        <IconCheckCircleOutline className="text-success" />
+                                                        <IconCheckCircle className="text-success" />
                                                         <Tooltip key={feature.key} title={feature.description}>
                                                             <b>{feature.name} </b>
                                                         </Tooltip>
@@ -630,21 +644,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         })}
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
-                                                <IconCheckCircleOutline className="text-success" />
+                                                <IconCheckCircle className="text-success" />
                                                 <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>
                                         )}
                                         <div className="flex gap-x-2 items-center mb-2">
-                                            <IconCheckCircleOutline className="text-success" />
-                                            {product.subscribed ? (
-                                                <b>And more</b>
-                                            ) : (
-                                                <Link onClick={toggleIsPlanComparisonModalOpen}>
-                                                    <b>And more...</b>
-                                                </Link>
-                                            )}
+                                            <IconCheckCircle className="text-success" />
+                                            <Link onClick={() => toggleIsPlanComparisonModalOpen()}>
+                                                <b>And more...</b>
+                                            </Link>
                                         </div>
                                     </div>
                                 </>
@@ -653,47 +663,68 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     You've got access to all the features we offer for {product.name}.
                                 </p>
                             )}
-                            {upgradePlan?.tiers?.[0].unit_amount_usd &&
+                            {upgradePlan?.tiers?.[0]?.unit_amount_usd &&
                                 parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
                                     <p className="ml-0 mb-0 mt-4">
                                         <b>
                                             First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
                                             {product.unit}s free
                                         </b>
-                                        , then ${upgradePlan?.tiers?.[1]?.unit_amount_usd}/{product.unit} with volume
-                                        discounts.
+                                        , then just ${upgradePlan?.tiers?.[1]?.unit_amount_usd} per {product.unit} and{' '}
+                                        <Link onClick={() => toggleIsPlanComparisonModalOpen()}>volume discounts</Link>.
                                     </p>
                                 )}
                         </div>
-                        {!product.subscribed && (
+                        {upgradePlan && (
                             <div className="ml-4">
                                 <div className="flex flex-wrap gap-x-2 gap-y-2">
                                     <LemonButton
                                         type="secondary"
-                                        onClick={toggleIsPlanComparisonModalOpen}
+                                        onClick={() => toggleIsPlanComparisonModalOpen()}
                                         className="grow"
                                         center
                                     >
                                         Compare plans
                                     </LemonButton>
-                                    <LemonButton
-                                        to={getUpgradeProductLink(
-                                            product,
-                                            upgradeToPlanKey || '',
-                                            redirectPath,
-                                            isOnboarding // if in onboarding, we want to include addons, otherwise don't
-                                        )}
-                                        type="primary"
-                                        icon={<IconPlus />}
-                                        disableClientSideRouting
-                                        onClick={() => {
-                                            reportBillingUpgradeClicked(product.type)
-                                        }}
-                                        className="grow"
-                                        center
-                                    >
-                                        Upgrade
-                                    </LemonButton>
+                                    {upgradePlan.contact_support ? (
+                                        <LemonButton
+                                            type="primary"
+                                            to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
+                                        >
+                                            Get in touch
+                                        </LemonButton>
+                                    ) : (
+                                        upgradePlan.included_if !== 'has_subscription' &&
+                                        !upgradePlan.unit_amount_usd && (
+                                            <BillingUpgradeCTA
+                                                data-attr={`${product.type}-upgrade-cta`}
+                                                to={getUpgradeProductLink(
+                                                    product,
+                                                    upgradeToPlanKey || '',
+                                                    redirectPath,
+                                                    isOnboarding // if in onboarding, we want to include addons, otherwise don't
+                                                )}
+                                                type="primary"
+                                                icon={<IconPlus />}
+                                                disableClientSideRouting
+                                                onClick={() => {
+                                                    reportBillingUpgradeClicked(product.type)
+                                                }}
+                                                className="grow"
+                                                center
+                                            >
+                                                {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
+                                                    ? 'Subscribe'
+                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                          'credit_card' && !billing?.has_active_subscription
+                                                    ? 'Add credit card'
+                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
+                                                          'credit_card' && billing?.has_active_subscription
+                                                    ? 'Add paid plan'
+                                                    : 'Upgrade'}
+                                            </BillingUpgradeCTA>
+                                        )
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -701,7 +732,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             product={product}
                             includeAddons={isOnboarding}
                             modalOpen={isPlanComparisonModalOpen}
-                            onClose={toggleIsPlanComparisonModalOpen}
+                            onClose={() => toggleIsPlanComparisonModalOpen()}
                         />
                     </div>
                 )}

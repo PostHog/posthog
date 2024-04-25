@@ -1,7 +1,14 @@
 import equal from 'fast-deep-equal'
 import { getEventNamesForAction, isEmptyObject } from 'lib/utils'
 
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    DataWarehouseNode,
+    EventsNode,
+    InsightQueryNode,
+    TrendsQuery,
+} from '~/queries/schema'
 import {
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
@@ -59,7 +66,7 @@ export const getFormula = (query: InsightQueryNode): string | undefined => {
     }
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode)[] | undefined => {
+export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     } else {

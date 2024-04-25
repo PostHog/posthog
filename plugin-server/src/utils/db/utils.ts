@@ -8,7 +8,7 @@ import { KAFKA_PERSON } from '../../config/kafka-topics'
 import {
     BasePerson,
     ClickHousePerson,
-    Person,
+    InternalPerson,
     PluginLogEntryType,
     PluginLogLevel,
     RawPerson,
@@ -17,7 +17,7 @@ import {
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 
-export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
+export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
 }
 
@@ -75,12 +75,19 @@ const eventToPersonProperties = new Set([
     'utm_content',
     'utm_name',
     'utm_term',
-    'gclid',
-    'gad_source',
-    'gbraid',
-    'wbraid',
-    'fbclid',
-    'msclkid',
+    'gclid', // google ads
+    'gad_source', // google ads
+    'gclsrc', // google ads 360
+    'dclid', // google display ads
+    'gbraid', // google ads, web to app
+    'wbraid', // google ads, app to web
+    'fbclid', // facebook
+    'msclkid', // microsoft
+    'twclid', // twitter
+    'li_fat_id', // linkedin
+    'mc_cid', // mailchimp campaign id
+    'igshid', // instagram
+    'ttclid', // tiktok
 ])
 
 /** If we get new UTM params, make sure we set those  **/
@@ -101,15 +108,15 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     const maybeSet: [string, any][] = propertiesForPerson
 
     if (maybeSet.length > 0) {
-        propertiesCopy.$set = { ...(properties.$set || {}), ...Object.fromEntries(maybeSet) }
+        propertiesCopy.$set = { ...Object.fromEntries(maybeSet), ...(properties.$set || {}) }
     }
     if (maybeSetOnce.length > 0) {
-        propertiesCopy.$set_once = { ...(properties.$set_once || {}), ...Object.fromEntries(maybeSetOnce) }
+        propertiesCopy.$set_once = { ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }
     }
     return propertiesCopy
 }
 
-export function generateKafkaPersonUpdateMessage(person: Person, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
     return {
         topic: KAFKA_PERSON,
         messages: [

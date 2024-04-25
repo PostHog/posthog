@@ -24,7 +24,7 @@ describe('Insights', () => {
             insight.editName(insightName)
             insight.save()
             cy.visit(urls.savedInsights())
-            cy.contains('.row-name a', insightName).click()
+            cy.contains('.Link', insightName).click()
 
             cy.get('[data-attr="hogql-query-editor"]').should('not.exist')
             cy.get('tr.DataTable__row').should('have.length.gte', 2)

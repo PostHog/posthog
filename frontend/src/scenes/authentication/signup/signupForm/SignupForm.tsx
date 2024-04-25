@@ -1,6 +1,6 @@
+import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconArrowLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useEffect, useState } from 'react'
@@ -52,7 +52,13 @@ export function SignupForm(): JSX.Element | null {
                 <>
                     <SignupPanel2 />
                     <div className="flex justify-center">
-                        <LemonButton icon={<IconArrowLeft />} onClick={() => setPanel(panel - 1)} size="small" center>
+                        <LemonButton
+                            icon={<IconArrowLeft />}
+                            onClick={() => setPanel(panel - 1)}
+                            size="small"
+                            center
+                            data-attr="signup-go-back"
+                        >
                             or go back
                         </LemonButton>
                     </div>

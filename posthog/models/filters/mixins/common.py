@@ -2,7 +2,7 @@ import datetime
 import json
 import re
 from math import ceil
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
@@ -20,11 +20,10 @@ from posthog.constants import (
     BREAKDOWN_NORMALIZE_URL,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
-    BREAKDOWN_VALUES_LIMIT,
-    BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES,
     BREAKDOWNS,
     CLIENT_QUERY_ID,
     COMPARE,
+    DATA_WAREHOUSE_ENTITIES,
     DATE_FROM,
     DATE_TO,
     DISPLAY,
@@ -44,11 +43,13 @@ from posthog.constants import (
     SHOWN_AS,
     SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
     BREAKDOWN_HIDE_OTHER_AGGREGATION,
 )
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import (
@@ -141,7 +142,7 @@ class FormulaMixin(BaseParamMixin):
 
 class BreakdownMixin(BaseParamMixin):
     @cached_property
-    def breakdown(self) -> Optional[Union[str, List[Union[str, int]]]]:
+    def breakdown(self) -> Optional[Union[str, list[Union[str, int]]]]:
         breakdown = self._data.get(BREAKDOWN)
 
         if not isinstance(breakdown, str):
@@ -170,11 +171,11 @@ class BreakdownMixin(BaseParamMixin):
         return int(attribution_value) if attribution_value is not None else None
 
     @cached_property
-    def breakdowns(self) -> Optional[List[Dict[str, Any]]]:
+    def breakdowns(self) -> Optional[list[dict[str, Any]]]:
         breakdowns = self._data.get(BREAKDOWNS)
 
         try:
-            if isinstance(breakdowns, List):
+            if isinstance(breakdowns, list):
                 return breakdowns
             elif isinstance(breakdowns, str):
                 return json.loads(breakdowns)
@@ -225,7 +226,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @include_dict
     def breakdown_to_dict(self):
-        result: Dict = {}
+        result: dict = {}
         if self.breakdown:
             result[BREAKDOWN] = self.breakdown
         if self.breakdowns:
@@ -345,8 +346,8 @@ class CompareMixin(BaseParamMixin):
 
 
 class DateMixin(BaseParamMixin):
-    date_from_delta_mapping: Optional[Dict[str, int]]
-    date_to_delta_mapping: Optional[Dict[str, int]]
+    date_from_delta_mapping: Optional[dict[str, int]]
+    date_to_delta_mapping: Optional[dict[str, int]]
 
     @cached_property
     def _date_from(self) -> Optional[Union[str, datetime.datetime]]:
@@ -416,7 +417,7 @@ class DateMixin(BaseParamMixin):
         return process_bool(self._data.get(EXPLICIT_DATE))
 
     @include_dict
-    def date_to_dict(self) -> Dict:
+    def date_to_dict(self) -> dict:
         result_dict = {}
         if self._date_from:
             result_dict.update(
@@ -454,8 +455,8 @@ class DateMixin(BaseParamMixin):
 
 class EntitiesMixin(BaseParamMixin):
     @cached_property
-    def entities(self) -> List[Entity]:
-        processed_entities: List[Entity] = []
+    def entities(self) -> list[Entity]:
+        processed_entities: list[Entity] = []
         if self._data.get(ACTIONS):
             actions = self._data.get(ACTIONS, [])
             if isinstance(actions, str):
@@ -467,6 +468,14 @@ class EntitiesMixin(BaseParamMixin):
             if isinstance(events, str):
                 events = json.loads(events)
             processed_entities.extend([Entity({**entity, "type": TREND_FILTER_TYPE_EVENTS}) for entity in events])
+        if self._data.get(DATA_WAREHOUSE_ENTITIES):
+            data_warehouse_entities = self._data.get(DATA_WAREHOUSE_ENTITIES, [])
+            if isinstance(data_warehouse_entities, str):
+                data_warehouse_entities = json.loads(data_warehouse_entities)
+            processed_entities.extend(
+                [Entity({**entity, "type": TREND_FILTER_TYPE_DATA_WAREHOUSE}) for entity in data_warehouse_entities]
+            )
+
         processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
         # Set sequential index values on entities
         for index, entity in enumerate(processed_entities):
@@ -478,16 +487,20 @@ class EntitiesMixin(BaseParamMixin):
         return {"number_of_entities": len(self.entities)}
 
     @cached_property
-    def actions(self) -> List[Entity]:
+    def actions(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
 
     @cached_property
-    def events(self) -> List[Entity]:
+    def events(self) -> list[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_EVENTS]
 
     @cached_property
-    def exclusions(self) -> List[ExclusionEntity]:
-        _exclusions: List[ExclusionEntity] = []
+    def data_warehouse_entities(self) -> list[Entity]:
+        return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE]
+
+    @cached_property
+    def exclusions(self) -> list[ExclusionEntity]:
+        _exclusions: list[ExclusionEntity] = []
         if self._data.get(EXCLUSIONS):
             exclusion_list = self._data.get(EXCLUSIONS, [])
             if isinstance(exclusion_list, str):
@@ -507,7 +520,7 @@ class EntitiesMixin(BaseParamMixin):
 
     @include_query_tags
     def entities_query_tags(self):
-        return {"entity_math": list(set(entity.math for entity in self.entities if entity.math))}
+        return {"entity_math": list({entity.math for entity in self.entities if entity.math})}
 
 
 # These arguments are used to specify the target entity for insight actor retrieval on trend graphs

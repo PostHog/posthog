@@ -4,6 +4,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -26,6 +27,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -140,6 +142,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -162,6 +165,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -184,7 +188,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
-  LIMIT 21 /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.5
@@ -215,6 +219,6 @@
   FROM "posthog_earlyaccessfeature"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_earlyaccessfeature"."feature_flag_id" = "posthog_featureflag"."id")
   WHERE ("posthog_earlyaccessfeature"."stage" = 'beta'
-         AND "posthog_earlyaccessfeature"."team_id" = 2) /*controller='posthog.api.early_access_feature.early_access_features',route='%5Eapi/early_access_features/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+         AND "posthog_earlyaccessfeature"."team_id" = 2)
   '''
 # ---

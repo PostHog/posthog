@@ -1,14 +1,19 @@
 import datetime
 import json
+from functools import partial
+from typing import Optional
 import uuid
 
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
+from django.db import transaction
 
 from posthog import celery, redis
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import QueryStatus
 from posthog.tasks.tasks import process_query_task
@@ -69,20 +74,25 @@ class QueryStatusManager:
 
 
 def execute_process_query(
-    team_id,
-    query_id,
-    query_json,
-    limit_context,
-    refresh_requested,
+    team_id: int,
+    user_id: int,
+    query_id: str,
+    query_json: dict,
+    limit_context: Optional[LimitContext],
+    refresh_requested: bool,
 ):
     manager = QueryStatusManager(query_id, team_id)
 
-    from posthog.api.services.query import process_query
+    from posthog.api.services.query import process_query, ExecutionMode
     from posthog.models import Team
 
     team = Team.objects.get(pk=team_id)
 
     query_status = manager.get_query_status()
+
+    if query_status.complete or query_status.error:
+        return
+
     query_status.error = True  # Assume error in case nothing below ends up working
 
     pickup_time = datetime.datetime.now(datetime.timezone.utc)
@@ -91,9 +101,14 @@ def execute_process_query(
         QUERY_WAIT_TIME.observe(wait_duration)
 
     try:
-        tag_queries(client_query_id=query_id, team_id=team_id)
+        tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
         results = process_query(
-            team=team, query_json=query_json, limit_context=limit_context, refresh_requested=refresh_requested
+            team=team,
+            query_json=query_json,
+            limit_context=limit_context,
+            execution_mode=ExecutionMode.CALCULATION_ALWAYS
+            if refresh_requested
+            else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
         )
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
@@ -103,22 +118,48 @@ def execute_process_query(
         query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
         process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
         QUERY_PROCESS_TIME.observe(process_duration)
-    except Exception as err:
+    except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
         query_status.results = None  # Clear results in case they are faulty
         query_status.error_message = str(err)
+        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise err
+    except Exception as err:  # We cannot reveal anything about the error
+        query_status.results = None  # Clear results in case they are faulty
         logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
         raise err
     finally:
         manager.store_query_status(query_status)
 
 
+def kick_off_task(
+    manager: QueryStatusManager,
+    query_id: str,
+    query_json: dict,
+    query_status: QueryStatus,
+    refresh_requested: bool,
+    team_id: int,
+    user_id: int,
+):
+    task = process_query_task.delay(
+        team_id,
+        user_id,
+        query_id,
+        query_json,
+        limit_context=LimitContext.QUERY_ASYNC,
+        refresh_requested=refresh_requested,
+    )
+    query_status.task_id = task.id
+    manager.store_query_status(query_status)
+
+
 def enqueue_process_query_task(
-    team_id,
-    query_json,
-    query_id=None,
-    refresh_requested=False,
-    bypass_celery=False,
-    force=False,
+    team_id: int,
+    user_id: int,
+    query_json: dict,
+    query_id: Optional[str] = None,
+    refresh_requested: bool = False,
+    force: bool = False,
+    _test_only_bypass_celery: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -136,22 +177,24 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team_id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
-    if bypass_celery:
-        # Call directly ( for testing )
+    if _test_only_bypass_celery:
         process_query_task(
-            team_id, query_id, query_json, limit_context=LimitContext.QUERY_ASYNC, refresh_requested=refresh_requested
+            team_id,
+            user_id,
+            query_id,
+            query_json,
+            limit_context=LimitContext.QUERY_ASYNC,
+            refresh_requested=refresh_requested,
         )
     else:
-        task = process_query_task.delay(
-            team_id, query_id, query_json, limit_context=LimitContext.QUERY_ASYNC, refresh_requested=refresh_requested
+        transaction.on_commit(
+            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
         )
-        query_status.task_id = task.id
-        manager.store_query_status(query_status)
 
     return query_status
 
 
-def get_query_status(team_id, query_id):
+def get_query_status(team_id, query_id) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """

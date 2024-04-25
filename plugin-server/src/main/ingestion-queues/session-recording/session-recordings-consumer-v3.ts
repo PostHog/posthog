@@ -8,9 +8,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { sessionRecordingConsumerConfig } from '../../../config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
+import { createKafkaProducer } from '../../../kafka/producer'
 import { PluginsServerConfig, TeamId } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
+import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { status } from '../../../utils/status'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
@@ -18,6 +20,8 @@ import { expressApp } from '../../services/http-server'
 import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
+import { ConsoleLogsIngester } from './services/console-logs-ingester'
+import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, BUFFER_FILE_NAME, SessionManagerV3 } from './services/session-manager-v3'
 import { IncomingRecordingMessage } from './types'
 import { allSettledWithConcurrency, parseKafkaMessage, reduceRecordingMessages } from './utils'
@@ -40,7 +44,7 @@ const gaugeSessionsHandled = new Gauge({
 const histogramKafkaBatchSize = new Histogram({
     name: metricPrefix + 'recording_blob_ingestion_kafka_batch_size',
     help: 'The size of the batches we are receiving from Kafka',
-    buckets: [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 600, Infinity],
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
 })
 
 const histogramKafkaBatchSizeKb = new Histogram({
@@ -61,26 +65,30 @@ export interface TeamIDWithConfig {
 }
 
 /**
+ * @deprecated Delete reduceRecordingMessages and associated tests when deleting this.
+ *
  * The SessionRecordingIngesterV3
  * relies on EFS network storage to avoid the need to delay kafka commits and instead uses the disk
  * as the persistent volume for both blob data and the metadata around ingestion.
  */
 export class SessionRecordingIngesterV3 {
     sessions: Record<string, SessionManagerV3> = {}
-    // replayEventsIngester: ReplayEventsIngester
-    // consoleLogsIngester: ConsoleLogsIngester
+    replayEventsIngester?: ReplayEventsIngester
+    consoleLogsIngester?: ConsoleLogsIngester
     batchConsumer?: BatchConsumer
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     config: PluginsServerConfig
     topic = KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+    isStopping = false
 
     private promises: Set<Promise<any>> = new Set()
     // if ingestion is lagging on a single partition it is often hard to identify _why_,
     // this allows us to output more information for that partition
     private debugPartition: number | undefined = undefined
+    private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined
 
     constructor(
-        globalServerConfig: PluginsServerConfig,
+        private globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
@@ -91,11 +99,6 @@ export class SessionRecordingIngesterV3 {
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
-
-        // NOTE: This is the only place where we need to use the shared server config
-        // TODO: Uncomment when we swap to using this service as the ingester for it
-        // this.replayEventsIngester = new ReplayEventsIngester(globalServerConfig, this.persistentHighWaterMarker)
-        // this.consoleLogsIngester = new ConsoleLogsIngester(globalServerConfig, this.persistentHighWaterMarker)
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
@@ -137,7 +140,9 @@ export class SessionRecordingIngesterV3 {
          * That way when shutting down we can wait for all promises to finish before exiting.
          */
         this.promises.add(promise)
-        promise.finally(() => this.promises.delete(promise))
+
+        // we void the promise returned by finally here to avoid the need to await it
+        void promise.finally(() => this.promises.delete(promise))
 
         return promise
     }
@@ -146,13 +151,10 @@ export class SessionRecordingIngesterV3 {
         const { team_id, session_id } = event
         const key = `${team_id}__${session_id}`
 
-        const { offset, partition } = event.metadata
+        const { partition } = event.metadata
         if (this.debugPartition === partition) {
             status.info('🔁', '[session-replay-ingestion] - [PARTITION DEBUG] - consuming event', {
-                team_id,
-                session_id,
-                partition,
-                offset,
+                ...event.metadata,
             })
         }
 
@@ -194,11 +196,15 @@ export class SessionRecordingIngesterV3 {
                         for (const message of messages) {
                             counterKafkaMessageReceived.inc({ partition: message.partition })
 
-                            const recordingMessage = await parseKafkaMessage(message, (token) =>
-                                this.teamsRefresher.get().then((teams) => ({
-                                    teamId: teams[token]?.teamId || null,
-                                    consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
-                                }))
+                            const recordingMessage = await parseKafkaMessage(
+                                message,
+                                (token) =>
+                                    this.teamsRefresher.get().then((teams) => ({
+                                        teamId: teams[token]?.teamId || null,
+                                        consoleLogIngestionEnabled: teams[token]?.consoleLogIngestionEnabled ?? true,
+                                    })),
+                                // v3 consumer does not emit ingestion warnings
+                                undefined
                             )
 
                             if (recordingMessage) {
@@ -244,19 +250,23 @@ export class SessionRecordingIngesterV3 {
                     },
                 })
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
-                //     func: async () => {
-                //         await this.replayEventsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.replayEventsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeReplayEvents`,
+                        func: async () => {
+                            await this.replayEventsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
 
-                // await runInstrumentedFunction({
-                //     statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
-                //     func: async () => {
-                //         await this.consoleLogsIngester.consumeBatch(recordingMessages)
-                //     },
-                // })
+                if (this.consoleLogsIngester) {
+                    await runInstrumentedFunction({
+                        statsKey: `recordingingester.handleEachBatch.consumeConsoleLogEvents`,
+                        func: async () => {
+                            await this.consoleLogsIngester!.consumeBatch(recordingMessages)
+                        },
+                    })
+                }
             },
         })
     }
@@ -271,16 +281,31 @@ export class SessionRecordingIngesterV3 {
 
         // Load teams into memory
         await this.teamsRefresher.refresh()
-        // await this.replayEventsIngester.start()
-        // await this.consoleLogsIngester.start()
 
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.config)
+        // NOTE: This is the only place where we need to use the shared server config
+        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.globalServerConfig)
+        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.globalServerConfig)
+
+        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
+            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
+        )
+        this.sharedClusterProducerWrapper.producer.connect()
+
+        // NOTE: This is the only place where we need to use the shared server config
+        if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
+            this.consoleLogsIngester = new ConsoleLogsIngester(this.sharedClusterProducerWrapper.producer)
+        }
+
+        if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
+            this.replayEventsIngester = new ReplayEventsIngester(this.sharedClusterProducerWrapper.producer)
+        }
 
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
-
+        // the batch consumer reads from the session replay kafka cluster
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
         this.batchConsumer = await startBatchConsumer({
-            connectionConfig,
+            connectionConfig: replayClusterConnectionConfig,
             groupId: KAFKA_CONSUMER_GROUP_ID,
             topic: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
             autoCommit: true, // NOTE: This is the crucial difference between this and the other consumer
@@ -316,6 +341,7 @@ export class SessionRecordingIngesterV3 {
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
+        this.isStopping = true
         status.info('🔁', 'session-replay-ingestion - stopping')
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
@@ -329,10 +355,11 @@ export class SessionRecordingIngesterV3 {
             )
         )
 
-        // void this.scheduleWork(this.replayEventsIngester.stop())
-        // void this.scheduleWork(this.consoleLogsIngester.stop())
-
         const promiseResults = await Promise.allSettled(this.promises)
+
+        if (this.sharedClusterProducerWrapper) {
+            await this.sharedClusterProducerWrapper.disconnect()
+        }
 
         status.info('👍', 'session-replay-ingestion - stopped!')
 
@@ -351,8 +378,13 @@ export class SessionRecordingIngesterV3 {
         await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
-            async ([key, sessionManager]) => {
+            async ([key, sessionManager], ctx) => {
                 heartbeat()
+
+                if (this.isStopping) {
+                    // We can end up with a large number of flushes. We want to stop early if we hit shutdown
+                    return ctx.break()
+                }
 
                 if (!this.assignedPartitions.includes(sessionManager.context.partition)) {
                     await this.destroySession(key, sessionManager)
@@ -405,6 +437,11 @@ export class SessionRecordingIngesterV3 {
                 // TODO: Ensure sessionId can only be a uuid
                 const [teamId, sessionId] = key.split('__')
 
+                if (this.isStopping) {
+                    // We can end up with a large number of files we are processing. We want to stop early if we hit shutdown
+                    return
+                }
+
                 if (!this.assignedPartitions.includes(partition)) {
                     // Account for rebalances
                     continue
@@ -431,55 +468,58 @@ export class SessionRecordingIngesterV3 {
     }
 
     private setupHttpRoutes() {
-        // Mimic the app sever's endpoint
-        expressApp.get('/api/projects/:projectId/session_recordings/:sessionId/snapshots', async (req, res) => {
-            await runInstrumentedFunction({
-                statsKey: `recordingingester.http.getSnapshots`,
-                func: async () => {
-                    try {
-                        const startTime = Date.now()
-                        res.on('finish', function () {
-                            status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
-                        })
+        // Mimic the app server's endpoint
+        expressApp.get(
+            '/api/projects/:projectId/session_recordings/:sessionId/snapshots',
+            async (req: any, res: any) => {
+                await runInstrumentedFunction({
+                    statsKey: `recordingingester.http.getSnapshots`,
+                    func: async () => {
+                        try {
+                            const startTime = Date.now()
+                            res.on('finish', function () {
+                                status.info('⚡️', `GET ${req.url} - ${res.statusCode} - ${Date.now() - startTime}ms`)
+                            })
 
-                        // validate that projectId is a number and sessionId is UUID like
-                        const projectId = parseInt(req.params.projectId)
-                        if (isNaN(projectId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        const sessionId = req.params.sessionId
-                        if (!/^[0-9a-f-]+$/.test(sessionId)) {
-                            res.sendStatus(404)
-                            return
-                        }
-
-                        status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
-
-                        // We don't know the partition upfront so we have to recursively check all partitions
-                        const partitions = await readdir(this.rootDir).catch(() => [])
-
-                        for (const partition of partitions) {
-                            const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
-                            const exists = await stat(sessionDir).catch(() => null)
-
-                            if (!exists) {
-                                continue
+                            // validate that projectId is a number and sessionId is UUID like
+                            const projectId = parseInt(req.params.projectId)
+                            if (isNaN(projectId)) {
+                                res.sendStatus(404)
+                                return
                             }
 
-                            const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
-                            fileStream.pipe(res)
-                            return
-                        }
+                            const sessionId = req.params.sessionId
+                            if (!/^[0-9a-f-]+$/.test(sessionId)) {
+                                res.sendStatus(404)
+                                return
+                            }
 
-                        res.sendStatus(404)
-                    } catch (e) {
-                        status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
-                        res.sendStatus(500)
-                    }
-                },
-            })
-        })
+                            status.info('🔁', 'session-replay-ingestion - fetching session', { projectId, sessionId })
+
+                            // We don't know the partition upfront so we have to recursively check all partitions
+                            const partitions = await readdir(this.rootDir).catch(() => [])
+
+                            for (const partition of partitions) {
+                                const sessionDir = this.dirForSession(parseInt(partition), projectId, sessionId)
+                                const exists = await stat(sessionDir).catch(() => null)
+
+                                if (!exists) {
+                                    continue
+                                }
+
+                                const fileStream = createReadStream(path.join(sessionDir, BUFFER_FILE_NAME))
+                                fileStream.pipe(res)
+                                return
+                            }
+
+                            res.sendStatus(404)
+                        } catch (e) {
+                            status.error('🔥', 'session-replay-ingestion - failed to fetch session', e)
+                            res.sendStatus(500)
+                        }
+                    },
+                })
+            }
+        )
     }
 }

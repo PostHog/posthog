@@ -100,12 +100,21 @@ export function ProjectNotice(): JSX.Element | null {
             type: 'warning',
         },
         is_impersonated: {
-            message: 'You are currently impersonating another user.',
+            message: 'You are currently logged in as a customer.',
             type: 'warning',
             action: {
                 'data-attr': 'stop-impersonation-cta',
                 onClick: () => logout(),
                 children: 'Log out',
+            },
+        },
+        internet_connection_issue: {
+            message: 'PostHog is having trouble connecting to the server. Please check your connection.',
+            type: 'warning',
+            action: {
+                'data-attr': 'reload-page',
+                onClick: () => window.location.reload(),
+                children: 'Reload page',
             },
         },
     }

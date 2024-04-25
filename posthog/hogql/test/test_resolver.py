@@ -1,5 +1,5 @@
 from datetime import timezone, datetime, date
-from typing import Optional, Dict, cast
+from typing import Optional, cast
 import pytest
 from django.test import override_settings
 from uuid import UUID
@@ -10,23 +10,25 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    ExpressionField,
     FieldTraverser,
     StringJSONDatabaseField,
     StringDatabaseField,
     DateTimeDatabaseField,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
-from posthog.hogql.resolver import ResolverException, resolve_types
+from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
     maxDiff = None
 
-    def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.SelectQuery:
+    def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
@@ -53,7 +55,7 @@ class TestResolver(BaseTest):
     def test_will_not_run_twice(self):
         expr = self._select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
         expr = resolve_types(expr, self.context, dialect="clickhouse")
-        with self.assertRaises(ResolverException) as context:
+        with self.assertRaises(ResolutionError) as context:
             expr = resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(
             str(context.exception),
@@ -83,7 +85,7 @@ class TestResolver(BaseTest):
         expr = self._select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             expr = resolve_types(expr, self.context, dialect="clickhouse")
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
@@ -119,7 +121,7 @@ class TestResolver(BaseTest):
             "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
         ]
         for query in queries:
-            with self.assertRaises(ResolverException) as e:
+            with self.assertRaises(QueryError) as e:
                 resolve_types(self._select(query), self.context, dialect="clickhouse")
             self.assertIn("Unable to resolve field:", str(e.exception))
 
@@ -172,7 +174,7 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     def test_ctes_loop(self):
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             self._print_hogql("with cte as (select * from cte) select * from cte")
         self.assertIn("Too many CTE expansions (50+). Probably a CTE loop.", str(e.exception))
 
@@ -188,7 +190,7 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             self._print_hogql("with properties as cte select cte.$browser from events")
         self.assertIn("Cannot access fields on CTE cte yet", str(e.exception))
 
@@ -230,6 +232,14 @@ class TestResolver(BaseTest):
             ),
         )
 
+    def test_ctes_with_aliases(self):
+        self.assertEqual(
+            self._print_hogql(
+                "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
+            ),
+            self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
+        )
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):
@@ -253,6 +263,15 @@ class TestResolver(BaseTest):
         assert pretty_dataclasses(node) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_hidden_field(self):
+        self.database.events.fields["hidden_field"] = ExpressionField(
+            name="hidden_field", hidden=True, expr=ast.Field(chain=["event"])
+        )
+        node = self._select("select * from events")
+        node = resolve_types(node, self.context, dialect="clickhouse")
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_subquery_alias(self):
         node = self._select("select x.* from (select 1 as a, 2 as b) x")
         node = resolve_types(node, self.context, dialect="clickhouse")
@@ -268,7 +287,7 @@ class TestResolver(BaseTest):
 
     def test_asterisk_expander_multiple_table_error(self):
         node = self._select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
-        with self.assertRaises(ResolverException) as e:
+        with self.assertRaises(QueryError) as e:
             resolve_types(node, self.context, dialect="clickhouse")
         self.assertEqual(
             str(e.exception),
@@ -307,16 +326,16 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
-        assert cast(ast.FieldType, node.select[0].type).resolve_database_field() == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
             name="event", array=None, nullable=None
         )
-        assert cast(ast.FieldType, node.select[1].type).resolve_database_field() == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
             name="person_id", array=None, nullable=None
         )
-        assert cast(ast.FieldType, node.select[2].type).resolve_database_field() == StringJSONDatabaseField(
+        assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
             name="person_properties"
         )
-        assert cast(ast.FieldType, node.select[3].type).resolve_database_field() == DateTimeDatabaseField(
+        assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
             name="created_at", array=None, nullable=None
         )
 
@@ -349,10 +368,12 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="hogql"))
         hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
         expected = (
-            f"SELECT id, email FROM "
-            f"(SELECT id, properties.email AS email FROM persons INNER JOIN "
-            f"(SELECT DISTINCT person_id FROM events) "
-            f"AS source ON equals(persons.id, source.person_id) ORDER BY id ASC) "
-            f"LIMIT 10000"
+            "SELECT id, email FROM "
+            "(SELECT id, properties.email AS email FROM "
+            "(SELECT DISTINCT person_id FROM events) "
+            "AS source INNER JOIN "
+            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "LIMIT 10000"
         )
+
         assert hogql == expected

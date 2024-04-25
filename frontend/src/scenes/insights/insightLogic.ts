@@ -479,7 +479,7 @@ export const insightLogic = kea<insightLogicType>([
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
                 if (insight.query) {
-                    return { ...queryExportContext(insight.query), filename }
+                    return { ...queryExportContext(insight.query, undefined, undefined, false), filename }
                 } else {
                     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
                         return {

@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.1
@@ -35,6 +35,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -57,6 +58,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -86,7 +88,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.2
@@ -106,17 +108,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.3
@@ -127,7 +131,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.4
@@ -138,6 +142,6 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:HEATMAP_SAMPLE_N'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  LIMIT 1
   '''
 # ---

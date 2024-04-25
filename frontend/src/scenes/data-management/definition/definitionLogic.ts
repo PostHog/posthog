@@ -16,11 +16,6 @@ import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
 import type { definitionLogicType } from './definitionLogicType'
 
-export enum DefinitionPageMode {
-    View = 'view',
-    Edit = 'edit',
-}
-
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
@@ -42,18 +37,11 @@ export const definitionLogic = kea<definitionLogicType>([
         setDefinition: (definition: Partial<Definition>, options: SetDefinitionProps = {}) => ({ definition, options }),
         loadDefinition: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
-        setPageMode: (mode: DefinitionPageMode) => ({ mode }),
     }),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
     })),
     reducers(() => ({
-        mode: [
-            DefinitionPageMode.View as DefinitionPageMode,
-            {
-                setPageMode: (_, { mode }) => mode,
-            },
-        ],
         definitionMissing: [
             false,
             {

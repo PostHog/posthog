@@ -75,7 +75,6 @@ class Command(BaseCommand):
                         options["property_table"],
                         options["table_column"],
                         options["property"],
-                        0,
                     )
                 ],
                 backfill_period_days=options["backfill_period"],

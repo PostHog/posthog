@@ -1,4 +1,7 @@
 # serializer version: 1
+# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
+  'SELECT 1'
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",
@@ -27,7 +30,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.1
@@ -35,6 +38,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -57,6 +61,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -86,7 +91,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.10
@@ -122,17 +127,19 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
          "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
          "posthog_organization"."setup_section_2_completed",
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
@@ -140,7 +147,7 @@
   SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
@@ -151,7 +158,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
@@ -162,7 +169,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
@@ -173,7 +180,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
@@ -282,6 +289,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -304,6 +312,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -443,6 +452,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -465,6 +475,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -546,9 +557,9 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.4
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
@@ -582,9 +593,9 @@
 # ---
 # name: TestDecide.test_flag_with_regular_cohorts.6
   '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
@@ -597,6 +608,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
          "posthog_team"."name",
@@ -619,6 +631,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",

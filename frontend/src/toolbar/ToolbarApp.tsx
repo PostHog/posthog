@@ -8,6 +8,8 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { ToolbarProps } from '~/types'
 
+import { TOOLBAR_ID } from './utils'
+
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
 
 export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
@@ -33,14 +35,14 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   styleLink.href = `${jsURL}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
                   styleLink.onload = () => setDidLoadStyles(true)
                   const shadowRoot =
-                      shadowRef.current?.shadowRoot || window.document.getElementById('__POSTHOG_TOOLBAR__')?.shadowRoot
+                      shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot
                   shadowRoot?.getElementById('posthog-toolbar-styles')?.appendChild(styleLink)
               }
     )
 
     return (
         <>
-            <root.div id="__POSTHOG_TOOLBAR__" className="ph-no-capture" ref={shadowRef}>
+            <root.div id={TOOLBAR_ID} className="ph-no-capture" ref={shadowRef}>
                 <div id="posthog-toolbar-styles" />
                 {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
                 <ToastContainer

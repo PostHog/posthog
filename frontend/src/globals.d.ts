@@ -6,6 +6,7 @@ declare global {
     interface Window {
         JS_POSTHOG_API_KEY?: string
         JS_POSTHOG_HOST?: string
+        JS_POSTHOG_UI_HOST?: string
         JS_POSTHOG_SELF_CAPTURE?: boolean
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         JS_KEA_VERBOSE_LOGGING?: boolean

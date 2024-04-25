@@ -31,14 +31,14 @@ export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
     paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
-        id: id ? parseInt(id) : undefined,
+        id: parseInt(id as string),
         placement,
     }),
 }
 
 export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
             <DashboardScene />
         </BindLogic>
     )
@@ -96,7 +96,7 @@ function DashboardScene(): JSX.Element {
         [setDashboardMode, dashboardMode, placement]
     )
 
-    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
+    if (!dashboard && !itemsLoading && !receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 

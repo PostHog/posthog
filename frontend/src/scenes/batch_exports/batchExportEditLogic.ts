@@ -8,12 +8,13 @@ import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportDestination,
-    BatchExportDestinationBigQuery,
-    BatchExportDestinationPostgres,
-    BatchExportDestinationRedshift,
-    BatchExportDestinationS3,
-    BatchExportDestinationSnowflake,
+    BatchExportService,
+    BatchExportServiceBigQuery,
+    BatchExportServiceHTTP,
+    BatchExportServicePostgres,
+    BatchExportServiceRedshift,
+    BatchExportServiceS3,
+    BatchExportServiceSnowflake,
     Breadcrumb,
 } from '~/types'
 
@@ -28,12 +29,13 @@ export type BatchExportConfigurationForm = Omit<
     BatchExportConfiguration,
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
-    Partial<BatchExportDestinationPostgres['config']> &
-    Partial<BatchExportDestinationRedshift['config']> &
-    Partial<BatchExportDestinationBigQuery['config']> &
-    Partial<BatchExportDestinationS3['config']> &
-    Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
+    Partial<BatchExportServicePostgres['config']> &
+    Partial<BatchExportServiceRedshift['config']> &
+    Partial<BatchExportServiceBigQuery['config']> &
+    Partial<BatchExportServiceS3['config']> &
+    Partial<BatchExportServiceSnowflake['config']> &
+    Partial<BatchExportServiceHTTP['config']> & {
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'HTTP'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null
@@ -88,9 +90,11 @@ export const batchExportFormFields = (
                   aws_secret_access_key: isNew ? (!config.aws_secret_access_key ? 'This field is required' : '') : '',
                   compression: '',
                   encryption: '',
+                  file_format: isNew ? (!config.file_format ? 'This field is required' : '') : '',
                   kms_key_id: !config.kms_key_id && config.encryption == 'aws:kms' ? 'This field is required' : '',
                   exclude_events: '',
                   include_events: '',
+                  endpoint_url: null,
               }
             : destination === 'BigQuery'
             ? {
@@ -110,6 +114,13 @@ export const batchExportFormFields = (
                   exclude_events: '',
                   include_events: '',
                   use_json_type: '',
+              }
+            : destination === 'HTTP'
+            ? {
+                  url: !config.url ? 'This field is required' : '',
+                  token: !config.token ? 'This field is required' : '',
+                  exclude_events: '',
+                  include_events: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -148,31 +159,36 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             } as BatchExportConfigurationForm,
             errors: (form) => batchExportFormFields(props.id === 'new', form),
             submit: async ({ name, destination, interval, start_at, end_at, paused, ...config }) => {
-                const destinationObject: BatchExportDestination =
+                const destinationObject: BatchExportService =
                     destination === 'Postgres'
                         ? ({
                               type: 'Postgres',
                               config: config,
-                          } as unknown as BatchExportDestinationPostgres)
+                          } as unknown as BatchExportServicePostgres)
                         : destination === 'S3'
                         ? ({
                               type: 'S3',
                               config: config,
-                          } as unknown as BatchExportDestinationS3)
+                          } as unknown as BatchExportServiceS3)
                         : destination === 'Redshift'
                         ? ({
                               type: 'Redshift',
                               config: config,
-                          } as unknown as BatchExportDestinationRedshift)
+                          } as unknown as BatchExportServiceRedshift)
                         : destination === 'BigQuery'
                         ? ({
                               type: 'BigQuery',
                               config: config,
-                          } as unknown as BatchExportDestinationBigQuery)
+                          } as unknown as BatchExportServiceBigQuery)
+                        : destination === 'HTTP'
+                        ? ({
+                              type: 'HTTP',
+                              config: config,
+                          } as unknown as BatchExportServiceHTTP)
                         : ({
                               type: 'Snowflake',
                               config: config,
-                          } as unknown as BatchExportDestinationSnowflake)
+                          } as unknown as BatchExportServiceSnowflake)
 
                 const data: Omit<BatchExportConfiguration, 'id' | 'created_at' | 'team_id'> = {
                     paused,

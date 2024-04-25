@@ -1,10 +1,10 @@
 from abc import ABC
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 import uuid
 from posthog.clickhouse.materialized_columns.column import ColumnName
-from posthog.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.hogql import ast
+from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -24,6 +24,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
     BreakdownType,
+    DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelTimeToConvertResults,
@@ -36,14 +37,14 @@ from rest_framework.exceptions import ValidationError
 class FunnelBase(ABC):
     context: FunnelQueryContext
 
-    _extra_event_fields: List[ColumnName]
-    _extra_event_properties: List[PropertyName]
+    _extra_event_fields: list[ColumnName]
+    _extra_event_properties: list[PropertyName]
 
     def __init__(self, context: FunnelQueryContext):
         self.context = context
 
-        self._extra_event_fields: List[ColumnName] = []
-        self._extra_event_properties: List[PropertyName] = []
+        self._extra_event_fields: list[ColumnName] = []
+        self._extra_event_properties: list[PropertyName] = []
 
         if (
             hasattr(self.context, "actorsQuery")
@@ -52,6 +53,28 @@ class FunnelBase(ABC):
         ):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
+
+        # validate exclusions
+        if self.context.funnelsFilter.exclusions is not None:
+            for exclusion in self.context.funnelsFilter.exclusions:
+                if exclusion.funnelFromStep >= exclusion.funnelToStep:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range should be greater than start."
+                    )
+
+                if exclusion.funnelFromStep >= len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. Start of range is greater than number of steps."
+                    )
+
+                if exclusion.funnelToStep > len(self.context.query.series) - 1:
+                    raise ValidationError(
+                        "Exclusion event range is invalid. End of range is greater than number of steps."
+                    )
+
+                for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
+                    if is_equal(entity, exclusion) or is_superset(entity, exclusion):
+                        raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
@@ -63,7 +86,7 @@ class FunnelBase(ABC):
         raise NotImplementedError()
 
     @cached_property
-    def breakdown_cohorts(self) -> List[Cohort]:
+    def breakdown_cohorts(self) -> list[Cohort]:
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
@@ -74,7 +97,7 @@ class FunnelBase(ABC):
         return list(cohorts)
 
     @cached_property
-    def breakdown_cohorts_ids(self) -> List[int]:
+    def breakdown_cohorts_ids(self) -> list[int]:
         breakdown = self.context.breakdown
 
         ids = [int(cohort.pk) for cohort in self.breakdown_cohorts]
@@ -85,7 +108,7 @@ class FunnelBase(ABC):
         return ids
 
     @cached_property
-    def breakdown_values(self) -> List[int] | List[str] | List[List[str]]:
+    def breakdown_values(self) -> list[int] | list[str] | list[list[str]]:
         # """
         # Returns the top N breakdown prop values for event/person breakdown
 
@@ -119,7 +142,9 @@ class FunnelBase(ABC):
         else:
             # get query params
             breakdown_expr = self._get_breakdown_expr()
-            breakdown_limit_or_default = breakdownFilter.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+            breakdown_limit_or_default = breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
+                self.context.limit_context
+            )
             offset = 0
 
             funnel_event_query = FunnelEventQuery(context=self.context)
@@ -144,7 +169,7 @@ class FunnelBase(ABC):
                 else:
                     prop_exprs = []
 
-            where_exprs: List[ast.Expr | None] = [
+            where_exprs: list[ast.Expr | None] = [
                 # entity filter
                 entity_expr,
                 # prop filter
@@ -184,7 +209,7 @@ class FunnelBase(ABC):
                 raise ValidationError("Apologies, there has been an error computing breakdown values.")
             return [row[0] for row in results[0:breakdown_limit_or_default]]
 
-    def _get_breakdown_select_prop(self) -> List[ast.Expr]:
+    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
             self.context.breakdownAttributionType,
@@ -246,6 +271,8 @@ class FunnelBase(ABC):
             self.context.breakdownFilter,
         )
 
+        assert breakdown is not None
+
         if breakdownType == "person":
             properties_column = "person.properties"
             return get_breakdown_expr(breakdown, properties_column)
@@ -259,16 +286,17 @@ class FunnelBase(ABC):
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql":
+            assert isinstance(breakdown, list)
             return ast.Alias(
                 alias="value",
-                expr=parse_expr(str(breakdown)),
+                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
     def _format_results(
         self, results
-    ) -> Union[FunnelTimeToConvertResults, List[Dict[str, Any]], List[List[Dict[str, Any]]]]:
+    ) -> Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]:
         breakdown = self.context.breakdown
 
         if not results or len(results) == 0:
@@ -356,26 +384,33 @@ class FunnelBase(ABC):
 
     def _serialize_step(
         self,
-        step: ActionsNode | EventsNode,
+        step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[List[uuid.UUID]] = None,
+        people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
+        action_id: Optional[str | int]
         if isinstance(step, EventsNode):
             name = step.event
+            action_id = step.event
+            type = "events"
+        elif isinstance(step, DataWarehouseNode):
+            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
         else:
             action = Action.objects.get(pk=step.id)
             name = action.name
+            action_id = step.id
+            type = "actions"
 
         return {
-            "action_id": step.event if isinstance(step, EventsNode) else step.id,
+            "action_id": action_id,
             "name": name,
             "custom_name": step.custom_name,
             "order": index,
             "people": people if people else [],
             "count": correct_result_for_sampling(count, sampling_factor),
-            "type": "events" if isinstance(step, EventsNode) else "actions",
+            "type": type,
         }
 
     @property
@@ -384,7 +419,7 @@ class FunnelBase(ABC):
 
     def _get_inner_event_query(
         self,
-        entities: List[EntityNode] | None = None,
+        entities: list[EntityNode] | None = None,
         entity_name="events",
         skip_entity_filter=False,
         skip_step_filter=False,
@@ -398,10 +433,10 @@ class FunnelBase(ABC):
         )
         entities_to_use = entities or query.series
 
-        extra_fields: List[str] = []
+        extra_fields: list[str] = []
 
-        # for prop in self._include_properties:
-        #     extra_fields.append(prop)
+        for prop in self.context.includeProperties:
+            extra_fields.append(prop)
 
         funnel_events_query = FunnelEventQuery(
             context=self.context,
@@ -415,13 +450,15 @@ class FunnelBase(ABC):
         #     extra_event_properties=self._extra_event_properties,
         # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
-        all_step_cols: List[ast.Expr] = []
+        all_step_cols: list[ast.Expr] = []
         for index, entity in enumerate(entities_to_use):
             step_cols = self._get_step_col(entity, index, entity_name)
             all_step_cols.extend(step_cols)
 
-        for exclusion_id, entity in enumerate(funnelsFilter.exclusions or []):
-            step_cols = self._get_step_col(entity, entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_")
+        for exclusion_id, excluded_entity in enumerate(funnelsFilter.exclusions or []):
+            step_cols = self._get_step_col(
+                excluded_entity, excluded_entity.funnelFromStep, entity_name, f"exclusion_{exclusion_id}_"
+            )
             # every exclusion entity has the form: exclusion_<id>_step_i & timestamp exclusion_<id>_latest_i
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
@@ -452,7 +489,7 @@ class FunnelBase(ABC):
     def _get_cohort_breakdown_join(self) -> ast.JoinExpr:
         breakdown = self.context.breakdown
 
-        cohort_queries: List[ast.SelectQuery] = []
+        cohort_queries: list[ast.SelectQuery] = []
 
         for cohort in self.breakdown_cohorts:
             query = parse_select(
@@ -496,6 +533,7 @@ class FunnelBase(ABC):
             # so just select that. Except for the empty case, where we select the default.
 
             if self._query_has_array_breakdown():
+                assert isinstance(breakdown, list)
                 default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = parse_expr(
@@ -526,7 +564,7 @@ class FunnelBase(ABC):
         return query
 
     def _get_steps_conditions(self, length: int) -> ast.Expr:
-        step_conditions: List[ast.Expr] = []
+        step_conditions: list[ast.Expr] = []
 
         for index in range(length):
             step_conditions.append(parse_expr(f"step_{index} = 1"))
@@ -542,10 +580,10 @@ class FunnelBase(ABC):
         index: int,
         entity_name: str,
         step_prefix: str = "",
-    ) -> List[ast.Expr]:
+    ) -> list[ast.Expr]:
         # step prefix is used to distinguish actual steps, and exclusion steps
         # without the prefix, we get the same parameter binding for both, which borks things up
-        step_cols: List[ast.Expr] = []
+        step_cols: list[ast.Expr] = []
         condition = self._build_step_query(entity, index, entity_name, step_prefix)
         step_cols.append(
             parse_expr(f"if({{condition}}, 1, 0) as {step_prefix}step_{index}", placeholders={"condition": condition})
@@ -572,12 +610,14 @@ class FunnelBase(ABC):
             # action
             action = Action.objects.get(pk=int(entity.id), team=self.context.team)
             event_expr = action_to_expr(action)
+        elif isinstance(entity, DataWarehouseNode):
+            raise NotImplementedError("DataWarehouseNode is not supported in funnels")
         elif entity.event is None:
             # all events
             event_expr = ast.Constant(value=True)
         else:
             # event
-            event_expr = parse_expr(f"event = '{entity.event}'")
+            event_expr = parse_expr("event = {event}", {"event": ast.Constant(value=entity.event)})
 
         if entity.properties is not None and entity.properties != []:
             # add property filters
@@ -586,14 +626,13 @@ class FunnelBase(ABC):
         else:
             return event_expr
 
-    def _get_timestamp_outer_select(self) -> List[ast.Expr]:
-        return []
-        # if self._include_preceding_timestamp:
-        #     return ", max_timestamp, min_timestamp"
-        # elif self._include_timestamp:
-        #     return ", timestamp"
-        # else:
-        #     return ""
+    def _get_timestamp_outer_select(self) -> list[ast.Expr]:
+        if self.context.includePrecedingTimestamp:
+            return [ast.Field(chain=["max_timestamp"]), ast.Field(chain=["min_timestamp"])]
+        elif self.context.includeTimestamp:
+            return [ast.Field(chain=["timestamp"])]
+        else:
+            return []
 
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType, max_steps = (
@@ -607,13 +646,13 @@ class FunnelBase(ABC):
         funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
-        conditions: List[ast.Expr] = []
+        conditions: list[ast.Expr] = []
 
         if funnelCustomSteps:
             conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
         elif funnelStep is not None:
             if funnelStep >= 0:
-                step_nums = [i for i in range(funnelStep, max_steps + 1)]
+                step_nums = list(range(funnelStep, max_steps + 1))
                 conditions.append(parse_expr(f"steps IN {step_nums}"))
             else:
                 step_num = abs(funnelStep) - 1
@@ -622,25 +661,28 @@ class FunnelBase(ABC):
             raise ValueError("Missing both funnelStep and funnelCustomSteps")
 
         if funnelStepBreakdown is not None:
-            breakdown_prop_value = funnelStepBreakdown
-            if isinstance(breakdown_prop_value, int) and breakdownType != "cohort":
-                breakdown_prop_value = str(breakdown_prop_value)
+            if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
+                funnelStepBreakdown = str(funnelStepBreakdown)
 
-            conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({breakdown_prop_value}))"))
+            conditions.append(
+                parse_expr(
+                    "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                    {"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                )
+            )
 
         return ast.And(exprs=conditions)
 
-    def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
             step_num = self.context.actorsQuery.funnelStep
-            # if self._filter.include_final_matching_events:
-            if False:  # TODO: Implement with correlations
+            if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel
-                return [parse_expr("final_matching_events as matching_events")]  # type: ignore
+                return [parse_expr("final_matching_events as matching_events")]
             elif step_num is None:
                 raise ValueError("Missing funnelStep actors query property")
             if step_num >= 0:
@@ -652,23 +694,23 @@ class FunnelBase(ABC):
             return [parse_expr(f"step_{matching_events_step_num}_matching_events as matching_events")]
         return []
 
-    def _get_count_columns(self, max_steps: int) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_count_columns(self, max_steps: int) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
         for i in range(max_steps):
             exprs.append(parse_expr(f"countIf(steps = {i + 1}) step_{i + 1}"))
 
         return exprs
 
-    def _get_step_time_names(self, max_steps: int) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_step_time_names(self, max_steps: int) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
             exprs.append(parse_expr(f"step_{i}_conversion_time"))
 
         return exprs
 
-    def _get_final_matching_event(self, max_steps: int) -> List[ast.Expr]:
+    def _get_final_matching_event(self, max_steps: int) -> list[ast.Expr]:
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
@@ -679,7 +721,7 @@ class FunnelBase(ABC):
                 statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
         return [parse_expr(f"{statement} as final_matching_event")] if statement else []
 
-    def _get_matching_events(self, max_steps: int) -> List[ast.Expr]:
+    def _get_matching_events(self, max_steps: int) -> list[ast.Expr]:
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
@@ -687,7 +729,7 @@ class FunnelBase(ABC):
         ):
             events = []
             for i in range(0, max_steps):
-                event_fields = ["latest"] + self.extra_event_fields_and_properties
+                event_fields = ["latest", *self.extra_event_fields_and_properties]
                 event_fields_with_step = ", ".join([f"{field}_{i}" for field in event_fields])
                 event_clause = f"({event_fields_with_step}) as step_{i}_matching_event"
                 events.append(parse_expr(event_clause))
@@ -695,8 +737,8 @@ class FunnelBase(ABC):
             return [*events, *self._get_final_matching_event(max_steps)]
         return []
 
-    def _get_matching_event_arrays(self, max_steps: int) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_matching_event_arrays(self, max_steps: int) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
@@ -707,8 +749,8 @@ class FunnelBase(ABC):
             exprs.append(parse_expr(f"groupArray(10)(final_matching_event) as final_matching_events"))
         return exprs
 
-    def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_step_time_avgs(self, max_steps: int, inner_query: bool = False) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
             exprs.append(
@@ -719,8 +761,8 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_step_time_median(self, max_steps: int, inner_query: bool = False) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_step_time_median(self, max_steps: int, inner_query: bool = False) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
             exprs.append(
@@ -731,72 +773,83 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_timestamp_selects(self) -> Tuple[List[ast.Expr], List[ast.Expr]]:
+    def _get_timestamp_selects(self) -> tuple[list[ast.Expr], list[ast.Expr]]:
         """
         Returns timestamp selectors for the target step and optionally the preceding step.
         In the former case, always returns the timestamp for the first and last step as well.
         """
-        # actorsQuery, max_steps = (
-        #     self.context.actorsQuery,
-        #     self.context.max_steps,
-        # )
-        # assert actorsQuery is not None
+        actorsQuery, max_steps = (
+            self.context.actorsQuery,
+            self.context.max_steps,
+        )
+        if not actorsQuery:
+            return [], []
 
-        # target_step = actorsQuery.funnelStep
-        # final_step = max_steps - 1
-        # first_step = 0
+        target_step = actorsQuery.funnelStep
+        final_step = max_steps - 1
+        first_step = 0
 
-        # if not target_step:
-        #     return [], []
+        if not target_step:
+            return [], []
 
-        # if target_step < 0:
-        #     # the first valid dropoff argument for funnel_step is -2
-        #     # -2 refers to persons who performed the first step but never made it to the second
-        #     if target_step == -1:
-        #         raise ValueError("To request dropoff of initial step use -2")
+        if target_step < 0:
+            # the first valid dropoff argument for funnel_step is -2
+            # -2 refers to persons who performed the first step but never made it to the second
+            if target_step == -1:
+                raise ValueError("To request dropoff of initial step use -2")
 
-        #     target_step = abs(target_step) - 2
-        # else:
-        #     target_step -= 1
+            target_step = abs(target_step) - 2
+        else:
+            target_step -= 1
 
-        # if self._include_preceding_timestamp:
-        #     if target_step == 0:
-        #         raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
+        if self.context.includePrecedingTimestamp:
+            if target_step == 0:
+                raise ValueError("Cannot request preceding step timestamp if target funnel step is the first step")
 
-        #     return (
-        #         f", latest_{target_step}, latest_{target_step - 1}",
-        #         f", argMax(latest_{target_step}, steps) as max_timestamp, argMax(latest_{target_step - 1}, steps) as min_timestamp",
-        #     )
-        # elif self._include_timestamp:
-        #     return (
-        #         f", latest_{target_step}, latest_{final_step}, latest_{first_step}",
-        #         f", argMax(latest_{target_step}, steps) as timestamp, argMax(latest_{final_step}, steps) as final_timestamp, argMax(latest_{first_step}, steps) as first_timestamp",
-        #     )
-        # else:
-        #     return [], []
-        return [], []
+            return (
+                [ast.Field(chain=[f"latest_{target_step}"]), ast.Field(chain=[f"latest_{target_step - 1}"])],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as max_timestamp"),
+                    parse_expr(f"argMax(latest_{target_step - 1}, steps) as min_timestamp"),
+                ],
+            )
+        elif self.context.includeTimestamp:
+            return (
+                [
+                    ast.Field(chain=[f"latest_{target_step}"]),
+                    ast.Field(chain=[f"latest_{final_step}"]),
+                    ast.Field(chain=[f"latest_{first_step}"]),
+                ],
+                [
+                    parse_expr(f"argMax(latest_{target_step}, steps) as timestamp"),
+                    parse_expr(f"argMax(latest_{final_step}, steps) as final_timestamp"),
+                    parse_expr(f"argMax(latest_{first_step}, steps) as first_timestamp"),
+                ],
+            )
+        else:
+            return [], []
 
-    def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
+    def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         for i in range(1, max_steps):
             exprs.append(
                 parse_expr(
-                    f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
+                    f"if(isNotNull(latest_{i}) AND latest_{i} <= toTimeZone(latest_{i-1}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, dateDiff('second', latest_{i - 1}, latest_{i}), NULL) step_{i}_conversion_time"
                 ),
             )
 
         return exprs
 
-    def _get_partition_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
+    def _get_partition_cols(self, level_index: int, max_steps: int) -> list[ast.Expr]:
         query, funnelsFilter = self.context.query, self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions
         series = query.series
 
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         for i in range(0, max_steps):
             exprs.append(ast.Field(chain=[f"step_{i}"]))
@@ -841,7 +894,7 @@ class FunnelBase(ABC):
 
         return exprs
 
-    def _get_breakdown_prop_expr(self, group_remaining=False) -> List[ast.Expr]:
+    def _get_breakdown_prop_expr(self, group_remaining=False) -> list[ast.Expr]:
         # SEE BELOW for a string implementation of the following
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
 
@@ -853,7 +906,12 @@ class FunnelBase(ABC):
                 BreakdownType.group,
             ]:
                 breakdown_values = self._get_breakdown_conditions()
-                return [parse_expr(f"if(has({breakdown_values}, prop), prop, {other_aggregation}) as prop")]
+                return [
+                    parse_expr(
+                        f"if(has({{breakdown_values}}, prop), prop, {other_aggregation}) as prop",
+                        {"breakdown_values": ast.Constant(value=breakdown_values)},
+                    )
+                ]
             else:
                 # Cohorts don't have "Other" aggregation
                 return [ast.Field(chain=["prop"])]
@@ -880,7 +938,7 @@ class FunnelBase(ABC):
         else:
             return ""
 
-    def _get_breakdown_conditions(self) -> Optional[List[int] | List[str] | List[List[str]]]:
+    def _get_breakdown_conditions(self) -> Optional[list[int] | list[str] | list[list[str]]]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
@@ -899,7 +957,7 @@ class FunnelBase(ABC):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return not isinstance(breakdown, str) and breakdownType != "cohort"
 
-    def _get_exclusion_condition(self) -> List[ast.Expr]:
+    def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
@@ -907,14 +965,14 @@ class FunnelBase(ABC):
         if not funnelsFilter.exclusions:
             return []
 
-        conditions: List[ast.Expr] = []
+        conditions: list[ast.Expr] = []
 
         for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
             from_time = f"latest_{exclusion.funnelFromStep}"
             to_time = f"latest_{exclusion.funnelToStep}"
             exclusion_time = f"exclusion_{exclusion_id}_latest_{exclusion.funnelFromStep}"
             condition = parse_expr(
-                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), {from_time} + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
+                f"if( {exclusion_time} > {from_time} AND {exclusion_time} < if(isNull({to_time}), toTimeZone({from_time}, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, {to_time}), 1, 0)"
             )
             conditions.append(condition)
 
@@ -937,13 +995,17 @@ class FunnelBase(ABC):
         if curr_index == 1:
             return ast.Constant(value=1)
 
-        conditions: List[ast.Expr] = []
+        conditions: list[ast.Expr] = []
 
         for i in range(1, curr_index):
             duplicate_event = is_equal(series[i], series[i - 1]) or is_superset(series[i], series[i - 1])
 
             conditions.append(parse_expr(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}"))
-            conditions.append(parse_expr(f"latest_{i} <= latest_0 + INTERVAL {windowInterval} {windowIntervalUnit}"))
+            conditions.append(
+                parse_expr(
+                    f"latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}"
+                )
+            )
 
         return ast.Call(
             name="if",
@@ -954,10 +1016,10 @@ class FunnelBase(ABC):
             ],
         )
 
-    def _get_person_and_group_properties(self) -> List[ast.Expr]:
-        exprs: List[ast.Expr] = []
+    def _get_person_and_group_properties(self, aggregate: bool = False) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
 
-        # for prop in self._include_properties:
-        #     exprs.append(f"any({prop}) as {prop}" if aggregate else prop)
+        for prop in self.context.includeProperties:
+            exprs.append(parse_expr(f"any({prop}) as {prop}") if aggregate else parse_expr(prop))
 
         return exprs

@@ -24,7 +24,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return b"NULL"
 
         case uuid.UUID():
-            return f"{quote_char}{data}{quote_char}".encode("utf-8")
+            return f"{quote_char}{data}{quote_char}".encode()
 
         case int() | float():
             return b"%d" % data
@@ -35,8 +35,8 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
                 timezone_arg = f", '{data:%Z}'"
 
             if data.microsecond == 0:
-                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S}'{timezone_arg})".encode("utf-8")
-            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', 6{timezone_arg})".encode("utf-8")
+                return f"toDateTime('{data:%Y-%m-%d %H:%M:%S}'{timezone_arg})".encode()
+            return f"toDateTime64('{data:%Y-%m-%d %H:%M:%S.%f}', 6{timezone_arg})".encode()
 
         case list():
             encoded_data = [encode_clickhouse_data(value) for value in data]
@@ -62,7 +62,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
                     value = str(value)
 
                 encoded_data.append(
-                    f'"{str(key)}"'.encode("utf-8") + b":" + encode_clickhouse_data(value, quote_char=quote_char)
+                    f'"{str(key)}"'.encode() + b":" + encode_clickhouse_data(value, quote_char=quote_char)
                 )
 
             result = b"{" + b",".join(encoded_data) + b"}"
@@ -71,7 +71,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
         case _:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
-            return f"{quote_char}{str_data}{quote_char}".encode("utf-8")
+            return f"{quote_char}{str_data}{quote_char}".encode()
 
 
 class ClickHouseError(Exception):
@@ -176,7 +176,7 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query, request_data) -> None:
+    async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
@@ -195,6 +195,36 @@ class ClickHouseClient:
         if response.status_code != 200:
             error_message = response.text
             raise ClickHouseError(query, error_message)
+
+    @contextlib.asynccontextmanager
+    async def aget_query(
+        self, query, query_parameters, query_id
+    ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
+        """Send a GET request to the ClickHouse HTTP interface with a query.
+
+        Only read-only queries may be sent as a GET request. For inserts, use apost_query.
+
+        The context manager protocol is used to control when to release the response.
+
+        Arguments:
+            query: The query to POST.
+            *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
+            query_parameters: Parameters to be formatted in the query.
+            query_id: A query ID to pass to ClickHouse.
+
+        Returns:
+            The response received from the ClickHouse HTTP interface.
+        """
+
+        params = {**self.params}
+        if query_id is not None:
+            params["query_id"] = query_id
+
+        params["query"] = self.prepare_query(query, query_parameters)
+
+        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+            await self.acheck_response(response, query)
+            yield response
 
     @contextlib.asynccontextmanager
     async def apost_query(
@@ -227,7 +257,7 @@ class ClickHouseClient:
             request_data = query.encode("utf-8")
 
         async with self.session.post(url=self.url, params=params, headers=self.headers, data=request_data) as response:
-            await self.acheck_response(response, query, request_data)
+            await self.acheck_response(response, query)
             yield response
 
     @contextlib.contextmanager
@@ -277,13 +307,13 @@ class ClickHouseClient:
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id):
             return None
 
-    async def read_query(self, query, *data, query_parameters=None, query_id: str | None = None) -> bytes:
-        """Execute the given query in ClickHouse and read the response in full.
+    async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
+        """Execute the given readonly query in ClickHouse and read the response in full.
 
         As the entire payload will be read at once, use this method when expecting a small payload, like
         when running a 'count(*)' query.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
     async def stream_query_as_jsonl(
@@ -325,8 +355,7 @@ class ClickHouseClient:
         """
         with self.post_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             with pa.ipc.open_stream(pa.PythonFile(response.raw)) as reader:
-                for batch in reader:
-                    yield batch
+                yield from reader
 
     async def __aenter__(self):
         """Enter method part of the AsyncContextManager protocol."""

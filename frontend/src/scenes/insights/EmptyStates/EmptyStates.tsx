@@ -11,7 +11,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { posthog } from 'posthog-js'
+import posthog from 'posthog-js'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -100,10 +100,10 @@ export function InsightTimeoutState({
                     </div>
                     <p className="text-xs m-0 leading-5">
                         {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
-                            <>
+                            <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
                                 <SamplingLink insightProps={insightProps} />.
-                            </>
+                            </span>
                         ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
@@ -250,7 +250,7 @@ export function InsightValidationError({ detail }: { detail: string }): JSX.Elem
                 <div className="illustration-main">
                     <IconWarning />
                 </div>
-                <h2 className="text-xl leading-tight">
+                <h2 className="text-xl leading-tight" data-attr="insight-loading-too-long">
                     There is a problem with this query
                     {/* Note that this phrasing above signals the issue is not intermittent, */}
                     {/* but rather that it's something with the definition of the query itself */}

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, List
+from typing import Optional
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -126,7 +126,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[{"label": day, "value": day} for day in self.query_date_range.all_values()],
+            day=[{"label": format_label_date(value), "value": value} for value in self.query_date_range.all_values()],
             status=[
                 {
                     "label": "Dormant",
@@ -157,6 +157,7 @@ class LifecycleQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
@@ -211,7 +212,7 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql)
+        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     @cached_property
     def query_date_range(self):
@@ -224,7 +225,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: List[ast.Expr] = []
+        event_filters: list[ast.Expr] = []
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
@@ -283,7 +284,7 @@ class LifecycleQueryRunner(QueryRunner):
             events_query = parse_select(
                 """
                     SELECT
-                        events.person.id as person_id,
+                        events.person_id as person_id,
                         min(events.person.created_at) AS created_at,
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,

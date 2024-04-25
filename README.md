@@ -15,6 +15,13 @@
   <a href="https://posthog.com/docs">Docs</a> - <a href="https://posthog.com/community">Community</a> - <a href="https://posthog.com/roadmap">Roadmap</a> - <a href="https://posthog.com/changelog">Changelog</a> - <a href="https://github.com/PostHog/posthog/issues/new?assignees=&labels=bug&template=bug_report.md">Bug reports</a> 
 </p>
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=2jQco8hEvTI">
+    <img src="https://img.youtube.com/vi/2jQco8hEvTI/0.jpg" alt="PostHog Demonstration">
+  </a>
+  <em>See PostHog in action</em>
+</p>
+
 ## PostHog is an all-in-one, open source platform for building better products
 
 - Specify events manually, or use autocapture to get started quickly
@@ -27,7 +34,7 @@
 
 PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
 - 1 million product analytics events
-- 15k session replays
+- 5k session replays
 - 1 million feature flag requests
 - 250 survey responses
 
@@ -45,7 +52,7 @@ We're constantly adding new features, with web analytics and data warehouse now 
 
 ### PostHog Cloud (Recommended)
 
-The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 15k replays) are free every month, after which you pay based on usage.
+The fastest and most reliable way to get started with PostHog is signing up for free to [PostHog Cloud](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup). Your first 1 million events (and 5k replays) are free every month, after which you pay based on usage.
 
 ### Open-source hobby deploy (Advanced)
 
@@ -65,7 +72,7 @@ PostHog brings all the tools and data you need to build better products.
 
 ### Analytics and optimization tools
 
-- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/integrate/client/js#autocapture), or [customize](https://posthog.com/docs/integrate) it to your needs
+- **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/libraries/js#autocapture), or [customize](https://posthog.com/docs/getting-started/install) it to your needs
 - **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
 - **Data visualizations:** Create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
 - **SQL access:** Use [SQL](https://posthog.com/docs/product-analytics/sql) to get a deeper understanding of your users, breakdown information and create completely tailored visualizations

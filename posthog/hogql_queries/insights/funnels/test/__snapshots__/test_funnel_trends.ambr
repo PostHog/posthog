@@ -22,9 +22,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -109,9 +109,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -196,9 +196,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,

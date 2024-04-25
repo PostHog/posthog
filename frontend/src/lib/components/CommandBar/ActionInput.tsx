@@ -3,6 +3,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CommandFlow } from 'lib/components/CommandPalette/commandPaletteLogic'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { isMac } from 'lib/utils'
 import React from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -33,7 +34,9 @@ export const ActionInput = (): JSX.Element => {
                 fullWidth
                 prefix={<PrefixIcon activeFlow={activeFlow} />}
                 suffix={<KeyboardShortcut escape />}
-                placeholder={activeFlow?.instruction ?? 'Run a command…'}
+                placeholder={
+                    activeFlow?.instruction ?? `Run a command… or press ${isMac() ? 'Delete' : 'Backspace'} for search`
+                }
                 autoFocus
                 value={input}
                 onChange={setInput}

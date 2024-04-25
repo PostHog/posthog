@@ -6,8 +6,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hasFormErrors } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +15,7 @@ import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
 import {
     Breadcrumb,
+    FeatureFlagFilters,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -86,6 +87,19 @@ export interface QuestionResultsReady {
 
 const getResponseField = (i: number): string => (i === 0 ? '$survey_response' : `$survey_response_${i}`)
 
+function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
+    return {
+        ...survey,
+        id: NEW_SURVEY.id,
+        name: `${survey.name} (copy)`,
+        archived: false,
+        start_date: null,
+        end_date: null,
+        targeting_flag_filters: survey.targeting_flag?.filters ?? NEW_SURVEY.targeting_flag_filters,
+        linked_flag_id: survey.linked_flag?.id ?? NEW_SURVEY.linked_flag_id,
+    }
+}
+
 export const surveyLogic = kea<surveyLogicType>([
     props({} as SurveyLogicProps),
     key(({ id }) => id),
@@ -129,6 +143,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
+        setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
     loaders(({ props, actions, values }) => ({
         survey: {
@@ -167,6 +182,26 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             resumeSurvey: async () => {
                 return await api.surveys.update(props.id, { end_date: null })
+            },
+        },
+        duplicatedSurvey: {
+            duplicateSurvey: async () => {
+                const { survey } = values
+                const payload = duplicateExistingSurvey(survey)
+                const createdSurvey = await api.surveys.create(sanitizeQuestions(payload))
+
+                lemonToast.success('Survey duplicated.', {
+                    toastId: `survey-duplicated-${createdSurvey.id}`,
+                    button: {
+                        label: 'View Survey',
+                        action: () => {
+                            router.actions.push(urls.survey(createdSurvey.id))
+                        },
+                    },
+                })
+
+                actions.reportSurveyCreated(createdSurvey, true)
+                return survey
             },
         },
         surveyUserStats: {
@@ -398,7 +433,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         createSurveySuccess: ({ survey }) => {
             lemonToast.success(<>Survey {survey.name} created</>)
             actions.loadSurveys()
@@ -409,6 +444,9 @@ export const surveyLogic = kea<surveyLogicType>([
             lemonToast.success(<>Survey {survey.name} updated</>)
             actions.editingSurvey(false)
             actions.reportSurveyEdited(survey)
+            actions.loadSurveys()
+        },
+        duplicateSurveySuccess: () => {
             actions.loadSurveys()
         },
         launchSurveySuccess: ({ survey }) => {
@@ -437,6 +475,18 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
+        },
+        submitSurveyFailure: async () => {
+            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
+            if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
+                actions.setSelectedSection(SurveyEditSection.Targeting)
+            } else {
+                actions.setSelectedSection(SurveyEditSection.Steps)
+            }
+            setTimeout(
+                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
+                5
+            )
         },
     })),
     reducers({
@@ -553,6 +603,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
             },
         ],
+        flagPropertyErrors: [
+            null as any,
+            {
+                setFlagPropertyErrors: (_, { errors }) => errors,
+            },
+        ],
     }),
     selectors({
         isSurveyRunning: [
@@ -627,16 +683,25 @@ export const surveyLogic = kea<surveyLogicType>([
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
-                    showEventFilter: true,
+                    showEventFilter: false,
                     showPropertyFilter: true,
                     showTimings: false,
                 }
             },
         ],
-        hasTargetingFlag: [
+        targetingFlagFilters: [
             (s) => [s.survey],
-            (survey): boolean => {
-                return !!survey.targeting_flag || !!survey.targeting_flag_filters
+            (survey): FeatureFlagFilters | undefined => {
+                if (survey.targeting_flag_filters) {
+                    return {
+                        ...survey.targeting_flag_filters,
+                        groups: survey.targeting_flag_filters.groups,
+                        multivariate: null,
+                        payloads: {},
+                        super_groups: undefined,
+                    }
+                }
+                return survey.targeting_flag?.filters || undefined
             },
         ],
         urlMatchTypeValidationError: [
@@ -673,6 +738,8 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
             errors: ({ name, questions }) => ({
+                // NOTE: When more validation errors are added, the submitSurveyFailure listener should be updated
+                // to scroll to the right error section
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
                     question: !question.question && 'Please enter a question.',
@@ -683,23 +750,16 @@ export const surveyLogic = kea<surveyLogicType>([
                           }
                         : {}),
                 })),
+                // release conditions controlled using a PureField in the form
+                targeting_flag_filters: values.flagPropertyErrors,
                 // controlled using a PureField in the form
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
-                let surveyPayloadWithTargetingFlagFilters = surveyPayload
-                const flagLogic = featureFlagLogic({ id: values.survey.targeting_flag?.id || 'new' })
-                if (values.hasTargetingFlag) {
-                    const targetingFlag = flagLogic.values.featureFlag
-                    surveyPayloadWithTargetingFlagFilters = {
-                        ...surveyPayload,
-                        ...{ targeting_flag_filters: targetingFlag.filters },
-                    }
-                }
                 if (props.id && props.id !== 'new') {
-                    actions.updateSurvey(surveyPayloadWithTargetingFlagFilters)
+                    actions.updateSurvey(surveyPayload)
                 } else {
-                    actions.createSurvey(surveyPayloadWithTargetingFlagFilters)
+                    actions.createSurvey(surveyPayload)
                 }
             },
         },

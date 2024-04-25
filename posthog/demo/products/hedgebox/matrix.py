@@ -26,7 +26,21 @@ from posthog.models import (
 )
 
 from .models import HedgeboxAccount, HedgeboxPerson
-from .taxonomy import *
+from .taxonomy import (
+    COMPANY_CLUSTERS_PROPORTION,
+    EVENT_SIGNED_UP,
+    EVENT_UPLOADED_FILE,
+    EVENT_DOWNLOADED_FILE,
+    EVENT_DELETED_FILE,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_UPGRADED_PLAN,
+    EVENT_PAID_BILL,
+    URL_HOME,
+    URL_SIGNUP,
+    FILE_PREVIEWS_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+)
 
 
 @dataclass

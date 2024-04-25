@@ -1,4 +1,3 @@
-from typing import Dict, List
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -9,13 +8,12 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.errors import HogQLException
-from posthog.schema import HogQLQueryModifiers
+from posthog.hogql.errors import ResolutionError
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
-def persons_pdi_select(requested_fields: Dict[str, List[str]]):
+def persons_pdi_select(requested_fields: dict[str, list[str | int]]):
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
@@ -33,14 +31,14 @@ def persons_pdi_select(requested_fields: Dict[str, List[str]]):
 def persons_pdi_join(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, List[str]],
+    requested_fields: dict[str, list[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids")
+        raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
@@ -57,13 +55,13 @@ def persons_pdi_join(
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
 # make "select persons.pdi.distinct_id from persons" work while avoiding circular imports. Don't use directly.
 class PersonsPDITable(LazyTable):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
         "distinct_id": StringDatabaseField(name="distinct_id"),
         "person_id": StringDatabaseField(name="person_id"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return persons_pdi_select(requested_fields)
 
     def to_printed_clickhouse(self, context):

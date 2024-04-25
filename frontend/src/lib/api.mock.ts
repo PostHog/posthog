@@ -76,6 +76,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
+    heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
@@ -102,6 +103,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
+    member_count: 2,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {

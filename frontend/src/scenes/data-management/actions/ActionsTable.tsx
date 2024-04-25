@@ -9,11 +9,10 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { Link } from 'lib/lemon-ui/Link'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
@@ -44,18 +43,14 @@ export function ActionsTable(): JSX.Element {
             dataIndex: 'name',
             width: '25%',
             sorter: (a: ActionType, b: ActionType) => (a.name || '').localeCompare(b.name || ''),
-            render: function RenderName(name, action: ActionType, index: number): JSX.Element {
+            render: function RenderName(_, action: ActionType, index: number): JSX.Element {
                 return (
-                    <>
-                        <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
-                            {name || <i>Unnamed</i>}
-                        </Link>
-                        {action.description && (
-                            <LemonMarkdown className="row-description" lowKeyHeadings>
-                                {action.description}
-                            </LemonMarkdown>
-                        )}
-                    </>
+                    <LemonTableLink
+                        data-attr={'action-link-' + index}
+                        to={urls.action(action.id)}
+                        title={action.name || <i>Unnamed</i>}
+                        description={action.description}
+                    />
                 )
             },
         },

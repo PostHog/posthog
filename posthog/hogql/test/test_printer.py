@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Dict
+from typing import Literal, Optional
 
 import pytest
 from django.test import override_settings
@@ -8,15 +8,14 @@ from posthog.hogql.constants import HogQLQuerySettings, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, to_printed_hogql
 from posthog.models import PropertyDefinition
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsOnEventsMode
 from posthog.test.base import BaseTest
-from posthog.utils import PersonOnEventsMode
 
 
 class TestPrinter(BaseTest):
@@ -36,7 +35,7 @@ class TestPrinter(BaseTest):
         self,
         query: str,
         context: Optional[HogQLContext] = None,
-        placeholders: Optional[Dict[str, ast.Expr]] = None,
+        placeholders: Optional[dict[str, ast.Expr]] = None,
     ) -> str:
         return print_ast(
             parse_select(query, placeholders=placeholders),
@@ -50,14 +49,14 @@ class TestPrinter(BaseTest):
         expected_error,
         dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     ):
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(ExposedHogQLError) as context:
             self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
     def _assert_select_error(self, statement, expected_error):
-        with self.assertRaises(HogQLException) as context:
+        with self.assertRaises(ExposedHogQLError) as context:
             self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
@@ -140,7 +139,7 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.DISABLED),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.disabled),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -156,7 +155,9 @@ class TestPrinter(BaseTest):
             context = HogQLContext(
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
-                modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonOnEventsMode.V1_ENABLED),
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.person_id_no_override_properties_on_events
+                ),
             )
             self.assertEqual(
                 self._expr("person.properties.bla", context),
@@ -547,7 +548,7 @@ class TestPrinter(BaseTest):
             ),
             f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
-        with self.assertRaises(HogQLException) as error_context:
+        with self.assertRaises(QueryError) as error_context:
             (
                 self._select(
                     "select 1 from {placeholder}",
@@ -562,7 +563,7 @@ class TestPrinter(BaseTest):
             )
         self.assertEqual(
             str(error_context.exception),
-            "JoinExpr with table of type CompareOperation not supported",
+            "A CompareOperation cannot be used as a SELECT source",
         )
 
     def test_select_cross_join(self):
@@ -888,7 +889,7 @@ class TestPrinter(BaseTest):
         self.team.save()
 
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-        with self.assertRaises(HogQLException) as error_context:
+        with self.assertRaises(ValueError) as error_context:
             self._select(
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
                 context,
@@ -1523,4 +1524,72 @@ class TestPrinter(BaseTest):
                 "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
             ),
             printed,
+        )
+
+    def test_override_timezone(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(None, WeekStartDay.SUNDAY),
+        )
+        context.database.events.fields["test_date"] = DateDatabaseField(name="test_date")  # type: ignore
+
+        self.assertEqual(
+            self._select(
+                """
+                    SELECT
+                        toDateTime(timestamp),
+                        toDateTime(timestamp, 'US/Pacific'),
+                        now(),
+                        now('US/Pacific')
+                    FROM events
+                """,
+                context,
+            ),
+            f"SELECT toDateTime(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_2)s), %(hogql_val_3)s), now64(6, %(hogql_val_4)s), now64(6, %(hogql_val_5)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+        )
+        self.assertEqual(
+            context.values,
+            {
+                "hogql_val_0": "UTC",
+                "hogql_val_1": "UTC",
+                "hogql_val_2": "UTC",
+                "hogql_val_3": "US/Pacific",
+                "hogql_val_4": "UTC",
+                "hogql_val_5": "US/Pacific",
+            },
+        )
+
+    def test_trim_leading_trailing_both(self):
+        query = parse_select(
+            "select trim(LEADING 'xy' FROM 'media'), trim(TRAILING 'xy' FROM 'media'), trim(BOTH 'xy' FROM 'media')"
+        )
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert printed == (
+            "SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s), trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s), trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) LIMIT 10000 SETTINGS "
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+        )
+        query2 = parse_select("select trimLeft('media', 'xy'), trimRight('media', 'xy'), trim('media', 'xy')")
+        printed2 = print_ast(
+            query2,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert printed2 == printed
+
+    def test_case_insensitive_functions(self):
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr("CoALESce(1)", context),
+            "coalesce(1)",
+        )
+        self.assertEqual(
+            self._expr("SuM(1)", context),
+            "sum(1)",
         )
