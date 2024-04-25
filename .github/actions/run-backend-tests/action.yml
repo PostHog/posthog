@@ -12,7 +12,7 @@ inputs:
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        description: Either 'Core' or 'Temporal' segment
+        description: Either 'Core', 'Legacy insights backend', or 'Temporal'
     concurrency:
         required: true
         description: Count of concurrency groups
@@ -143,12 +143,13 @@ runs:
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
         # Tests
-        - name: Run Core tests
+        - name: Run core tests
           id: run-core-tests
-          if: ${{ inputs.segment == 'Core' }}
+          if: ${{ inputs.segment != 'Temporal' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}
+              HOGQL_INSIGHTS_OVERRIDE: ${{ inputs.segment == 'Legacy insights backend' && 0 || 1 }}
           shell: bash
           run: | # async_migrations covered in ci-async-migrations.yml
               pytest ${{
