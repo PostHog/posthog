@@ -2,6 +2,7 @@ import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
+from loginas.utils import is_impersonated_session, restore_original_login
 
 from django.shortcuts import redirect
 import structlog
@@ -629,3 +630,39 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             )
 
         return response
+
+
+class AutoLogoutImpersonateMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not is_impersonated_session(request):
+            return self.get_response(request)
+
+        init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
+        session_is_expired = time.time() - init_time > settings.IMPERSONATION_TIMEOUT_SECONDS
+
+        if session_is_expired:
+            # This works but has an issue in that api requests will all stop working...
+
+            if request.path.startswith("/api/"):
+                # If we respond with a 401, the frontend will check and redirect to logout
+                return HttpResponse(
+                    "Impersonation session has expired. Please log in again.",
+                    status=401,
+                )
+            elif not request.path.startswith("/logout"):
+                # Any other endpoint will redirect to the logout page (this could be doc level calls or other things like static assets)
+                return redirect("/logout/")
+            else:
+                # And finally we restore the login and redirect to the admin page
+                restore_original_login(request)
+                return redirect("/admin/")
+
+        expire_since_last_activity = settings.IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY
+
+        if expire_since_last_activity and time.time() - init_time > 1:
+            request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
+
+        return self.get_response(request)
