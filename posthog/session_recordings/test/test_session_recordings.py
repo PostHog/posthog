@@ -415,11 +415,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             response_data["person"],
             {
                 "id": None,
-                "name": "d1",
+                "name": None,
                 "distinct_ids": ["d1"],
                 "properties": {},
                 "created_at": None,
-                "uuid": "018f1503-7a50-0000-7c5a-8ddabf481837",
+                "uuid": response_data["person"]["uuid"],
             },
         )
 

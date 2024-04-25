@@ -1,8 +1,9 @@
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import models
 
+from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
@@ -112,12 +113,12 @@ class SessionRecording(UUIDModel):
         return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
 
     @property
-    def person(self) -> Person:
+    def person(self) -> Union[Person, MissingPerson]:
         if self._person:
             return self._person
 
-        person = Person()
-        person._distinct_ids = [self.distinct_id]
+        person = MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
+
         return person
 
     @person.setter
