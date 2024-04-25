@@ -57,7 +57,7 @@ class SessionRecording(UUIDModel):
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
-    person: Optional[Person] = None
+    _person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
 
     # Metadata can be loaded from Clickhouse or S3
@@ -111,9 +111,22 @@ class SessionRecording(UUIDModel):
     def snapshot_source(self) -> Optional[str]:
         return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
 
-    def load_person(self) -> Optional[Person]:
-        if self.person:
-            return self.person
+    @property
+    def person(self) -> Person:
+        if self._person:
+            return self._person
+
+        person = Person()
+        person._distinct_ids = [self.distinct_id]
+        return person
+
+    @person.setter
+    def person(self, value: Person):
+        self._person = value
+
+    def load_person(self):
+        if self._person:
+            return
 
         try:
             self.person = Person.objects.get(
@@ -121,9 +134,8 @@ class SessionRecording(UUIDModel):
                 persondistinctid__team_id=self.team,
                 team=self.team,
             )
-            return self.person
         except Person.DoesNotExist:
-            return None
+            pass
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:
