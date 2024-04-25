@@ -753,7 +753,8 @@
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_unordered
@@ -1495,6 +1496,7 @@
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
