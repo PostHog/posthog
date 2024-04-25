@@ -457,6 +457,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportIngestionContinueWithoutVerifying: true,
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
+        reportHeatmapsToggled: (heatmaps_opt_in: boolean) => ({ heatmaps_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
@@ -1101,6 +1102,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
             posthog.capture('autocapture exceptions toggled', {
                 autocapture_opt_in,
+            })
+        },
+        reportHeatmapsToggled: ({ heatmaps_opt_in }) => {
+            posthog.capture('heatmaps toggled', {
+                heatmaps_opt_in,
             })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {

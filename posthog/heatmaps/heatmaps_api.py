@@ -29,17 +29,17 @@ EXAMPLES_QUERY = """
             """
 
 DEFAULT_QUERY = """
-            select pointer_target_fixed, relative_client_x, client_y, {aggregation_count}
+            select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
             from (
                      select
                         distinct_id,
                         pointer_target_fixed,
-                        round((x / viewport_width), 2) as relative_client_x,
+                        round((x / viewport_width), 2) as pointer_relative_x,
                         y * scale_factor as client_y
                      from heatmaps
                      where {predicates}
                 )
-            group by `pointer_target_fixed`, relative_client_x, client_y
+            group by `pointer_target_fixed`, pointer_relative_x, client_y
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -126,7 +126,7 @@ class HeatmapsResponseSerializer(serializers.Serializer):
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
     cumulative_count = serializers.IntegerField(required=True)
     bucket_count = serializers.IntegerField(required=True)
-    scroll_depth_bucket = serializers.FloatField(required=True)
+    scroll_depth_bucket = serializers.IntegerField(required=True)
 
 
 class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):

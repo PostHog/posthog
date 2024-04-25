@@ -448,6 +448,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 lemonToast.success('New Data Resource Created')
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
+                actions.loadSources(null)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
