@@ -1,5 +1,4 @@
 from itertools import product
-from typing import Dict
 from unittest import mock
 from uuid import uuid4
 
@@ -131,7 +130,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         poe_v2: bool,
         allow_denormalized_props: bool,
         expected_poe_mode: PersonsOnEventsMode,
-        expected_query_params: Dict,
+        expected_query_params: dict,
         unmaterialized_person_column_used: bool,
         materialized_event_column_used: bool,
     ) -> None:

@@ -1,5 +1,3 @@
-from typing import Dict
-
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateTimeDatabaseField,
@@ -11,7 +9,7 @@ from posthog.hogql.database.models import (
 
 
 class HeatmapsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "session_id": StringDatabaseField(name="session_id"),
         "team_id": IntegerDatabaseField(name="team_id"),
         "distinct_id": StringDatabaseField(name="distinct_id"),

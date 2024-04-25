@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 from django.core.management.base import BaseCommand
@@ -50,7 +50,7 @@ def run(options, sync: bool = False):
     logger.info("Kafka producer queue flushed.")
 
 
-def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
+def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> list[str]:
     # find distinct_ids where the person is set to be deleted
     rows = sync_execute(
         """

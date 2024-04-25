@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Optional, Any
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -52,10 +52,10 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def assert_cohort_activity(self, flag_id: Optional[int], expected: List[Dict]):
+    def assert_cohort_activity(self, flag_id: Optional[int], expected: list[dict]):
         activity_response = self._get_cohort_activity(flag_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         assert activity == expected
 
@@ -1518,11 +1518,11 @@ email@example.org,
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
 
-def create_cohort(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     return client.post(f"/api/projects/{team_id}/cohorts", {"name": name, "groups": json.dumps(groups)})
 
 
-def create_cohort_ok(client: Client, team_id: int, name: str, groups: List[Dict[str, Any]]):
+def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[str, Any]]):
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()

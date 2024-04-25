@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import patch
 from datetime import datetime, timedelta
 import celery
@@ -435,10 +435,10 @@ class TestExports(APIBaseTest):
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
 
-    def _assert_logs_the_activity(self, insight_id: int, expected: List[Dict]) -> None:
+    def _assert_logs_the_activity(self, insight_id: int, expected: list[dict]) -> None:
         activity_response = self._get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
@@ -463,7 +463,7 @@ class TestExports(APIBaseTest):
 
 
 class TestExportMixin(APIBaseTest):
-    def _get_export_output(self, path: str) -> List[str]:
+    def _get_export_output(self, path: str) -> list[str]:
         """
         Use this function to test the CSV output of exports in other tests
         """

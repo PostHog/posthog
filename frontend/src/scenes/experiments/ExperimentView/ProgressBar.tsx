@@ -31,12 +31,16 @@ export function ProgressBar(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg mb-0">Data collection</h2>
-            <div className="text-muted text-xs">
-                Estimated target for the number of participants. Actual data may reveal significance earlier or later
-                than predicted.
+            <div className="inline-flex space-x-2">
+                <h2 className="font-semibold text-lg mb-0">Data collection</h2>
+                <Tooltip
+                    title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
+                    than predicted."
+                >
+                    <IconInfo className="text-muted-alt text-base" />
+                </Tooltip>
             </div>
-            <div className="mt-4 mb-1 font-semibold">{`${
+            <div className="mt-2 mb-1 font-semibold">{`${
                 experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
             }% complete`}</div>
             <LemonProgress
@@ -46,7 +50,7 @@ export function ProgressBar(): JSX.Element {
                 percent={experimentProgressPercent}
             />
             {experimentInsightType === InsightType.TRENDS && (
-                <div className="flex justify-between mt-2">
+                <div className="flex justify-between mt-0">
                     {experiment.end_date ? (
                         <div>
                             Ran for <b>{actualRunningTime}</b> {formatUnitByQuantity(actualRunningTime, 'day')}
@@ -80,7 +84,7 @@ export function ProgressBar(): JSX.Element {
                 </div>
             )}
             {experimentInsightType === InsightType.FUNNELS && (
-                <div className="flex justify-between mt-2">
+                <div className="flex justify-between mt-0">
                     {experiment.end_date ? (
                         <div>
                             Saw <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}

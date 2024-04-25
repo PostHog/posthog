@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType, CLICKHOUSE_ASYNC_DELETION_TABLE
@@ -22,7 +22,7 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 class AsyncEventDeletion(AsyncDeletionProcess):
     DELETION_TYPES = [DeletionType.Team, DeletionType.Person]
 
-    def process(self, deletions: List[AsyncDeletion]):
+    def process(self, deletions: list[AsyncDeletion]):
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")
             return
@@ -87,7 +87,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 workload=Workload.OFFLINE,
             )
 
-    def _fill_table(self, deletions: List[AsyncDeletion], temp_table_name: str):
+    def _fill_table(self, deletions: list[AsyncDeletion], temp_table_name: str):
         sync_execute(f"DROP TABLE IF EXISTS {temp_table_name}", workload=Workload.OFFLINE)
         sync_execute(
             CLICKHOUSE_ASYNC_DELETION_TABLE.format(table_name=temp_table_name, cluster=CLICKHOUSE_CLUSTER),
@@ -111,7 +111,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 workload=Workload.OFFLINE,
             )
 
-    def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
+    def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
         if deletion_type == DeletionType.Team:
             team_ids_with_data = self._verify_by_column("team_id", async_deletions)
             return [row for row in async_deletions if (row.team_id,) not in team_ids_with_data]
@@ -122,7 +122,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         else:
             return []
 
-    def _verify_by_column(self, distinct_columns: str, async_deletions: List[AsyncDeletion]) -> Set[Tuple[Any, ...]]:
+    def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
         clickhouse_result = sync_execute(
             f"""
@@ -142,7 +142,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         else:
             return f"$group_{async_deletion.group_type_index}"
 
-    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
+    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
         if async_deletion.deletion_type == DeletionType.Team:
             return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
         else:

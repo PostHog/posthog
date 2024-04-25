@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.experiments.funnel_experiment_result import ClickhouseFunnelExperimentResult
@@ -55,7 +55,7 @@ class ClickhouseSecondaryExperimentResult:
 
         return {"result": variants, **significance_results}
 
-    def get_funnel_conversion_rate_for_variants(self, insight_results) -> Dict[str, float]:
+    def get_funnel_conversion_rate_for_variants(self, insight_results) -> dict[str, float]:
         variants = {}
         for result in insight_results:
             total = result[0]["count"]
@@ -67,7 +67,7 @@ class ClickhouseSecondaryExperimentResult:
 
         return variants
 
-    def get_trend_count_data_for_variants(self, insight_results) -> Dict[str, float]:
+    def get_trend_count_data_for_variants(self, insight_results) -> dict[str, float]:
         # this assumes the Trend insight is Cumulative, unless using count per user
         variants = {}
 

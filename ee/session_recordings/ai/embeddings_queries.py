@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from typing import List
 
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
@@ -9,7 +8,7 @@ BATCH_FLUSH_SIZE = settings.REPLAY_EMBEDDINGS_BATCH_SIZE
 MIN_DURATION_INCLUDE_SECONDS = settings.REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS
 
 
-def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> List[str]:
+def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> list[str]:
     query = """
             WITH embedded_sessions AS (
                 SELECT
@@ -47,7 +46,7 @@ def fetch_errors_by_session_without_embeddings(team_id: int, offset=0) -> List[s
     )
 
 
-def fetch_recordings_without_embeddings(team_id: int, offset=0) -> List[str]:
+def fetch_recordings_without_embeddings(team_id: int, offset=0) -> list[str]:
     team = Team.objects.get(id=team_id)
 
     query = """

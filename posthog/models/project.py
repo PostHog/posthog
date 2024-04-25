@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 from django.db import models
 from django.db import transaction
 from django.core.validators import MinLengthValidator
@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 
 class ProjectManager(models.Manager):
-    def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> Tuple["Project", "Team"]:
+    def create_with_team(self, team_fields: Optional[dict] = None, **kwargs) -> tuple["Project", "Team"]:
         from .team import Team
 
         with transaction.atomic():

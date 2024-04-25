@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -40,9 +40,9 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         self,
         step: Entity,
         count: int,
-        people: Optional[List[uuid.UUID]] = None,
+        people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "action_id": None,
             "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
@@ -119,7 +119,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         return " UNION ALL ".join(union_queries)
 
     def _get_step_times(self, max_steps: int):
-        conditions: List[str] = []
+        conditions: list[str] = []
 
         conversion_times_elements = []
         for i in range(max_steps):
@@ -146,7 +146,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
         conditions.append(f"arraySort([{','.join(event_times_elements)}]) as event_times")
         # replacement of latest_i for whatever query part requires it, just like conversion_times
-        basic_conditions: List[str] = []
+        basic_conditions: list[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
                 f"if(latest_0 < latest_{i} AND latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, 1, 0)"

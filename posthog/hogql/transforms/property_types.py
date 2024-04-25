@@ -1,4 +1,4 @@
-from typing import Dict, Set, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -81,9 +81,9 @@ class PropertyFinder(TraversingVisitor):
 
     def __init__(self, context: HogQLContext):
         super().__init__()
-        self.person_properties: Set[str] = set()
-        self.event_properties: Set[str] = set()
-        self.group_properties: Dict[int, Set[str]] = {}
+        self.person_properties: set[str] = set()
+        self.event_properties: set[str] = set()
+        self.group_properties: dict[int, set[str]] = {}
         self.found_timestamps = False
         self.context = context
 
@@ -123,9 +123,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: Dict[str, str],
-        person_properties: Dict[str, str],
-        group_properties: Dict[str, str],
+        event_properties: dict[str, str],
+        person_properties: dict[str, str],
+        group_properties: dict[str, str],
         context: HogQLContext,
     ):
         super().__init__(clear_types=False)
