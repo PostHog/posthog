@@ -117,9 +117,7 @@ class SessionRecording(UUIDModel):
         if self._person:
             return self._person
 
-        person = MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
-
-        return person
+        return MissingPerson(team_id=self.team_id, distinct_id=self.distinct_id)
 
     @person.setter
     def person(self, value: Person):
