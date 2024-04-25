@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 import jwt
 from django.db.models import QuerySet
@@ -67,7 +67,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         return attrs
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Subscription:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user

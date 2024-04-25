@@ -1,4 +1,4 @@
-from typing import List, cast
+from typing import cast
 
 from django.db import IntegrityError
 from rest_framework import mixins, serializers, viewsets
@@ -76,7 +76,7 @@ class RoleSerializer(serializers.ModelSerializer):
         return RoleMembershipSerializer(members, many=True).data
 
     def get_associated_flags(self, role: Role):
-        associated_flags: List[dict] = []
+        associated_flags: list[dict] = []
 
         role_access_objects = FeatureFlagRoleAccess.objects.filter(role=role).values_list("feature_flag_id")
         flags = FeatureFlag.objects.filter(id__in=role_access_objects)

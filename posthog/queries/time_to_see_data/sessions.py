@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 from posthog.client import query_with_columns
 from posthog.queries.time_to_see_data.hierarchy import construct_hierarchy
@@ -58,7 +58,7 @@ def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
     return response_serializer
 
 
-def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
+def get_session_events(query: SessionEventsQuerySerializer) -> Optional[dict]:
     params = {
         "team_id": query.validated_data["team_id"],
         "session_id": query.validated_data["session_id"],
@@ -82,12 +82,12 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
     return construct_hierarchy(sessions[0], events, queries)
 
 
-def _fetch_sessions(query: SessionsQuerySerializer) -> List[Dict]:
+def _fetch_sessions(query: SessionsQuerySerializer) -> list[dict]:
     condition, params = _sessions_condition(query)
     return query_with_columns(GET_SESSIONS.format(condition=condition), params)
 
 
-def _sessions_condition(query: SessionsQuerySerializer) -> Tuple[str, Dict]:
+def _sessions_condition(query: SessionsQuerySerializer) -> tuple[str, dict]:
     conditions = []
 
     if "team_id" in query.validated_data:

@@ -2,7 +2,7 @@ from rest_framework import serializers
 import structlog
 import temporalio
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
@@ -45,7 +45,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
-    def update(self, instance: ExternalDataSchema, validated_data: Dict[str, Any]) -> ExternalDataSchema:
+    def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         should_sync = validated_data.get("should_sync", None)
         schedule_exists = external_data_workflow_exists(str(instance.id))
 
@@ -75,7 +75,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context

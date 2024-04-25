@@ -1,6 +1,6 @@
 import datetime
 import time
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -92,7 +92,7 @@ class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
 
-    def to_representation(self, instance: Any) -> Dict[str, Any]:
+    def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
     def _check_if_2fa_required(self, user: User) -> bool:
@@ -113,7 +113,7 @@ class LoginSerializer(serializers.Serializer):
                     pass
         return True
 
-    def create(self, validated_data: Dict[str, str]) -> Any:
+    def create(self, validated_data: dict[str, str]) -> Any:
         # Check SSO enforcement (which happens at the domain level)
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
         if sso_enforcement:
@@ -159,10 +159,10 @@ class LoginSerializer(serializers.Serializer):
 class LoginPrecheckSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
-    def to_representation(self, instance: Dict[str, str]) -> Dict[str, Any]:
+    def to_representation(self, instance: dict[str, str]) -> dict[str, Any]:
         return instance
 
-    def create(self, validated_data: Dict[str, str]) -> Any:
+    def create(self, validated_data: dict[str, str]) -> Any:
         email = validated_data.get("email", "")
         # TODO: Refactor methods below to remove duplicate queries
         return {

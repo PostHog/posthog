@@ -1,4 +1,4 @@
-from typing import Tuple, Any, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 
@@ -25,7 +25,7 @@ from posthog.test.base import (
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _create_events(self, data: list[Tuple[str, str, Any]], event="$pageview"):
+    def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):

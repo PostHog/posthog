@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Any
+from typing import TYPE_CHECKING, Literal, Optional, Any
 
 from posthog.hogql.timings import HogQLTimings
 from posthog.schema import HogQLNotice, HogQLQueryModifiers
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class HogQLFieldAccess:
-    input: List[str]
+    input: list[str]
     type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
     field: Optional[str]
     sql: str
@@ -28,7 +28,7 @@ class HogQLContext:
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
-    values: Dict = field(default_factory=dict)
+    values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
@@ -39,9 +39,9 @@ class HogQLContext:
     max_view_depth: int = 1
 
     # Warnings returned with the metadata query
-    warnings: List["HogQLNotice"] = field(default_factory=list)
+    warnings: list["HogQLNotice"] = field(default_factory=list)
     # Notices returned with the metadata query
-    notices: List["HogQLNotice"] = field(default_factory=list)
+    notices: list["HogQLNotice"] = field(default_factory=list)
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client

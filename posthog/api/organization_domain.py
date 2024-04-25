@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
@@ -38,7 +38,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_saml": {"read_only": True},
         }
 
-    def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:
+    def create(self, validated_data: dict[str, Any]) -> OrganizationDomain:
         validated_data["organization"] = self.context["view"].organization
         validated_data.pop(
             "jit_provisioning_enabled", None
@@ -56,7 +56,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
         return domain
 
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
 
         if instance and not instance.verified_at:

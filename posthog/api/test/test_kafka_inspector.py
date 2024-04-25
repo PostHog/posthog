@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Union
+from typing import Union
 from unittest.mock import patch
 
 from rest_framework import status
@@ -14,7 +14,7 @@ class TestKafkaInspector(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
-    def _to_json(self, data: Union[Dict, List]) -> str:
+    def _to_json(self, data: Union[dict, list]) -> str:
         return json.dumps(data)
 
     @patch(

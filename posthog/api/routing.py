@@ -1,5 +1,5 @@
 from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
@@ -51,7 +51,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
-    filter_rewrite_rules: Dict[str, str] = {}
+    filter_rewrite_rules: dict[str, str] = {}
 
     authentication_classes = []
     permission_classes = []
@@ -259,7 +259,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             return queryset
 
     @cached_property
-    def parents_query_dict(self) -> Dict[str, Any]:
+    def parents_query_dict(self) -> dict[str, Any]:
         # used to override the last visited project if there's a token in the request
         team_from_request = self._get_team_from_request()
 
@@ -302,7 +302,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 result[query_lookup] = query_value
         return result
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         serializer_context = super().get_serializer_context() if hasattr(super(), "get_serializer_context") else {}
         serializer_context.update(self.parents_query_dict)
         # The below are lambdas for lazy evaluation (i.e. we only query Postgres for team/org if actually needed)

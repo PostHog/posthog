@@ -1,4 +1,3 @@
-from typing import Dict
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -10,7 +9,7 @@ from posthog.hogql.database.models import (
 )
 
 
-external_tables: Dict[str, Dict[str, FieldOrTable]] = {
+external_tables: dict[str, dict[str, FieldOrTable]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),

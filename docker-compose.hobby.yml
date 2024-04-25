@@ -139,6 +139,10 @@ services:
             - 7233:7233
         volumes:
             - ./posthog/docker/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    elasticsearch:
+        extends:
+            file: docker-compose.base.yml
+            service: elasticsearch            
     temporal-admin-tools:
         extends:
             file: docker-compose.base.yml

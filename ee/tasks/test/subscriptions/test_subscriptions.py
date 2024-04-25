@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List
 from unittest.mock import MagicMock, call, patch
 
 from zoneinfo import ZoneInfo
@@ -25,10 +24,10 @@ from posthog.test.base import APIBaseTest
 @patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
-    subscriptions: List[Subscription] = None  # type: ignore
+    subscriptions: list[Subscription] = None  # type: ignore
     dashboard: Dashboard
     insight: Insight
-    tiles: List[DashboardTile] = None  # type: ignore
+    tiles: list[DashboardTile] = None  # type: ignore
     asset: ExportedAsset
 
     def setUp(self) -> None:

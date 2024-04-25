@@ -1,4 +1,4 @@
-from typing import Any, List, Dict
+from typing import Any
 
 from rest_framework import filters, request, response, serializers, status, viewsets
 
@@ -51,7 +51,7 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         hogql_context = self.context.get("database", None)
         if not hogql_context:
             hogql_context = create_hogql_database(team_id=self.context["team_id"])
@@ -89,7 +89,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "columns", "row_count"]
         read_only_fields = ["id", "name", "columns", "row_count"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         hogql_context = self.context.get("database", None)
         if not hogql_context:
             hogql_context = create_hogql_database(team_id=self.context["team_id"])
@@ -109,7 +109,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context

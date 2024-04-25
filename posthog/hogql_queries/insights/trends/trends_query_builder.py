@@ -1,4 +1,4 @@
-from typing import List, Optional, cast
+from typing import Optional, cast
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
@@ -98,7 +98,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             },
         )
 
-    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> List[ast.SelectQuery]:
+    def _get_date_subqueries(self, breakdown: Breakdown, ignore_breakdowns: bool = False) -> list[ast.SelectQuery]:
         if not breakdown.enabled or ignore_breakdowns:
             return [
                 cast(
@@ -473,7 +473,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
-        filters: List[ast.Expr] = []
+        filters: list[ast.Expr] = []
 
         # Dates
         if is_actors_query and actors_query_time_frame is not None:

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Optional, Tuple, List
+from typing import Optional
 
 from django.conf import settings
 
@@ -58,7 +58,8 @@ class SessionReplayEvents:
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
-                sum(console_error_count) as console_error_count
+                sum(console_error_count) as console_error_count,
+                argMinMerge(snapshot_source) as snapshot_source
             FROM
                 session_replay_events
             PREWHERE
@@ -74,7 +75,7 @@ class SessionReplayEvents:
             )
         )
 
-        replay_response: List[Tuple] = sync_execute(
+        replay_response: list[tuple] = sync_execute(
             query,
             {
                 "team_id": team.pk,
@@ -102,11 +103,12 @@ class SessionReplayEvents:
             console_log_count=replay[9],
             console_warn_count=replay[10],
             console_error_count=replay[11],
+            snapshot_source=replay[12] or "web",
         )
 
     def get_events(
-        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: List[str] | None
-    ) -> Tuple[List | None, List | None]:
+        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: list[str] | None
+    ) -> tuple[list | None, list | None]:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 

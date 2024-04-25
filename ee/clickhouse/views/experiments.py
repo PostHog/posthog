@@ -1,4 +1,5 @@
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from collections.abc import Callable
 
 from django.utils.timezone import now
 from rest_framework import serializers, viewsets

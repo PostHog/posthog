@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from rest_framework import (
     exceptions,
@@ -49,7 +49,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         local_part, domain = email.split("@")
         return f"{local_part}@{domain.lower()}"
 
-    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
+    def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
             user__email=validated_data["target_email"],

@@ -3,7 +3,8 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Generator, List, Tuple
+from typing import Any
+from collections.abc import Callable, Generator
 
 from dateutil.parser import parse
 from prometheus_client import Counter
@@ -89,10 +90,10 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 ]
 
 
-Event = Dict[str, Any]
+Event = dict[str, Any]
 
 
-def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
+def split_replay_events(events: list[Event]) -> tuple[list[Event], list[Event]]:
     replay, other = [], []
 
     for event in events:
@@ -102,12 +103,12 @@ def split_replay_events(events: List[Event]) -> Tuple[List[Event], List[Event]]:
 
 
 # TODO is this covered by enough tests post-blob ingester rollout
-def preprocess_replay_events_for_blob_ingestion(events: List[Event], max_size_bytes=1024 * 1024) -> List[Event]:
+def preprocess_replay_events_for_blob_ingestion(events: list[Event], max_size_bytes=1024 * 1024) -> list[Event]:
     return _process_windowed_events(events, lambda x: preprocess_replay_events(x, max_size_bytes=max_size_bytes))
 
 
 def preprocess_replay_events(
-    _events: List[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024
+    _events: list[Event] | Generator[Event, None, None], max_size_bytes=1024 * 1024
 ) -> Generator[Event, None, None]:
     """
     The events going to blob ingestion are uncompressed (the compression happens in the Kafka producer)
@@ -135,7 +136,7 @@ def preprocess_replay_events(
     window_id = events[0]["properties"].get("$window_id")
     snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
 
-    def new_event(items: List[dict] | None = None) -> Event:
+    def new_event(items: list[dict] | None = None) -> Event:
         return {
             **events[0],
             "event": "$snapshot_items",  # New event name to avoid confusion with the old $snapshot event
@@ -151,7 +152,7 @@ def preprocess_replay_events(
 
     # 1. Group by $snapshot_bytes if any of the events have it
     if events[0]["properties"].get("$snapshot_bytes"):
-        current_event: Dict | None = None
+        current_event: dict | None = None
         current_event_size = 0
 
         for event in events:
@@ -208,13 +209,13 @@ def preprocess_replay_events(
 
 
 def _process_windowed_events(
-    events: List[Event], fn: Callable[[List[Any]], Generator[Event, None, None]]
-) -> List[Event]:
+    events: list[Event], fn: Callable[[list[Any]], Generator[Event, None, None]]
+) -> list[Event]:
     """
     Helper method to simplify grouping events by window_id and session_id, processing them with the given function,
     and then returning the flattened list
     """
-    result: List[Event] = []
+    result: list[Event] = []
     snapshots_by_session_and_window_id = defaultdict(list)
 
     for event in events:
@@ -228,7 +229,7 @@ def _process_windowed_events(
     return result
 
 
-def is_unprocessed_snapshot_event(event: Dict) -> bool:
+def is_unprocessed_snapshot_event(event: dict) -> bool:
     try:
         is_snapshot = event["event"] == "$snapshot"
     except KeyError:
@@ -274,5 +275,5 @@ def convert_to_timestamp(source: str) -> int:
     return int(parse(source).timestamp() * 1000)
 
 
-def byte_size_dict(x: Dict | List) -> int:
+def byte_size_dict(x: dict | list) -> int:
     return len(json.dumps(x))

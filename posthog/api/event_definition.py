@@ -1,4 +1,4 @@
-from typing import Any, Literal, Tuple, Type, cast
+from typing import Any, Literal, cast
 
 from django.db.models import Manager
 from rest_framework import (
@@ -113,7 +113,7 @@ class EventDefinitionViewSet(
 
     def _ordering_params_from_request(
         self,
-    ) -> Tuple[str, Literal["ASC", "DESC"]]:
+    ) -> tuple[str, Literal["ASC", "DESC"]]:
         order_direction: Literal["ASC", "DESC"]
         ordering = self.request.GET.get("ordering")
 
@@ -150,7 +150,7 @@ class EventDefinitionViewSet(
 
         return EventDefinition.objects.get(id=id, team_id=self.team_id)
 
-    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
+    def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
             AvailableFeature.INGESTION_TAXONOMY

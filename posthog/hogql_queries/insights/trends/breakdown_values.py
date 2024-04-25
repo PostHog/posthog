@@ -1,4 +1,4 @@
-from typing import List, Optional, Union, Any
+from typing import Optional, Union, Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql.parser import parse_expr, parse_select
@@ -30,7 +30,7 @@ BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 class BreakdownValues:
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
-    breakdown_field: Union[str, float, List[Union[str, float]]]
+    breakdown_field: Union[str, float, list[Union[str, float]]]
     breakdown_type: BreakdownType
     events_filter: ast.Expr
     chart_display_type: ChartDisplayType
@@ -76,12 +76,12 @@ class BreakdownValues:
         self.query_date_range = query_date_range
         self.modifiers = modifiers
 
-    def get_breakdown_values(self) -> List[str | int]:
+    def get_breakdown_values(self) -> list[str | int]:
         if self.breakdown_type == "cohort":
             if self.breakdown_field == "all":
                 return [0]
 
-            if isinstance(self.breakdown_field, List):
+            if isinstance(self.breakdown_field, list):
                 return [value if isinstance(value, str) else int(value) for value in self.breakdown_field]
 
             return [self.breakdown_field if isinstance(self.breakdown_field, str) else int(self.breakdown_field)]
@@ -186,7 +186,7 @@ class BreakdownValues:
             ):
                 inner_events_query.order_by[0].order = "ASC"
 
-        values: List[Any]
+        values: list[Any]
         if self.histogram_bin_count is not None:
             query = parse_select(
                 """

@@ -3457,9 +3457,11 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         # remove database check cache values
         postgres_healthcheck.cache_clear()
 
-        with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
-            self
-        ), self.assertNumQueries(1):
+        with (
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            snapshot_postgres_queries_context(self),
+            self.assertNumQueries(1),
+        ):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
@@ -3607,8 +3609,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
         # this create fills up team cache^
 
-        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(1, using="replica"), self.assertNumQueries(
-            1, using="default"
+        with (
+            freeze_time("2021-01-01T00:00:00Z"),
+            self.assertNumQueries(1, using="replica"),
+            self.assertNumQueries(1, using="default"),
         ):
             response = self._post_decide()
             # Replica queries:
@@ -4031,9 +4035,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         # now main database is down, but does not affect replica
 
-        with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            13, using="replica"
-        ), self.assertNumQueries(0, using="default"):
+        with (
+            connections["default"].execute_wrapper(QueryTimeoutWrapper()),
+            self.assertNumQueries(13, using="replica"),
+            self.assertNumQueries(0, using="default"),
+        ):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. WITH some CTEs,

@@ -1,6 +1,6 @@
 import os
 from functools import wraps
-from typing import Dict, Union
+from typing import Union
 
 import sentry_sdk
 from django.conf import settings
@@ -70,7 +70,7 @@ def health(request):
 
 
 def stats(request):
-    stats_response: Dict[str, Union[int, str]] = {}
+    stats_response: dict[str, Union[int, str]] = {}
     stats_response["worker_heartbeat"] = get_celery_heartbeat()
     return JsonResponse(stats_response)
 

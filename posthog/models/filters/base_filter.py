@@ -1,6 +1,6 @@
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from rest_framework import request
 
@@ -17,14 +17,14 @@ if TYPE_CHECKING:
 
 
 class BaseFilter(BaseParamMixin):
-    _data: Dict
+    _data: dict
     team: Optional["Team"]
-    kwargs: Dict
+    kwargs: dict
     hogql_context: HogQLContext
 
     def __init__(
         self,
-        data: Optional[Dict[str, Any]] = None,
+        data: Optional[dict[str, Any]] = None,
         request: Optional[request.Request] = None,
         *,
         team: Optional["Team"] = None,
@@ -69,7 +69,7 @@ class BaseFilter(BaseParamMixin):
             simplified_filter = self.simplify(self.team)
             self._data = simplified_filter._data
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ret = {}
 
         for _, func in inspect.getmembers(self, inspect.ismethod):
@@ -78,20 +78,20 @@ class BaseFilter(BaseParamMixin):
 
         return ret
 
-    def to_params(self) -> Dict[str, str]:
+    def to_params(self) -> dict[str, str]:
         return encode_get_request_params(data=self.to_dict())
 
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
 
-    def shallow_clone(self, overrides: Dict[str, Any]):
+    def shallow_clone(self, overrides: dict[str, Any]):
         "Clone the filter's data while sharing the HogQL context"
         return type(self)(
             data={**self._data, **overrides},
             **{**self.kwargs, "team": self.team, "hogql_context": self.hogql_context},
         )
 
-    def query_tags(self) -> Dict[str, Any]:
+    def query_tags(self) -> dict[str, Any]:
         ret = {}
 
         for _, func in inspect.getmembers(self, inspect.ismethod):
