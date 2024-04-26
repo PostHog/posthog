@@ -824,7 +824,11 @@ class TrendsQueryRunner(QueryRunner):
         if updated_query.breakdownFilter:
             updated_query.breakdownFilter.breakdown_limit = None
 
-        if updated_query.trendsFilter.compare and dashboard_filter.date_from == "all":
+        if (
+            updated_query.trendsFilter is not None
+            and updated_query.trendsFilter.compare
+            and dashboard_filter.date_from == "all"
+        ):
             updated_query.trendsFilter.compare = False
 
         return updated_query
