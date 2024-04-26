@@ -1,5 +1,5 @@
 import { IconInfo, IconMagicWand } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { IconSync } from 'lib/lemon-ui/icons'
@@ -15,7 +15,7 @@ import React, { useState } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { HEATMAP_COLOR_PALETTE_OPTIONS, heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
@@ -142,6 +142,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         elementStatsLoading,
         clickmapsEnabled,
         heatmapFixedPositionMode,
+        heatmapColorPalette,
     } = useValues(heatmapLogic)
     const {
         setCommonFilters,
@@ -150,6 +151,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setMatchLinksByHref,
         toggleClickmapsEnabled,
         setHeatmapFixedPositionMode,
+        setHeatmapColorPalette,
     } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
@@ -319,6 +321,15 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                         }px - ${viewportRange.max}px)`}
                                     </code>
                                 </div>
+                            </SectionSetting>
+
+                            <SectionSetting title="Color palette">
+                                <LemonSelect
+                                    size="small"
+                                    options={HEATMAP_COLOR_PALETTE_OPTIONS}
+                                    value={heatmapColorPalette}
+                                    onChange={setHeatmapColorPalette}
+                                />
                             </SectionSetting>
 
                             {heatmapFilters.type !== 'scrolldepth' && (
