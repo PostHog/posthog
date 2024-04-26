@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -37,7 +37,7 @@ PERSON_ID_COLUMN = 2
 
 
 def get_actors(
-    filters: Dict[str, Any],
+    filters: dict[str, Any],
     team: Team,
     funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.events,
     funnelCorrelationNames=None,

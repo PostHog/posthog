@@ -5,6 +5,7 @@ from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
 from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
+from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -333,6 +334,7 @@ project_session_recordings_router = projects_router.register(
     ["team_id"],
 )
 projects_router.register(r"heatmaps", HeatmapViewSet, "project_heatmaps", ["team_id"])
+projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet

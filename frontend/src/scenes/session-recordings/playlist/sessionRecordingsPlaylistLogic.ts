@@ -389,9 +389,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ...s,
                                 viewed: true,
                             }
-                        } else {
-                            return { ...s }
                         }
+                        return { ...s }
                     }),
 
                 summarizeSessionSuccess: (state, { sessionSummary }) => {
@@ -402,9 +401,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                       ...s,
                                       summary: sessionSummary.content,
                                   }
-                              } else {
-                                  return s
                               }
+                              return s
                           })
                         : state
                 },
@@ -514,22 +512,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
-                } else {
-                    if (!hasEvents) {
-                        return { matchType: 'none' }
-                    }
+                }
+                if (!hasEvents) {
+                    return { matchType: 'none' }
+                }
 
-                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
-                        return {
-                            matchType: 'name',
-                            eventNames: simpleEventsFilters,
-                        }
-                    } else {
-                        return {
-                            matchType: 'backend',
-                            filters,
-                        }
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                    return {
+                        matchType: 'name',
+                        eventNames: simpleEventsFilters,
                     }
+                }
+                return {
+                    matchType: 'backend',
+                    filters,
                 }
             },
         ],

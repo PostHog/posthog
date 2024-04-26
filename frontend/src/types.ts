@@ -443,6 +443,7 @@ export interface TeamType extends TeamBasicType {
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
+    heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -616,7 +617,6 @@ export enum PipelineTab {
 }
 
 export enum PipelineStage {
-    Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',
@@ -1250,6 +1250,7 @@ export interface SessionRecordingType {
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
+    snapshot_source: 'web' | 'mobile' | 'unknown'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2813,6 +2814,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     Person = 'person',
     Group = 'group',
+    Session = 'session',
 }
 
 export interface PropertyDefinition {

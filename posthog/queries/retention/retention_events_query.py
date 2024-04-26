@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import (
     PAGEVIEW_EVENT,
@@ -37,7 +37,7 @@ class RetentionEventsQuery(EventQuery):
             person_on_events_mode=person_on_events_mode,
         )
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         _fields = [
             self.get_timestamp_field(),
             self.target_field(),

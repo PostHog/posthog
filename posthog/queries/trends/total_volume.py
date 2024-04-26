@@ -1,6 +1,7 @@
 import urllib.parse
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Union
+from collections.abc import Callable
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -48,7 +49,7 @@ class TrendsTotalVolume:
     EVENT_TABLE_ALIAS = EventQuery.EVENT_TABLE_ALIAS
     PERSON_ID_OVERRIDES_TABLE_ALIAS = EventQuery.PERSON_ID_OVERRIDES_TABLE_ALIAS
 
-    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> tuple[str, dict, Callable]:
         interval_func = get_interval_func_ch(filter.interval)
 
         person_id_alias = f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -82,7 +83,7 @@ class TrendsTotalVolume:
             "timestamp": "e.timestamp",
             "interval_func": interval_func,
         }
-        params: Dict = {"team_id": team.id, "timezone": team.timezone}
+        params: dict = {"team_id": team.id, "timezone": team.timezone}
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
@@ -219,14 +220,14 @@ class TrendsTotalVolume:
             return final_query, params, self._parse_total_volume_result(filter, entity, team)
 
     def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
-        def _parse(result: List) -> List:
+        def _parse(result: list) -> list:
             parsed_results = []
             if result is not None:
                 for stats in result:
                     parsed_result = parse_response(stats, filter, entity=entity)
-                    point_dates: List[Union[datetime, date]] = stats[0]
+                    point_dates: list[Union[datetime, date]] = stats[0]
                     # Ensure we have datetimes for all points
-                    point_datetimes: List[datetime] = [
+                    point_datetimes: list[datetime] = [
                         datetime.combine(d, datetime.min.time()) if not isinstance(d, datetime) else d
                         for d in point_dates
                     ]
@@ -238,7 +239,7 @@ class TrendsTotalVolume:
         return _parse
 
     def _parse_aggregate_volume_result(self, filter: Filter, entity: Entity, team_id: int) -> Callable:
-        def _parse(result: List) -> List:
+        def _parse(result: list) -> list:
             aggregated_value = result[0][0] if result else 0
             seconds_in_interval = TIME_IN_SECONDS[filter.interval]
             time_range = enumerate_time_range(filter, seconds_in_interval)
@@ -249,7 +250,7 @@ class TrendsTotalVolume:
                 "entity_math": entity.math,
                 "entity_order": entity.order,
             }
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             cache_invalidation_key = generate_short_id()
 
             return [
@@ -286,8 +287,8 @@ class TrendsTotalVolume:
         filter: Filter,
         entity: Entity,
         team: Team,
-        point_datetimes: List[datetime],
-    ) -> List[Dict[str, Any]]:
+        point_datetimes: list[datetime],
+    ) -> list[dict[str, Any]]:
         persons_url = []
         cache_invalidation_key = generate_short_id()
         for point_datetime in point_datetimes:
@@ -301,7 +302,7 @@ class TrendsTotalVolume:
                 "entity_order": entity.order,
             }
 
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            parsed_params: dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
             persons_url.append(
                 {
                     "filter": extra_params,

@@ -1,4 +1,4 @@
-from typing import Literal, cast, Optional, Dict
+from typing import Literal, cast, Optional
 
 import math
 
@@ -20,10 +20,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         maxDiff = None
 
-        def _expr(self, expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _expr(self, expr: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_expr(expr, placeholders=placeholders, backend=backend))
 
-        def _select(self, query: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+        def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_select(query, placeholders=placeholders, backend=backend))
 
         def test_numbers(self):

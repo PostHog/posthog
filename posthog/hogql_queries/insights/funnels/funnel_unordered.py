@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 import uuid
 
 from rest_framework.exceptions import ValidationError
@@ -45,7 +45,7 @@ class FunnelUnordered(FunnelBase):
 
         breakdown_exprs = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             *self._get_count_columns(max_steps),
             *self._get_step_time_avgs(max_steps),
             *self._get_step_time_median(max_steps),
@@ -64,13 +64,13 @@ class FunnelUnordered(FunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
-        group_by_columns: List[ast.Expr] = [
+        group_by_columns: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["steps"]),
             *breakdown_exprs,
         ]
 
-        outer_select: List[ast.Expr] = [
+        outer_select: list[ast.Expr] = [
             *group_by_columns,
             *self._get_step_time_avgs(max_steps, inner_query=True),
             *self._get_step_time_median(max_steps, inner_query=True),
@@ -82,7 +82,7 @@ class FunnelUnordered(FunnelBase):
             f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
         )
 
-        inner_select: List[ast.Expr] = [
+        inner_select: list[ast.Expr] = [
             *group_by_columns,
             max_steps_expr,
             *self._get_step_time_names(max_steps),
@@ -106,7 +106,7 @@ class FunnelUnordered(FunnelBase):
 
     def get_step_counts_without_aggregation_query(self):
         max_steps = self.context.max_steps
-        union_queries: List[ast.SelectQuery] = []
+        union_queries: list[ast.SelectQuery] = []
         entities_to_use = list(self.context.query.series)
 
         for i in range(max_steps):
@@ -153,11 +153,11 @@ class FunnelUnordered(FunnelBase):
 
         return ast.SelectUnionQuery(select_queries=union_queries)
 
-    def _get_step_times(self, max_steps: int) -> List[ast.Expr]:
+    def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         conversion_times_elements = []
         for i in range(max_steps):
@@ -175,7 +175,7 @@ class FunnelUnordered(FunnelBase):
 
         return exprs
 
-    def get_sorting_condition(self, max_steps: int) -> List[ast.Expr]:
+    def get_sorting_condition(self, max_steps: int) -> list[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
 
@@ -187,7 +187,7 @@ class FunnelUnordered(FunnelBase):
 
         conditions.append(parse_expr(f"arraySort([{','.join(event_times_elements)}]) as event_times"))
         # replacement of latest_i for whatever query part requires it, just like conversion_times
-        basic_conditions: List[str] = []
+        basic_conditions: list[str] = []
         for i in range(1, max_steps):
             basic_conditions.append(
                 f"if(latest_0 < latest_{i} AND latest_{i} <= toTimeZone(latest_0, 'UTC') + INTERVAL {windowInterval} {windowIntervalUnit}, 1, 0)"
@@ -199,7 +199,7 @@ class FunnelUnordered(FunnelBase):
         else:
             return [ast.Alias(alias="steps", expr=ast.Constant(value=1))]
 
-    def _get_exclusion_condition(self) -> List[ast.Expr]:
+    def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter
         windowInterval = self.context.funnelWindowInterval
         windowIntervalUnit = funnel_window_interval_unit_to_sql(self.context.funnelWindowIntervalUnit)
@@ -207,7 +207,7 @@ class FunnelUnordered(FunnelBase):
         if not funnelsFilter.exclusions:
             return []
 
-        conditions: List[ast.Expr] = []
+        conditions: list[ast.Expr] = []
 
         for exclusion_id, exclusion in enumerate(funnelsFilter.exclusions):
             from_time = f"latest_{exclusion.funnelFromStep}"
@@ -233,9 +233,9 @@ class FunnelUnordered(FunnelBase):
         step: ActionsNode | EventsNode | DataWarehouseNode,
         count: int,
         index: int,
-        people: Optional[List[uuid.UUID]] = None,
+        people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if isinstance(step, DataWarehouseNode):
             raise NotImplementedError("Data Warehouse queries are not supported in funnels")
 

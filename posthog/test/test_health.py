@@ -1,7 +1,7 @@
 import logging
 from contextlib import contextmanager
 import random
-from typing import List, Optional
+from typing import Optional
 from unittest import mock
 from unittest.mock import patch
 
@@ -70,7 +70,13 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
     just be an indicator that the python process hasn't hung.
     """
 
-    with simulate_postgres_error(), simulate_kafka_cannot_connect(), simulate_clickhouse_cannot_connect(), simulate_celery_cannot_connect(), simulate_cache_cannot_connect():
+    with (
+        simulate_postgres_error(),
+        simulate_kafka_cannot_connect(),
+        simulate_clickhouse_cannot_connect(),
+        simulate_celery_cannot_connect(),
+        simulate_cache_cannot_connect(),
+    ):
         resp = get_livez(client)
 
     assert resp.status_code == 200, resp.content
@@ -263,7 +269,7 @@ def test_readyz_complains_if_role_does_not_exist(client: Client):
     assert data["error"] == "InvalidRole"
 
 
-def get_readyz(client: Client, exclude: Optional[List[str]] = None, role: Optional[str] = None) -> HttpResponse:
+def get_readyz(client: Client, exclude: Optional[list[str]] = None, role: Optional[str] = None) -> HttpResponse:
     return client.get("/_readyz", data={"exclude": exclude or [], "role": role or ""})
 
 

@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 from zoneinfo import ZoneInfo
 from django.utils import timezone
@@ -46,21 +46,21 @@ GET_EARLIEST_TIMESTAMP_SQL = """
 SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
 """
 
-TIME_IN_SECONDS: Dict[str, Any] = {
+TIME_IN_SECONDS: dict[str, Any] = {
     "hour": 3600,
     "day": 3600 * 24,
     "week": 3600 * 24 * 7,
     "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
 }
 
-PERIOD_TO_TRUNC_FUNC: Dict[str, str] = {
+PERIOD_TO_TRUNC_FUNC: dict[str, str] = {
     "hour": "toStartOfHour",
     "week": "toStartOfWeek",
     "day": "toStartOfDay",
     "month": "toStartOfMonth",
 }
 
-PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
+PERIOD_TO_INTERVAL_FUNC: dict[str, str] = {
     "hour": "toIntervalHour",
     "week": "toIntervalWeek",
     "day": "toIntervalDay",
@@ -141,7 +141,7 @@ def get_time_in_seconds_for_period(period: Optional[str]) -> str:
     return seconds_in_period
 
 
-def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
+def deep_dump_object(params: dict[str, Any]) -> dict[str, Any]:
     for key in params:
         if isinstance(params[key], dict) or isinstance(params[key], list):
             params[key] = json.dumps(params[key])

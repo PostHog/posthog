@@ -1,6 +1,3 @@
-import math
-from typing import Dict
-
 import freezegun
 from django.http import HttpResponse
 from parameterized import parameterized
@@ -48,21 +45,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     CLASS_DATA_LEVEL_SETUP = False
 
     def _assert_heatmap_no_result_count(
-        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
     ) -> None:
         response = self._get_heatmap(params, expected_status_code)
         if response.status_code == status.HTTP_200_OK:
             assert len(response.json()["results"]) == 0
 
     def _assert_heatmap_single_result_count(
-        self, params: Dict[str, str | int | None] | None, expected_grouped_count: int
+        self, params: dict[str, str | int | None] | None, expected_grouped_count: int
     ) -> None:
         response = self._get_heatmap(params)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["count"] == expected_grouped_count
 
     def _get_heatmap(
-        self, params: Dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
+        self, params: dict[str, str | int | None] | None, expected_status_code: int = status.HTTP_200_OK
     ) -> HttpResponse:
         if params is None:
             params = {}
@@ -146,12 +143,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_clickhouse_queries
     def test_can_get_scrolldepth_counts(self) -> None:
+        # to calculate expected scroll depth bucket from y and viewport height
+        # ((round(y/16) + round(viewport_height/16)) * 16 // 100) * 100
+
+        # scroll depth bucket 1000
         self._create_heatmap_event("session_1", "scrolldepth", "2023-03-08T07:00:00", y=10, viewport_height=1000)
         self._create_heatmap_event("session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000)
+        # scroll depth bucket 1100
         self._create_heatmap_event("session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000)
+        # scroll depth bucket 1200
         self._create_heatmap_event("session_4", "scrolldepth", "2023-03-08T08:01:00", y=300, viewport_height=1000)
+        # scroll depth bucket 1300
         self._create_heatmap_event("session_5", "scrolldepth", "2023-03-08T08:01:00", y=400, viewport_height=1000)
+        # scroll depth bucket 1400
         self._create_heatmap_event("session_6", "scrolldepth", "2023-03-08T08:01:00", y=500, viewport_height=1000)
+        # scroll depth bucket 1800
         self._create_heatmap_event("session_7", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
         self._create_heatmap_event("session_8", "scrolldepth", "2023-03-08T08:01:00", y=900, viewport_height=1000)
 
@@ -160,74 +166,139 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert scroll_response.json() == {
             "results": [
                 {
-                    "bucket_count": 1,
+                    "bucket_count": 2,
                     "cumulative_count": 8,
                     "scroll_depth_bucket": 1000,
                 },
                 {
                     "bucket_count": 1,
-                    "cumulative_count": 7,
+                    "cumulative_count": 6,
                     "scroll_depth_bucket": 1100,
                 },
                 {
-                    "bucket_count": 2,
-                    "cumulative_count": 6,
+                    "bucket_count": 1,
+                    "cumulative_count": 5,
                     "scroll_depth_bucket": 1200,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 4,
-                    "scroll_depth_bucket": 1400,
+                    "scroll_depth_bucket": 1300,
                 },
                 {
                     "bucket_count": 1,
                     "cumulative_count": 3,
-                    "scroll_depth_bucket": 1500,
+                    "scroll_depth_bucket": 1400,
                 },
                 {
                     "bucket_count": 2,
                     "cumulative_count": 2,
-                    "scroll_depth_bucket": 1900,
+                    "scroll_depth_bucket": 1800,
                 },
             ],
         }
 
+    def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
+        # scroll depth bucket 1000
+        self._create_heatmap_event(
+            "session_1", "scrolldepth", "2023-03-08T07:00:00", y=100, viewport_height=1000, distinct_id="12345"
+        )
+
+        # one person only scrolls a little way
+        # scroll depth bucket 1000
+        self._create_heatmap_event(
+            "session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000, distinct_id="34567"
+        )
+
+        # the first person scrolls further
+        # scroll depth bucket 1100
+        self._create_heatmap_event(
+            "session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000, distinct_id="12345"
+        )
+
+        scroll_response = self._get_heatmap(
+            {"date_from": "2023-03-06", "type": "scrolldepth", "aggregation": "unique_visitors"}
+        )
+
+        assert scroll_response.json() == {
+            "results": [
+                {
+                    "bucket_count": 2,
+                    "cumulative_count": 3,
+                    "scroll_depth_bucket": 1000,
+                },
+                {
+                    "bucket_count": 1,
+                    "cumulative_count": 1,
+                    "scroll_depth_bucket": 1100,
+                },
+            ],
+        }
+
+    @staticmethod
+    def heatmap_result(relative_x: float, count: int) -> dict:
+        return {
+            "count": count,
+            "pointer_relative_x": relative_x,
+            "pointer_target_fixed": True,
+            "pointer_y": 16,
+        }
+
+    @parameterized.expand(
+        [
+            [
+                "min_150",
+                {"date_from": "2023-03-08", "viewport_width_min": "150"},
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1), heatmap_result(0.11, 2)],
+            ],
+            [
+                "min_161",
+                {"date_from": "2023-03-08", "viewport_width_min": "161"},
+                [
+                    heatmap_result(0.08, 1),
+                    heatmap_result(0.09, 1),
+                    heatmap_result(0.1, 1),
+                ],
+            ],
+            [
+                "min_177",
+                {"date_from": "2023-03-08", "viewport_width_min": "177"},
+                [
+                    heatmap_result(0.08, 1),
+                    heatmap_result(0.09, 1),
+                ],
+            ],
+            ["min_201", {"date_from": "2023-03-08", "viewport_width_min": "201"}, []],
+            [
+                "min_161_and_max_192",
+                {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192},
+                [heatmap_result(0.08, 1), heatmap_result(0.09, 1), heatmap_result(0.1, 1)],
+            ],
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_can_get_filter_by_min_viewport(self) -> None:
-        # all scale to 10
+    def test_can_filter_by_viewport(self, _name: str, query_params: dict, expected_results: list) -> None:
+        # all these xs = round(10/16) = 1
+
+        # viewport widths that scale to 9
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        # scale to 11
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
-        # scales to 12
-        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
 
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "150"}, 5)
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "161"}, 2)
-        self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "viewport_width_min": "177"}, 1)
-        self._assert_heatmap_no_result_count({"date_from": "2023-03-08", "viewport_width_min": "193"})
-
-    @snapshot_clickhouse_queries
-    def test_can_get_filter_by_min_and_max_viewport(self) -> None:
-        # all scale to 10
-        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", 150)
-        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", 151)
+        # viewport widths that scale to 10
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 152)
-        # scale to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 161)
-        # scales to 12
+
+        # viewport width that scales to 11
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 177)
-        # scales to 13
+        # viewport width that scales to 12
         self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", 193)
 
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "viewport_width_min": 161, "viewport_width_max": 192}, 2
-        )
+        response = self._get_heatmap(query_params)
+        assert sorted(response.json()["results"], key=lambda k: k["pointer_relative_x"]) == expected_results
 
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:
-        # 3 items but 2 viitors
+        # 3 items but 2 visitors
         self._create_heatmap_event("session_1", "click", distinct_id="12345")
         self._create_heatmap_event("session_2", "click", distinct_id="12345")
         self._create_heatmap_event("session_3", "click", distinct_id="54321")
@@ -251,37 +322,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "aggregation": choice}, expected_status_code=expected_status_code
         )
 
-    def test_can_get_scrolldepth_counts_by_visitor(self) -> None:
-        self._create_heatmap_event(
-            "session_1", "scrolldepth", "2023-03-08T07:00:00", y=100, viewport_height=1000, distinct_id="12345"
-        )
-        # one person only scrolls a little way
-        self._create_heatmap_event(
-            "session_2", "scrolldepth", "2023-03-08T08:00:00", y=100, viewport_height=1000, distinct_id="34567"
-        )
-        self._create_heatmap_event(
-            "session_3", "scrolldepth", "2023-03-08T08:01:00", y=200, viewport_height=1000, distinct_id="12345"
-        )
-
-        scroll_response = self._get_heatmap(
-            {"date_from": "2023-03-06", "type": "scrolldepth", "aggregation": "unique_visitors"}
-        )
-
-        assert scroll_response.json() == {
-            "results": [
-                {
-                    "bucket_count": 2,
-                    "cumulative_count": 3,
-                    "scroll_depth_bucket": 1100,
-                },
-                {
-                    "bucket_count": 1,
-                    "cumulative_count": 1,
-                    "scroll_depth_bucket": 1200,
-                },
-            ],
-        }
-
     def _create_heatmap_event(
         self,
         session_id: str,
@@ -289,6 +329,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         date_from: str = "2023-03-08T09:00:00",
         viewport_width: int = 100,
         viewport_height: int = 100,
+        x: int = 10,
         y: int = 20,
         current_url: str | None = None,
         distinct_id: str = "user_distinct_id",
@@ -307,12 +348,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "team_id": team_id,
                 "distinct_id": distinct_id,
                 "timestamp": format_clickhouse_timestamp(date_from),
-                "x": 10 / 16,
-                "y": y / 16,
+                "x": round(x / 16),
+                "y": round(y / 16),
                 "scale_factor": 16,
                 # this adjustment is done at ingestion
-                "viewport_width": math.ceil(viewport_width / 16),
-                "viewport_height": math.ceil(viewport_height / 16),
+                "viewport_width": round(viewport_width / 16),
+                "viewport_height": round(viewport_height / 16),
                 "type": type,
                 "pointer_target_fixed": True,
                 "current_url": current_url if current_url else "http://posthog.com",

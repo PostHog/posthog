@@ -1,18 +1,17 @@
 import json
 import posthoganalytics
+from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import (
+from typing import (  # noqa: UP035
     Any,
-    Callable,
-    Dict,
     List,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
+    Union,
     cast,
 )
+from collections.abc import Callable
 
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
@@ -176,10 +175,20 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         team = self.context["get_team"]()
         return get_person_name(team, person)
 
-    def to_representation(self, instance: Person) -> Dict[str, Any]:
-        representation = super().to_representation(instance)
-        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
-        return representation
+    def to_representation(self, instance: Union[Person, MissingPerson]) -> dict[str, Any]:
+        if isinstance(instance, Person):
+            representation = super().to_representation(instance)
+            representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            return representation
+        elif isinstance(instance, MissingPerson):
+            return {
+                "id": None,
+                "name": None,
+                "distinct_ids": [instance.distinct_id],
+                "properties": instance.properties,
+                "created_at": None,
+                "uuid": instance.uuid,
+            }
 
 
 # person distinct ids can grow to be a very large list
@@ -192,7 +201,7 @@ class MinimalPersonSerializer(PersonSerializer):
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: Type[ActorBaseQuery]
+    funnel_actor_class: type[ActorBaseQuery]
 
     if filter.correlation_person_entity and EE_AVAILABLE:
         if EE_AVAILABLE:
@@ -678,7 +687,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):
+    def _respond_with_cached_results(self, results_package: dict[str, tuple[List, Optional[str], Optional[str], int]]):  # noqa: UP006
         if not results_package:
             return response.Response(data=[])
 
@@ -705,7 +714,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -734,7 +743,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_path_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
 
@@ -769,7 +778,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @cached_by_filters
     def calculate_trends_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
+    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)

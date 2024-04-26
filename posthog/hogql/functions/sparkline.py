@@ -1,9 +1,7 @@
-from typing import List
-
 from posthog.hogql import ast
 
 
-def sparkline(node: ast.Expr, args: List[ast.Expr]) -> ast.Expr:
+def sparkline(node: ast.Expr, args: list[ast.Expr]) -> ast.Expr:
     return ast.Tuple(
         exprs=[
             ast.Constant(value="__hogql_chart_type"),

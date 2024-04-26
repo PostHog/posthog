@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -12,7 +12,7 @@ patchedDependencies:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
   rrweb@2.0.0-alpha.13:
-    hash: 7hn7wcvbq3pr4fuxwsrydmkjv4
+    hash: awo7hmdoglvq4pl5b43lreupza
     path: patches/rrweb@2.0.0-alpha.13.patch
 
 dependencies:
@@ -333,7 +333,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13(patch_hash=7hn7wcvbq3pr4fuxwsrydmkjv4)
+    version: 2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -356,7 +356,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -12914,7 +12914,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -19277,7 +19276,7 @@ packages:
     resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.13(patch_hash=7hn7wcvbq3pr4fuxwsrydmkjv4):
+  /rrweb@2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza):
     resolution: {integrity: sha512-a8GXOCnzWHNaVZPa7hsrLZtNZ3CGjiL+YrkpLo0TfmxGLhjNZbWY2r7pE06p+FcjFNlgUVTmFrSJbK3kO7yxvw==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.13

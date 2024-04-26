@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
@@ -68,8 +68,8 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
-def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
-    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
+    ret_dict: dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
         ret_dict["label"] = f"{entity.name} - {label}"
@@ -103,7 +103,7 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _props(dict: Dict):
+def _props(dict: dict):
     props = dict.get("properties", None)
     if not props:
         return None
@@ -125,11 +125,11 @@ def _props(dict: Dict):
 def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     filter_as_dict = filter.to_dict()
 
-    events: List[EventsNode] = []
-    actions: List[ActionsNode] = []
+    events: list[EventsNode] = []
+    actions: list[ActionsNode] = []
 
     for event in filter.events:
-        if isinstance(event._data.get("properties", None), List):
+        if isinstance(event._data.get("properties", None), list):
             properties = clean_entity_properties(event._data.get("properties", None))
         elif event._data.get("properties", None) is not None:
             values = event._data.get("properties", None).get("values", None)
@@ -151,7 +151,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         )
 
     for action in filter.actions:
-        if isinstance(action._data.get("properties", None), List):
+        if isinstance(action._data.get("properties", None), list):
             properties = clean_entity_properties(action._data.get("properties", None))
         elif action._data.get("properties", None) is not None:
             values = action._data.get("properties", None).get("values", None)
@@ -172,7 +172,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,
@@ -304,7 +304,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         type=PropertyDefinition.Type.GROUP,
                     )
 
-    def _create_events(self, use_time=False) -> Tuple[Action, Person]:
+    def _create_events(self, use_time=False) -> tuple[Action, Person]:
         person = self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2080,7 +2080,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
+    def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         for time in dates:
             with freeze_time(time):

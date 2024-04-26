@@ -1,10 +1,10 @@
-from typing import Any, List
+from typing import Any
 from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
-import psycopg
+import psycopg2
 from django.conf import settings
 from posthog.warehouse.util import database_sync_to_async
 
@@ -80,8 +80,8 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
 
-def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str) -> List[Any]:
-    connection = psycopg.Connection.connect(
+def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str) -> list[Any]:
+    connection = psycopg2.connect(
         host=host,
         port=int(port),
         dbname=database,

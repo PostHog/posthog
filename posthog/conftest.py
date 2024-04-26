@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any
 
 import pytest
 from django.conf import settings
@@ -22,7 +22,7 @@ def create_clickhouse_tables(num_tables: int):
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    CREATE_TABLE_QUERIES: Tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
+    CREATE_TABLE_QUERIES: tuple[Any, ...] = CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES
 
     # Check if all the tables have already been created
     if num_tables == len(CREATE_TABLE_QUERIES):

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from dateutil.rrule import (
     FR,
@@ -134,7 +134,7 @@ class Subscription(models.Model):
             self.set_next_delivery_date()
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
-        super(Subscription, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @property
     def url(self):
@@ -187,7 +187,7 @@ class Subscription(models.Model):
             capture_exception(e)
             return "sent on a schedule"
 
-    def get_analytics_metadata(self) -> Dict[str, Any]:
+    def get_analytics_metadata(self) -> dict[str, Any]:
         """
         Returns serialized information about the object for analytics reporting.
         """

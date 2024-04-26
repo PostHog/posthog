@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { waitForExpect } from '../../../functional_tests/expectations'
 import { Database, Hub, InternalPerson } from '../../../src/types'
@@ -15,6 +14,7 @@ import {
     FlatPersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
+import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { WaitEvent } from '../../helpers/promises'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
@@ -32,17 +32,6 @@ interface PersonOverridesMode {
         hub: Hub,
         teamId: number
     ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
-}
-
-function uuidFromDistinctId(teamId: number, distinctId: string): string {
-    // The UUID generation code here is deliberately copied from `person-state` rather than imported,
-    // so that someone can't accidentally change how `person-state` UUID generation works and still
-    // have the tests pass.
-    //
-    // It is very important that Person UUIDs are deterministically generated and that this format
-    // doesn't change without a lot of thought and planning about side effects!
-    const namespace = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
-    return uuidv5(`${teamId}:${distinctId}`, namespace)
 }
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
@@ -222,6 +211,7 @@ describe('PersonState.update()', () => {
                     created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
                 })
             )
+            expect(fakePerson.force_upgrade).toBeUndefined()
 
             // verify there is no Postgres person
             const persons = await fetchPostgresPersonsH()
@@ -232,11 +222,11 @@ describe('PersonState.update()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([]))
         })
 
-        it('merging with lazy person creation creates an override', async () => {
+        it('merging with lazy person creation creates an override and force_upgrade works', async () => {
             await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
 
             const hubParam = undefined
-            const processPerson = true
+            let processPerson = true
             const lazyPersonCreation = true
             await personState(
                 {
@@ -265,6 +255,33 @@ describe('PersonState.update()', () => {
                         version: 1,
                     }),
                 ])
+            )
+
+            // Using the `distinct_id` again with `processPerson=false` results in
+            // `force_upgrade=true` and real Person `uuid` and `created_at`
+            processPerson = false
+            const event_uuid = new UUIDT().toString()
+            const fakePerson = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(fakePerson).toEqual(
+                expect.objectContaining({
+                    team_id: teamId,
+                    uuid: oldUserUuid, // *old* user, because it existed before the merge
+                    properties: {}, // empty even though there was a $set attempted
+                    created_at: timestamp, // *not* the fake person created_at
+                    force_upgrade: true,
+                })
             )
         })
 
