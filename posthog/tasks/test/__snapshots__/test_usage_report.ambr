@@ -347,7 +347,6 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
   '''
-  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -358,8 +357,13 @@
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web')
   WHERE session_id NOT IN
-      (SELECT DISTINCT session_id
-       FROM session_replay_events
+      (-- we want to exclude sessions that might have events with timestamps
+   -- before the period we are interested in
+   SELECT DISTINCT session_id
+       FROM session_replay_events -- begin is the very first instant of the period we are interested in
+   -- we assume it is also the very first instant of a day
+   -- so we can to subtract 1 second to get the day before
+  
        WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
@@ -367,7 +371,6 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
   '''
-  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -378,8 +381,13 @@
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile')
   WHERE session_id NOT IN
-      (SELECT DISTINCT session_id
-       FROM session_replay_events
+      (-- we want to exclude sessions that might have events with timestamps
+   -- before the period we are interested in
+   SELECT DISTINCT session_id
+       FROM session_replay_events -- begin is the very first instant of the period we are interested in
+   -- we assume it is also the very first instant of a day
+   -- so we can to subtract 1 second to get the day before
+  
        WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
