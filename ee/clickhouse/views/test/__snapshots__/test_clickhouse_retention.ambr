@@ -30,9 +30,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -106,9 +107,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -124,7 +126,9 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id
+  GROUP BY actor_id -- make sure we have stable ordering/pagination
+   -- NOTE: relies on ids being monotonic
+  
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -178,9 +182,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-04 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -196,7 +201,9 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id
+  GROUP BY actor_id -- make sure we have stable ordering/pagination
+   -- NOTE: relies on ids being monotonic
+  
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -271,9 +278,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -371,9 +379,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -389,7 +398,9 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id
+  GROUP BY actor_id -- make sure we have stable ordering/pagination
+   -- NOTE: relies on ids being monotonic
+  
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -467,9 +478,10 @@
           AND e.event = 'target event'
         GROUP BY target
         HAVING event_date >= toDateTime('2020-01-01 00:00:00', 'UTC')
-        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) SELECT DISTINCT breakdown_values,
-                                                                                    intervals_from_base,
-                                                                                    actor_id
+        AND event_date <= toDateTime('2020-01-03 00:00:00', 'UTC')) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -485,7 +497,9 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id
+  GROUP BY actor_id -- make sure we have stable ordering/pagination
+   -- NOTE: relies on ids being monotonic
+  
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
