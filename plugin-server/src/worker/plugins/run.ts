@@ -197,21 +197,25 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'composeWebhook')
+    let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'composeWebhook')
 
-    // TODO: Filter shit out
-    // // Filter based on actionmatching the event against the plugin's configured actions
-    // pluginMethodsToRun = await Promise.all(
-    //     pluginMethodsToRun.map(async ([pluginConfig, composeWebhook]) => {
-    //         // TODO: Filter to see if it matches the action in question
-    //         if (pluginConfig.matchActions.length === 0) {
-    //             const matchedActions = await hub.actionMatcher.match(event)
-    //             return pluginConfig.matchActions.some((actionId) => matchedActions.find((x) => x.id === actionId))
-    //         }
+    // Filter out plugins if they have a match_action that doesn't match the event
+    pluginMethodsToRun = pluginMethodsToRun.filter(([pluginConfig, composeWebhook]) => {
+        if (pluginConfig.match_action_id) {
+            const relatedAction = hub.actionMatcher.getActionById(event.team_id, pluginConfig.match_action_id)
+            if (!relatedAction) {
+                // TODO: Log an error!
+                return false
+            }
+            // TODO: This event isn't a PostIngestionEvent so it is missing some stuff
+            // Not sure why it _wouldn't_ be though. Maybe something we can change?
+            // const  = hub.actionMatcher.checkAction(event)
 
-    //         return [pluginConfig, composeWebhook]
-    //     })
-    // )
+            return true
+        }
+
+        return [pluginConfig, composeWebhook]
+    })
 
     await Promise.all(
         pluginMethodsToRun

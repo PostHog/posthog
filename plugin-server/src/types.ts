@@ -427,6 +427,7 @@ export interface PluginConfig {
     // we'll need to know which method this plugin is using to call it the right way
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
+    match_action_id?: number
 }
 
 export interface PluginJsonConfig {
@@ -670,17 +671,6 @@ export interface ClickHouseEvent extends BaseEvent {
 /** Event in a database-agnostic shape, AKA an ingestion event.
  * This is what should be passed around most of the time in the plugin server.
  */
-interface BaseIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-    elementsList: Element[]
-}
-
-/** Ingestion event before saving, BaseIngestionEvent without elementsList */
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -690,8 +680,8 @@ export interface PreIngestionEvent {
     timestamp: ISOTimestamp
 }
 
-/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+export interface PostIngestionEvent extends PreIngestionEvent {
+    elementsList: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties

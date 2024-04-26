@@ -165,6 +165,10 @@ export class ActionMatcher {
         return matches
     }
 
+    public getActionById(teamId: number, actionId: number): Action | undefined {
+        return this.actionManager.getTeamActions(teamId)[actionId]
+    }
+
     /**
      * Base level of action matching.
      *
