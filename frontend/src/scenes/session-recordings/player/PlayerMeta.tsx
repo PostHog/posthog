@@ -257,7 +257,7 @@ const MenuActions = (): JSX.Element => {
     const items: LemonMenuItems = [
         {
             label: 'Export to file',
-            onClick: exportRecordingToFile,
+            onClick: () => exportRecordingToFile(false),
             icon: <IconDownload />,
             tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
         },
