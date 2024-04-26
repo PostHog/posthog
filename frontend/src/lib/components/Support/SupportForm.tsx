@@ -117,7 +117,7 @@ export function SupportForm(): JSX.Element | null {
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2">
                         <LemonTextArea
-                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind]}
+                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
                             {...props}
                         />
