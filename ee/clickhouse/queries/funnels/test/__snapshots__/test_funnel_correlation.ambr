@@ -9,7 +9,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -17,14 +17,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -75,9 +75,10 @@
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
-  SELECT event.event AS name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT event.event AS name, -- If we have a `person.steps = target_step`, we know the person
+   -- reached the end of the funnel
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count, -- And the converse being for failures
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
   JOIN
     (SELECT distinct_id,
@@ -85,20 +86,37 @@
      FROM person_distinct_id2
      WHERE team_id = 2
      GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id
-  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
-    AND event.event NOT IN []
-  GROUP BY name
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON pdi.distinct_id = events.distinct_id -- NOTE: I would love to right join here, so we count get total
+   -- success/failure numbers in one pass, but this causes out of memory
+   -- error mentioning issues with right filling. I'm sure there's a way
+   -- to do it but lifes too short.
+  
+  JOIN funnel_actors AS actors ON pdi.person_id = actors.actor_id -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
+    AND event.event NOT IN [] 
+  GROUP BY name -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   UNION ALL
-  SELECT 'Total_Values_In_Query' as name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT -- We're not using WITH TOTALS because the resulting queries are
+   -- not runnable in Metabase
+   'Total_Values_In_Query' as name,
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
   '''
 # ---
@@ -112,7 +130,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -120,14 +138,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -173,24 +191,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['$browser'], [replaceRegexpAll(JSONExtractRaw(person_props, '$browser'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['$browser'], [replaceRegexpAll(JSONExtractRaw(person_props, '$browser'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     JOIN 
+       (SELECT id, 
+               argMax(properties, version) as person_props 
+        FROM person 
+        WHERE team_id = 2 
+        GROUP BY id 
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -576,7 +617,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -584,14 +625,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -637,24 +678,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['$browser'], ["pmat_$browser"])) as prop
-     FROM funnel_actors
-     JOIN
-       (SELECT id,
-               argMax(pmat_$browser, version) as pmat_$browser
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['$browser'], ["pmat_$browser"])) as prop 
+     FROM funnel_actors 
+     JOIN 
+       (SELECT id, 
+               argMax(pmat_$browser, version) as pmat_$browser 
+        FROM person 
+        WHERE team_id = 2 
+        GROUP BY id 
+        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -1040,7 +1104,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1048,14 +1112,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1095,21 +1159,34 @@
   FROM
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
-            events.event as event_name,
-            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
+            events.event as event_name, -- Same as what we do in $all property queries
+   arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
-     JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-       AND event.team_id = 2
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-       AND event.event NOT IN funnel_step_names
-       AND event.event IN ['positively_related', 'negatively_related'] )
-  GROUP BY name
-  HAVING (success_count + failure_count) > 2
-  AND prop.1 NOT IN []
-  UNION ALL
+     JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+     WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+       AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+       AND event.event NOT IN funnel_step_names 
+       AND event.event IN ['positively_related', 'negatively_related'] ) 
+  GROUP BY name -- Discard high cardinality / low hits properties
+   -- This removes the long tail of random properties with empty, null, or very small values
+   
+  HAVING (success_count + failure_count) > 2 
+  AND prop.1 NOT IN [] 
+  UNION ALL -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
@@ -1126,7 +1203,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1134,14 +1211,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1181,21 +1258,34 @@
   FROM
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
-            events.event as event_name,
-            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
+            events.event as event_name, -- Same as what we do in $all property queries
+   arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
-     JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
-     WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-       AND event.team_id = 2
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-       AND event.event NOT IN funnel_step_names
-       AND event.event IN ['positively_related', 'negatively_related'] )
-  GROUP BY name
-  HAVING (success_count + failure_count) > 2
-  AND prop.1 NOT IN []
-  UNION ALL
+     JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+     WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+       AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+       AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+       AND event.event NOT IN funnel_step_names 
+       AND event.event IN ['positively_related', 'negatively_related'] ) 
+  GROUP BY name -- Discard high cardinality / low hits properties
+   -- This removes the long tail of random properties with empty, null, or very small values
+   
+  HAVING (success_count + failure_count) > 2 
+  AND prop.1 NOT IN [] 
+  UNION ALL -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
@@ -1212,7 +1302,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1220,14 +1310,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1261,23 +1351,37 @@
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
-  SELECT event.event AS name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT event.event AS name, -- If we have a `person.steps = target_step`, we know the person
+   -- reached the end of the funnel
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count, -- And the converse being for failures
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
-    AND event.event NOT IN []
-  GROUP BY name
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
+    AND event.event NOT IN [] 
+  GROUP BY name -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   UNION ALL
-  SELECT 'Total_Values_In_Query' as name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT -- We're not using WITH TOTALS because the resulting queries are
+   -- not runnable in Metabase
+   'Total_Values_In_Query' as name,
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
   '''
 # ---
@@ -1291,7 +1395,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1299,14 +1403,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1342,13 +1446,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'positively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -1367,7 +1480,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1375,14 +1488,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1418,13 +1531,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'positively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -1443,7 +1565,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1451,14 +1573,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1494,13 +1616,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -1519,7 +1650,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1527,14 +1658,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1570,13 +1701,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -1595,7 +1735,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1603,14 +1743,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1652,23 +1792,37 @@
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
-  SELECT event.event AS name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT event.event AS name, -- If we have a `person.steps = target_step`, we know the person
+   -- reached the end of the funnel
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count, -- And the converse being for failures
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
-    AND event.event NOT IN []
-  GROUP BY name
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
+    AND event.event NOT IN [] 
+  GROUP BY name -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   UNION ALL
-  SELECT 'Total_Values_In_Query' as name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT -- We're not using WITH TOTALS because the resulting queries are
+   -- not runnable in Metabase
+   'Total_Values_In_Query' as name,
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
   '''
 # ---
@@ -1682,7 +1836,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1690,14 +1844,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1741,13 +1895,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -1766,7 +1929,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1774,14 +1937,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1825,13 +1988,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -1850,7 +2022,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1858,14 +2030,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1907,23 +2079,37 @@
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
-  SELECT event.event AS name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT event.event AS name, -- If we have a `person.steps = target_step`, we know the person
+   -- reached the end of the funnel
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count, -- And the converse being for failures
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
-    AND event.event NOT IN []
-  GROUP BY name
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
+    AND event.event NOT IN [] 
+  GROUP BY name -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   UNION ALL
-  SELECT 'Total_Values_In_Query' as name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT -- We're not using WITH TOTALS because the resulting queries are
+   -- not runnable in Metabase
+   'Total_Values_In_Query' as name,
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
   '''
 # ---
@@ -1937,7 +2123,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -1945,14 +2131,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -1996,13 +2182,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'positively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -2021,7 +2216,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2029,14 +2224,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2080,13 +2275,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'positively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -2105,7 +2309,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2113,14 +2317,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2164,13 +2368,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -2189,7 +2402,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2197,14 +2410,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2248,13 +2461,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -2273,7 +2495,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2281,14 +2503,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2338,23 +2560,37 @@
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
        ['paid', 'user signed up'] as funnel_step_names
-  SELECT event.event AS name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT event.event AS name, -- If we have a `person.steps = target_step`, we know the person
+   -- reached the end of the funnel
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count, -- And the converse being for failures
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
-    AND event.event NOT IN []
-  GROUP BY name
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
+    AND event.event NOT IN [] 
+  GROUP BY name -- To get the total success/failure numbers, we do an aggregation on
+   -- the funnel people CTE and count distinct actor_ids
+   
   UNION ALL
-  SELECT 'Total_Values_In_Query' as name,
-         countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
-         countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
+  SELECT -- We're not using WITH TOTALS because the resulting queries are
+   -- not runnable in Metabase
+   'Total_Values_In_Query' as name,
+   countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
+   countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
   '''
 # ---
@@ -2368,7 +2604,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2376,14 +2612,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2435,13 +2671,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps = target_step
   GROUP BY actor_id
@@ -2460,7 +2705,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2468,14 +2713,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2527,13 +2772,22 @@
        ['user signed up', 'paid'] as funnel_step_names
   SELECT actors.actor_id AS actor_id
   FROM events AS event
-  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0
-  WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to
-    AND event.team_id = 2
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp
-    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to)
-    AND event.event NOT IN funnel_step_names
+  JOIN funnel_actors AS actors ON actors.actor_id = events.$group_0 -- Make sure we're only looking at events before the final step, or
+   -- failing that, date_to
+   
+  WHERE -- add this condition in to ensure we can filter events before
+   -- joining funnel_actors
+   toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < date_to 
+    AND event.team_id = 2 -- Add in per actor filtering on event time range. We just want
+   -- to include events that happened within the bounds of the
+   -- actors time in the funnel.
+   
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') > actors.first_timestamp 
+    AND toTimeZone(toDateTime(event.timestamp), 'UTC') < COALESCE(actors.final_timestamp, actors.first_timestamp + INTERVAL 14 DAY, date_to) -- Ensure that the event is not outside the bounds of the funnel conversion window
+   -- Exclude funnel steps
+   
+    AND event.event NOT IN funnel_step_names 
     AND event.event = 'negatively_related'
     AND actors.steps <> target_step
   GROUP BY actor_id
@@ -2552,7 +2806,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2560,14 +2814,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2598,24 +2852,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2925,7 +3202,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -2933,14 +3210,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -2971,24 +3248,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3006,7 +3306,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -3014,14 +3314,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -3052,24 +3352,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3379,7 +3702,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -3387,14 +3710,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -3425,24 +3748,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3460,7 +3806,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -3468,14 +3814,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -3508,24 +3854,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3843,7 +4212,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -3851,14 +4220,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -3891,24 +4260,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3926,7 +4318,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -3934,14 +4326,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -3974,24 +4366,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4309,7 +4724,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -4317,14 +4732,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -4357,24 +4772,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4392,7 +4830,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -4400,14 +4838,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -4446,24 +4884,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(arrayZip(['industry'], [replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, 'industry'), '^"|"$', '')])) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4805,7 +5266,7 @@
        (SELECT aggregation_target,
                steps,
                avg(step_1_conversion_time) step_1_average_conversion_time_inner,
-               median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+               median(step_1_conversion_time) step_1_median_conversion_time_inner,
                argMax(latest_0, steps) as timestamp,
                argMax(latest_1, steps) as final_timestamp,
                argMax(latest_0, steps) as first_timestamp
@@ -4813,14 +5274,14 @@
           (SELECT aggregation_target,
                   steps,
                   max(steps) over (PARTITION BY aggregation_target) as max_steps,
-                                  step_1_conversion_time ,
+                                  step_1_conversion_time,
                                   latest_0,
                                   latest_1,
                                   latest_0
            FROM
              (SELECT *,
                      if(latest_0 <= latest_1
-                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                        AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
               FROM
@@ -4859,24 +5320,47 @@
      ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
                                           max_expanded_ast_elements=1000000),
        2 AS target_step
-  SELECT concat(prop.1, '::', prop.2) as name,
-         countDistinctIf(actor_id, steps = target_step) AS success_count,
-         countDistinctIf(actor_id, steps <> target_step) AS failure_count
+  SELECT concat(prop.1, '::', prop.2) as name, -- We generate a unique identifier for each property value as: PropertyName::Value
+   countDistinctIf(actor_id, steps = target_step) AS success_count,
+   countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM
     (SELECT actor_id,
-            funnel_actors.steps as steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
-     FROM funnel_actors
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props
-  GROUP BY prop.1,
-               prop.2
-  HAVING prop.1 NOT IN []
+            funnel_actors.steps as steps, /*
+                          We can extract multiple property values at the same time, since we're
+                          already querying the person table.
+                          This gives us something like:
+                          --------------------
+                          person1, steps, [property_value_0, property_value_1, property_value_2]
+                          person2, steps, [property_value_0, property_value_1, property_value_2]
+  
+                          To group by property name, we need to extract the property from the array. ArrayJoin helps us do that.
+                          It transforms the above into:
+  
+                          --------------------
+  
+                          person1, steps, property_value_0
+                          person1, steps, property_value_1
+                          person1, steps, property_value_2
+  
+                          person2, steps, property_value_0
+                          person2, steps, property_value_1
+                          person2, steps, property_value_2
+  
+                          To avoid clashes and clarify the values, we also zip with the property name, to generate
+                          tuples like: (property_name, property_value), which we then group by
+                      */ arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop 
+     FROM funnel_actors 
+     LEFT JOIN 
+       (SELECT group_key, 
+               argMax(group_properties, _timestamp) AS group_properties_0 
+        FROM groups 
+        WHERE team_id = 2 
+          AND group_type_index = 0 
+        GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key) aggregation_target_with_props -- Group by the tuple items: (property_name, property_value) generated by zip
+   
+  GROUP BY prop.1, 
+               prop.2 
+  HAVING prop.1 NOT IN [] 
   UNION ALL
   SELECT 'Total_Values_In_Query' as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
