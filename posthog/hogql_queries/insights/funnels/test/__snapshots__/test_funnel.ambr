@@ -278,9 +278,9 @@
                               ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id) AS aggregation_target,
                               if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
                               if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
-                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(text="Pay\\ \\$10")')), 1, 0) AS step_1,
+                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)button(\\.|$|;|:)'), match(e.elements_chain, '(text="Pay\\ \\$10")')), 1, 0) AS step_1,
                               if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
-                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(href="/movie")')), 1, 0) AS step_2,
+                              if(and(equals(e.event, '$autocapture'), match(e.elements_chain, '(^|;)a(\\.|$|;|:)'), match(e.elements_chain, '(href="/movie")')), 1, 0) AS step_2,
                               if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2
                        FROM events AS e
                        LEFT OUTER JOIN
