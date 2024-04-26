@@ -17,8 +17,6 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
-import { useToolbarFeatureFlag } from '../toolbarPosthogJS'
-
 const ScrollDepthJSWarning = (): JSX.Element | null => {
     const { scrollDepthPosthogJsError } = useValues(heatmapLogic)
 
@@ -74,8 +72,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
             onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
         }))
 
-    const showNewHeatmaps = useToolbarFeatureFlag('toolbar-heatmaps')
-
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
@@ -107,166 +103,159 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                {showNewHeatmaps ? (
-                    <div className="border-b p-2">
-                        <LemonSwitch
-                            className="w-full"
-                            checked={!!heatmapFilters.enabled}
-                            label={<>Heatmaps {rawHeatmapLoading ? <Spinner /> : null}</>}
-                            onChange={(e) =>
-                                patchHeatmapFilters({
-                                    enabled: e,
-                                })
-                            }
-                        />
+                <div className="border-b p-2">
+                    <LemonSwitch
+                        className="w-full"
+                        checked={!!heatmapFilters.enabled}
+                        label={<>Heatmaps {rawHeatmapLoading ? <Spinner /> : null}</>}
+                        onChange={(e) =>
+                            patchHeatmapFilters({
+                                enabled: e,
+                            })
+                        }
+                    />
 
-                        {heatmapFilters.enabled && (
-                            <>
-                                <p>
-                                    Heatmaps are calculated using additional data sent along with standard events. They
-                                    are based off of general pointer interactions and might not be 100% accurate to the
-                                    page you are viewing.
-                                </p>
-                                <div className="space-y-2">
-                                    <LemonLabel>Heatmap type</LemonLabel>
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSegmentedButton
-                                            onChange={(e) => patchHeatmapFilters({ type: e })}
-                                            value={heatmapFilters.type ?? undefined}
-                                            options={[
-                                                {
-                                                    value: 'click',
-                                                    label: 'Clicks',
-                                                },
-                                                {
-                                                    value: 'rageclick',
-                                                    label: 'Rageclicks',
-                                                },
-                                                {
-                                                    value: 'mousemove',
-                                                    label: 'Mouse moves',
-                                                },
-                                                {
-                                                    value: 'scrolldepth',
-                                                    label: 'Scroll depth',
-                                                },
-                                            ]}
-                                            size="small"
-                                        />
-                                    </div>
+                    {heatmapFilters.enabled && (
+                        <>
+                            <p>
+                                Heatmaps are calculated using additional data sent along with standard events. They are
+                                based off of general pointer interactions and might not be 100% accurate to the page you
+                                are viewing.
+                            </p>
+                            <div className="space-y-2">
+                                <LemonLabel>Heatmap type</LemonLabel>
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilters({ type: e })}
+                                        value={heatmapFilters.type ?? undefined}
+                                        options={[
+                                            {
+                                                value: 'click',
+                                                label: 'Clicks',
+                                            },
+                                            {
+                                                value: 'rageclick',
+                                                label: 'Rageclicks',
+                                            },
+                                            {
+                                                value: 'mousemove',
+                                                label: 'Mouse moves',
+                                            },
+                                            {
+                                                value: 'scrolldepth',
+                                                label: 'Scroll depth',
+                                            },
+                                        ]}
+                                        size="small"
+                                    />
+                                </div>
 
-                                    {heatmapFilters.type === 'scrolldepth' && (
-                                        <>
-                                            <p>
-                                                Scroll depth uses additional information from Pageview and Pageleave
-                                                events to indicate how far down the page users have scrolled.
-                                            </p>
-                                            <ScrollDepthJSWarning />
-                                        </>
-                                    )}
+                                {heatmapFilters.type === 'scrolldepth' && (
+                                    <>
+                                        <p>
+                                            Scroll depth uses additional information from Pageview and Pageleave events
+                                            to indicate how far down the page users have scrolled.
+                                        </p>
+                                        <ScrollDepthJSWarning />
+                                    </>
+                                )}
 
-                                    <LemonLabel>Aggregation</LemonLabel>
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSegmentedButton
-                                            onChange={(e) => patchHeatmapFilters({ aggregation: e })}
-                                            value={heatmapFilters.aggregation ?? 'total_count'}
-                                            options={[
-                                                {
-                                                    value: 'total_count',
-                                                    label: 'Total count',
-                                                },
-                                                {
-                                                    value: 'unique_visitors',
-                                                    label: 'Unique visitors',
-                                                },
-                                            ]}
-                                            size="small"
-                                        />
-                                    </div>
+                                <LemonLabel>Aggregation</LemonLabel>
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilters({ aggregation: e })}
+                                        value={heatmapFilters.aggregation ?? 'total_count'}
+                                        options={[
+                                            {
+                                                value: 'total_count',
+                                                label: 'Total count',
+                                            },
+                                            {
+                                                value: 'unique_visitors',
+                                                label: 'Unique visitors',
+                                            },
+                                        ]}
+                                        size="small"
+                                    />
+                                </div>
 
-                                    <LemonLabel>Viewport accuracy</LemonLabel>
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSlider
-                                            className="flex-1"
-                                            min={0}
-                                            max={1}
-                                            step={0.01}
-                                            value={heatmapFilters.viewportAccuracy ?? 0}
-                                            onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
-                                        />
-                                        <Tooltip
-                                            title={`
+                                <LemonLabel>Viewport accuracy</LemonLabel>
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSlider
+                                        className="flex-1"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={heatmapFilters.viewportAccuracy ?? 0}
+                                        onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
+                                    />
+                                    <Tooltip
+                                        title={`
                                     The range of values 
                                     Heatmap will be loaded for all viewports where the width is above 
 
                                     `}
-                                        >
-                                            <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
-                                                {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${
-                                                    viewportRange.min
-                                                }px - ${viewportRange.max}px)`}
-                                            </code>
-                                        </Tooltip>
-                                    </div>
-
-                                    {heatmapFilters.type !== 'scrolldepth' ? (
-                                        <>
-                                            <LemonLabel>Fixed positioning calculation</LemonLabel>
-                                            <p>
-                                                PostHog JS will attempt to detect fixed elements such as headers or
-                                                modals and will therefore show those heatmap areas, ignoring the scroll
-                                                value.
-                                                <br />
-                                                You can choose to show these areas as fixed, include them with scrolled
-                                                data or hide them altogether.
-                                            </p>
-
-                                            <LemonSegmentedButton
-                                                onChange={setHeatmapFixedPositionMode}
-                                                value={heatmapFixedPositionMode}
-                                                options={[
-                                                    {
-                                                        value: 'fixed',
-                                                        label: 'Show fixed',
-                                                    },
-                                                    {
-                                                        value: 'relative',
-                                                        label: 'Show scrolled',
-                                                    },
-                                                    {
-                                                        value: 'hidden',
-                                                        label: 'Hide',
-                                                    },
-                                                ]}
-                                                size="small"
-                                            />
-                                        </>
-                                    ) : null}
+                                    >
+                                        <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
+                                            {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${
+                                                viewportRange.min
+                                            }px - ${viewportRange.max}px)`}
+                                        </code>
+                                    </Tooltip>
                                 </div>
-                            </>
-                        )}
-                    </div>
-                ) : null}
+
+                                {heatmapFilters.type !== 'scrolldepth' ? (
+                                    <>
+                                        <LemonLabel>Fixed positioning calculation</LemonLabel>
+                                        <p>
+                                            PostHog JS will attempt to detect fixed elements such as headers or modals
+                                            and will therefore show those heatmap areas, ignoring the scroll value.
+                                            <br />
+                                            You can choose to show these areas as fixed, include them with scrolled data
+                                            or hide them altogether.
+                                        </p>
+
+                                        <LemonSegmentedButton
+                                            onChange={setHeatmapFixedPositionMode}
+                                            value={heatmapFixedPositionMode}
+                                            options={[
+                                                {
+                                                    value: 'fixed',
+                                                    label: 'Show fixed',
+                                                },
+                                                {
+                                                    value: 'relative',
+                                                    label: 'Show scrolled',
+                                                },
+                                                {
+                                                    value: 'hidden',
+                                                    label: 'Hide',
+                                                },
+                                            ]}
+                                            size="small"
+                                        />
+                                    </>
+                                ) : null}
+                            </div>
+                        </>
+                    )}
+                </div>
 
                 <div className="p-2">
-                    {showNewHeatmaps ? (
-                        <LemonSwitch
-                            className="w-full"
-                            checked={!!clickmapsEnabled}
-                            label={<>Clickmaps (autocapture) {elementStatsLoading ? <Spinner /> : null}</>}
-                            onChange={(e) => toggleClickmapsEnabled(e)}
-                        />
-                    ) : null}
+                    <LemonSwitch
+                        className="w-full"
+                        checked={!!clickmapsEnabled}
+                        label={<>Clickmaps (autocapture) {elementStatsLoading ? <Spinner /> : null}</>}
+                        onChange={(e) => toggleClickmapsEnabled(e)}
+                    />
 
-                    {(clickmapsEnabled || !showNewHeatmaps) && (
+                    {clickmapsEnabled && (
                         <>
-                            {showNewHeatmaps ? (
-                                <p>
-                                    Clickmaps are built using Autocapture events. They are more accurate than heatmaps
-                                    if the event can be mapped to a specific element found on the page you are viewing
-                                    but less data is usually captured.
-                                </p>
-                            ) : null}
+                            <p>
+                                Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
+                                the event can be mapped to a specific element found on the page you are viewing but less
+                                data is usually captured.
+                            </p>
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}
