@@ -1,9 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import json
-from time import sleep
 from urllib.parse import quote
 
-from django.conf import settings
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
@@ -500,10 +498,16 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         now = datetime.now()
         self.login_as_other_user()
         client = self.client
-        assert client.get("/api/users/@me").status_code == 200
+        res = client.get("/api/users/@me")
+        assert res.status_code == 200
+        assert res.json()["email"] == "other-user@posthog.com"
 
         with freeze_time(now + timedelta(seconds=10)):
-            assert client.get("/api/users/@me").status_code == 200
+            res = client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
 
         with freeze_time(now + timedelta(seconds=35)):
-            assert client.get("/api/users/@me").status_code == 401
+            res = client.get("/api/users/@me")
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert res.status_code == 401
