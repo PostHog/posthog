@@ -95,6 +95,7 @@ class LifecycleQueryRunner(QueryRunner):
     def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
+        # should I update this?
         with self.timings.measure("persons_query"):
             exprs = []
             if day is not None:
@@ -326,7 +327,7 @@ class LifecycleQueryRunner(QueryRunner):
                         {target}
                     FROM events
                     WHERE {event_filter}
-                    GROUP BY {group_by}
+                    GROUP BY target
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
@@ -341,7 +342,6 @@ class LifecycleQueryRunner(QueryRunner):
                     "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
                     ),
-                    "group_by": ast.Field(chain=["target"]),
                 },
                 timings=self.timings,
             )
