@@ -562,7 +562,14 @@ def schedule_cache_updates_task() -> None:
     schedule_cache_updates()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=10,
+    retry_backoff_max=30,
+    max_retries=3,
+    retry_jitter=True,
+)
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
 
