@@ -35,7 +35,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group"],
+        choices=["event", "person", "group", "session"],
         help_text="What property definitions to return",
         default="event",
     )
@@ -190,6 +190,16 @@ class QueryContext:
                     **self.params,
                     "type": PropertyDefinition.Type.GROUP,
                     "group_type_index": group_type_index,
+                },
+            )
+        elif type == "session":
+            return dataclasses.replace(
+                self,
+                should_join_event_property=False,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.SESSION,
+                    "group_type_index": -1,
                 },
             )
 

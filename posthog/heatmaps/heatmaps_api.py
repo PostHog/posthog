@@ -17,17 +17,17 @@ from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
-            select pointer_target_fixed, relative_client_x, client_y, {aggregation_count}
+            select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
             from (
                      select
                         distinct_id,
                         pointer_target_fixed,
-                        round((x / viewport_width), 2) as relative_client_x,
+                        round((x / viewport_width), 2) as pointer_relative_x,
                         y * scale_factor as client_y
                      from heatmaps
                      where {predicates}
                 )
-            group by `pointer_target_fixed`, relative_client_x, client_y
+            group by `pointer_target_fixed`, pointer_relative_x, client_y
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -106,7 +106,7 @@ class HeatmapsResponseSerializer(serializers.Serializer):
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
     cumulative_count = serializers.IntegerField(required=True)
     bucket_count = serializers.IntegerField(required=True)
-    scroll_depth_bucket = serializers.FloatField(required=True)
+    scroll_depth_bucket = serializers.IntegerField(required=True)
 
 
 class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
@@ -163,8 +163,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "type": "`type` = {type}",
             # optional
             "date_to": "timestamp <= {date_to} + interval 1 day",
-            "viewport_width_min": "viewport_width >= ceil({viewport_width_min} / 16)",
-            "viewport_width_max": "viewport_width <= ceil({viewport_width_max} / 16)",
+            "viewport_width_min": "viewport_width >= round({viewport_width_min} / 16)",
+            "viewport_width_max": "viewport_width <= round({viewport_width_max} / 16)",
             "url_exact": "current_url = {url_exact}",
             "url_pattern": "match(current_url, {url_pattern})",
         }

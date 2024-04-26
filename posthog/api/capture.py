@@ -625,7 +625,11 @@ def capture_internal(
     ):
         kafka_partition_key = None
     else:
-        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+        if settings.CAPTURE_SKIP_KEY_HASHING:
+            kafka_partition_key = candidate_partition_key
+        else:
+            # TODO: remove after progressive rollout of the option
+            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
 
