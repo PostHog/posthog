@@ -71,7 +71,6 @@ class LazyFinder(TraversingVisitor):
         visited_count = self.visited_field_type_counts.get(node_ref, 0)
         if visited_count < self.max_type_visits:
             self.visited_field_type_counts[node_ref] = visited_count + 1
-            self.visit(node.table_type)
 
 
 class LazyTableResolver(TraversingVisitor):
