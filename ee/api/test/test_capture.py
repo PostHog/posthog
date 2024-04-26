@@ -1,11 +1,9 @@
-import hashlib
 import json
-from typing import Any
-from unittest.mock import patch
-
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
+from typing import Any
+from unittest.mock import patch
 
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
@@ -176,7 +174,7 @@ class TestCaptureAPI(APIBaseTest):
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
         self.assertEqual(
             kafka_produce_call["key"],
-            hashlib.sha256(default_partition_key.encode()).hexdigest(),
+            default_partition_key,
         )
 
         # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
