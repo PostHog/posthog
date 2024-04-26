@@ -5,7 +5,6 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
 import psycopg2
-from django.conf import settings
 from posthog.warehouse.util import database_sync_to_async
 
 
@@ -87,7 +86,7 @@ def get_postgres_schemas(host: str, port: str, database: str, user: str, passwor
         dbname=database,
         user=user,
         password=password,
-        sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+        sslmode="prefer",
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
