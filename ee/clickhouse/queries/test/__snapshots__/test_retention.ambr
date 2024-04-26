@@ -33,10 +33,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -64,6 +63,7 @@
 # ---
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events.1
   '''
+  
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -98,10 +98,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -117,9 +116,7 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id -- make sure we have stable ordering/pagination
-   -- NOTE: relies on ids being monotonic
-  
+  GROUP BY actor_id
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -159,10 +156,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_1"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -222,10 +218,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -253,6 +248,7 @@
 # ---
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized.1
   '''
+  
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -287,10 +283,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -306,9 +301,7 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id -- make sure we have stable ordering/pagination
-   -- NOTE: relies on ids being monotonic
-  
+  GROUP BY actor_id
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -348,10 +341,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_1"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -425,10 +417,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -502,10 +493,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (JSONHas(group_properties_0, 'industry'))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -605,10 +595,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-12 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-06-19 00:00:00', 'UTC')
           AND (JSONHas(group_properties_0, 'industry'))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -636,6 +625,7 @@
 # ---
 # name: TestClickhouseRetention.test_groups_in_period_person_on_events
   '''
+  
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -670,10 +660,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -689,9 +678,7 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id -- make sure we have stable ordering/pagination
-   -- NOTE: relies on ids being monotonic
-  
+  GROUP BY actor_id
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
@@ -699,6 +686,7 @@
 # ---
 # name: TestClickhouseRetention.test_groups_in_period_person_on_events_materialized
   '''
+  
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -733,10 +721,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
-   SELECT DISTINCT breakdown_values,
-                   intervals_from_base,
-                   actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -752,9 +739,7 @@
             OR breakdown_values = breakdown_values_filter)
        AND (selected_interval is NULL
             OR intervals_from_base = selected_interval) ) AS actor_activity
-  GROUP BY actor_id -- make sure we have stable ordering/pagination
-   -- NOTE: relies on ids being monotonic
-  
+  GROUP BY actor_id
   ORDER BY length(appearances) DESC, actor_id
   LIMIT 100
   OFFSET 0
