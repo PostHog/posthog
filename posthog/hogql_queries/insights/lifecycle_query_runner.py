@@ -76,7 +76,7 @@ class LifecycleQueryRunner(QueryRunner):
                             ORDER BY status, start_of_period
                             UNION ALL
                             SELECT
-                                start_of_period, count(DISTINCT person_id) AS counts, status
+                                start_of_period, count(DISTINCT target) AS counts, status
                             FROM {events_query}
                             GROUP BY start_of_period, status
                         )
@@ -306,10 +306,11 @@ class LifecycleQueryRunner(QueryRunner):
                         ),
                     )
 
+            #                         events.person_id as person_id,
+            # removed the above line from the select ( we need to replace person_id with target everywhere )
             events_query = parse_select(
                 """
                     SELECT
-                        events.person_id as person_id,
                         min(events.person.created_at) AS created_at,
                         arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
