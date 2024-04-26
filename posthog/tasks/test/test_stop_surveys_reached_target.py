@@ -1,10 +1,11 @@
+from freezegun import freeze_time
 from posthog.models import Survey, Organization, Team, User, FeatureFlag
 from django.test import TestCase
 from typing import Optional
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
 from django.utils.timezone import now
-from posthog.test.base import _create_event, flush_persons_and_events, ClickhouseTestMixin
+from posthog.test.base import _create_event, flush_persons_and_events, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
 
@@ -38,6 +39,8 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             team=survey.team,
         )
 
+    @freeze_time("2022-01-01")
+    @snapshot_clickhouse_queries
     def test_stop_surveys_with_enough_responses(self) -> None:
         surveys = [
             Survey.objects.create(
@@ -46,7 +49,6 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now(),
             ),
             Survey.objects.create(
                 name="2",
@@ -54,7 +56,6 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now(),
             ),
             Survey.objects.create(
                 name="3",
@@ -62,9 +63,12 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
                 created_by=self.user,
                 linked_flag=self.flag,
                 responses_limit=1,
-                created_at=now(),
             ),
         ]
+
+        # TRICKY: We can't override created at in the model create because of auto_now_add, so we need to update it manually
+        surveys[1].created_at = now() - relativedelta(days=2, hours=4)
+        surveys[1].save()
 
         for survey in surveys:
             self._create_event_for_survey(survey)
@@ -158,8 +162,10 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             linked_flag=self.flag,
             responses_limit=1,
             end_date=now() - relativedelta(hours=1),
-            created_at=now() - relativedelta(hours=1),
         )
+        survey.created_at = now() - relativedelta(hours=1)
+        survey.save()
+
         self._create_event_for_survey(survey, event="survey sent")
         flush_persons_and_events()
 

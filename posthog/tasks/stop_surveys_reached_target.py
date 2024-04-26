@@ -1,6 +1,8 @@
 from itertools import groupby
-from django.db.models import UUIDField, DateTimeField, Q
+from django.db.models import Q
 from django.utils import timezone
+from uuid import UUID
+from datetime import datetime
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.client import sync_execute
@@ -8,7 +10,7 @@ from posthog.models import Survey
 
 
 def _get_surveys_response_counts(
-    surveys_ids: list[UUIDField], team_id: UUIDField, earliest_survey_creation_date: DateTimeField
+    surveys_ids: list[UUID], team_id: int, earliest_survey_creation_date: datetime
 ) -> dict[str, int]:
     data = sync_execute(
         """
