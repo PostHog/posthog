@@ -142,7 +142,6 @@
   '''
   SELECT "posthog_actionstep"."id",
          "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
          "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
@@ -152,7 +151,8 @@
          "posthog_actionstep"."url_matching",
          "posthog_actionstep"."event",
          "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
+         "posthog_actionstep"."name",
+         "posthog_actionstep"."tag_name"
   FROM "posthog_actionstep"
   WHERE "posthog_actionstep"."action_id" IN (1,
                                              2,
@@ -363,7 +363,6 @@
   '''
   SELECT "posthog_actionstep"."id",
          "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
          "posthog_actionstep"."text",
          "posthog_actionstep"."text_matching",
          "posthog_actionstep"."href",
@@ -373,7 +372,8 @@
          "posthog_actionstep"."url_matching",
          "posthog_actionstep"."event",
          "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
+         "posthog_actionstep"."name",
+         "posthog_actionstep"."tag_name"
   FROM "posthog_actionstep"
   WHERE "posthog_actionstep"."action_id" IN (1,
                                              2,
