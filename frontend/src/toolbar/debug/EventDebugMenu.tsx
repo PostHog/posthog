@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -62,10 +61,10 @@ export const EventDebugMenu = (): JSX.Element => {
             <ToolbarMenu.Body>
                 <div className="flex flex-col space-y-1">
                     {filteredEvents.length ? (
-                        filteredEvents.map((e, i) => {
+                        filteredEvents.map((e) => {
                             return (
                                 <div
-                                    className={clsx('-mx-1 py-1 px-2 cursor-pointer', i === 0 && 'bg-mark')}
+                                    className="-mx-1 py-1 px-2 cursor-pointer"
                                     key={e.uuid}
                                     onClick={() => {
                                         expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
