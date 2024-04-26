@@ -154,7 +154,6 @@ export async function createHub(
     )
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    await actionManager.start() // TODO: Do we want this to happen here?
     const actionMatcher = new ActionMatcher(postgres, actionManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {

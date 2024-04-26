@@ -1,15 +1,16 @@
 import { Consumer, Kafka } from 'kafkajs'
-import { AppMetrics } from 'worker/ingestion/app-metrics'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginsServerConfig } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
+import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
+import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
@@ -30,6 +31,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
 
     const queue = buildOnEventIngestionConsumer({ hub })
 
+    await hub.actionManager.start()
     await queue.start()
 
     const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
@@ -43,6 +45,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     teamManager,
     organizationManager,
     actionMatcher,
+    actionManager,
     serverConfig,
     rustyHook,
     appMetrics,
@@ -55,6 +58,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     rustyHook: RustyHook
     appMetrics: AppMetrics
     actionMatcher: ActionMatcher
+    actionManager: ActionManager
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -84,6 +88,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
 
+    await actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
         eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
