@@ -16,13 +16,27 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null) => ({ id }),
         setShowRecordingSnapshots: (show: boolean) => ({ show }),
+        setSearchText: (searchText: string) => ({ searchText }),
+        setSearchType: (searchType: 'events' | 'properties') => ({ searchType }),
     }),
     reducers({
+        searchType: [
+            'events' as 'events' | 'properties',
+            {
+                setSearchType: (_, { searchType }) => searchType,
+            },
+        ],
+        searchText: [
+            '',
+            {
+                setSearchText: (_, { searchText }) => searchText,
+            },
+        ],
         events: [
             [] as EventType[],
             {
                 addEvent: (state, { event }) => {
-                    if (event.uuid) {
+                    if (!event.uuid) {
                         event.uuid = uuid()
                     }
                     return [event, ...state]
@@ -51,25 +65,45 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 }
             },
         ],
-        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
-        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
+        snapshotCount: [(s) => [s.events], (events) => events.filter((e) => e.event === '$snapshot').length],
+        eventCount: [(s) => [s.events], (events) => events.filter((e) => e.event !== '$snapshot').length],
         filteredEvents: [
-            (s) => [s.showRecordingSnapshots, s.events],
-            (showRecordingSnapshots, events) => {
-                return events.filter((e) => {
-                    if (showRecordingSnapshots) {
+            (s) => [s.showRecordingSnapshots, s.events, s.searchText, s.searchType],
+            (showRecordingSnapshots, events, searchText, searchType) => {
+                return events
+                    .filter((e) => {
+                        if (showRecordingSnapshots) {
+                            return true
+                        }
+                        return e.event !== '$snapshot'
+                    })
+                    .filter((e) => {
+                        if (searchType === 'events') {
+                            return e.event.includes(searchText)
+                        }
                         return true
+                    })
+            },
+        ],
+        filteredProperties: [
+            (s) => [s.searchText, s.searchType],
+            (searchText, searchType) => {
+                return (p: Record<string, any>): Record<string, any> => {
+                    // return a new object with only the properties where key or value match the search text
+                    if (searchType === 'properties') {
+                        return Object.fromEntries(
+                            Object.entries(p).filter(([key, value]) => {
+                                return key.includes(searchText) || (value && value.toString().includes(searchText))
+                            })
+                        )
                     }
-                    return e.event !== '$snapshot'
-                })
+                    return p
+                }
             },
         ],
     }),
     afterMount(({ values, actions }) => {
         values.posthog?.on('eventCaptured', (e) => {
-            if (!e.uuid) {
-                e.uuid = uuid()
-            }
             actions.addEvent(e)
         })
     }),
