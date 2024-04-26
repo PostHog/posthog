@@ -55,7 +55,7 @@ class FieldChainReplacer(TraversingVisitor):
 
 class LazyFinder(TraversingVisitor):
     found_lazy: bool = False
-    max_type_visits: int = 3
+    max_type_visits: int = 1
 
     def __init__(self) -> None:
         self.visited_field_type_counts: dict[int, int] = {}
