@@ -1093,8 +1093,7 @@ class _Printer(Visitor):
     def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
         if self.dialect == "clickhouse":
             raise QueryError(f"Unable to resolve field: {type.name}")
-        else:
-            return self._print_identifier(type.name)
+        return self._print_identifier(type.name)
 
     def visit_unknown(self, node: AST):
         raise ImpossibleASTError(f"Unknown AST node {type(node).__name__}")
