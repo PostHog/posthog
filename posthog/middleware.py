@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
@@ -15,6 +16,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
+from django.utils import timezone
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
@@ -632,16 +634,26 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
         return response
 
 
+def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
+    if not is_impersonated_session(request):
+        return None
+
+    init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
+
+    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+
 class AutoLogoutImpersonateMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not is_impersonated_session(request):
+        impersonated_session_expires_at = get_impersonated_session_expires_at(request)
+
+        if not impersonated_session_expires_at:
             return self.get_response(request)
 
-        init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
-        session_is_expired = time.time() - init_time > settings.IMPERSONATION_TIMEOUT_SECONDS
+        session_is_expired = impersonated_session_expires_at < datetime.now()
 
         if session_is_expired:
             # TRICKY: We need to handle different cases here:

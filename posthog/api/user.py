@@ -42,6 +42,7 @@ from posthog.event_usage import (
     report_user_updated,
     report_user_verified_email,
 )
+from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
@@ -63,6 +64,7 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
+    is_impersonated_until = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -93,6 +95,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_password",
             "is_staff",
             "is_impersonated",
+            "is_impersonated_until",
             "team",
             "organization",
             "organizations",
@@ -119,6 +122,14 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_is_impersonated_until(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+
+        time = get_impersonated_session_expires_at(self.context["request"])
+
+        return time.replace(tzinfo=timezone.utc).isoformat() if time else None
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()

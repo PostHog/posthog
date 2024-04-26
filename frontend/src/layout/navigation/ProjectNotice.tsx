@@ -1,5 +1,6 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import dayjs from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -100,7 +101,12 @@ export function ProjectNotice(): JSX.Element | null {
             type: 'warning',
         },
         is_impersonated: {
-            message: 'You are currently logged in as a customer.',
+            message: (
+                <>
+                    You are currently logged in as a customer.{' '}
+                    {user?.is_impersonated_until && <>Expires in {dayjs(user.is_impersonated_until).fromNow()}</>}.
+                </>
+            ),
             type: 'warning',
             action: {
                 'data-attr': 'stop-impersonation-cta',
