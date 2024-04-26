@@ -107,6 +107,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     "p4",
                     [
                         ("2020-01-15T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
+                        ("2020-01-18T12:00:00Z", {"$group_0": "org:5", "$group_1": "company:1"}),
                     ],
                 ),
             ]
@@ -139,15 +140,15 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             [
                 {
-                    "count": 4.0,
+                    "count": 1.0,
                     "data": [
                         1.0,  # 9th, p2
                         0.0,
-                        1.0,  # 11th, p1
-                        1.0,  # 12th, p3
+                        0.0,  # 11th, p1
+                        0.0,  # 12th, p3
                         0.0,
                         0.0,
-                        1.0,  # 15th, p4
+                        0.0,  # 15th, p4
                         0.0,
                         0.0,
                         0.0,
@@ -190,19 +191,19 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     },
                 },
                 {
-                    "count": 2.0,
+                    "count": 4.0,
                     "data": [
                         0.0,  # 9th
                         0.0,  # 10th
                         0.0,  # 11th
-                        1.0,  # 12th, p1
+                        1.0,  # 12th, p1 / p2
                         1.0,  # 13th, p1
                         0.0,
                         0.0,
                         0.0,
                         0.0,
-                        0.0,
-                        0.0,
+                        1.0,  # 18th, p4
+                        1.0,  # 19th, p1
                     ],
                     "days": [
                         "2020-01-09",
@@ -241,19 +242,19 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     },
                 },
                 {
-                    "count": 4.0,
+                    "count": 3.0,
                     "data": [
                         0.0,
                         0.0,
-                        0.0,
-                        1.0,  # 12th, p2
+                        1.0,  # 11th, p1
+                        0.0,  # 12th
                         0.0,
                         0.0,
                         1.0,  # 15th, p1
                         0.0,
                         1.0,  # 17th, p1
                         0.0,
-                        1.0,  # 19th, p1
+                        0.0,  # 19th
                     ],
                     "days": [
                         "2020-01-09",
@@ -292,18 +293,18 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     },
                 },
                 {
-                    "count": -7.0,
+                    "count": -3.0,
                     "data": [
                         0.0,
-                        -1.0,  # 10th, p2
+                        -1.0,  # 10th
                         0.0,
                         0.0,
-                        -2.0,  # 13th, p2, p3
-                        -1.0,  # 14th, p1
+                        0.0,  # 13th
+                        -1.0,  # 14th
                         0.0,
-                        -2.0,  # 16th, p1, p4
+                        -1.0,  # 16th
                         0.0,
-                        -1.0,  # 18th, p1
+                        0.0,  # 18th
                         0.0,
                     ],
                     "days": [
