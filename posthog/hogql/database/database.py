@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypedDict
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -22,6 +22,7 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
@@ -80,6 +81,7 @@ class Database(BaseModel):
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: SessionsTable = SessionsTable()
+    heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -94,7 +96,7 @@ class Database(BaseModel):
     numbers: NumbersTable = NumbersTable()
 
     # clunky: keep table names in sync with above
-    _table_names: ClassVar[List[str]] = [
+    _table_names: ClassVar[list[str]] = [
         "events",
         "groups",
         "persons",
@@ -107,7 +109,7 @@ class Database(BaseModel):
         "sessions",
     ]
 
-    _warehouse_table_names: List[str] = []
+    _warehouse_table_names: list[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -134,7 +136,7 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise QueryError(f'Unknown table "{table_name}".')
 
-    def get_all_tables(self) -> List[str]:
+    def get_all_tables(self) -> list[str]:
         return self._table_names + self._warehouse_table_names
 
     def add_warehouse_tables(self, **field_definitions: Any):
@@ -224,7 +226,7 @@ def create_hogql_database(
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    tables: Dict[str, Table] = {}
+    tables: dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
         tables[table.name] = table.hogql_definition()
 
@@ -274,6 +276,11 @@ def create_hogql_database(
     database.add_warehouse_tables(**tables)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        # Skip if either table is not present. This can happen if the table was deleted after the join was created.
+        # User will be prompted on UI to resolve missing tables underlying the JOIN
+        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+            continue
+
         try:
             source_table = database.get_table(join.source_table_name)
             joining_table = database.get_table(join.joining_table_name)
@@ -355,35 +362,35 @@ class _SerializedFieldBase(TypedDict):
 
 
 class SerializedField(_SerializedFieldBase, total=False):
-    fields: List[str]
+    fields: list[str]
     table: str
-    chain: List[str | int]
+    chain: list[str | int]
 
 
-def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
-    tables: Dict[str, List[SerializedField]] = {}
+def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]]:
+    tables: dict[str, list[SerializedField]] = {}
 
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
 
     for table_key in context.database.model_fields.keys():
-        field_input: Dict[str, Any] = {}
+        field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerializedField] = serialize_fields(field_input, context)
+        field_output: list[SerializedField] = serialize_fields(field_input, context)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField]:
+def serialize_fields(field_input, context: HogQLContext) -> list[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
-    field_output: List[SerializedField] = []
+    field_output: list[SerializedField] = []
     for field_key, field in field_input.items():
         if field_key == "team_id":
             pass

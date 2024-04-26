@@ -16,8 +16,9 @@ export type SharedListMiniFilter = {
 }
 
 export enum TimestampFormat {
-    Absolute = 'absolute',
     Relative = 'relative',
+    UTC = 'utc',
+    Device = 'device',
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
@@ -182,15 +183,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
-        setSyncScroll: (enabled: boolean) => ({ enabled }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setPrefersAdvancedFilters: (prefersAdvancedFilters: boolean) => ({ prefersAdvancedFilters }),
         setQuickFilterProperties: (properties: string[]) => ({ properties }),
-        setShowRecordingListProperties: (enabled: boolean) => ({ enabled }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
     }),
     reducers(() => ({
@@ -233,13 +231,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setSpeed: (_, { speed }) => speed,
-            },
-        ],
-        showRecordingListProperties: [
-            false,
-            { persist: true },
-            {
-                setShowRecordingListProperties: (_, { enabled }) => enabled,
             },
         ],
         timestampFormat: [
@@ -287,14 +278,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
 
-        timestampMode: [
-            'relative' as 'absolute' | 'relative',
-            { persist: true },
-            {
-                setTimestampMode: (_, { mode }) => mode,
-            },
-        ],
-
         selectedMiniFilters: [
             ['all-automatic', 'console-all', 'events-all', 'performance-all'] as string[],
             { persist: true },
@@ -316,9 +299,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         if (enabled) {
                             if (selectedFilter.alone) {
                                 return false
-                            } else {
-                                return filterInTab.alone ? false : true
                             }
+                            return filterInTab.alone ? false : true
                         }
 
                         if (existingSelected !== key) {
@@ -345,14 +327,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             '',
             {
                 setSearchQuery: (_, { search }) => search || '',
-            },
-        ],
-
-        syncScroll: [
-            true,
-            { persist: true },
-            {
-                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),

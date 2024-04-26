@@ -1,6 +1,6 @@
 import inspect
 from collections import Counter
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -67,7 +67,7 @@ class Entity(PropertyMixin):
     id_field: Optional[str]
     timestamp_field: Optional[str]
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.id = data.get("id")
         if data.get("type") not in [
             TREND_FILTER_TYPE_ACTIONS,
@@ -102,7 +102,7 @@ class Entity(PropertyMixin):
         if self.type == TREND_FILTER_TYPE_EVENTS and not self.name:
             self.name = "All events" if self.id is None else str(self.id)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "type": self.type,
@@ -180,10 +180,10 @@ class ExclusionEntity(Entity, FunnelFromToStepsMixin):
     with extra parameters for exclusion semantics.
     """
 
-    def __init__(self, data: Dict[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         super().__init__(data)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         ret = super().to_dict()
 
         for _, func in inspect.getmembers(self, inspect.ismethod):

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
@@ -20,7 +20,7 @@ class StickinessEventsQuery(EventQuery):
         super().__init__(*args, **kwargs)
         self._should_round_interval = True
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
@@ -95,7 +95,7 @@ class StickinessEventsQuery(EventQuery):
     def aggregation_target(self):
         return self._person_id_alias
 
-    def get_entity_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_entity_query(self) -> tuple[str, dict[str, Any]]:
         if self._entity.type == TREND_FILTER_TYPE_ACTIONS:
             condition, params = format_action_filter(
                 team_id=self._team_id,

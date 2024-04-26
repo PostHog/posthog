@@ -2784,8 +2784,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="variant",
         )
 
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(
-            self
+        with (
+            self.assertNumQueries(10),
+            snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
             matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
@@ -2859,8 +2860,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(
-            self
+        with (
+            self.assertNumQueries(9),
+            snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
             matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
@@ -6016,8 +6018,9 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             properties={"email": "tim@posthog.com", "team": "posthog"},
         )
 
-        with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(
-            InsertFailOnce()
+        with (
+            snapshot_postgres_queries_context(self, capture_all_queries=True),
+            connection.execute_wrapper(InsertFailOnce()),
         ):
             flags, reasons, payloads, errors = get_all_feature_flags(
                 team.pk, "other_id", {}, hash_key_override="example_id"

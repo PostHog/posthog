@@ -1,6 +1,7 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import Any, Callable, List, Optional, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 
 from django.shortcuts import redirect
 import structlog
@@ -66,7 +67,7 @@ cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "tr
 
 
 class AllowIPMiddleware:
-    trusted_proxies: List[str] = []
+    trusted_proxies: list[str] = []
 
     def __init__(self, get_response):
         if not settings.ALLOWED_IP_BLOCKS:
@@ -160,6 +161,13 @@ class AutoProjectMiddleware:
             user = cast(User, request.user)
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+
+                def do_redirect():
+                    new_path = "/".join(path_parts)
+                    search_params = request.GET.urlencode()
+
+                    return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
+
                 try:
                     new_team = Team.objects.get(api_token=path_parts[1])
 
@@ -167,12 +175,12 @@ class AutoProjectMiddleware:
                         raise Team.DoesNotExist
 
                     path_parts[1] = str(new_team.pk)
-                    return redirect("/" + "/".join(path_parts))
+                    return do_redirect()
 
                 except Team.DoesNotExist:
                     if user.team:
                         path_parts[1] = str(user.team.pk)
-                        return redirect("/" + "/".join(path_parts))
+                        return do_redirect()
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -411,7 +419,7 @@ class CaptureMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
-        middlewares: List[Any] = []
+        middlewares: list[Any] = []
         # based on how we're using these middlewares, only middlewares that
         # have a process_request and process_response attribute can be valid here.
         # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which

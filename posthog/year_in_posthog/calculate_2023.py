@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Dict, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.db import connection
@@ -147,7 +147,7 @@ def dictfetchall(cursor):
 
 
 @cache_for(timedelta(seconds=0 if settings.DEBUG else 30))
-def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
+def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[dict]:
     with connection.cursor() as cursor:
         cursor.execute(query, {"user_uuid": user_uuid})
         rows = dictfetchall(cursor)

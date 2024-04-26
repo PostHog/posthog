@@ -1,12 +1,12 @@
 import copy
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
-funnel_with_breakdown_type = List[List[Dict[str, Any]]]
-possible_funnel_results_types = Union[funnel_with_breakdown_type, List[Dict[str, Any]], Dict[str, Any]]
+funnel_with_breakdown_type = list[list[dict[str, Any]]]
+possible_funnel_results_types = Union[funnel_with_breakdown_type, list[dict[str, Any]], dict[str, Any]]
 
 
 def protect_old_clients_from_multi_property_default(
-    request_filter: Dict[str, Any], result: possible_funnel_results_types
+    request_filter: dict[str, Any], result: possible_funnel_results_types
 ) -> possible_funnel_results_types:
     """
     Implementing multi property breakdown will default breakdown to a list even if it is received as a string.
@@ -25,7 +25,7 @@ def protect_old_clients_from_multi_property_default(
     :return:
     """
 
-    if isinstance(result, Dict) or (len(result) > 1) and isinstance(result[0], Dict):
+    if isinstance(result, dict) or (len(result) > 1) and isinstance(result[0], dict):
         return result
 
     is_breakdown_request = (
@@ -34,7 +34,7 @@ def protect_old_clients_from_multi_property_default(
         and "breakdown_type" in request_filter
         and request_filter["breakdown_type"] in ["person", "event"]
     )
-    is_breakdown_result = isinstance(result, List) and len(result) > 0 and isinstance(result[0], List)
+    is_breakdown_result = isinstance(result, list) and len(result) > 0 and isinstance(result[0], list)
 
     is_single_property_breakdown = (
         is_breakdown_request
@@ -49,14 +49,14 @@ def protect_old_clients_from_multi_property_default(
         for series_index in range(len(result)):
             copied_series = copied_result[series_index]
 
-            if isinstance(copied_series, List):
+            if isinstance(copied_series, list):
                 for data_index in range(len(copied_series)):
                     copied_item = copied_series[data_index]
 
                     if is_single_property_breakdown:
-                        if copied_item.get("breakdown") and isinstance(copied_item["breakdown"], List):
+                        if copied_item.get("breakdown") and isinstance(copied_item["breakdown"], list):
                             copied_item["breakdown"] = copied_item["breakdown"][0]
-                        if copied_item.get("breakdown_value") and isinstance(copied_item["breakdown_value"], List):
+                        if copied_item.get("breakdown_value") and isinstance(copied_item["breakdown_value"], list):
                             copied_item["breakdown_value"] = copied_item["breakdown_value"][0]
 
                     if is_multi_property_breakdown:

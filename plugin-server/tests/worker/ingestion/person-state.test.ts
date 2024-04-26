@@ -1,9 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { waitForExpect } from '../../../functional_tests/expectations'
-import { Database, Hub, Person } from '../../../src/types'
+import { Database, Hub, InternalPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -15,6 +14,7 @@ import {
     FlatPersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
+import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { WaitEvent } from '../../helpers/promises'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
@@ -32,17 +32,6 @@ interface PersonOverridesMode {
         hub: Hub,
         teamId: number
     ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
-}
-
-function uuidFromDistinctId(teamId: number, distinctId: string): string {
-    // The UUID generation code here is deliberately copied from `person-state` rather than imported,
-    // so that someone can't accidentally change how `person-state` UUID generation works and still
-    // have the tests pass.
-    //
-    // It is very important that Person UUIDs are deterministically generated and that this format
-    // doesn't change without a lot of thought and planning about side effects!
-    const namespace = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
-    return uuidv5(`${teamId}:${distinctId}`, namespace)
 }
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
@@ -118,7 +107,12 @@ describe('PersonState.update()', () => {
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
 
-    function personState(event: Partial<PluginEvent>, customHub?: Hub, processPerson = true) {
+    function personState(
+        event: Partial<PluginEvent>,
+        customHub?: Hub,
+        processPerson = true,
+        lazyPersonCreation = false
+    ) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
@@ -132,6 +126,7 @@ describe('PersonState.update()', () => {
             timestamp,
             processPerson,
             customHub ? customHub.db : hub.db,
+            lazyPersonCreation,
             overridesMode?.getWriter(customHub ?? hub)
         )
     }
@@ -145,12 +140,17 @@ describe('PersonState.update()', () => {
         return (await hub.db.clickhouseQuery(query)).data
     }
 
+    async function fetchOverridesForDistinctId(distinctId: string) {
+        const query = `SELECT * FROM person_distinct_id_overrides_mv FINAL WHERE team_id = ${teamId} AND distinct_id = '${distinctId}'`
+        return (await hub.db.clickhouseQuery(query)).data
+    }
+
     async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
         return (await hub.db.clickhouseQuery(query)).data
     }
 
-    async function fetchDistinctIdsClickhouse(person: Person) {
+    async function fetchDistinctIdsClickhouse(person: InternalPerson) {
         return hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
     }
 
@@ -182,6 +182,107 @@ describe('PersonState.update()', () => {
             expect(personPrimaryTeam.uuid).toEqual(uuidFromDistinctId(primaryTeamId, newUserDistinctId))
             expect(personOtherTeam.uuid).toEqual(uuidFromDistinctId(otherTeamId, newUserDistinctId))
             expect(personPrimaryTeam.uuid).not.toEqual(personOtherTeam.uuid)
+        })
+
+        it('returns an ephemeral user object when lazy creation is enabled and $process_person_profile=false', async () => {
+            const event_uuid = new UUIDT().toString()
+
+            const hubParam = undefined
+            const processPerson = false
+            const lazyPersonCreation = true
+            const fakePerson = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(fakePerson).toEqual(
+                expect.objectContaining({
+                    team_id: teamId,
+                    uuid: newUserUuid, // deterministic even though no user rows were created
+                    properties: {}, // empty even though there was a $set attempted
+                    created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
+                })
+            )
+            expect(fakePerson.force_upgrade).toBeUndefined()
+
+            // verify there is no Postgres person
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(0)
+
+            // verify there are no Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(fakePerson as InternalPerson)
+            expect(distinctIds).toEqual(expect.arrayContaining([]))
+        })
+
+        it('merging with lazy person creation creates an override and force_upgrade works', async () => {
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [oldUserDistinctId])
+
+            const hubParam = undefined
+            let processPerson = true
+            const lazyPersonCreation = true
+            await personState(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                    },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            await delayUntilEventIngested(() => fetchOverridesForDistinctId(newUserDistinctId))
+            const chOverrides = await fetchOverridesForDistinctId(newUserDistinctId)
+            expect(chOverrides.length).toEqual(1)
+
+            // Override created for Person that never existed in the DB
+            expect(chOverrides).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        distinct_id: newUserDistinctId,
+                        person_id: oldUserUuid,
+                        version: 1,
+                    }),
+                ])
+            )
+
+            // Using the `distinct_id` again with `processPerson=false` results in
+            // `force_upgrade=true` and real Person `uuid` and `created_at`
+            processPerson = false
+            const event_uuid = new UUIDT().toString()
+            const fakePerson = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                lazyPersonCreation
+            ).update()
+            await hub.db.kafkaProducer.flush()
+
+            expect(fakePerson).toEqual(
+                expect.objectContaining({
+                    team_id: teamId,
+                    uuid: oldUserUuid, // *old* user, because it existed before the merge
+                    properties: {}, // empty even though there was a $set attempted
+                    created_at: timestamp, // *not* the fake person created_at
+                    force_upgrade: true,
+                })
+            )
         })
 
         it('creates person if they are new', async () => {
@@ -587,7 +688,7 @@ describe('PersonState.update()', () => {
         it('handles race condition when person provided has been merged', async () => {
             // TODO: we don't handle this currently person having been changed / updated properties can get overridden
             // Pass in a person, but another thread merges it - we shouldn't error in this case, but instead if we couldn't update we should retry?
-            const mergeDeletedPerson: Person = {
+            const mergeDeletedPerson: InternalPerson = {
                 created_at: timestamp,
                 version: 0,
                 id: 0,
@@ -1097,7 +1198,7 @@ describe('PersonState.update()', () => {
                         uuidFromDistinctId(teamId, distinctId),
                         [distinctId]
                     )
-                    await hub.db.addDistinctId(person, distinctId) // this throws
+                    await hub.db.addDistinctId(person, distinctId, 0) // this throws
                 })
 
                 const person = await personState({
@@ -1599,7 +1700,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`postgres and clickhouse get updated`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1610,7 +1711,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1691,7 +1792,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`throws if postgres unavailable`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1702,7 +1803,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1863,7 +1964,7 @@ describe('PersonState.update()', () => {
                 if (!overridesMode?.supportsSyncTransaction) {
                     return
                 }
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1874,7 +1975,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     {},
                     {},
@@ -1990,7 +2091,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`handles a chain of overrides being applied concurrently`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     { first: true },
                     {},
@@ -2001,7 +2102,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
                     { second: true },
                     {},
@@ -2012,7 +2113,7 @@ describe('PersonState.update()', () => {
                     secondUserUuid,
                     [secondUserDistinctId]
                 )
-                const third: Person = await hub.db.createPerson(
+                const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
                     { third: true },
                     {},
@@ -2135,7 +2236,7 @@ describe('PersonState.update()', () => {
             })
 
             it(`handles a chain of overrides being applied out of order`, async () => {
-                const first: Person = await hub.db.createPerson(
+                const first: InternalPerson = await hub.db.createPerson(
                     timestamp,
                     { first: true },
                     {},
@@ -2146,7 +2247,7 @@ describe('PersonState.update()', () => {
                     firstUserUuid,
                     [firstUserDistinctId]
                 )
-                const second: Person = await hub.db.createPerson(
+                const second: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 2 }),
                     { second: true },
                     {},
@@ -2157,7 +2258,7 @@ describe('PersonState.update()', () => {
                     secondUserUuid,
                     [secondUserDistinctId]
                 )
-                const third: Person = await hub.db.createPerson(
+                const third: InternalPerson = await hub.db.createPerson(
                     timestamp.plus({ minutes: 5 }),
                     { third: true },
                     {},

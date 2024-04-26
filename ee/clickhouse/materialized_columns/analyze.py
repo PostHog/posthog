@@ -1,6 +1,7 @@
 import re
 from datetime import timedelta
-from typing import Dict, Generator, List, Optional, Set, Tuple
+from typing import Optional
+from collections.abc import Generator
 
 import structlog
 
@@ -27,18 +28,18 @@ from posthog.models.property import PropertyName, TableColumn, TableWithProperti
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
 
-Suggestion = Tuple[TableWithProperties, TableColumn, PropertyName]
+Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
 logger = structlog.get_logger(__name__)
 
 
 class TeamManager:
     @instance_memoize
-    def person_properties(self, team_id: str) -> Set[str]:
+    def person_properties(self, team_id: str) -> set[str]:
         return self._get_properties(GET_PERSON_PROPERTIES_COUNT, team_id)
 
     @instance_memoize
-    def event_properties(self, team_id: str) -> Set[str]:
+    def event_properties(self, team_id: str) -> set[str]:
         return set(
             PropertyDefinition.objects.filter(team_id=team_id, type=PropertyDefinition.Type.EVENT).values_list(
                 "name", flat=True
@@ -46,17 +47,17 @@ class TeamManager:
         )
 
     @instance_memoize
-    def person_on_events_properties(self, team_id: str) -> Set[str]:
+    def person_on_events_properties(self, team_id: str) -> set[str]:
         return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
 
     @instance_memoize
-    def group_on_events_properties(self, group_type_index: int, team_id: str) -> Set[str]:
+    def group_on_events_properties(self, group_type_index: int, team_id: str) -> set[str]:
         return self._get_properties(
             GET_EVENT_PROPERTIES_COUNT.format(column_name=f"group{group_type_index}_properties"),
             team_id,
         )
 
-    def _get_properties(self, query, team_id) -> Set[str]:
+    def _get_properties(self, query, team_id) -> set[str]:
         rows = sync_execute(query, {"team_id": team_id})
         return {name for name, _ in rows}
 
@@ -86,12 +87,12 @@ class Query:
         return matches[0] if matches else None
 
     @cached_property
-    def _all_properties(self) -> List[Tuple[str, PropertyName]]:
+    def _all_properties(self) -> list[tuple[str, PropertyName]]:
         return re.findall(r"JSONExtract\w+\((\S+), '([^']+)'\)", self.query_string)
 
     def properties(
         self, team_manager: TeamManager
-    ) -> Generator[Tuple[TableWithProperties, TableColumn, PropertyName], None, None]:
+    ) -> Generator[tuple[TableWithProperties, TableColumn, PropertyName], None, None]:
         # Reverse-engineer whether a property is an "event" or "person" property by getting their event definitions.
         # :KLUDGE: Note that the same property will be found on both tables if both are used.
         # We try to hone in on the right column by looking at the column from which the property is extracted.
@@ -124,7 +125,7 @@ class Query:
                 yield "events", "group4_properties", property
 
 
-def _analyze(since_hours_ago: int, min_query_time: int) -> List[Suggestion]:
+def _analyze(since_hours_ago: int, min_query_time: int) -> list[Suggestion]:
     "Finds columns that should be materialized"
 
     raw_queries = sync_execute(
@@ -179,7 +180,7 @@ LIMIT 100 -- Make sure we don't add 100s of columns in one run
 
 
 def materialize_properties_task(
-    columns_to_materialize: Optional[List[Suggestion]] = None,
+    columns_to_materialize: Optional[list[Suggestion]] = None,
     time_to_analyze_hours: int = MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     maximum: int = MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     min_query_time: int = MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
@@ -203,7 +204,7 @@ def materialize_properties_task(
     else:
         logger.info("Found no columns to materialize.")
 
-    properties: Dict[TableWithProperties, List[Tuple[PropertyName, TableColumn]]] = {
+    properties: dict[TableWithProperties, list[tuple[PropertyName, TableColumn]]] = {
         "events": [],
         "person": [],
     }

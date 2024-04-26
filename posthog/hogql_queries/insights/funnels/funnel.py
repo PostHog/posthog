@@ -1,5 +1,3 @@
-from typing import List
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
@@ -35,7 +33,7 @@ class Funnel(FunnelBase):
 
         breakdown_exprs = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             *self._get_count_columns(max_steps),
             *self._get_step_time_avgs(max_steps),
             *self._get_step_time_median(max_steps),
@@ -54,13 +52,13 @@ class Funnel(FunnelBase):
         inner_timestamps, outer_timestamps = self._get_timestamp_selects()
         person_and_group_properties = self._get_person_and_group_properties(aggregate=True)
 
-        group_by_columns: List[ast.Expr] = [
+        group_by_columns: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["steps"]),
             *breakdown_exprs,
         ]
 
-        outer_select: List[ast.Expr] = [
+        outer_select: list[ast.Expr] = [
             *group_by_columns,
             *self._get_step_time_avgs(max_steps, inner_query=True),
             *self._get_step_time_median(max_steps, inner_query=True),
@@ -74,7 +72,7 @@ class Funnel(FunnelBase):
             f"max(steps) over (PARTITION BY aggregation_target {self._get_breakdown_prop()}) as max_steps"
         )
 
-        inner_select: List[ast.Expr] = [
+        inner_select: list[ast.Expr] = [
             *group_by_columns,
             max_steps_expr,
             *self._get_step_time_names(max_steps),
@@ -106,7 +104,7 @@ class Funnel(FunnelBase):
         formatted_query = self._build_step_subquery(2, max_steps)
         breakdown_exprs = self._get_breakdown_prop_expr()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["*"]),
             ast.Alias(alias="steps", expr=self._get_sorting_condition(max_steps, max_steps)),
             *self._get_exclusion_condition(),
@@ -135,7 +133,7 @@ class Funnel(FunnelBase):
     def _build_step_subquery(
         self, level_index: int, max_steps: int, event_names_alias: str = "events"
     ) -> ast.SelectQuery:
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Field(chain=["aggregation_target"]),
             ast.Field(chain=["timestamp"]),
         ]
@@ -175,12 +173,12 @@ class Funnel(FunnelBase):
                 ),
             )
 
-    def _get_comparison_cols(self, level_index: int, max_steps: int) -> List[ast.Expr]:
+    def _get_comparison_cols(self, level_index: int, max_steps: int) -> list[ast.Expr]:
         """
         level_index: The current smallest comparison step. Everything before
         level index is already at the minimum ordered timestamps.
         """
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
         funnelsFilter = self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions
 
@@ -225,7 +223,7 @@ class Funnel(FunnelBase):
         return exprs
 
     def _get_comparison_at_step(self, index: int, level_index: int) -> ast.Or:
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
 
         for i in range(level_index, index + 1):
             exprs.append(parse_expr(f"latest_{i} < latest_{level_index - 1}"))
