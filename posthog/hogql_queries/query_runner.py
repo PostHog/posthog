@@ -8,6 +8,7 @@ from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -47,6 +48,8 @@ from posthog.schema import (
     InsightActorsQueryOptions,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
+
+logger = structlog.get_logger(__name__)
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
     "posthog_query_cache_write_total",
@@ -429,15 +432,26 @@ class QueryRunner(ABC, Generic[Q]):
             query_update: dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
-                    query_update["properties"] = PropertyGroupFilter(
-                        type=FilterLogicalOperator.AND,
-                        values=[
-                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties),
-                            PropertyGroupFilterValue(
-                                type=FilterLogicalOperator.AND, values=dashboard_filter.properties
-                            ),
-                        ],
-                    )
+                    try:
+                        query_update["properties"] = PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND,
+                            values=[
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
+                                if isinstance(self.query.properties, list)
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump()),
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND, values=dashboard_filter.properties
+                                ),
+                            ],
+                        )
+                    except Exception as e:
+                        # If pydantic is unhappy about the shape of data, let's ignore dashboard filters and carry on
+                        capture_exception()
+                        logger.error(
+                            "Failed to apply dashboard property filters",
+                            exception=e,
+                            exc_info=True,
+                        )
                 else:
                     query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:
