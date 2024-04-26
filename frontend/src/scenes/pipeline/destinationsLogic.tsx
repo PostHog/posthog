@@ -36,6 +36,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
+        updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -83,6 +85,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     })
                     return { ...pluginConfigs, [destination.id]: response }
                 },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
+                },
             },
         ],
         batchExportConfigs: [
@@ -109,6 +117,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     return Object.fromEntries(
                         Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
                     )
+                },
+                updateBatchExportConfig: ({ batchExportConfig }) => {
+                    return { ...values.batchExportConfigs, [batchExportConfig.id]: batchExportConfig }
                 },
             },
         ],
@@ -158,7 +169,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 lemonToast.error('Data pipelines add-on is required for enabling new destinations')
                 return
             }
-            if (destination.backend === 'plugin') {
+            if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else {
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })

@@ -18,6 +18,7 @@ export const importAppsLogic = kea<importAppsLogicType>([
     }),
     actions({
         loadPluginConfigs: true,
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -57,6 +58,12 @@ export const importAppsLogic = kea<importAppsLogicType>([
                         enabled,
                     })
                     return { ...pluginConfigs, [id]: response }
+                },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
                 },
             },
         ],

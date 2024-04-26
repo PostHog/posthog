@@ -1,4 +1,3 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -49,7 +48,7 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab, node, nodeLoading } = useValues(pipelineNodeLogic)
+    const { currentTab, node } = useValues(pipelineNodeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
@@ -57,15 +56,11 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     if (!stage) {
-        return <NotFound object="pipeline app stage" />
+        return <NotFound object="pipeline stage" />
     }
 
-    if (nodeLoading) {
-        return <Spinner />
-    }
-
-    if (!node) {
-        return <NotFound object={stage} />
+    if (node.name === 'new') {
+        return <PipelineNodeConfiguration />
     }
 
     const tabToContent: Record<PipelineNodeTab, JSX.Element> = {
@@ -76,7 +71,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     return (
-        <div className="pipeline-app-scene">
+        <div className="pipeline-node-scene">
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
