@@ -62,7 +62,9 @@ def test_csv_rendering(mock_settings, mock_process_query, mock_request, filename
         elif fixture["response"].get("results") is not None:
             mock_process_query.return_value = fixture["response"]
         else:
-            mock_process_query.return_value = {"results": fixture["response"].pop("result"), **fixture["response"]}
+            mock_process_query.return_value = fixture["response"]
+            if "result" in fixture["response"]:
+                mock_process_query.return_value["results"] = fixture["response"].pop("result")
         csv_exporter.export_tabular(asset)
         csv_rows = asset.content.decode("utf-8").split("\r\n")
 
