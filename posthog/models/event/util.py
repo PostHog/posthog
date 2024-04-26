@@ -46,7 +46,7 @@ def create_event(
     group2_created_at: Optional[Union[timezone.datetime, str]] = None,
     group3_created_at: Optional[Union[timezone.datetime, str]] = None,
     group4_created_at: Optional[Union[timezone.datetime, str]] = None,
-    person_mode: Literal["full", "propertyless"] = "full",
+    person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
 ) -> str:
     if properties is None:
         properties = {}
