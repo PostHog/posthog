@@ -325,6 +325,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                                 <SectionSetting title="Color palette">
                                     <LemonSelect
+                                        size="small"
                                         options={HEATMAP_COLOR_PALETTE_OPTIONS}
                                         value={heatmapColorPalette}
                                         onChange={setHeatmapColorPalette}
