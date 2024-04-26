@@ -196,7 +196,11 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
 
     return (
         <ErrorBoundary>
-            <LemonTabs activeKey={tab ?? tabs[0]?.key ?? 'json'} onChange={(t) => setTab(t)} tabs={tabs} />
+            <LemonTabs
+                activeKey={tab && tabs.find((t) => t && t.key === tab) ? tab : (tabs[0] && tabs[0].key) || 'response'}
+                onChange={(t) => setTab(t)}
+                tabs={tabs}
+            />
         </ErrorBoundary>
     )
 }
