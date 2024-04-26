@@ -271,17 +271,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 } as const
                             })
                             .filter(isNotNil)
-                    } else {
-                        // no matching property, so add one
-                        const newFilter: WebAnalyticsPropertyFilter = {
-                            type,
-                            key,
-                            value,
-                            operator: PropertyOperator.Exact,
-                        }
-
-                        return [...oldPropertyFilters, newFilter]
                     }
+                    // no matching property, so add one
+                    const newFilter: WebAnalyticsPropertyFilter = {
+                        type,
+                        key,
+                        value,
+                        operator: PropertyOperator.Exact,
+                    }
+
+                    return [...oldPropertyFilters, newFilter]
                 },
                 setStateFromUrl: (_, { state }) => state.filters,
             },
@@ -1012,9 +1011,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 limit: 50,
                             },
                         }
-                    } else {
-                        return query
                     }
+                    return query
                 }
 
                 if (tabId) {
@@ -1040,22 +1038,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         query: extendQuery(tab.query),
                         canOpenInsight: tab.canOpenInsight,
                     }
-                } else {
-                    if ('tabs' in tile) {
-                        throw new Error('Developer Error, tabId not provided for tab tile')
-                    }
-                    return {
-                        tileId,
-                        title: tile.title,
-                        showIntervalSelect: tile.showIntervalSelect,
-                        showPathCleaningControls: tile.showPathCleaningControls,
-                        insightProps: {
-                            dashboardItemId: getDashboardItemId(tileId, undefined, true),
-                            loadPriority: 0,
-                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                        },
-                        query: extendQuery(tile.query),
-                    }
+                }
+                if ('tabs' in tile) {
+                    throw new Error('Developer Error, tabId not provided for tab tile')
+                }
+                return {
+                    tileId,
+                    title: tile.title,
+                    showIntervalSelect: tile.showIntervalSelect,
+                    showPathCleaningControls: tile.showPathCleaningControls,
+                    insightProps: {
+                        dashboardItemId: getDashboardItemId(tileId, undefined, true),
+                        loadPriority: 0,
+                        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                    },
+                    query: extendQuery(tile.query),
                 }
             },
         ],
@@ -1115,16 +1112,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             null,
                             formatQueryForNewInsight(tab.query)
                         )
-                    } else {
-                        if ('tabs' in tile) {
-                            throw new Error('Developer Error, tabId not provided for tab tile')
-                        }
-                        return urls.insightNew(
-                            { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
-                            null,
-                            formatQueryForNewInsight(tile.query)
-                        )
                     }
+                    if ('tabs' in tile) {
+                        throw new Error('Developer Error, tabId not provided for tab tile')
+                    }
+                    return urls.insightNew(
+                        { properties: webAnalyticsFilters, date_from: dateFrom, date_to: dateTo },
+                        null,
+                        formatQueryForNewInsight(tile.query)
+                    )
                 }
             },
         ],

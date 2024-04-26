@@ -4,7 +4,6 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
-import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { InternalPerson, Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
@@ -15,6 +14,7 @@ import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
+import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -33,15 +33,6 @@ export const mergeTxnSuccessCounter = new Counter({
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified', 'poEEmbraceJoin'],
 })
-
-// UUIDv5 requires a namespace, which is itself a UUID. This was a randomly generated UUIDv4
-// that must be used to deterministrically generate UUIDv5s for Person rows.
-const PERSON_UUIDV5_NAMESPACE = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
-
-function uuidFromDistinctId(teamId: number, distinctId: string): string {
-    // Deterministcally create a UUIDv5 based on the (team_id, distinct_id) pair.
-    return uuidv5(`${teamId}:${distinctId}`, PERSON_UUIDV5_NAMESPACE)
-}
 
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
@@ -114,10 +105,15 @@ export class PersonState {
     async update(): Promise<Person> {
         if (!this.processPerson) {
             if (this.lazyPersonCreation) {
-                const person = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
-                if (person) {
+                const existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+                if (existingPerson) {
+                    const person = existingPerson as Person
+
                     // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                     person.properties = {}
+
+                    // See documentation on the field.
+                    person.force_upgrade = true
 
                     return person
                 }

@@ -683,7 +683,9 @@ def list_recordings(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
-            recording.person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id)
+            if person:
+                recording.person = person
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
