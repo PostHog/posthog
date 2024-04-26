@@ -633,7 +633,7 @@ describe('insightLogic', () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
-            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
 
             // 2. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -651,7 +651,7 @@ describe('insightLogic', () => {
             // 1. the dashboard is mounted
             const dashLogic = dashboardLogic({ id: 33 })
             dashLogic.mount()
-            await expectLogic(dashLogic).toDispatchActions(['loadDashboardItemsSuccess'])
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
 
             // 2. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 1 })
