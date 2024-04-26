@@ -122,7 +122,7 @@ function DashboardScene(): JSX.Element {
                                         dashboardFilters={dashboardFilters}
                                         setDates={setDates}
                                         setProperties={setProperties}
-                                        groupsTaxonomicTypes={[
+                                        taxonomicGroupTypes={[
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.PersonProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,

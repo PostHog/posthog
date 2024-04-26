@@ -15,7 +15,7 @@ interface DashboardEditBarProps {
     canEditDashboard: boolean
     setDates: (dateFrom: string | null, dateTo: string | null) => void
     setProperties: (properties: AnyPropertyFilter[]) => void
-    groupsTaxonomicTypes: TaxonomicFilterGroupType[]
+    taxonomicGroupTypes: TaxonomicFilterGroupType[]
     onPendingChanges?: (stale: boolean) => void
 }
 
@@ -25,7 +25,7 @@ export function DashboardEditBar({
     canEditDashboard,
     setDates,
     setProperties,
-    groupsTaxonomicTypes,
+    taxonomicGroupTypes,
     onPendingChanges,
 }: DashboardEditBarProps): JSX.Element {
     const [editMode, setEditMode] = useState(false)
@@ -93,15 +93,7 @@ export function DashboardEditBar({
                 onChange={setTempProperties}
                 pageKey={'dashboard_' + dashboard?.id}
                 propertyFilters={tempProperties}
-                taxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    ...groupsTaxonomicTypes,
-                    TaxonomicFilterGroupType.Cohorts,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                ]}
+                taxonomicGroupTypes={taxonomicGroupTypes}
             />
             {canEditDashboard && !editMode ? (
                 <LemonButton type="secondary" size="small" onClick={() => setEditMode(true)}>
