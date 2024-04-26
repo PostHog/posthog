@@ -1,10 +1,8 @@
 # serializer version: 1
 # name: TestLifecycle.test_sampling
   '''
-  WITH 'day' AS selected_period, -- enumerate all requested periods, so we can zero fill as needed.
-   -- NOTE: we use dateSub interval rather than seconds, which means we can handle,
-   -- for instance, month intervals which do not have a fixed number of seconds.
-   periods AS
+  WITH 'day' AS selected_period,
+       periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) AS date,
@@ -18,8 +16,7 @@
        (SELECT periods.start_of_period as start_of_period,
                toUInt16(0) AS counts,
                status
-        FROM periods -- Zero fill for each status
-  
+        FROM periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -77,10 +74,8 @@
 # ---
 # name: TestLifecycle.test_timezones
   '''
-  WITH 'day' AS selected_period, -- enumerate all requested periods, so we can zero fill as needed.
-   -- NOTE: we use dateSub interval rather than seconds, which means we can handle,
-   -- for instance, month intervals which do not have a fixed number of seconds.
-   periods AS
+  WITH 'day' AS selected_period,
+       periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'UTC'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'UTC')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'UTC') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) AS date,
@@ -94,8 +89,7 @@
        (SELECT periods.start_of_period as start_of_period,
                toUInt16(0) AS counts,
                status
-        FROM periods -- Zero fill for each status
-  
+        FROM periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -153,10 +147,8 @@
 # ---
 # name: TestLifecycle.test_timezones.1
   '''
-  WITH 'day' AS selected_period, -- enumerate all requested periods, so we can zero fill as needed.
-   -- NOTE: we use dateSub interval rather than seconds, which means we can handle,
-   -- for instance, month intervals which do not have a fixed number of seconds.
-   periods AS
+  WITH 'day' AS selected_period,
+       periods AS
     (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
      FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) AS date,
@@ -170,8 +162,7 @@
        (SELECT periods.start_of_period as start_of_period,
                toUInt16(0) AS counts,
                status
-        FROM periods -- Zero fill for each status
-  
+        FROM periods
         CROSS JOIN
           (SELECT status
            FROM
