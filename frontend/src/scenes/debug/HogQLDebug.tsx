@@ -38,7 +38,8 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                     <>
                         <h2>Running query...</h2>
                         <div className="flex">
-                            Time elapsed: <ElapsedTime />
+                            Time elapsed:&nbsp;
+                            <ElapsedTime />
                         </div>
                     </>
                 ) : (

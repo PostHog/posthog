@@ -1,7 +1,8 @@
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -44,7 +45,7 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
     const totalTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === '.')?.t ?? 0
     const hogQLTime = totalTime - explainTime - clickHouseTime
-    const tabs = query
+    const tabs: LemonTabsProps<string>['tabs'] = query
         ? [
               response?.error && {
                   key: 'error',
@@ -95,7 +96,12 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
               },
               response?.hogql && {
                   key: 'hogql',
-                  label: `HogQL${hogQLTime ? ` (${Math.floor(hogQLTime * 10) / 10}s)` : ''}`,
+                  label: (
+                      <>
+                          HogQL
+                          {hogQLTime && <LemonTag className="ml-2">{Math.floor(hogQLTime * 10) / 10}s</LemonTag>}
+                      </>
+                  ),
                   content: (
                       <CodeEditor
                           className="border"
@@ -108,7 +114,14 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
               },
               response?.clickhouse && {
                   key: 'clickhouse',
-                  label: `ClickHouse${clickHouseTime ? ` (${Math.floor(clickHouseTime * 10) / 10}s)` : ''}`,
+                  label: (
+                      <>
+                          Clickhouse
+                          {clickHouseTime && (
+                              <LemonTag className="ml-2">{Math.floor(clickHouseTime * 10) / 10}s</LemonTag>
+                          )}
+                      </>
+                  ),
                   content: (
                       <CodeEditor
                           className="border"
