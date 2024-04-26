@@ -496,11 +496,13 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
     def test_after_timeout_api_requests_401(self):
         now = datetime.now()
-        self.login_as_other_user()
-        client = self.client
-        res = client.get("/api/users/@me")
-        assert res.status_code == 200
-        assert res.json()["email"] == "other-user@posthog.com"
+        with freeze_time(now):
+            self.login_as_other_user()
+            client = self.client
+            res = client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert client.session.get("loginas_started_at") == now.timestamp()
 
         with freeze_time(now + timedelta(seconds=10)):
             res = client.get("/api/users/@me")

@@ -360,4 +360,4 @@ IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
     "IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY", False, type_cast=str_to_bool
 )
 
-IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", "impersonation_session_init_time")
+IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
