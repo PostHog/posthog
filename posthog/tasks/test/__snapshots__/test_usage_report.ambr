@@ -195,7 +195,8 @@
     AND event NOT IN ('survey sent',
                       'survey shown',
                       'survey dismissed')
-    AND person_mode IN ('full', 'force_upgrade')
+    AND person_mode IN ('full',
+                        'force_upgrade')
   GROUP BY team_id
   '''
 # ---
