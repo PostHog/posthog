@@ -462,6 +462,22 @@ export function Experiment(): JSX.Element {
                                         </BindLogic>
                                     </div>
                                 </div>
+                                <LemonField name="on_experiment_end">
+                                    {() => (
+                                        <div className="on-experiment-end">
+                                            <div>
+                                                <b>Once the experiment is finished</b>
+                                                <span className="text-muted ml-2">(optional)</span>
+                                            </div>
+                                            <div className="text-muted mt-1">
+                                                Define actions to take once the experiment ends.
+                                            </div>
+                                            <LemonButton data-attr="experiment-add-actions" type="secondary">
+                                                Add Action
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </LemonField>
                                 <LemonField name="secondary_metrics">
                                     {({ value, onChange }) => (
                                         <div className="secondary-metrics">
