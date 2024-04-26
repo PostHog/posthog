@@ -352,6 +352,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
+        roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [
             (s) => [
                 s.playingState,
@@ -816,10 +817,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (newTimestamp == undefined && values.currentTimestamp) {
                 // This can happen if the player is not loaded due to us being in a "gap" segment
                 // In this case, we should progress time forward manually
-                const skip = values.playerSpeed * (1000 / 60) // rough animation fps
                 if (values.currentSegment?.kind === 'gap') {
                     cache.debug?.('gap segment: skipping forward')
-                    newTimestamp = values.currentTimestamp + skip
+                    newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
             }
 
