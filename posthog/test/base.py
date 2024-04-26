@@ -515,6 +515,14 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace survey uuids
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
         #### Cohort replacements
         # replace cohort id lists in queries too
         query = re.sub(

@@ -351,7 +351,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    @patch("sqlparse.format", return_value="SELECT 1&&&")  # Erroneously constructed SQL
+    @patch(
+        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
+    )  # Erroneously constructed SQL
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 

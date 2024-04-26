@@ -162,10 +162,9 @@ export const deduplicateSnapshots = (snapshots: RecordingSnapshot[] | null): Rec
 
             if (seenHashes.has(key)) {
                 return false
-            } else {
-                seenHashes.add(key)
-                return true
             }
+            seenHashes.add(key)
+            return true
         })
         .sort((a, b) => a.timestamp - b.timestamp)
 }

@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -12,7 +12,7 @@ patchedDependencies:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
   rrweb@2.0.0-alpha.13:
-    hash: awo7hmdoglvq4pl5b43lreupza
+    hash: g7jnlxuwyxkja3n62yb6xpim6q
     path: patches/rrweb@2.0.0-alpha.13.patch
 
 dependencies:
@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.129.0
-    version: 1.129.0
+    specifier: 1.130.0
+    version: 1.130.0
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -333,7 +333,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza)
+    version: 2.0.0-alpha.13(patch_hash=g7jnlxuwyxkja3n62yb6xpim6q)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -356,7 +356,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.2
+    version: 2.3.3
 
 devDependencies:
   '@babel/core':
@@ -6708,8 +6708,8 @@ packages:
       type-fest: 2.19.0
     dev: true
 
-  /@storybook/csf@0.1.4:
-    resolution: {integrity: sha512-B9UI/lsQMjF+oEfZCI6YXNoeuBcGZoOP5x8yKbe2tIEmsMjSztFKkpPzi5nLCnBk/MBtl6QJeI3ksJnbsWPkOw==}
+  /@storybook/csf@0.1.5:
+    resolution: {integrity: sha512-pW7Dtk/bE2JGrAe/KuBY4Io02NBe/2CLP2DkgVgWlSwvEVdm/rbQyiwy8RaL0lQlJCv9CsGBY+n9HQG8d4bZjQ==}
     dependencies:
       type-fest: 2.19.0
     dev: true
@@ -6743,7 +6743,7 @@ packages:
       '@storybook/channels': 7.6.18
       '@storybook/client-logger': 7.6.18
       '@storybook/core-events': 7.6.18
-      '@storybook/csf': 0.1.4
+      '@storybook/csf': 0.1.5
       '@storybook/global': 5.0.0
       '@storybook/router': 7.6.18
       '@storybook/theming': 7.6.18(react-dom@18.2.0)(react@18.2.0)
@@ -6858,7 +6858,7 @@ packages:
       '@storybook/channels': 7.6.18
       '@storybook/client-logger': 7.6.18
       '@storybook/core-events': 7.6.18
-      '@storybook/csf': 0.1.4
+      '@storybook/csf': 0.1.5
       '@storybook/global': 5.0.0
       '@storybook/types': 7.6.18
       '@types/qs': 6.9.15
@@ -12914,6 +12914,7 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
+    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -17566,8 +17567,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.129.0:
-    resolution: {integrity: sha512-Vddg6Shbum/SxFFUYrEUMu6PmFk7tNHIxTXQwtqrYtar6YKUXDUslW8kf8vwsK09AOglX7ISynisSJ8u/MzicA==}
+  /posthog-js@1.130.0:
+    resolution: {integrity: sha512-bCrw5HunoXLybO20Q1bYEg68i5WCZWKxhStYJK4OR/9jrm7GwZ53GDrN78p8apFi0EH5ay4YZGbLFSkg+SsZWQ==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.2
@@ -19276,7 +19277,7 @@ packages:
     resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza):
+  /rrweb@2.0.0-alpha.13(patch_hash=g7jnlxuwyxkja3n62yb6xpim6q):
     resolution: {integrity: sha512-a8GXOCnzWHNaVZPa7hsrLZtNZ3CGjiL+YrkpLo0TfmxGLhjNZbWY2r7pE06p+FcjFNlgUVTmFrSJbK3kO7yxvw==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.13

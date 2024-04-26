@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
 import { waitForExpect } from '../../../functional_tests/expectations'
 import { Database, Hub, InternalPerson } from '../../../src/types'
@@ -15,6 +14,7 @@ import {
     FlatPersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
+import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { WaitEvent } from '../../helpers/promises'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
@@ -32,17 +32,6 @@ interface PersonOverridesMode {
         hub: Hub,
         teamId: number
     ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
-}
-
-function uuidFromDistinctId(teamId: number, distinctId: string): string {
-    // The UUID generation code here is deliberately copied from `person-state` rather than imported,
-    // so that someone can't accidentally change how `person-state` UUID generation works and still
-    // have the tests pass.
-    //
-    // It is very important that Person UUIDs are deterministically generated and that this format
-    // doesn't change without a lot of thought and planning about side effects!
-    const namespace = parseUuid('932979b4-65c3-4424-8467-0b66ec27bc22')
-    return uuidv5(`${teamId}:${distinctId}`, namespace)
 }
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
@@ -122,7 +111,8 @@ describe('PersonState.update()', () => {
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
-        lazyPersonCreation = false
+        lazyPersonCreation = false,
+        timestampParam = timestamp
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -134,7 +124,7 @@ describe('PersonState.update()', () => {
             fullEvent as any,
             teamId,
             event.distinct_id!,
-            timestamp,
+            timestampParam,
             processPerson,
             customHub ? customHub.db : hub.db,
             lazyPersonCreation,
@@ -272,6 +262,7 @@ describe('PersonState.update()', () => {
             // `force_upgrade=true` and real Person `uuid` and `created_at`
             processPerson = false
             const event_uuid = new UUIDT().toString()
+            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
             const fakePerson = await personState(
                 {
                     event: '$pageview',
@@ -281,7 +272,8 @@ describe('PersonState.update()', () => {
                 },
                 hubParam,
                 processPerson,
-                lazyPersonCreation
+                lazyPersonCreation,
+                timestampParam
             ).update()
             await hub.db.kafkaProducer.flush()
 

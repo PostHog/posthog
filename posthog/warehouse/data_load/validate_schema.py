@@ -144,21 +144,14 @@ async def validate_schema_and_update_table(
         )
 
         # create or update
-        table_created = None
-        if last_successful_job:
-            try:
-                table_created = await get_table_by_schema_id(_schema_id, team_id)
-                if not table_created:
-                    raise DataWarehouseTable.DoesNotExist
-            except Exception:
-                table_created = None
+        table_created: DataWarehouseTable | None = await get_table_by_schema_id(_schema_id, team_id)
+        if table_created:
+            table_created.url_pattern = new_url_pattern
+            if incremental:
+                table_created.row_count = await sync_to_async(table_created.get_count)()
             else:
-                table_created.url_pattern = new_url_pattern
-                if incremental:
-                    table_created.row_count = await sync_to_async(table_created.get_count)()
-                else:
-                    table_created.row_count = row_count
-                await asave_datawarehousetable(table_created)
+                table_created.row_count = row_count
+            await asave_datawarehousetable(table_created)
 
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
