@@ -111,7 +111,8 @@ describe('PersonState.update()', () => {
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
-        lazyPersonCreation = false
+        lazyPersonCreation = false,
+        timestampParam = timestamp
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -123,7 +124,7 @@ describe('PersonState.update()', () => {
             fullEvent as any,
             teamId,
             event.distinct_id!,
-            timestamp,
+            timestampParam,
             processPerson,
             customHub ? customHub.db : hub.db,
             lazyPersonCreation,
@@ -261,6 +262,7 @@ describe('PersonState.update()', () => {
             // `force_upgrade=true` and real Person `uuid` and `created_at`
             processPerson = false
             const event_uuid = new UUIDT().toString()
+            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
             const fakePerson = await personState(
                 {
                     event: '$pageview',
@@ -270,7 +272,8 @@ describe('PersonState.update()', () => {
                 },
                 hubParam,
                 processPerson,
-                lazyPersonCreation
+                lazyPersonCreation,
+                timestampParam
             ).update()
             await hub.db.kafkaProducer.flush()
 
