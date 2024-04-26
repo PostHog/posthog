@@ -201,19 +201,17 @@ export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<
 
     // TODO: Filter shit out
     // // Filter based on actionmatching the event against the plugin's configured actions
-    // pluginConfigs = (
-    //     await Promise.all(
-    //         pluginConfigs.map(async (pluginConfig) => {
-    //             // TODO: Add matchActions option
-    //             if (pluginConfig.matchActions.length === 0) {
-    //                 const matchedActions = await hub.actionMatcher.match(event)
-    //                 return pluginConfig.matchActions.some((actionId) => matchedActions.find((x) => x.id === actionId))
-    //             }
+    // pluginMethodsToRun = await Promise.all(
+    //     pluginMethodsToRun.map(async ([pluginConfig, composeWebhook]) => {
+    //         // TODO: Filter to see if it matches the action in question
+    //         if (pluginConfig.matchActions.length === 0) {
+    //             const matchedActions = await hub.actionMatcher.match(event)
+    //             return pluginConfig.matchActions.some((actionId) => matchedActions.find((x) => x.id === actionId))
+    //         }
 
-    //             return pluginConfig
-    //         })
-    //     )
-    // ).filter(Boolean) as PluginConfig[]
+    //         return [pluginConfig, composeWebhook]
+    //     })
+    // )
 
     await Promise.all(
         pluginMethodsToRun
