@@ -60,22 +60,21 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                             : `ID ${cohortId}`)
                 )
                 .join(', ')}`
-        } else {
-            const noun =
-                breakdown_type !== 'group'
-                    ? breakdown_type
-                    : context.aggregationLabel(breakdown_group_type_index, true).singular
-            const propertyLabel =
-                typeof breakdown === 'string' &&
-                breakdown_type &&
-                breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
-                    ? getCoreFilterDefinition(
-                          breakdown,
-                          PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
-                      )?.label || breakdown
-                    : breakdown
-            return `${noun}'s ${propertyLabel}`
         }
+        const noun =
+            breakdown_type !== 'group'
+                ? breakdown_type
+                : context.aggregationLabel(breakdown_group_type_index, true).singular
+        const propertyLabel =
+            typeof breakdown === 'string' &&
+            breakdown_type &&
+            breakdown_type in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
+                ? getCoreFilterDefinition(
+                      breakdown,
+                      PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdown_type]
+                  )?.label || breakdown
+                : breakdown
+        return `${noun}'s ${propertyLabel}`
     }
     return null
 }
@@ -295,9 +294,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         )
     } else if (isLifecycleQuery(query)) {
         return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else {
-        return ''
     }
+    return ''
 }
 
 function summarizeQuery(query: Node): string {

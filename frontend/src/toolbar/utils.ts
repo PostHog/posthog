@@ -293,14 +293,13 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 href_selected: false,
                 url_selected: false,
             }
-        } else {
-            return {
-                ...step,
-                selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
-                href_selected: false,
-            }
+        }
+        return {
+            ...step,
+            selector_selected: hasSelector,
+            text_selected: false,
+            url_selected: false,
+            href_selected: false,
         }
     }
 

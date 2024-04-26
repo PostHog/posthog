@@ -42,7 +42,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -104,7 +105,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -150,7 +152,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -196,7 +199,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -258,7 +262,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -304,7 +309,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -371,7 +377,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -449,7 +456,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -516,7 +524,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -605,7 +614,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -672,7 +682,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -739,7 +750,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -806,7 +818,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -873,6 +886,7 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---

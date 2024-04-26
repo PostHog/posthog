@@ -75,6 +75,7 @@ export function InsightVizDisplay({
         erroredQueryId,
         timedOutQueryId,
         vizSpecificOptions,
+        query,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext } = useValues(insightDataLogic(insightProps))
 
@@ -92,7 +93,7 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            return <InsightValidationError detail={validationError} />
+            return <InsightValidationError query={query} detail={validationError} />
         }
 
         // Insight specific empty states - note order is important here
@@ -107,7 +108,7 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
-            return <InsightErrorState queryId={erroredQueryId} />
+            return <InsightErrorState query={query} queryId={erroredQueryId} />
         }
         if (timedOutQueryId) {
             return (

@@ -1,5 +1,6 @@
 import json
 import posthoganalytics
+from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import (  # noqa: UP035
@@ -7,6 +8,7 @@ from typing import (  # noqa: UP035
     List,
     Optional,
     TypeVar,
+    Union,
     cast,
 )
 from collections.abc import Callable
@@ -173,10 +175,20 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         team = self.context["get_team"]()
         return get_person_name(team, person)
 
-    def to_representation(self, instance: Person) -> dict[str, Any]:
-        representation = super().to_representation(instance)
-        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
-        return representation
+    def to_representation(self, instance: Union[Person, MissingPerson]) -> dict[str, Any]:
+        if isinstance(instance, Person):
+            representation = super().to_representation(instance)
+            representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            return representation
+        elif isinstance(instance, MissingPerson):
+            return {
+                "id": None,
+                "name": None,
+                "distinct_ids": [instance.distinct_id],
+                "properties": instance.properties,
+                "created_at": None,
+                "uuid": instance.uuid,
+            }
 
 
 # person distinct ids can grow to be a very large list

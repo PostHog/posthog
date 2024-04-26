@@ -619,6 +619,7 @@ interface BaseEvent {
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
 export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
+export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
@@ -638,7 +639,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
-    person_mode: 'full' | 'propertyless'
+    person_mode: PersonMode
 }
 
 /** Parsed event row from ClickHouse. */
@@ -659,7 +660,7 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
-    person_mode: 'full' | 'propertyless'
+    person_mode: PersonMode
 }
 
 /** Event in a database-agnostic shape, AKA an ingestion event.
@@ -746,6 +747,11 @@ export interface Person {
     properties: Properties
     uuid: string
     created_at: DateTime
+
+    // Set to `true` when an existing person row was found for this `distinct_id`, but the event was
+    // sent with `$process_person_profile=false`. This is an unexpected branch that we want to flag
+    // for debugging and billing purposes, and typically means a misconfigured SDK.
+    force_upgrade?: boolean
 }
 
 /** Clickhouse Person model. */

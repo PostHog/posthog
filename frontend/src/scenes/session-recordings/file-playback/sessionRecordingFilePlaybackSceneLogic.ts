@@ -45,9 +45,8 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
                     .sort((a, b) => a.timestamp - b.timestamp),
             },
         }
-    } else {
-        throw new Error('File version is not supported')
     }
+    throw new Error('File version is not supported')
 }
 
 /**

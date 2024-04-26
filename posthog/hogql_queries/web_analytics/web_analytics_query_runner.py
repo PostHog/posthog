@@ -24,6 +24,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
+    SessionPropertyFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -51,7 +52,9 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         return None
 
     @cached_property
-    def property_filters_without_pathname(self) -> list[Union[EventPropertyFilter, PersonPropertyFilter]]:
+    def property_filters_without_pathname(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self, include_previous_period: Optional[bool] = None):

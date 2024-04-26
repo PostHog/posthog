@@ -1597,6 +1597,8 @@ export function promiseResolveReject<T>(): {
     return { resolve: resolve!, reject: reject!, promise }
 }
 
+export type AsyncReturnType<T extends (...args: any) => any> = T extends (...args: any) => Promise<infer R> ? R : any
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365

@@ -388,6 +388,10 @@ class ApiRequest {
             .withQueryString(queryParams)
     }
 
+    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
+    }
+
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('data_management').addPathComponent('activity')
     }
@@ -1213,6 +1217,23 @@ const api = {
                     })
                 )
                 .assembleFullUrl()
+        },
+    },
+
+    sessions: {
+        async propertyDefinitions({
+            teamId = ApiConfig.getCurrentTeamId(),
+            search,
+            properties,
+        }: {
+            teamId?: TeamType['id']
+            search?: string
+            properties?: string[]
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .sessionPropertyDefinitions(teamId)
+                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .get()
         },
     },
 
