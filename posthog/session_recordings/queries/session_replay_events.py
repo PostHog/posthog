@@ -36,7 +36,11 @@ class SessionReplayEvents:
             370, session_id, team
         )
 
-        cache.set(cache_key, existence, timeout=seconds_until_midnight())
+        if existence:
+            # let's be cautious and not cache non-existence
+            # in case we manage to check existence just before the first event hits ClickHouse
+            # that should be impossible but cache invalidation is hard etc etc
+            cache.set(cache_key, existence, timeout=seconds_until_midnight())
         return existence
 
     @staticmethod
