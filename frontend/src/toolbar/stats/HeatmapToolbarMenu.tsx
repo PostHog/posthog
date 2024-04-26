@@ -221,15 +221,13 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     title="Heatmap type"
                                     info={
                                         <>
-                                            {heatmapFilters.type === 'scrolldepth' && (
-                                                <>
-                                                    <p>
-                                                        Scroll depth uses additional information from Pageview and
-                                                        Pageleave events to indicate how far down the page users have
-                                                        scrolled.
-                                                    </p>
-                                                </>
-                                            )}
+                                            Select the kind of heatmap you want to view. Clicks, rageclicks, and mouse
+                                            moves options will show different "heat" based on the number of interactions
+                                            at that area of the page. Scroll depth will show how far down the page users
+                                            have reached.
+                                            <br />
+                                            Scroll depth uses additional information from Pageview and Pageleave events
+                                            to indicate how far down the page users have scrolled.
                                         </>
                                     }
                                 >
