@@ -35,8 +35,11 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     EventsQuery,
+    FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
 )
 from posthog.test.base import (
@@ -1162,7 +1165,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     event="$pageview",
                 )
             ],
-            properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+            properties=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.OR,
+                        values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                    )
+                ],
+            ),
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
