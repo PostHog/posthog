@@ -259,9 +259,8 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'hour'
     } else if (hour_disabled) {
         return 'day'
-    } else {
-        return filters.interval
     }
+    return filters.interval
 }
 
 export function cleanFilters(

@@ -79,9 +79,8 @@ export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
     if (typeof param === 'string') {
         return param
-    } else {
-        throw new Error("this shouldn't be an array")
     }
+    throw new Error("this shouldn't be an array")
 }
 
 const insight800 = (): InsightModel => ({
