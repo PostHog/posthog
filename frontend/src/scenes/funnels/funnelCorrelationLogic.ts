@@ -64,21 +64,20 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                                     result_type: FunnelCorrelationResultsType.Events,
                                 })) as FunnelCorrelation[],
                             }
-                        } else {
-                            const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                                await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                                    ...values.apiParams,
-                                    funnel_correlation_type: 'events',
-                                    funnel_correlation_exclude_event_names: values.excludedEventNames,
-                                })
-                            ).result?.events
+                        }
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'events',
+                                funnel_correlation_exclude_event_names: values.excludedEventNames,
+                            })
+                        ).result?.events
 
-                            return {
-                                events: results.map((result) => ({
-                                    ...result,
-                                    result_type: FunnelCorrelationResultsType.Events,
-                                })),
-                            }
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Events,
+                            })),
                         }
                     } catch (error) {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
@@ -110,22 +109,21 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                                 result_type: FunnelCorrelationResultsType.EventWithProperties,
                             })) as FunnelCorrelation[],
                         }
-                    } else {
-                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
-                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
-                                ...values.apiParams,
-                                funnel_correlation_type: 'event_with_properties',
-                                funnel_correlation_event_names: [eventName],
-                                funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
-                            })
-                        ).result?.events
+                    }
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                            funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
+                        })
+                    ).result?.events
 
-                        return {
-                            [eventName]: results.map((result) => ({
-                                ...result,
-                                result_type: FunnelCorrelationResultsType.EventWithProperties,
-                            })),
-                        }
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
                     }
                 },
             },

@@ -510,6 +510,7 @@ export function DataTable({
                                 responseError ? (
                                     sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                         <InsightErrorState
+                                            query={query}
                                             excludeDetail
                                             title={
                                                 queryCancelled
@@ -520,7 +521,7 @@ export function DataTable({
                                             }
                                         />
                                     ) : (
-                                        <InsightErrorState />
+                                        <InsightErrorState query={query} />
                                     )
                                 ) : (
                                     <InsightEmptyState

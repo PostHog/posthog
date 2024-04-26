@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
+    SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -66,7 +67,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
@@ -986,7 +986,7 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {

@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 import structlog
 from celery import shared_task
@@ -25,7 +25,7 @@ logger = structlog.get_logger(__name__)
 # we currently are allowed 500 calls per minute, so let's rate limit each worker
 # to much less than that
 @shared_task(ignore_result=False, queue=CeleryQueue.SESSION_REPLAY_EMBEDDINGS.value, rate_limit="75/m")
-def embed_batch_of_recordings_task(recordings: List[Any], team_id: int) -> None:
+def embed_batch_of_recordings_task(recordings: list[Any], team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
         runner = SessionEmbeddingsRunner(team=team)

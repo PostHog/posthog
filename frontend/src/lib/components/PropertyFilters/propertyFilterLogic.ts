@@ -63,9 +63,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             (filters) => {
                 if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
                     return [...filters, {} as AnyPropertyFilter]
-                } else {
-                    return filters
                 }
+                return filters
             },
         ],
     }),

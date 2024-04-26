@@ -1,5 +1,3 @@
-from typing import Dict
-
 from posthog.hogql.database.models import (
     Table,
     StringDatabaseField,
@@ -11,7 +9,7 @@ from posthog.hogql.database.schema.persons import join_with_persons_table
 
 
 class StaticCohortPeople(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "person_id": StringDatabaseField(name="person_id"),
         "cohort_id": IntegerDatabaseField(name="cohort_id"),
         "team_id": IntegerDatabaseField(name="team_id"),

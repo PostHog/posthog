@@ -14,7 +14,7 @@ pytestmark = pytest.mark.async_migrations
 
 MIGRATION_NAME = "0010_move_old_partitions"
 
-uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
+uuid1, uuid2, uuid3 = (UUIDT() for _ in range(3))
 
 
 MIGRATION_DEFINITION = get_async_migration_definition(MIGRATION_NAME)

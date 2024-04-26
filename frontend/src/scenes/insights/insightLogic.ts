@@ -290,9 +290,8 @@ export const insightLogic = kea<insightLogicType>([
                     targetDashboards.includes(props.dashboardId)
                 if (updateIsForThisDashboard) {
                     return { ...state, ...item }
-                } else {
-                    return state
                 }
+                return state
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
@@ -303,9 +302,8 @@ export const insightLogic = kea<insightLogicType>([
             [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
                 if (insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
-                } else {
-                    return state
                 }
+                return state
             },
             [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
                 if (tile.insight?.id === state.id) {
@@ -480,37 +478,35 @@ export const insightLogic = kea<insightLogicType>([
 
                 if (insight.query) {
                     return { ...queryExportContext(insight.query, undefined, undefined, false), filename }
-                } else {
-                    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                        return {
-                            path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                                filterTrendsClientSideParams(params)
-                            )}`,
-                            filename,
-                        }
-                    } else if (isRetentionFilter(filters)) {
-                        return {
-                            filename,
-                            path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
-                        }
-                    } else if (isFunnelsFilter(filters)) {
-                        return {
-                            filename,
-                            method: 'POST',
-                            path: `api/projects/${currentTeamId}/insights/funnel`,
-                            body: params,
-                        }
-                    } else if (isPathsFilter(filters)) {
-                        return {
-                            filename,
-                            method: 'POST',
-                            path: `api/projects/${currentTeamId}/insights/path`,
-                            body: params,
-                        }
-                    } else {
-                        return null
+                }
+                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (isRetentionFilter(filters)) {
+                    return {
+                        filename,
+                        path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
+                    }
+                } else if (isFunnelsFilter(filters)) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (isPathsFilter(filters)) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
                     }
                 }
+                return null
             },
         ],
         isUsingSessionAnalysis: [

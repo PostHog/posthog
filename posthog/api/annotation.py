@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
@@ -40,11 +40,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def update(self, instance: Annotation, validated_data: Dict[str, Any]) -> Annotation:
+    def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
 
-    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
+    def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
         annotation = Annotation.objects.create(

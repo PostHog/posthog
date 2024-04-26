@@ -1,5 +1,4 @@
 from functools import cached_property
-from typing import List
 
 from django.conf import settings
 
@@ -76,7 +75,7 @@ class Migration(AsyncMigrationDefinition):
             # Note: This _should_ be impossible but hard to ensure.
             raise RuntimeError("Cannot run the migration as `events` table is already Distributed engine.")
 
-        create_table_op: List[AsyncMigrationOperation] = [
+        create_table_op: list[AsyncMigrationOperation] = [
             AsyncMigrationOperationSQL(
                 database=AnalyticsDBMS.CLICKHOUSE,
                 sql=f"""

@@ -1200,7 +1200,8 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "exact"
                 },
                 "type": {
                     "const": "event",
@@ -5666,6 +5667,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
                 }
             ]
         },

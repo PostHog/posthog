@@ -12,6 +12,7 @@ class PropertyType(models.TextChoices):
     String = "String", "String"
     Numeric = "Numeric", "Numeric"
     Boolean = "Boolean", "Boolean"
+    Duration = "Duration", "Duration"
 
 
 class PropertyFormat(models.TextChoices):
@@ -34,6 +35,7 @@ class PropertyDefinition(UUIDModel):
         EVENT = 1, "event"
         PERSON = 2, "person"
         GROUP = 3, "group"
+        SESSION = 4, "session"
 
     team: models.ForeignKey = models.ForeignKey(
         Team,

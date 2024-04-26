@@ -88,7 +88,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
@@ -190,7 +191,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -295,7 +297,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
@@ -377,7 +380,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
@@ -481,7 +485,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
@@ -595,7 +600,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -709,7 +715,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -823,7 +830,8 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
@@ -894,7 +902,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFOSSFunnel.test_timezones
@@ -953,7 +962,8 @@
                    and isNull(max_steps)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -975,7 +985,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
@@ -1061,7 +1072,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -1083,7 +1095,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
@@ -1176,7 +1189,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1197,7 +1211,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
@@ -1282,7 +1297,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1304,7 +1320,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
@@ -1429,7 +1446,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1457,7 +1475,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2.1
@@ -1582,7 +1601,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1611,7 +1631,8 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
@@ -1743,7 +1764,8 @@
   GROUP BY prop
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2

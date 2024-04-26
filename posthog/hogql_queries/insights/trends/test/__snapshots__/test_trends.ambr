@@ -93,7 +93,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -178,7 +179,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
@@ -199,7 +201,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -248,7 +251,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -300,7 +304,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
@@ -349,7 +354,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
@@ -362,7 +368,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
@@ -403,7 +410,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
@@ -416,7 +424,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
@@ -457,7 +466,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
@@ -477,7 +487,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
@@ -515,7 +526,8 @@
   GROUP BY breakdown_value
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
@@ -535,7 +547,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
@@ -573,7 +586,8 @@
   GROUP BY breakdown_value
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
@@ -627,7 +641,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.3
@@ -705,7 +720,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
@@ -726,7 +742,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
@@ -775,7 +792,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
@@ -810,7 +828,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
@@ -865,7 +884,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
@@ -878,7 +898,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
@@ -926,7 +947,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
@@ -939,7 +961,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
@@ -987,7 +1010,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
@@ -1071,7 +1095,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
@@ -1137,7 +1162,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
@@ -1179,7 +1205,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -1252,7 +1279,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
@@ -1284,7 +1312,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
@@ -1360,7 +1389,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
@@ -1379,7 +1409,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
@@ -1442,7 +1473,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_non_deterministic_timezones
@@ -1468,7 +1500,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
@@ -1511,7 +1544,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.3
@@ -1562,7 +1596,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
@@ -1604,7 +1639,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
@@ -1654,7 +1690,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering
@@ -1698,7 +1735,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -1742,7 +1780,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -1768,7 +1807,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -1812,7 +1852,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -1838,7 +1879,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -1882,7 +1924,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
@@ -1922,7 +1965,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
@@ -1954,7 +1998,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
@@ -2000,7 +2045,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
@@ -2046,7 +2092,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
@@ -2092,7 +2139,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily
@@ -2118,7 +2166,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.1
@@ -2151,7 +2200,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.2
@@ -2197,7 +2247,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.3
@@ -2223,7 +2274,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.4
@@ -2236,7 +2288,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily.5
@@ -2284,7 +2337,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc
@@ -2310,7 +2364,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
@@ -2343,7 +2398,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
@@ -2389,7 +2445,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
@@ -2415,7 +2472,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
@@ -2428,7 +2486,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
@@ -2476,7 +2535,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc
@@ -2502,7 +2562,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
@@ -2535,7 +2596,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
@@ -2581,7 +2643,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
@@ -2607,7 +2670,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
@@ -2620,7 +2684,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
@@ -2668,7 +2733,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from
@@ -2701,7 +2767,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
@@ -2727,7 +2794,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
@@ -2760,7 +2828,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
@@ -2786,7 +2855,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
@@ -2819,7 +2889,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
@@ -2845,7 +2916,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly
@@ -2871,7 +2943,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly.1
@@ -2897,7 +2970,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc
@@ -2923,7 +2997,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
@@ -2949,7 +3024,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc
@@ -2975,7 +3051,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
@@ -3001,7 +3078,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
@@ -3034,7 +3112,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
@@ -3095,7 +3174,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
@@ -3128,7 +3208,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
@@ -3189,7 +3270,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
@@ -3215,7 +3297,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -3259,7 +3342,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -3290,7 +3374,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
@@ -3349,7 +3434,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
@@ -3388,7 +3474,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -3427,7 +3514,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -3440,7 +3528,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.7
@@ -3481,7 +3570,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count
@@ -3507,7 +3597,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count.1
@@ -3533,7 +3624,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
@@ -3546,7 +3638,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
@@ -3600,7 +3693,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
@@ -3613,7 +3707,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
@@ -3666,7 +3761,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url
@@ -3681,7 +3777,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url.1
@@ -3737,7 +3834,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url_poe_v2
@@ -3752,7 +3850,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url_poe_v2.1
@@ -3807,7 +3906,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -3819,7 +3919,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -3827,7 +3927,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -3842,7 +3943,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -3851,7 +3952,8 @@
   GROUP BY breakdown_value
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
@@ -3863,7 +3965,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -3871,7 +3973,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
@@ -3886,7 +3989,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -3895,7 +3998,8 @@
   GROUP BY breakdown_value
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
@@ -3921,7 +4025,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
@@ -3947,7 +4052,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
@@ -3973,7 +4079,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -3995,7 +4102,8 @@
         GROUP BY e__pdi.person_id))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
@@ -4016,7 +4124,8 @@
         GROUP BY ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
@@ -4029,7 +4138,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
@@ -4056,7 +4166,8 @@
      GROUP BY breakdown_value)
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily
@@ -4097,7 +4208,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
@@ -4137,7 +4249,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day
@@ -4163,7 +4276,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -4194,7 +4308,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -4225,7 +4340,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_per_day_dau_cumulative
@@ -4263,7 +4379,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -4275,7 +4392,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   INNER JOIN
@@ -4301,7 +4418,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -4316,7 +4434,7 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      INNER JOIN
@@ -4343,7 +4461,8 @@
   GROUP BY breakdown_value
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_hogql_math
@@ -4369,7 +4488,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
@@ -4382,14 +4502,15 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`)
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -4402,14 +4523,15 @@
        (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                sessions.session_id AS session_id
         FROM sessions
-        WHERE equals(sessions.team_id, 2)
+        WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
         GROUP BY sessions.session_id,
                  sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
      GROUP BY e.`$session_id`)
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
@@ -4435,7 +4557,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4448,7 +4570,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -4474,7 +4597,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))
@@ -4487,7 +4610,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -4499,7 +4623,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -4507,7 +4631,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
@@ -4545,7 +4670,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -4563,7 +4688,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
@@ -4575,7 +4701,7 @@
     (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
             sessions.session_id AS session_id
      FROM sessions
-     WHERE equals(sessions.team_id, 2)
+     WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
      GROUP BY sessions.session_id,
               sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE and(equals(e.team_id, 2), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up')))
@@ -4583,7 +4709,8 @@
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
@@ -4621,7 +4748,7 @@
              (SELECT dateDiff('second', min(sessions.min_timestamp), max(sessions.max_timestamp)) AS `$session_duration`,
                      sessions.session_id AS session_id
               FROM sessions
-              WHERE equals(sessions.team_id, 2)
+              WHERE and(equals(sessions.team_id, 2), ifNull(greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(minus(toTimeZone(sessions.min_timestamp, 'UTC'), toIntervalDay(3)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0))
               GROUP BY sessions.session_id,
                        sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
            WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), true)
@@ -4639,7 +4766,8 @@
            sum(count) DESC, breakdown_value ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
@@ -4671,7 +4799,8 @@
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
@@ -4703,7 +4832,8 @@
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -4735,7 +4865,8 @@
   WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC'))), 0))
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -4781,7 +4912,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
@@ -4827,7 +4959,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
@@ -4873,7 +5006,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -4930,7 +5064,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -4987,7 +5122,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -5033,7 +5169,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -5079,7 +5216,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
@@ -5125,7 +5263,8 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
@@ -5171,6 +5310,7 @@
   ORDER BY sum(count) DESC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---

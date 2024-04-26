@@ -151,9 +151,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
                 } else if (isLifecycle) {
                     return true
-                } else {
-                    return false
                 }
+                return false
             },
         ],
 

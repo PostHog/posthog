@@ -78,6 +78,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isCohort,
         isDataWarehouse,
         isProperty,
+        hasSentAs,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -142,13 +143,17 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     />
                 </DefinitionPopover.Grid>
 
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Section>
-                    <DefinitionPopover.Card
-                        title="Sent as"
-                        value={<span className="font-mono text-xs">{_definition.name}</span>}
-                    />
-                </DefinitionPopover.Section>
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Section>
+                            <DefinitionPopover.Card
+                                title="Sent as"
+                                value={<span className="font-mono text-xs">{_definition.name}</span>}
+                            />
+                        </DefinitionPopover.Section>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -176,17 +181,21 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
-                <DefinitionPopover.HorizontalLine />
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="Sent as"
-                        value={
-                            <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
-                                {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
-                            </span>
-                        }
-                    />
-                </DefinitionPopover.Grid>
+                {hasSentAs ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Sent as"
+                                value={
+                                    <span className="truncate text-mono text-xs" title={_definition.name ?? undefined}>
+                                        {_definition.name !== '' ? _definition.name : <i>(empty string)</i>}
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }

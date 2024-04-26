@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional, Dict
+from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 
@@ -49,7 +49,7 @@ class ActivityLogPagination(pagination.CursorPagination):
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
     # Class level dictionary to store timings
-    timings_dict: Dict[str, float] = {}
+    timings_dict: dict[str, float] = {}
 
     def __call__(self, name):
         self.name = name
