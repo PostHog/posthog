@@ -204,7 +204,7 @@ def _prepare_query(
 
     if "--" in rendered_sql or "/*" in rendered_sql:
         # This can take a very long time with e.g. large funnel queries
-        formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
+        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
     else:
         formatted_sql = rendered_sql
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
@@ -231,11 +231,7 @@ def _annotate_tagged_query(query, workload):
 
 
 def format_sql(rendered_sql, colorize=True):
-    if "--" in rendered_sql or "/*" in rendered_sql:
-        # This can take a very long time with e.g. large funnel queries
-        formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
-    else:
-        formatted_sql = rendered_sql
+    formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
     if colorize:
         try:
             import pygments.formatters
