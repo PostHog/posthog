@@ -887,6 +887,25 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
+    def test_user_cannot_update_protected_fields(self):
+        self.user.is_staff = False
+        self.user.save()
+        fields = {
+            "date_joined": "2021-01-01T00:00:00Z",
+            "uuid": str(uuid.uuid4()),
+            "distinct_id": "distinct_id",
+            "pending_email": "changed@example.com",
+            "is_email_verified": True,
+        }
+
+        initial_user = self.client.get("/api/users/@me/").json()
+
+        for field, value in fields.items():
+            response = self.client.patch("/api/users/@me/", {field: value})
+            assert (
+                response.json()[field] == initial_user[field]
+            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+
 
 class TestUserSlackWebhook(APIBaseTest):
     ENDPOINT: str = "/api/user/test_slack_webhook/"
@@ -1056,6 +1075,31 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
         self.assertEqual(mock_capture.call_count, 3)
+
+    @patch("posthoganalytics.capture")
+    def test_user_email_is_unverfied_when_changed(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        link_index = html_message.find("https://my.posthog.net/verify_email")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
+        token = reset_link.replace("https://my.posthog.net/verify_email/", "").replace(f"{self.user.uuid}/", "")
+
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # check is_email_verified is changed to True
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_email_verified)
+
+        # change email
+        res = self.client.patch("/api/users/@me/", {"email": "changed-email@example.com"})
+        assert res.status_code == 200, res.json()
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "changed-email@example.com"
+        assert not self.user.is_email_verified
 
     def test_cant_verify_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
