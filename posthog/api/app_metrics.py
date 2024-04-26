@@ -118,8 +118,12 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             .annotate(dates=TruncDay("last_updated_at"))
             .values("dates")
             .annotate(
-                successes=Sum(Coalesce("records_total_count", 0), filter=Q(status=BatchExportRun.Status.COMPLETED)),
-                failures=Sum(Coalesce("records_total_count", 0), filter=~Q(status=BatchExportRun.Status.COMPLETED)),
+                successes=Sum(
+                    Coalesce("records_total_count", 0), filter=Q(status=BatchExportRun.Status.COMPLETED), default=0
+                ),
+                failures=Sum(
+                    Coalesce("records_total_count", 0), filter=~Q(status=BatchExportRun.Status.COMPLETED), default=0
+                ),
             )
             .order_by("dates")
             .all()

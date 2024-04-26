@@ -83,7 +83,6 @@ export function getMinimumDetectableEffect(
         return 100
     } else if (baselineCount <= 1000) {
         return 20
-    } else {
-        return 5
     }
+    return 5
 }

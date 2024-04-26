@@ -161,6 +161,13 @@ class AutoProjectMiddleware:
             user = cast(User, request.user)
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+
+                def do_redirect():
+                    new_path = "/".join(path_parts)
+                    search_params = request.GET.urlencode()
+
+                    return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
+
                 try:
                     new_team = Team.objects.get(api_token=path_parts[1])
 
@@ -168,12 +175,12 @@ class AutoProjectMiddleware:
                         raise Team.DoesNotExist
 
                     path_parts[1] = str(new_team.pk)
-                    return redirect("/" + "/".join(path_parts))
+                    return do_redirect()
 
                 except Team.DoesNotExist:
                     if user.team:
                         path_parts[1] = str(user.team.pk)
-                        return redirect("/" + "/".join(path_parts))
+                        return do_redirect()
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])

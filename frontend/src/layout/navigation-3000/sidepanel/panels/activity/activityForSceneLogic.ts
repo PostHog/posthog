@@ -50,9 +50,8 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
                             state,
                             activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
-                    } else {
-                        return activityFiltersForScene(sceneConfig)
                     }
+                    return activityFiltersForScene(sceneConfig)
                 },
             ],
             (filters): ActivityFilters | null => filters,

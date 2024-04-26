@@ -158,9 +158,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         )
                     }
                     return insightData.result
-                } else {
-                    return []
                 }
+                return []
             },
         ],
         steps: [
@@ -176,9 +175,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)
-                } else {
-                    return []
                 }
+                return []
             },
         ],
         stepsWithConversionMetrics: [
@@ -270,9 +268,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return (histogramGraphData?.length ?? 0) > 0
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.Trends) {
                     return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
-                } else {
-                    return false
                 }
+                return false
             },
         ],
         numericBinCount: [
@@ -352,9 +349,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
                 if (startIndex !== undefined && startIndex !== -1) {
                     return startIndex - steps[0].days.length
-                } else {
-                    return 0
                 }
+                return 0
             },
         ],
 
