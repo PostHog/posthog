@@ -644,19 +644,19 @@ class AutoLogoutImpersonateMiddleware:
         session_is_expired = time.time() - init_time > settings.IMPERSONATION_TIMEOUT_SECONDS
 
         if session_is_expired:
-            # This works but has an issue in that api requests will all stop working...
+            # TRICKY: We need to handle different cases here:
+            # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
+            # 2. For any other endpoint we want to redirect to the logout page
+            # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
 
             if request.path.startswith("/api/"):
-                # If we respond with a 401, the frontend will check and redirect to logout
                 return HttpResponse(
                     "Impersonation session has expired. Please log in again.",
                     status=401,
                 )
             elif not request.path.startswith("/logout"):
-                # Any other endpoint will redirect to the logout page (this could be doc level calls or other things like static assets)
                 return redirect("/logout/")
             else:
-                # And finally we restore the login and redirect to the admin page
                 restore_original_login(request)
                 return redirect("/admin/")
 
