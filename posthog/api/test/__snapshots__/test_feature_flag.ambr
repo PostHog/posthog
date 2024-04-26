@@ -1500,6 +1500,27 @@
   LIMIT 21
   '''
 # ---
+# name: TestFeatureFlag.test_cant_create_flag_with_data_that_fails_to_query
+  '''
+  SELECT (("posthog_person"."properties" ->> 'email')::text ~ '2.3.9{0-9}{1}'
+          AND "posthog_person"."properties" ? 'email'
+          AND NOT (("posthog_person"."properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  WHERE "posthog_person"."team_id" = 2
+  LIMIT 10
+  '''
+# ---
+# name: TestFeatureFlag.test_cant_create_flag_with_group_data_that_fails_to_query
+  '''
+  SELECT (("posthog_group"."group_properties" ->> 'email')::text ~ '2.3.9{0-9}{1 ef}'
+          AND "posthog_group"."group_properties" ? 'email'
+          AND NOT (("posthog_group"."group_properties" -> 'email') = 'null'::jsonb)) AS "flag_X_condition_0"
+  FROM "posthog_group"
+  WHERE ("posthog_group"."group_type_index" = 2
+         AND "posthog_group"."team_id" = 2)
+  LIMIT 10
+  '''
+# ---
 # name: TestFeatureFlag.test_creating_static_cohort
   '''
   SELECT "posthog_user"."id",

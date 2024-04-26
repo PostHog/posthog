@@ -4051,6 +4051,103 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json(),
         )
 
+    def test_cant_create_flag_with_data_that_fails_to_query(self):
+        Person.objects.create(
+            distinct_ids=["123"],
+            team=self.team,
+            properties={"email": "x y z"},
+        )
+        Person.objects.create(
+            distinct_ids=["456"],
+            team=self.team,
+            properties={"email": "2.3.999"},
+        )
+
+        # Only snapshot flag evaluation queries
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: "posthog_person" in query):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": "Beta feature",
+                    "key": "beta-x",
+                    "filters": {
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "person",
+                                        "value": "2.3.9{0-9}{1}",
+                                        "operator": "regex",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_input",
+                    "detail": "Can't evaluate flag: invalid regular expression: invalid repetition count(s)",
+                    "attr": None,
+                },
+            )
+
+    def test_cant_create_flag_with_group_data_that_fails_to_query(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="xyz", group_type_index=1)
+
+        for i in range(5):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key=f"xyz:{i}",
+                properties={"industry": f"{i}", "email": "2.3.4445"},
+            )
+
+        # Only snapshot flag evaluation queries
+        with snapshot_postgres_queries_context(self, custom_query_matcher=lambda query: "posthog_group" in query):
+            # Test group flag with invalid regex
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "name": "Beta feature",
+                    "key": "beta-x",
+                    "filters": {
+                        "aggregation_group_type_index": 1,
+                        "groups": [
+                            {
+                                "rollout_percentage": 65,
+                                "properties": [
+                                    {
+                                        "key": "email",
+                                        "type": "group",
+                                        "group_type_index": 1,
+                                        "value": "2.3.9{0-9}{1 ef}",
+                                        "operator": "regex",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Can't evaluate flag: invalid regular expression: invalid repetition count(s)",
+                "attr": None,
+            },
+        )
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):

@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
+from collections.abc import Callable
 from collections.abc import Generator
 from unittest.mock import patch
 
@@ -627,6 +628,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -659,7 +661,10 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if capture_all_queries:
+        if custom_query_matcher:
+            if query and custom_query_matcher(query):
+                testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
         elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)

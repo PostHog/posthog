@@ -46,6 +46,7 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -263,6 +264,22 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         return filters
 
+    def check_flag_evaluation(self, data):
+        # this is a very rough simulation of the actual query that will be run.
+        # Only reason we do it this way is to catch any DB level errors that will bork at runtime
+        # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+        # We also randomly query for 20 people sans distinct id to make sure the query is valid.
+
+        # TODO: Once we move to no DB level evaluation, can get rid of this.
+
+        temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
+
+        try:
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id)
+        except Exception as e:
+            raise serializers.ValidationError("Can't evaluate flag: " + str(e))
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -289,6 +306,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             raise exceptions.ValidationError(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
+
+        self.check_flag_evaluation(validated_data)
+
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
