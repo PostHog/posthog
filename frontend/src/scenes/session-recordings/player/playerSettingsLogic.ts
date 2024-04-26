@@ -299,9 +299,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         if (enabled) {
                             if (selectedFilter.alone) {
                                 return false
-                            } else {
-                                return filterInTab.alone ? false : true
                             }
+                            return filterInTab.alone ? false : true
                         }
 
                         if (existingSelected !== key) {
