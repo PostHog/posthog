@@ -930,7 +930,7 @@ def get_session_property_filter_statement(prop: Property, idx: int, prepend: str
         )
 
     else:
-        raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")
+        raise exceptions.ValidationError(f"Session property '{prop.key}' is only valid in HogQL queries.")
 
 
 def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):

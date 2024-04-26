@@ -66,7 +66,6 @@ const geoIpConfigId = pluginConfigs.results.find(
 )!.id
 
 export function PipelineLandingPage(): JSX.Element {
-    // also Destinations page
     useEffect(() => {
         router.actions.push(urls.pipeline())
         pipelineLogic.mount()
@@ -102,6 +101,20 @@ export function PipelineDestinationsPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTab.Destinations))
         pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewTransformation(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation))
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewDestination(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
     }, [])
     return <App />
 }

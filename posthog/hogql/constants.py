@@ -99,3 +99,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
+    format_csv_allow_double_quotes: Optional[bool] = False

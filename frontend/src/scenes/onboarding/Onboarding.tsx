@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
@@ -81,6 +82,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
 
+    const heatmapsEnabled = useFeatureFlag('TOOLBAR_HEATMAPS')
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -101,6 +104,18 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                         type: 'toggle',
                         inverseToggle: true,
                     },
+
+                    heatmapsEnabled
+                        ? {
+                              title: 'Enable heatmaps',
+                              description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
+                               and scrolling to create heatmaps. 
+                               No additional events are created, and you can disable this at any time.`,
+                              teamProperty: 'heatmaps_opt_in',
+                              value: currentTeam?.heatmaps_opt_in ?? true,
+                              type: 'toggle',
+                          }
+                        : undefined,
                 ]}
             />
         </OnboardingWrapper>

@@ -1699,7 +1699,7 @@ class WebAnalyticsQueryBase(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     modifiers: Optional[HogQLQueryModifiers] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter]]
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
 
@@ -1712,7 +1712,7 @@ class WebOverviewQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter]]
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebOverviewQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
@@ -1730,7 +1730,7 @@ class WebStatsTableQuery(BaseModel):
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter]]
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
@@ -1743,7 +1743,7 @@ class WebTopClicksQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     kind: Literal["WebTopClicksQuery"] = "WebTopClicksQuery"
     modifiers: Optional[HogQLQueryModifiers] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter]]
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebTopClicksQueryResponse] = None
     sampling: Optional[Sampling] = None
     useSessionsTable: Optional[bool] = None
