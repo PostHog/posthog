@@ -14,7 +14,6 @@ import type { addToDashboardModalLogicType } from './addToDashboardModalLogicTyp
 
 export interface AddToDashboardModalLogicProps {
     insight: Partial<InsightModel>
-    fromDashboard?: number
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
@@ -33,7 +32,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
     connect((props: AddToDashboardModalLogicProps) => {
         const builtInsightLogic = insightLogic({
             dashboardItemId: props.insight.short_id,
-            dashboardId: props.fromDashboard,
             cachedInsight: props.insight,
         })
         return {

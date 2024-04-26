@@ -42,7 +42,6 @@ const DashboardRelationRow = ({
 }: DashboardRelationRowProps): JSX.Element => {
     const logic = addToDashboardModalLogic({
         insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
     })
     const { addToDashboard, removeFromDashboard } = useActions(logic)
     const { dashboardWithActiveAPICall } = useValues(logic)
@@ -104,7 +103,6 @@ export function AddToDashboardModal({
 }: SaveToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic({
         insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
     })
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
