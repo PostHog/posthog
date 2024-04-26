@@ -51,7 +51,7 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= now() - INTERVAL %(days) DAY
+            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
             AND min_first_timestamp <= now()
             """,
             {
