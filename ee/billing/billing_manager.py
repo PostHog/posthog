@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -44,7 +45,11 @@ def build_billing_token(license: License, organization: Organization):
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
-        raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.json())
+        try:
+            response = res.json()
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+        except json.decoder.JSONDecodeError:
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
 
 
 class BillingManager:
