@@ -272,8 +272,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         try:
             check_flag_evaluation_query_is_ok(temporary_flag, team_id)
-        except Exception as e:
-            raise serializers.ValidationError("Can't evaluate flag: " + str(e))
+        except Exception:
+            raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]

@@ -4093,7 +4093,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {
                     "type": "validation_error",
                     "code": "invalid_input",
-                    "detail": "Can't evaluate flag: invalid regular expression: invalid repetition count(s)",
+                    "detail": "Can't evaluate flag - please check release conditions",
                     "attr": None,
                 },
             )
@@ -4143,7 +4143,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Can't evaluate flag: invalid regular expression: invalid repetition count(s)",
+                "detail": "Can't evaluate flag - please check release conditions",
                 "attr": None,
             },
         )
