@@ -28,9 +28,18 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
         return <Spinner />
     }
 
-    // NOTE: This should pretty much never happen, but it's here just in case
+    // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
-        return <>Not found</>
+        return (
+            <div className="p-2 max-w-160">
+                <h4>Person profile not found</h4>
+                <p>
+                    The Person may have been deleted.
+                    <br />
+                    Alternatively, the events for this user may have had Person Profiles disabled.
+                </p>
+            </div>
+        )
     }
 
     const display = asDisplay(person)
