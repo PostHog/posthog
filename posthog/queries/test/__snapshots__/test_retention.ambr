@@ -43,9 +43,10 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -129,9 +130,10 @@
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-01-10 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-12-10 00:00:00', 'UTC')
-          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
-                                                      intervals_from_base,
-                                                      actor_id
+          AND notEmpty(e.person_id) ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -201,9 +203,10 @@
         WHERE team_id = 2
           AND ((event = 'sign up'))
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -288,9 +291,10 @@
           AND ((event = '$pageview'
                 AND (has(['person1@test.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))))
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-17 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -360,9 +364,10 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -432,9 +437,10 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-10 00:00:00', 'US/Pacific')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ) SELECT DISTINCT breakdown_values,
-                                                                                                           intervals_from_base,
-                                                                                                           actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-06-21 00:00:00', 'US/Pacific') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -504,9 +510,10 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -576,9 +583,10 @@
         WHERE team_id = 2
           AND e.event = '$pageview'
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-08 00:00:00', 'UTC')
-          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) SELECT DISTINCT breakdown_values,
-                                                                                                    intervals_from_base,
-                                                                                                    actor_id
+          AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC') ) -- Wrap such that CTE is shared across both sides of the union
+   SELECT DISTINCT breakdown_values,
+                   intervals_from_base,
+                   actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,

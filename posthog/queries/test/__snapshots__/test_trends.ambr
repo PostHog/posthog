@@ -31,56 +31,75 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.3
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event IN ['sign up']
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event IN ['sign up'] 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['x'], replaceRegexpAll(JSONExtractRaw(properties, '$bool_prop'), '^"|"$', ''))) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$bool_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
           AND ((event = 'sign up'
-                AND (pdi.person_id IN
+                AND (pdi.person_id IN 
                        (SELECT DISTINCT person_id
-                        FROM cohortpeople
+                        FROM cohortpeople 
                         WHERE team_id = 2
                           AND cohort_id = 2
-                          AND version = 2 ))))
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                          AND version = 2 )))) 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
@@ -119,37 +138,56 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT OUTER JOIN
-          (SELECT argMax(override_person_id, version) as person_id,
-                  old_person_id
-           FROM person_overrides
-           WHERE team_id = 2
-           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-        WHERE team_id = 2
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        LEFT OUTER JOIN 
+          (SELECT argMax(override_person_id, version) as person_id, 
+                  old_person_id 
+           FROM person_overrides 
+           WHERE team_id = 2 
+           GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id 
+        WHERE team_id = 2 
           AND ((event = 'sign up'
-                AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN 
                        (SELECT DISTINCT person_id
-                        FROM cohortpeople
+                        FROM cohortpeople 
                         WHERE team_id = 2
                           AND cohort_id = 2
-                          AND version = 2 ))))
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+                          AND version = 2 )))) 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') 
           AND (has(['x'], replaceRegexpAll(JSONExtractRaw(e.person_properties, '$bool_prop'), '^"|"$', '')))
           AND notEmpty(e.person_id)
         GROUP BY date)
@@ -183,7 +221,6 @@
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -194,13 +231,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -261,7 +321,7 @@
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
-           actor_id DESC
+           actor_id DESC /* Also sorting by ID for determinism */
   LIMIT 100
   OFFSET 0
   '''
@@ -293,7 +353,6 @@
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -304,13 +363,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -367,7 +449,6 @@
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -378,13 +459,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(15)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -577,7 +681,6 @@
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -588,13 +691,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -696,7 +822,6 @@
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -707,13 +832,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -794,7 +942,6 @@
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -805,13 +952,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(12)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -871,7 +1041,6 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -882,13 +1051,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -939,7 +1131,6 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -950,13 +1141,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1011,50 +1225,69 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event = 'event_name'
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
-          AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event = 'event_name' 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
+          AND event = 'event_name' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
@@ -1083,25 +1316,44 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'event_name'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-02 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), toDateTime('2020-01-02 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        WHERE team_id = 2 
+          AND event = 'event_name' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-26 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') 
           AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '')))
           AND notEmpty(e.person_id)
         GROUP BY date)
@@ -1111,39 +1363,58 @@
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT JOIN
-          (SELECT group_key,
-                  argMax(group_properties, _timestamp) AS group_properties_0
-           FROM groups
-           WHERE team_id = 2
-             AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        LEFT JOIN
-          (SELECT group_key,
-                  argMax(group_properties, _timestamp) AS group_properties_2
-           FROM groups
-           WHERE team_id = 2
-             AND group_type_index = 2
-           GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        LEFT JOIN 
+          (SELECT group_key, 
+                  argMax(group_properties, _timestamp) AS group_properties_0 
+           FROM groups 
+           WHERE team_id = 2 
+             AND group_type_index = 0 
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key 
+        LEFT JOIN 
+          (SELECT group_key, 
+                  argMax(group_properties, _timestamp) AS group_properties_2 
+           FROM groups 
+           WHERE team_id = 2 
+             AND group_type_index = 2 
+           GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key 
+        WHERE team_id = 2 
+          AND event = 'sign up' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') 
           AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
           AND notEmpty(e.person_id)
@@ -1186,39 +1457,58 @@
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
-           actor_id DESC
+           actor_id DESC /* Also sorting by ID for determinism */
   LIMIT 100
   OFFSET 0
   '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        LEFT JOIN
-          (SELECT group_key,
-                  argMax(group_properties, _timestamp) AS group_properties_0
-           FROM groups
-           WHERE team_id = 2
-             AND group_type_index = 0
-           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-        WHERE team_id = 2
-          AND event = '$pageview'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        LEFT JOIN 
+          (SELECT group_key, 
+                  argMax(group_properties, _timestamp) AS group_properties_0 
+           FROM groups 
+           WHERE team_id = 2 
+             AND group_type_index = 0 
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key 
+        WHERE team_id = 2 
+          AND event = '$pageview' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') 
           AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
           AND notEmpty(e.person_id)
@@ -1265,7 +1555,6 @@
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1276,13 +1565,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1377,7 +1689,6 @@
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1388,13 +1699,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1454,24 +1788,43 @@
 # ---
 # name: TestTrends.test_non_deterministic_timezones
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2022-11-30 23:59:59', 'US/Pacific'), 0) - toIntervalWeek(number) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), toDateTime('2022-11-30 23:59:59', 'US/Pacific')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0)
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'), 0) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), 'US/Pacific')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfWeek(toDateTime('2022-11-30 23:59:59', 'US/Pacific'), 0) - toIntervalWeek(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), toDateTime('2022-11-30 23:59:59', 'US/Pacific'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'), 0) AS date 
+        FROM events e 
+        WHERE team_id = 2 
+          AND event = 'sign up' 
+          AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), 'US/Pacific') 
           AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2022-11-30 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
@@ -1515,7 +1868,6 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1526,13 +1878,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1614,7 +1989,6 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
          breakdown_value
@@ -1625,13 +1999,36 @@
      FROM
        (SELECT *
         FROM
-          (SELECT toUInt16(0) AS total,
-                  ticks.day_start as day_start,
-                  breakdown_value
+          (-- Create a table with 1 row for each interval for the requested date range
+   -- This acts as a method of zero filling, i.e. when there are no data points
+   -- for a given interval, we'll still have a row for the group by interval with
+   -- a 0 value.
+   --
+   -- It's essentially a cross product of graph "ticks" and breakdown values.
+   --
+   -- TODO: we're relying on num_intervals, seconds_int_interval etc. being passed
+   --       in as a parameter. To reduce the coupling between here and the
+   --       calling code, we could perform calculations for these within the query
+   --       itself based on date_to/date_from. We could also pass in the intervals
+   --       explicitly, although we'll be relying on the date handling between python
+   --       and ClickHouse to be the same.
+   --
+   -- NOTE: there is the ORDER BY ... WITH FILL Expression but I'm not sure how we'd
+   --       handle the edge cases:
+   --
+   --          https://clickhouse.com/docs/en/sql-reference/statements/select/order-by/#orderby-with-fill
+   --
+   SELECT toUInt16(0) AS total,
+          ticks.day_start as day_start,
+          breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
+             (-- Generates all the intervals/ticks in the date range
+   -- NOTE: we build this range by including successive intervals back from the
+   --       upper bound, then including the lower bound in the query also.
+   SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) as day_start
               FROM numbers(8)
-              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks -- Zero fill for all values for the specified breakdown
+  
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -1679,50 +2076,69 @@
 # ---
 # name: TestTrends.test_person_property_filtering
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event = 'watched movie'
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event = 'watched movie' 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
@@ -1731,50 +2147,69 @@
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event = 'watched movie'
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event = 'watched movie' 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
@@ -1783,25 +2218,44 @@
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') 
           AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
         GROUP BY date)
      GROUP BY day_start
@@ -1810,50 +2264,69 @@
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event = 'watched movie'
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['person1'], "pmat_name")) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event = 'watched movie' 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['person1'], "pmat_name")) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
@@ -1862,25 +2335,44 @@
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') 
           AND (has(['1'], "mat_name"))
         GROUP BY date)
      GROUP BY day_start
@@ -1889,50 +2381,69 @@
 # ---
 # name: TestTrends.test_person_property_filtering_materialized
   '''
-  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
     (SELECT SUM(total) AS count,
             day_start
      FROM
-       (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
-        UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-        UNION ALL SELECT count(*) AS total,
-                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-             AND distinct_id IN
-               (SELECT distinct_id
-                FROM events
-                WHERE team_id = 2
-                  AND event = 'watched movie'
-                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC'))
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND (has(['person1'], "pmat_name")) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-        WHERE team_id = 2
-          AND event = 'watched movie'
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       (-- Creates zero values for all date axis ticks for the given date_from, date_to range
+  SELECT toUInt16(0) AS total,
+         toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC')) - toIntervalDay(number) AS day_start -- Get the number of `intervals` between date_from and date_to.
+  --
+  -- NOTE: for week there is some unusual behavior, see:
+  --       https://github.com/ClickHouse/ClickHouse/issues/7322
+  --
+  --       This actually aligns with what we want, as they are assuming Sunday week starts,
+  --       and we'd rather have the relative week num difference. Likewise the same for
+  --       "month" intervals
+  --
+  --       To ensure we get all relevant intervals, we add in the truncated "date_from"
+  --       value.
+  --
+  --       This behaviour of dateDiff is different to our handling of "week" and "month"
+  --       differences we are performing in python, which just considers seconds between
+  --       date_from and date_to
+  --
+  -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
+  --       `ticks` query elsewhere.
+   
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC'))) 
+        UNION ALL -- Make sure we capture the interval date_from falls into.
+  SELECT toUInt16(0) AS total, 
+         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) 
+        UNION ALL SELECT count(*) AS total, 
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date 
+        FROM events e 
+        INNER JOIN 
+          (SELECT distinct_id, 
+                  argMax(person_id, version) as person_id 
+           FROM person_distinct_id2 
+           WHERE team_id = 2 
+             AND distinct_id IN 
+               (SELECT distinct_id 
+                FROM events 
+                WHERE team_id = 2 
+                  AND event = 'watched movie' 
+                  AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
+                  AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) 
+           GROUP BY distinct_id 
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id 
+        INNER JOIN 
+          (SELECT id 
+           FROM person 
+           WHERE team_id = 2 
+             AND id IN 
+               (SELECT id 
+                FROM person 
+                WHERE team_id = 2 
+                  AND (has(['person1'], "pmat_name")) ) 
+           GROUP BY id 
+           HAVING max(is_deleted) = 0 
+           AND (has(['person1'], argMax(person."pmat_name", version))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id 
+        WHERE team_id = 2 
+          AND event = 'watched movie' 
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC') 
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
