@@ -281,7 +281,7 @@
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
-           actor_id DESC /* Also sorting by ID for determinism */
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '''
@@ -1243,7 +1243,7 @@
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
-           actor_id DESC /* Also sorting by ID for determinism */
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '''
