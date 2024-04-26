@@ -55,7 +55,7 @@ async function runSingleTeamPluginOnEvent(
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     // Runs onEvent for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event, 'onEvent')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
 
     await Promise.all(
         pluginMethodsToRun
@@ -197,7 +197,23 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event, 'composeWebhook')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'composeWebhook')
+
+    // TODO: Filter shit out
+    // // Filter based on actionmatching the event against the plugin's configured actions
+    // pluginConfigs = (
+    //     await Promise.all(
+    //         pluginConfigs.map(async (pluginConfig) => {
+    //             // TODO: Add matchActions option
+    //             if (pluginConfig.matchActions.length === 0) {
+    //                 const matchedActions = await hub.actionMatcher.match(event)
+    //                 return pluginConfig.matchActions.some((actionId) => matchedActions.find((x) => x.id === actionId))
+    //             }
+
+    //             return pluginConfig
+    //         })
+    //     )
+    // ).filter(Boolean) as PluginConfig[]
 
     await Promise.all(
         pluginMethodsToRun
@@ -210,7 +226,7 @@ export async function runComposeWebhook(hub: Hub, event: PostHogEvent): Promise<
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event, 'processEvent')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'processEvent')
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
@@ -353,28 +369,13 @@ export async function runPluginTask(
 
 async function getPluginMethodsForTeam<M extends keyof VMMethods>(
     hub: Hub,
-    event: ProcessedPluginEvent,
+    teamId: number,
     method: M
 ): Promise<[PluginConfig, VMMethods[M]][]> {
-    let pluginConfigs = hub.pluginConfigsPerTeam.get(event.team_id) || []
+    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
     if (pluginConfigs.length === 0) {
         return []
     }
-
-    // Filter based on actionmatching the event against the plugin's configured actions
-    pluginConfigs = (
-        await Promise.all(
-            pluginConfigs.map(async (pluginConfig) => {
-                // TODO: Add matchActions option
-                if (pluginConfig.matchActions.length === 0) {
-                    const matchedActions = await hub.actionMatcher.match(event)
-                    return pluginConfig.matchActions.some((actionId) => matchedActions.find((x) => x.id === actionId))
-                }
-
-                return pluginConfig
-            })
-        )
-    ).filter(Boolean) as PluginConfig[]
 
     const methodsObtained = await Promise.all(
         pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
