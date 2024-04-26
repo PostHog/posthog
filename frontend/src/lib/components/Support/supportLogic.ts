@@ -8,7 +8,6 @@ import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -167,10 +166,10 @@ export const TARGET_AREA_TO_NAME = [
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Product outage / data loss / data breach',
-    high: 'Specific feature not working at all',
-    medium: 'Feature functioning but not as expected',
-    low: 'General question or feature request',
+    critical: 'Outage, data loss, or data breach',
+    high: 'Feature is not working at all',
+    medium: 'Feature not working as expected',
+    low: 'Question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -336,11 +335,6 @@ export const supportLogic = kea<supportLogicType>([
 
             if (panelOptions !== ':') {
                 actions.setSidePanelOptions(panelOptions)
-            }
-        },
-        openEmailForm: async () => {
-            if (window.location.href.includes(urls.organizationBilling())) {
-                actions.setSendSupportRequestValue('target_area', 'billing')
             }
         },
         openSupportForm: async ({ name, email, kind, target_area, severity_level, message }) => {
