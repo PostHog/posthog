@@ -15,6 +15,7 @@ def lifetime_wrapper(func):
         if scope["type"] != "http":
             return HttpResponse(status=501)
         return await func(scope, receive, send)
+
     return inner
 
 
