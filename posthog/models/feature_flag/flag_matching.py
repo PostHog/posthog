@@ -1067,9 +1067,16 @@ def check_pure_is_not_operator_condition(condition: dict) -> bool:
 
 def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -> bool:
     # TRICKY: There are some cases where the regex is valid re2 syntax, but postgresql doesn't like it.
-    # This function tries to validate such cases.
+    # This function tries to validate such cases. See `test_cant_create_flag_with_data_that_fails_to_query` for an example.
     # It however doesn't catch all cases, like when the property doesn't exist on any person, which shortcircuits regex evaluation
     # so it's not a guarantee that the query will work.
+
+    # This is a very rough simulation of the actual query that will be run.
+    # Only reason we do it this way is to catch any DB level errors that will bork at runtime
+    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # We also randomly query for 20 people sans distinct id to make sure the query is valid.
+
+    # TODO: Once we move to no DB level evaluation, can get rid of this.
 
     group_type_index = feature_flag.aggregation_group_type_index
 
