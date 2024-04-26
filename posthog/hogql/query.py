@@ -38,7 +38,6 @@ def execute_hogql_query(
     modifiers: Optional[HogQLQueryModifiers] = None,
     limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
-    explain: Optional[bool] = False,
     pretty: Optional[bool] = True,
     context: Optional[HogQLContext] = None,
 ) -> HogQLQueryResponse:
@@ -49,8 +48,9 @@ def execute_hogql_query(
         context = HogQLContext(team_id=team.pk)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
+    debug = modifiers is not None and modifiers.debug
     error: Optional[str] = None
-    explain_output: Optional[list[str]] = None
+    explain: Optional[list[str]] = None
     results = None
     types = None
     metadata: Optional[HogQLMetadataResponse] = None
@@ -156,7 +156,7 @@ def execute_hogql_query(
                 pretty=pretty if pretty is not None else True,
             )
         except Exception as e:
-            if explain:
+            if debug:
                 clickhouse_sql = None
                 if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     error = str(e)
@@ -187,7 +187,7 @@ def execute_hogql_query(
                     readonly=True,
                 )
             except Exception as e:
-                if explain:
+                if debug:
                     if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                         error = str(e)
                     else:
@@ -195,7 +195,7 @@ def execute_hogql_query(
                 else:
                     raise e
 
-        if explain and error is None:  # If the query errored, explain will fail as well.
+        if debug and error is None:  # If the query errored, explain will fail as well.
             with timings.measure("explain"):
                 explain_results = sync_execute(
                     f"EXPLAIN {clickhouse_sql}",
@@ -205,7 +205,7 @@ def execute_hogql_query(
                     team_id=team.pk,
                     readonly=True,
                 )
-                explain_output = [str(r[0]) for r in explain_results[0]]
+                explain = [str(r[0]) for r in explain_results[0]]
             with timings.measure("metadata"):
                 from posthog.hogql.metadata import get_hogql_metadata
 
@@ -221,6 +221,6 @@ def execute_hogql_query(
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
-        explain=explain_output,
+        explain=explain,
         metadata=metadata,
     )

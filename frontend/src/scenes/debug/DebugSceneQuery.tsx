@@ -6,6 +6,7 @@ import { QueryTabs } from 'scenes/debug/QueryTabs'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { DataNode, HogQLQuery, Node } from '~/queries/schema'
+import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
 
 interface DebugSceneQueryProps {
     queryKey: string
@@ -19,11 +20,14 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
     } catch (e) {
         // do nothing
     }
+    const dataNode =
+        parsed && (isInsightVizNode(parsed as Node) || isDataTableNode(parsed as Node)) ? parsed.source : parsed
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: (parsed ?? {}) as DataNode,
+        query: dataNode as DataNode,
         key: queryKey,
         dataNodeCollectionId: queryKey,
+        modifiers: { debug: true },
     }
     const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
 
