@@ -93,8 +93,12 @@ export function SystemStatus(): JSX.Element {
             <PageHeader
                 caption={
                     <>
-                        Here you can find all the critical runtime details and settings of your PostHog instance. You
-                        have access to this because you're a <b>staff user</b>.{' '}
+                        Here you can find all the critical runtime details and settings of your PostHog instance.{' '}
+                        {user?.is_staff && (
+                            <>
+                                You have access to modify these settings, because you're a <b>staff user</b>.{' '}
+                            </>
+                        )}
                         <Link
                             target="_blank"
                             targetBlankIcon
