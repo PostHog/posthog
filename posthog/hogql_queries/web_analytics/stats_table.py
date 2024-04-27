@@ -87,7 +87,7 @@ ORDER BY "context.columns.visitors" DESC,
 
     def calculate(self):
         response = self.paginator.execute_hogql_query(
-            query_type="top_sources_query",
+            query_type="stats_table_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
