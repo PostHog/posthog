@@ -166,6 +166,8 @@ def select_from_sessions_table(
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
     }
+    # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
+    # for now just remove the duplicate definitions from the code
     aggregate_fields["$session_duration"] = ast.Call(
         name="dateDiff",
         args=[
