@@ -217,7 +217,8 @@ def select_from_sessions_table(
         if isinstance(field, tuple):
             field, dependencies = field
             for dependency in dependencies:
-                add_aggregate_field(dependency)
+                if dependency not in select_fields:
+                    add_aggregate_field(dependency)
         select_fields[_name] = ast.Alias(alias=_name, expr=field)
 
     for name, chain in requested_fields.items():
@@ -230,9 +231,9 @@ def select_from_sessions_table(
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
-
+    select = list(select_fields.values())
     return ast.SelectQuery(
-        select=list(select_fields.values()),
+        select=select,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=group_by_fields,
         where=where,

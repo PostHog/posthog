@@ -1,6 +1,10 @@
+from typing import Union
+
 from freezegun import freeze_time
+from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
 from posthog.schema import DateRange, WebStatsTableQuery, WebStatsBreakdown
 from posthog.test.base import (
     APIBaseTest,
@@ -36,7 +40,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return person_result
 
     def _run_web_stats_table_query(
-        self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page, limit=None, path_cleaning_filters=None
+        self,
+        date_from,
+        date_to,
+        breakdown_by=WebStatsBreakdown.Page,
+        limit=None,
+        path_cleaning_filters=None,
+        use_sessions_table=False,
     ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -46,14 +56,23 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             doPathCleaning=bool(path_cleaning_filters),
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        if use_sessions_table:
+            runner: Union[WebStatsTableQueryRunner, LegacyWebStatsTableQueryRunner] = WebStatsTableQueryRunner(
+                team=self.team, query=query
+            )
+        else:
+            runner = LegacyWebStatsTableQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
-    def test_no_crash_when_no_data(self):
-        results = self._run_web_stats_table_query("2023-12-08", "2023-12-15").results
+    @parameterized.expand([(True,), (False,)])
+    def test_no_crash_when_no_data(self, use_sessions_table):
+        results = self._run_web_stats_table_query(
+            "2023-12-08", "2023-12-15", use_sessions_table=use_sessions_table
+        ).results
         self.assertEqual([], results)
 
-    def test_increase_in_users(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_increase_in_users(self, use_sessions_table):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
@@ -71,7 +90,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_all_time(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_all_time(self, use_sessions_table):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
@@ -79,7 +99,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_stats_table_query("all", "2023-12-15").results
+        results = self._run_web_stats_table_query("all", "2023-12-15", use_sessions_table=use_sessions_table).results
 
         self.assertEqual(
             [
@@ -90,18 +110,22 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
-    def test_filter_test_accounts(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_filter_test_accounts(self, use_sessions_table):
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")])])
 
-        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03").results
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", use_sessions_table=use_sessions_table
+        ).results
 
         self.assertEqual(
             [],
             results,
         )
 
-    def test_breakdown_channel_type_doesnt_throw(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_breakdown_channel_type_doesnt_throw(self, use_sessions_table):
         # not really testing the functionality yet, which is tested elsewhere, just that it runs
         self._create_events(
             [
@@ -111,7 +135,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         results = self._run_web_stats_table_query(
-            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.InitialChannelType
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.InitialChannelType,
+            use_sessions_table=use_sessions_table,
         ).results
 
         self.assertEqual(
@@ -119,7 +146,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             len(results),
         )
 
-    def test_limit(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_limit(self, use_sessions_table):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")]),
@@ -127,7 +155,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
+        response_1 = self._run_web_stats_table_query(
+            "all", "2023-12-15", limit=1, use_sessions_table=use_sessions_table
+        )
         self.assertEqual(
             [
                 ["/", 2, 2],
@@ -146,7 +176,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(False, response_2.hasMore)
 
-    def test_path_filters(self):
+    @parameterized.expand([(True,), (False,)])
+    def test_path_filters(self, use_sessions_table):
         self._create_events(
             [
                 ("p1", [("2023-12-02", "s1", "/cleaned/123/path/456")]),
@@ -166,6 +197,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"regex": "thing_a", "alias": "thing_b"},
                 {"regex": "thing_b", "alias": "thing_c"},
             ],
+            use_sessions_table=use_sessions_table,
         ).results
 
         self.assertEqual(

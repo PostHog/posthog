@@ -1,17 +1,13 @@
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.schema.channel_type import create_channel_type_expr
 from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.web_analytics.ctes import (
-    COUNTS_CTE,
-    BOUNCE_RATE_CTE,
-    PATHNAME_SCROLL_CTE,
-)
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
     map_columns,
 )
+from posthog.hogql_queries.web_analytics.web_overview import get_property_type
 from posthog.schema import (
     WebStatsTableQuery,
     WebStatsBreakdown,
@@ -30,134 +26,64 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
-    def _bounce_rate_subquery(self):
-        with self.timings.measure("bounce_rate_query"):
-            return parse_select(
-                BOUNCE_RATE_CTE,
-                timings=self.timings,
-                placeholders={
-                    "session_where": self.session_where(),
-                    "session_having": self.session_having(),
-                    "breakdown_by": self.bounce_breakdown(),
-                    "sample_rate": self._sample_ratio,
-                },
-            )
-
-    def _counts_subquery(self):
-        with self.timings.measure("counts_query"):
-            return parse_select(
-                COUNTS_CTE,
-                timings=self.timings,
-                placeholders={
-                    "counts_where": self.events_where(),
-                    "breakdown_by": self.counts_breakdown(),
-                    "sample_rate": self._sample_ratio,
-                },
-            )
-
-    def _scroll_depth_subquery(self):
-        with self.timings.measure("scroll_depth_query"):
-            return parse_select(
-                PATHNAME_SCROLL_CTE,
-                timings=self.timings,
-                placeholders={
-                    "pathname_scroll_where": self.events_where(),
-                    "breakdown_by": self.counts_breakdown(),
-                    "sample_rate": self._sample_ratio,
-                },
-            )
-
     def to_query(self) -> ast.SelectQuery:
-        # special case for channel, as some hogql features to use the general code are still being worked on
-        if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
-            query = self.to_channel_query()
-        elif self.query.includeScrollDepth:
+        with self.timings.measure("date_expr"):
+            date_from = self.query_date_range.date_from_as_hogql()
+            date_to = self.query_date_range.date_to_as_hogql()
+
+        with self.timings.measure("stats_table_query"):
             query = parse_select(
                 """
 SELECT
-    counts.breakdown_value as "context.columns.breakdown_value",
-    counts.total_pageviews as "context.columns.views",
-    counts.unique_visitors as "context.columns.visitors",
-    bounce_rate.bounce_rate as "context.columns.bounce_rate",
-    scroll_depth.average_scroll_percentage as "context.columns.average_scroll_percentage",
-    scroll_depth.scroll_gt80_percentage as "context.columns.scroll_gt80_percentage"
-FROM
-    {counts_query} AS counts
-LEFT OUTER JOIN
-    {bounce_rate_query} AS bounce_rate
-ON
-    counts.breakdown_value = bounce_rate.breakdown_value
-LEFT OUTER JOIN
-    {scroll_depth_query} AS scroll_depth
-ON
-    counts.breakdown_value = scroll_depth.pathname
-WHERE
-    {where_breakdown}
-ORDER BY
-    "context.columns.views" DESC,
-    "context.columns.breakdown_value" DESC
-                """,
+    "context.columns.breakdown_value",
+    count(person_id) AS "context.columns.visitors",
+    sum(filtered_pageview_count) AS "context.columns.views"
+FROM (
+    SELECT
+        any(person_id) AS person_id,
+        count() AS filtered_pageview_count,
+        {breakdown_value} AS "context.columns.breakdown_value"
+    FROM events
+    JOIN sessions
+    ON events.`$session_id` = sessions.session_id
+    WHERE and(
+        timestamp >= {date_from},
+        timestamp < {date_to},
+        events.event == '$pageview',
+        {event_properties},
+        {session_properties},
+        {where_breakdown}
+    )
+    GROUP BY events.`$session_id`, "context.columns.breakdown_value"
+)
+GROUP BY "context.columns.breakdown_value"
+ORDER BY "context.columns.visitors" DESC,
+"context.columns.breakdown_value" DESC
+""",
                 timings=self.timings,
                 placeholders={
-                    "counts_query": self._counts_subquery(),
-                    "bounce_rate_query": self._bounce_rate_subquery(),
-                    "scroll_depth_query": self._scroll_depth_subquery(),
+                    "breakdown_value": self._counts_breakdown_value(),
                     "where_breakdown": self.where_breakdown(),
-                    "sample_rate": self._sample_ratio,
+                    "session_properties": self._session_properties(),
+                    "event_properties": self._event_properties(),
+                    "date_from": date_from,
+                    "date_to": date_to,
                 },
             )
-        elif self.query.includeBounceRate:
-            with self.timings.measure("stats_table_query"):
-                query = parse_select(
-                    """
-    SELECT
-        counts.breakdown_value as "context.columns.breakdown_value",
-        counts.total_pageviews as "context.columns.views",
-        counts.unique_visitors as "context.columns.visitors",
-        bounce_rate.bounce_rate as "context.columns.bounce_rate"
-    FROM
-        {counts_query} AS counts
-    LEFT OUTER JOIN
-        {bounce_rate_query} AS bounce_rate
-    ON
-        counts.breakdown_value = bounce_rate.breakdown_value
-    WHERE
-        {where_breakdown}
-    ORDER BY
-        "context.columns.views" DESC,
-        "context.columns.breakdown_value" DESC
-                    """,
-                    timings=self.timings,
-                    placeholders={
-                        "counts_query": self._counts_subquery(),
-                        "bounce_rate_query": self._bounce_rate_subquery(),
-                        "where_breakdown": self.where_breakdown(),
-                    },
-                )
-        else:
-            with self.timings.measure("stats_table_query"):
-                query = parse_select(
-                    """
-    SELECT
-        counts.breakdown_value as "context.columns.breakdown_value",
-        counts.total_pageviews as "context.columns.views",
-        counts.unique_visitors as "context.columns.visitors"
-    FROM
-        {counts_query} AS counts
-    WHERE
-        {where_breakdown}
-    ORDER BY
-        "context.columns.views" DESC,
-        "context.columns.breakdown_value" DESC
-                    """,
-                    timings=self.timings,
-                    placeholders={
-                        "counts_query": self._counts_subquery(),
-                        "where_breakdown": self.where_breakdown(),
-                    },
-                )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _event_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
+
+    def _session_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
+        ]
+        return property_to_expr(properties, team=self.team, scope="session")
 
     def calculate(self):
         response = self.paginator.execute_hogql_query(
@@ -189,26 +115,28 @@ ORDER BY
             **self.paginator.response_params(),
         )
 
-    def counts_breakdown(self):
+    def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return self._apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]))
-            case WebStatsBreakdown.InitialChannelType:
-                raise NotImplementedError("Breakdown InitialChannelType not implemented")
+                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case WebStatsBreakdown.InitialPage:
-                return self._apply_path_cleaning(ast.Field(chain=["person", "properties", "$initial_pathname"]))
+                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$entry_url"]))
+            case WebStatsBreakdown.ExitPage:
+                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_url"]))
             case WebStatsBreakdown.InitialReferringDomain:
-                return ast.Field(chain=["person", "properties", "$initial_referring_domain"])
+                return ast.Field(chain=["sessions", "$initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return ast.Field(chain=["person", "properties", "$initial_utm_source"])
+                return ast.Field(chain=["sessions", "$initial_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return ast.Field(chain=["person", "properties", "$initial_utm_campaign"])
+                return ast.Field(chain=["sessions", "$initial_utm_campaign"])
             case WebStatsBreakdown.InitialUTMMedium:
-                return ast.Field(chain=["person", "properties", "$initial_utm_medium"])
+                return ast.Field(chain=["sessions", "$initial_utm_medium"])
             case WebStatsBreakdown.InitialUTMTerm:
-                return ast.Field(chain=["person", "properties", "$initial_utm_term"])
+                return ast.Field(chain=["sessions", "$initial_utm_term"])
             case WebStatsBreakdown.InitialUTMContent:
-                return ast.Field(chain=["person", "properties", "$initial_utm_content"])
+                return ast.Field(chain=["sessions", "$initial_utm_content"])
+            case WebStatsBreakdown.InitialChannelType:
+                return ast.Field(chain=["sessions", "$channel_type"])
             case WebStatsBreakdown.Browser:
                 return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
@@ -225,22 +153,6 @@ ORDER BY
                 return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
-
-    def bounce_breakdown(self):
-        match self.query.breakdownBy:
-            case WebStatsBreakdown.Page:
-                # use initial pathname for bounce rate
-                return self._apply_path_cleaning(
-                    ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
-                )
-            case WebStatsBreakdown.InitialChannelType:
-                raise NotImplementedError("Breakdown InitialChannelType not implemented")
-            case WebStatsBreakdown.InitialPage:
-                return self._apply_path_cleaning(
-                    ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
-                )
-            case _:
-                return ast.Call(name="any", args=[self.counts_breakdown()])
 
     def where_breakdown(self):
         match self.query.breakdownBy:
@@ -262,66 +174,6 @@ ORDER BY
                 return parse_expr("TRUE")  # actually show null values
             case _:
                 return parse_expr('"context.columns.breakdown_value" IS NOT NULL')
-
-    def to_channel_query(self):
-        with self.timings.measure("channel_query"):
-            top_sources_query = parse_select(
-                """
-SELECT
-    counts.breakdown_value as "context.columns.breakdown_value",
-    counts.total_pageviews as "context.columns.views",
-    counts.unique_visitors as "context.columns.visitors"
-FROM
-    (SELECT
-
-
-        {channel_type} AS breakdown_value,
-        count() as total_pageviews,
-        uniq(pid) as unique_visitors
-    FROM
-        (SELECT
-            toString(person.properties.$initial_utm_campaign) AS initial_utm_campaign,
-            toString(person.properties.$initial_utm_medium) AS initial_utm_medium,
-            toString(person.properties.$initial_utm_source) AS initial_utm_source,
-            toString(person.properties.$initial_referring_domain) AS initial_referring_domain,
-            toString(person.properties.$initial_gclid) AS initial_gclid,
-            toString(person.properties.$initial_gad_source) AS initial_gad_source,
-            person_id AS pid
-        FROM events
-        SAMPLE {sample_rate}
-        WHERE
-            (event = '$pageview')
-            AND ({counts_where})
-        )
-
-        GROUP BY breakdown_value
-    ) AS counts
-WHERE
-    {where_breakdown}
-ORDER BY
-    "context.columns.views" DESC,
-    "context.columns.breakdown_value" DESC
-                """,
-                timings=self.timings,
-                backend="cpp",
-                placeholders={
-                    "counts_where": self.events_where(),
-                    "where_breakdown": self.where_breakdown(),
-                    "sample_rate": self._sample_ratio,
-                    "channel_type": create_channel_type_expr(
-                        campaign=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_campaign"])]),
-                        medium=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_medium"])]),
-                        source=ast.Call(name="toString", args=[ast.Field(chain=["initial_utm_source"])]),
-                        referring_domain=ast.Call(
-                            name="toString", args=[ast.Field(chain=["initial_referring_domain"])]
-                        ),
-                        gclid=ast.Call(name="toString", args=[ast.Field(chain=["initial_gclid"])]),
-                        gad_source=ast.Call(name="toString", args=[ast.Field(chain=["initial_gad_source"])]),
-                    ),
-                },
-            )
-
-        return top_sources_query
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
         if not self.query.doPathCleaning or not self.team.path_cleaning_filters:
