@@ -1,4 +1,4 @@
-from typing import cast, Any, Optional, TYPE_CHECKING, Union
+from typing import cast, Any, Optional, TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -119,7 +119,7 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
-    aggregate_fields: dict[str, Union[ast.Expr, tuple[ast.Expr, set[str]]]] = {
+    aggregate_fields = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
@@ -154,86 +154,76 @@ def select_from_sessions_table(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$session_duration": (
-            ast.Call(
-                name="dateDiff",
-                args=[
-                    ast.Constant(value="second"),
-                    ast.Field(chain=["$start_timestamp"]),
-                    ast.Field(chain=["$end_timestamp"]),
-                ],
-            ),
-            {"$start_timestamp", "$end_timestamp"},
+        "$session_duration": ast.Call(
+            name="dateDiff",
+            args=[
+                ast.Constant(value="second"),
+                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
+                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
+            ],
         ),
-        "$channel_type": (
-            create_channel_type_expr(
-                campaign=ast.Field(chain=[table_name, "$initial_utm_campaign"]),
-                medium=ast.Field(chain=[table_name, "$initial_utm_medium"]),
-                source=ast.Field(chain=[table_name, "$initial_utm_source"]),
-                referring_domain=ast.Field(chain=[table_name, "$initial_referring_domain"]),
-                gclid=ast.Field(chain=[table_name, "$initial_gclid"]),
-                gad_source=ast.Field(chain=[table_name, "$initial_gad_source"]),
+        "$channel_type": create_channel_type_expr(
+            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
+            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
+            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
+            referring_domain=ast.Call(
+                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
             ),
-            {
-                "$initial_utm_campaign",
-                "$initial_utm_medium",
-                "$initial_utm_source",
-                "$initial_referring_domain",
-                "$initial_gclid",
-                "$initial_gad_source",
-            },
+            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
+            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
         ),
-        "$is_bounce": (
-            ast.Call(
-                name="and",
-                args=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt,
-                        left=ast.Field(chain=["$session_duration"]),
-                        right=ast.Constant(value=30),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["$pageview_count"]),
-                        right=ast.Constant(value=1),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["$autocapture_count"]),
-                        right=ast.Constant(value=0),
-                    ),
-                ],
-            ),
-            {"$session_duration", "$pageview_count", "$autocapture_count"},
+        "$is_bounce": ast.Call(
+            name="and",
+            args=[
+                ast.Call(
+                    name="equals",
+                    args=[
+                        ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
+                        ast.Constant(value=1),
+                    ],
+                ),
+                ast.Call(
+                    name="equals",
+                    args=[
+                        ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+                        ast.Constant(value=0),
+                    ],
+                ),
+                ast.Call(
+                    name="less",
+                    args=[
+                        ast.Call(
+                            name="dateDiff",
+                            args=[
+                                ast.Constant(value="second"),
+                                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
+                                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
+                            ],
+                        ),
+                        ast.Constant(value=30),
+                    ],
+                ),
+            ],
         ),
     }
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
 
-    select_fields: dict[str, ast.Expr] = {}
+    select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
-
-    def add_aggregate_field(_name: str):
-        field = aggregate_fields[_name]
-        if isinstance(field, tuple):
-            field, dependencies = field
-            for dependency in dependencies:
-                if dependency not in select_fields:
-                    add_aggregate_field(dependency)
-        select_fields[_name] = ast.Alias(alias=_name, expr=field)
 
     for name, chain in requested_fields.items():
         if name in aggregate_fields:
-            add_aggregate_field(name)
+            select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
-            select_fields[name] = ast.Alias(
-                alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain)
+            select_fields.append(
+                ast.Alias(alias=name, expr=ast.Field(chain=cast(list[str | int], [table_name]) + chain))
             )
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractor(context).get_inner_where(node)
-    select = list(select_fields.values())
+
     return ast.SelectQuery(
-        select=select,
+        select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=group_by_fields,
         where=where,
