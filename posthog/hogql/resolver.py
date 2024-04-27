@@ -101,9 +101,15 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        node = cast(ast.SelectUnionQuery, clone_expr(node))
+
+        # All parts of UNION ALL which don't have CTEs can use CTEs from the first statement
         for select_query in node.select_queries[1:]:
             default_ctes = node.select_queries[0].ctes
-            select_query.ctes = select_query.ctes or default_ctes
+            if select_query.ctes or not default_ctes:
+                continue
+
+            select_query.ctes = {key: cast(ast.CTE, clone_expr(expr)) for key, expr in default_ctes.items()}
 
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
