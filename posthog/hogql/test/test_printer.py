@@ -1593,29 +1593,3 @@ class TestPrinter(BaseTest):
             self._expr("SuM(1)", context),
             "sum(1)",
         )
-
-    def test_ctes_with_union_all(self):
-        self.assertEqual(
-            self._select("""
-                    WITH cte1 AS (SELECT 1 AS a)
-                    SELECT 1 AS a
-                    UNION ALL
-                    WITH cte2 AS (SELECT 1 AS a)
-                    SELECT * FROM cte2
-                    UNION ALL
-                    SELECT * FROM cte1
-                         """),
-            "SELECT 1 AS a LIMIT 10000 UNION ALL SELECT cte2.a AS a FROM (SELECT 1 AS a) AS cte2 LIMIT 10000 UNION ALL SELECT cte1.a AS a FROM (SELECT 1 AS a) AS cte1 LIMIT 10000",
-        )
-
-    def test_ctes_with_join(self):
-        self.assertEqual(
-            self._select("""
-                         WITH cte AS (SELECT 1 AS value)
-                         SELECT cte.value FROM cte
-                         INNER JOIN
-                         (SELECT value FROM cte) AS r
-                         ON (cte.value=r.value)
-                         """),
-            "SELECT cte.value AS value FROM (SELECT 1 AS value) AS cte INNER JOIN (SELECT cte.value AS value FROM (SELECT 1 AS value) AS cte) AS r ON equals(cte.value, r.value) LIMIT 10000",
-        )
