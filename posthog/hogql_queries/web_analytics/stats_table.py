@@ -120,9 +120,9 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.Page:
                 return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case WebStatsBreakdown.InitialPage:
-                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$entry_url"]))
+                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$entry_pathname"]))
             case WebStatsBreakdown.ExitPage:
-                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_url"]))
+                return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_pathname"]))
             case WebStatsBreakdown.InitialReferringDomain:
                 return ast.Field(chain=["sessions", "$initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:

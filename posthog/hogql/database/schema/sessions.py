@@ -62,7 +62,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
     "$entry_url": StringDatabaseField(name="$entry_url"),
+    "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_url": StringDatabaseField(name="$exit_url"),
+    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
     "$initial_utm_source": StringDatabaseField(name="$initial_utm_source"),
     "$initial_utm_campaign": StringDatabaseField(name="$initial_utm_campaign"),
     "$initial_utm_medium": StringDatabaseField(name="$initial_utm_medium"),
@@ -133,7 +135,16 @@ def select_from_sessions_table(
             ],
         ),
         "$entry_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
+        "$entry_pathname": ast.Call(
+            name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
+        ),
         "$exit_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+        "$exit_pathname": ast.Call(
+            name="path",
+            args=[
+                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+            ],
+        ),
         "$initial_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
         "$initial_utm_campaign": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]

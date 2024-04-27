@@ -289,13 +289,13 @@ def get_query_runner(
     if kind == "WebStatsTableQuery":
         use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
         if use_session_table:
-            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
-
-            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
-        else:
             from .web_analytics.stats_table import WebStatsTableQueryRunner
 
             return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+
+            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
