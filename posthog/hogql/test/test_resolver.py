@@ -250,14 +250,14 @@ class TestResolver(BaseTest):
                     SELECT * FROM cte2
                     UNION ALL
                     SELECT * FROM cte1
-                         """),
+                        """),
             self._print_hogql("""
                     SELECT 1 AS a
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte2
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
-                              """),
+                        """),
         )
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
