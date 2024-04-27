@@ -101,6 +101,10 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        for select_query in node.select_queries[1:]:
+            default_ctes = node.select_queries[0].ctes
+            select_query.ctes = select_query.ctes or default_ctes
+
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
         return node
