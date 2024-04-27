@@ -27,22 +27,31 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber, isEmail } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
+import {
+    Experiment as ExperimentType,
+    ExperimentFinishActions,
+    ExperimentFinishActionType,
+    FunnelStep,
+    InsightType,
+    ProgressStatus,
+} from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_INSIGHT_ID, ON_FINISH_EXPERIMENT_ACTIONS } from './constants'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { ExperimentNext } from './ExperimentNext'
@@ -108,6 +117,7 @@ export function Experiment(): JSX.Element {
         setExposureAndSampleSize,
         updateExperimentSecondaryMetrics,
         setExperiment,
+        addOnFinishExperimentAction,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -472,7 +482,24 @@ export function Experiment(): JSX.Element {
                                             <div className="text-muted mt-1">
                                                 Define actions to take once the experiment ends.
                                             </div>
-                                            <LemonButton data-attr="experiment-add-actions" type="secondary">
+                                            {experiment.on_finish_actions?.map((action) => (
+                                                <ExperimentFinishActionTypeRenderer
+                                                    key={action.action}
+                                                    action={action}
+                                                />
+                                            ))}
+                                            <LemonButton
+                                                data-attr="experiment-add-actions"
+                                                type="secondary"
+                                                onClick={() => {
+                                                    addOnFinishExperimentAction()
+                                                }}
+                                                disabled={
+                                                    experiment.on_finish_actions?.length ===
+                                                    ON_FINISH_EXPERIMENT_ACTIONS.length
+                                                }
+                                                // disabledReason="There are no more supported actions at present."
+                                            >
                                                 Add Action
                                             </LemonButton>
                                         </div>
@@ -932,4 +959,47 @@ export function LoadingState(): JSX.Element {
             <LemonSkeleton className="w-2/3 h-4" />
         </div>
     )
+}
+
+function ExperimentFinishEmailActionTypeRenderer({ action }: { action: ExperimentFinishActions }): JSX.Element {
+    const { action: actionType, value } = action
+    const { updateOnFinishExperimentAction, removeOnFinishExperimentAction } = useActions(experimentLogic)
+    const { filteredMembers } = useValues(membersLogic)
+
+    useEffect(() => {
+        membersLogic.actions.loadAllMembers()
+    }, [])
+
+    return (
+        <div>
+            <LemonSelect options={ON_FINISH_EXPERIMENT_ACTIONS} value={actionType} />
+            <LemonField name="experiment-finish-email-to" label="Email">
+                <LemonInputSelect
+                    data-attr="prop-val"
+                    value={value}
+                    mode="multiple"
+                    allowCustomValues
+                    placeholder="Enter email addresses"
+                    onChange={(newValue: string[]) => {
+                        updateOnFinishExperimentAction(actionType, newValue)
+                    }}
+                    validator={isEmail}
+                    options={filteredMembers.map((member) => ({
+                        key: member.user.email,
+                        label: member.user.email,
+                    }))}
+                />
+            </LemonField>
+            <LemonButton icon={<IconTrash />} size="small" onClick={() => removeOnFinishExperimentAction(actionType)} />
+        </div>
+    )
+}
+
+function ExperimentFinishActionTypeRenderer({ action }: { action: ExperimentFinishActions }): JSX.Element {
+    switch (action.action) {
+        case ExperimentFinishActionType.SEND_EMAIL:
+            return <ExperimentFinishEmailActionTypeRenderer action={action} />
+        default:
+            return <div>Unknown action type</div>
+    }
 }
