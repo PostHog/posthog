@@ -94,9 +94,13 @@ export function SystemStatus(): JSX.Element {
                 caption={
                     <>
                         Here you can find all the critical runtime details and settings of your PostHog instance.{' '}
-                        {user?.is_staff && (
+                        {user?.is_staff ? (
                             <>
                                 You have access to modify these settings, because you're a <b>staff user</b>.{' '}
+                            </>
+                        ) : (
+                            <>
+                                You can view these settings, but you need to be a <b>staff user</b> to modify them.{' '}
                             </>
                         )}
                         <Link
