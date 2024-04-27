@@ -165,59 +165,39 @@ def select_from_sessions_table(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$session_duration": ast.Call(
-            name="dateDiff",
-            args=[
-                ast.Constant(value="second"),
-                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
-                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
-            ],
-        ),
-        "$channel_type": create_channel_type_expr(
-            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
-            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-            referring_domain=ast.Call(
-                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
-            ),
-            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
-        ),
-        "$is_bounce": ast.Call(
-            name="and",
-            args=[
-                ast.Call(
-                    name="equals",
-                    args=[
-                        ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
-                        ast.Constant(value=1),
-                    ],
-                ),
-                ast.Call(
-                    name="equals",
-                    args=[
-                        ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-                        ast.Constant(value=0),
-                    ],
-                ),
-                ast.Call(
-                    name="less",
-                    args=[
-                        ast.Call(
-                            name="dateDiff",
-                            args=[
-                                ast.Constant(value="second"),
-                                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
-                                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
-                            ],
-                        ),
-                        ast.Constant(value=30),
-                    ],
-                ),
-            ],
-        ),
     }
+    aggregate_fields["$session_duration"] = ast.Call(
+        name="dateDiff",
+        args=[
+            ast.Constant(value="second"),
+            aggregate_fields["$start_timestamp"],
+            aggregate_fields["$end_timestamp"],
+        ],
+    )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$is_bounce"] = ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+            ast.Constant(value=None),
+            ast.Call(
+                name="and",
+                args=[
+                    ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                    ast.Call(name="equals", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]),
+                    ast.Call(name="less", args=[aggregate_fields["$session_duration"], ast.Constant(value=30)]),
+                ],
+            ),
+        ],
+    )
+    aggregate_fields["$channel_type"] = create_channel_type_expr(
+        campaign=aggregate_fields["$initial_utm_campaign"],
+        medium=aggregate_fields["$initial_utm_medium"],
+        source=aggregate_fields["$initial_utm_source"],
+        referring_domain=aggregate_fields["$initial_referring_domain"],
+        gclid=aggregate_fields["$initial_gclid"],
+        gad_source=aggregate_fields["$initial_gad_source"],
+    )
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
