@@ -240,8 +240,8 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
 
 export function HogQLBoldNumber({ displayValue }: { displayValue: number }): JSX.Element {
     return (
-        <div className="BoldNumber">
-            <div>
+        <div className="BoldNumber LemonTable">
+            <div className="BoldNumber__value">
                 <Textfit min={32} max={120}>
                     {`${displayValue}`}
                 </Textfit>
