@@ -2391,7 +2391,7 @@ export interface InsightLogicProps {
     dashboardId?: DashboardType['id']
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
-    /** enable this to avoid API request    s */
+    /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
