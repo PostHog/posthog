@@ -1,11 +1,11 @@
 import 'chartjs-adapter-dayjs-3'
 
 import { LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { DeepPartial } from 'kea-forms'
 import {
     ActiveElement,
     Chart,
@@ -237,7 +237,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: DeepPartial<LegendOptions<ChartType>>
+    legend?: _DeepPartialObject<LegendOptions<ChartType>>
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {

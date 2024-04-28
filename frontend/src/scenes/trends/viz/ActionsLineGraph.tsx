@@ -1,6 +1,6 @@
 import { ChartType, defaults, LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import { useValues } from 'kea'
-import { DeepPartial } from 'kea-forms'
 import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -82,7 +82,7 @@ export function ActionsLineGraph({
     const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
-    const legend: DeepPartial<LegendOptions<ChartType>> = {
+    const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
         display: !!showLegend,
     }
     if (isLifecycle) {
