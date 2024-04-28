@@ -310,15 +310,17 @@ class Resolver(CloningVisitor):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
+
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.join_type == "USING":
+                # visit constraint before adding the table to not have ambiguous names
+                # TODO: add a test for it
+                node.constraint = self.visit(node.constraint)
+
             scope.tables[table_alias] = node_type
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
-            node = cast(ast.JoinExpr, clone_expr(node))
             node.type = node_type
-            if node.constraint and node.constraint.join_type == "USING":
-                # visit constraint before adding the table to not have ambiguous names
-                node.constraint = self.visit(node.constraint)
-
             node.table = cast(ast.Field, clone_expr(node.table))
             node.table.type = node_table_type
             if node.table_args is not None:
