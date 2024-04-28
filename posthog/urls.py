@@ -28,10 +28,6 @@ from posthog.api import (
     authentication,
     capture,
     decide,
-    organizations_router,
-    project_dashboards_router,
-    project_feature_flags_router,
-    projects_router,
     router,
     sharing,
     signup,
@@ -62,6 +58,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
+"""
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
@@ -77,6 +74,7 @@ else:
         project_dashboards_router=project_dashboards_router,
         project_feature_flags_router=project_feature_flags_router,
     )
+"""
 
 
 @requires_csrf_token

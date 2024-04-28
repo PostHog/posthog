@@ -229,7 +229,7 @@ export interface LineGraphProps {
     trendsFilter?: TrendsFilter | null
     formula?: string | null
     compare?: boolean | null
-    showValueOnSeries?: boolean | null
+    showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
@@ -263,7 +263,7 @@ export function LineGraph_({
     labelGroupType,
     trendsFilter,
     formula,
-    showValueOnSeries,
+    showValuesOnSeries,
     showPercentStackView,
     supportsPercentStackView,
     hideAnnotations,
@@ -423,10 +423,10 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
-                        if (showValueOnSeries && inSurveyView) {
+                        if (showValuesOnSeries && inSurveyView) {
                             return true
                         }
-                        return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
+                        return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
                         const data = context.chart.data as ExtendedChartData
@@ -740,7 +740,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

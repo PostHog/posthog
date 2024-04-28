@@ -29,7 +29,7 @@ import {
     getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
-    getShowValueOnSeries,
+    getShowValuesOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
@@ -166,7 +166,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
-        showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
@@ -272,7 +272,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         hasLegend: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (isTrends, isStickiness, isLifecycle, display) =>
-                (isTrends || isStickiness || !isLifecycle) &&
+                (isTrends || isStickiness || isLifecycle) &&
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 

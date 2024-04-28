@@ -37,7 +37,7 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        showValueOnSeries,
+        showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
@@ -89,7 +89,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
-            showValueOnSeries={showValueOnSeries}
+            showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             tooltip={
