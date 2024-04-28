@@ -1348,6 +1348,7 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showLegend: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
