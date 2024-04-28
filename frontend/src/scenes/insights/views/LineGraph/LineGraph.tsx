@@ -62,9 +62,8 @@ export function ensureTooltip(): [Root, HTMLElement] {
 function truncateString(str: string, num: number): string {
     if (str.length > num) {
         return str.slice(0, num) + ' ...'
-    } else {
-        return str
     }
+    return str
 }
 
 export function onChartClick(
@@ -236,6 +235,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
+    showLegend?: boolean | null
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -269,6 +269,7 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
+    showLegend,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -438,7 +439,7 @@ export function LineGraph_({
                     borderColor: 'white',
                 },
                 legend: {
-                    display: false,
+                    display: !!showLegend,
                 },
                 tooltip: {
                     ...tooltipOptions,

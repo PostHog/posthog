@@ -256,7 +256,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         valueOnSeries: [
-            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
+            (s) => [s.isTrends, s.isStickiness, s.insightFilter],
             (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
                 return !!(
                     ((isTrends || isStickiness || isLifecycle) &&
@@ -270,10 +270,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasLegend: [
-            (s) => [s.isTrends, s.isStickiness, s.display],
-            (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) &&
-                !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display || ChartDisplayType.ActionsLineGraph),
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) =>
+                (isTrends || isStickiness || !isLifecycle) &&
+                !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
