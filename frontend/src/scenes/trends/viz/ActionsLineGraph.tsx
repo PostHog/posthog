@@ -78,7 +78,7 @@ export function ActionsLineGraph({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source)
 
-    const shortenLifecycleLabels = (s: string | null): string =>
+    const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
     return indexedResults &&
@@ -117,15 +117,17 @@ export function ActionsLineGraph({
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={{
                 display: !!showLegend,
-                labels: {
-                    generateLabels: (chart: Chart) => {
-                        const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
-                        labelElements.forEach((elt) => {
-                            elt.text = shortenLifecycleLabels(elt.text)
-                        })
-                        return labelElements
-                    },
-                },
+                labels: isLifecycle
+                    ? {
+                          generateLabels: (chart: Chart) => {
+                              const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
+                              labelElements.forEach((elt) => {
+                                  elt.text = shortenLifecycleLabels(elt.text)
+                              })
+                              return labelElements
+                          },
+                      }
+                    : undefined,
             }}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
