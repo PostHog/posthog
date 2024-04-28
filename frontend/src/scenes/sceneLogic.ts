@@ -298,9 +298,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             actions.reloadBrowserDueToImportError()
                         }
                         return
-                    } else {
-                        throw error
                     }
+                    throw error
                 } finally {
                     window.clearTimeout(timeout)
                 }

@@ -2,6 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -19,6 +20,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -516,12 +518,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                     type="number"
                                                                     size="small"
                                                                     min={0}
-                                                                    value={value?.seenSurveyWaitPeriodInDays}
+                                                                    value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
                                                                         if (val !== undefined && val > 0) {
                                                                             onChange({
                                                                                 ...value,
                                                                                 seenSurveyWaitPeriodInDays: val,
+                                                                            })
+                                                                        } else {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: null,
                                                                             })
                                                                         }
                                                                     }}
@@ -595,6 +602,47 @@ export default function SurveyEdit(): JSX.Element {
                                         </>
                                     )}
                                 </LemonField.Pure>
+                            ),
+                        },
+                        {
+                            key: SurveyEditSection.CompletionConditions,
+                            header: 'Completion conditions',
+                            content: (
+                                <LemonField name="responses_limit">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex flex-row gap-2 items-center">
+                                                <LemonCheckbox
+                                                    checked={!!value}
+                                                    onChange={(checked) => {
+                                                        const newResponsesLimit = checked ? 100 : null
+                                                        onChange(newResponsesLimit)
+                                                    }}
+                                                />
+                                                Stop the survey once
+                                                <LemonInput
+                                                    type="number"
+                                                    data-attr="survey-responses-limit-input"
+                                                    size="small"
+                                                    min={1}
+                                                    value={value || NaN}
+                                                    onChange={(newValue) => {
+                                                        if (newValue && newValue > 0) {
+                                                            onChange(newValue)
+                                                        } else {
+                                                            onChange(null)
+                                                        }
+                                                    }}
+                                                    className="w-16"
+                                                />{' '}
+                                                responses are received.
+                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            </div>
+                                        )
+                                    }}
+                                </LemonField>
                             ),
                         },
                     ]}

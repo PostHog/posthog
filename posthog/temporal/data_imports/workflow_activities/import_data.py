@@ -18,7 +18,6 @@ from posthog.warehouse.models import (
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 import asyncio
-from django.conf import settings
 from django.utils import timezone
 
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
@@ -67,9 +66,8 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         # Hacky just for specific user
         region = get_instance_region()
         if region == "EU" and inputs.team_id == 11870:
-            prev_day = timezone.now() - dt.timedelta(days=1)
-            start_date = prev_day.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + dt.timedelta(1)
+            start_date = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            end_date = start_date + dt.timedelta(weeks=5)
         else:
             start_date = None
             end_date = None
@@ -117,7 +115,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             user=user,
             password=password,
             database=database,
-            sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+            sslmode="prefer",
             schema=pg_schema,
             table_names=endpoints,
         )

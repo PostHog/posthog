@@ -292,6 +292,7 @@ module.exports = {
                 ],
             },
         ],
+        'no-else-return': 'warn'
     },
     overrides: [
         {

@@ -217,6 +217,15 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
+                                            {survey.responses_limit && (
+                                                <>
+                                                    <span className="card-secondary mt-4">Completion conditions</span>
+                                                    <span>
+                                                        The survey will be stopped once <b>{survey.responses_limit}</b>{' '}
+                                                        responses are received.
+                                                    </span>
+                                                </>
+                                            )}
                                             <LemonDivider />
                                             <SurveyReleaseSummary
                                                 id={id}

@@ -16,6 +16,7 @@ import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
@@ -27,6 +28,7 @@ export function NewSourceWizard(): JSX.Element {
     const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
     const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
         useValues(sourceWizardLogic)
+    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -50,7 +52,7 @@ export function NewSourceWizard(): JSX.Element {
                     </LemonButton>
                 )}
                 <LemonButton
-                    loading={isLoading}
+                    loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
                     type="primary"
                     center
@@ -61,7 +63,7 @@ export function NewSourceWizard(): JSX.Element {
                 </LemonButton>
             </div>
         )
-    }, [currentStep, isLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
 
     return (
         <>

@@ -853,6 +853,7 @@ class TestSurvey(APIBaseTest):
                     "archived": False,
                     "start_date": None,
                     "end_date": None,
+                    "responses_limit": None,
                 }
             ],
         }

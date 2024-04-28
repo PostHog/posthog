@@ -83,11 +83,10 @@ export const groupsModel = kea<groupsModelType>([
                                 singular: groupType.name_plural || groupType.group_type,
                                 plural: groupType.name_plural || `${groupType.group_type}(s)`,
                             }
-                        } else {
-                            return {
-                                singular: 'unknown group',
-                                plural: 'unknown groups',
-                            }
+                        }
+                        return {
+                            singular: 'unknown group',
+                            plural: 'unknown groups',
                         }
                     }
                     return deferToUserWording

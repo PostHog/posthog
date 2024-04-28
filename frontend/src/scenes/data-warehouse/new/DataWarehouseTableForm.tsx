@@ -6,13 +6,18 @@ import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 
 export function DatawarehouseTableForm(): JSX.Element {
     return (
-        <Form formKey="table" logic={dataWarehouseTableLogic} className="space-y-4" enableFormOnSubmit>
+        <Form
+            formKey="table"
+            logic={dataWarehouseTableLogic}
+            className="space-y-4"
+            enableFormOnSubmit
+            autoComplete="off"
+        >
             <div className="flex flex-col gap-2 max-w-160">
                 <LemonField name="name" label="Table Name">
                     <LemonInput
                         data-attr="table-name"
                         className="ph-ignore-input"
-                        autoFocus
                         placeholder="Examples: stripe_invoice, hubspot_contacts, users"
                         autoComplete="off"
                         autoCapitalize="off"
@@ -25,7 +30,6 @@ export function DatawarehouseTableForm(): JSX.Element {
                     <LemonInput
                         data-attr="table-name"
                         className="ph-ignore-input"
-                        autoFocus
                         placeholder="eg: https://your-org.s3.amazonaws.com/airbyte/stripe/invoices/*.pqt"
                         autoComplete="off"
                         autoCapitalize="off"
@@ -50,7 +54,6 @@ export function DatawarehouseTableForm(): JSX.Element {
                     <LemonInput
                         data-attr="access-key"
                         className="ph-ignore-input"
-                        autoFocus
                         placeholder="eg: AKIAIOSFODNN7EXAMPLE"
                         autoComplete="off"
                         autoCapitalize="off"
@@ -62,7 +65,6 @@ export function DatawarehouseTableForm(): JSX.Element {
                     <LemonInput
                         data-attr="access-secret"
                         className="ph-ignore-input"
-                        autoFocus
                         type="password"
                         placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
                         autoComplete="off"

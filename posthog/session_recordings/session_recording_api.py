@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta, timezone
-
+from prometheus_client import Histogram
 import json
 from typing import Any, cast
 
@@ -50,9 +50,7 @@ from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from ee.session_recordings.ai.similar_recordings import similar_recordings
 from ee.session_recordings.ai.error_clustering import error_clustering
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
-    convert_original_version_lts_recording,
-)
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from prometheus_client import Counter
 
@@ -61,6 +59,21 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
     labelnames=["source"],
+)
+
+GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
+    "session_snapshots_generate_pre_signed_url_histogram",
+    "Time taken to generate a pre-signed URL for a session snapshot",
+)
+
+GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
+    "session_snapshots_get_realtime_snapshots_from_redis_histogram",
+    "Time taken to get realtime snapshots from Redis",
+)
+
+STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
+    "session_snapshots_stream_response_to_client_histogram",
+    "Time taken to stream a session snapshot to the client",
 )
 
 
@@ -407,7 +420,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
+                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
@@ -420,36 +434,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["snapshots"] = snapshots
 
         elif source == "blob":
-            blob_key = request.GET.get("blob_key", "")
-            self._validate_blob_key(blob_key)
-
-            # very short-lived pre-signed URL
-            if recording.object_storage_path:
-                if recording.storage_version == "2023-08-01":
-                    file_key = f"{recording.object_storage_path}/{blob_key}"
-                else:
-                    # this is a legacy recording, we need to load the file from the old path
-                    file_key = convert_original_version_lts_recording(recording)
-            else:
-                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
-            url = object_storage.get_presigned_url(file_key, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-            event_properties["source"] = "blob"
-            event_properties["blob_key"] = blob_key
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "session recording snapshots v2 loaded",
-                event_properties,
-            )
-
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
-                response["Content-Disposition"] = "inline"
-                return response
+            return self._stream_blob_to_client(recording, request, event_properties)
 
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
@@ -601,6 +586,42 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         r = Response(clusters, headers={"Cache-Control": "max-age=15"})
         return r
 
+    def _stream_blob_to_client(
+        self, recording: SessionRecording, request: request.Request, event_properties: dict
+    ) -> HttpResponse:
+        blob_key = request.GET.get("blob_key", "")
+        self._validate_blob_key(blob_key)
+
+        # very short-lived pre-signed URL
+        with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
+            if recording.object_storage_path:
+                if recording.storage_version == "2023-08-01":
+                    file_key = f"{recording.object_storage_path}/{blob_key}"
+                else:
+                    # this is a legacy recording, we need to load the file from the old path
+                    file_key = convert_original_version_lts_recording(recording)
+            else:
+                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+            url = object_storage.get_presigned_url(file_key, expiration=60)
+            if not url:
+                raise exceptions.NotFound("Snapshot file not found")
+
+        event_properties["source"] = "blob"
+        event_properties["blob_key"] = blob_key
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request),
+            "session recording snapshots v2 loaded",
+            event_properties,
+        )
+
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+            with requests.get(url=url, stream=True) as r:
+                r.raise_for_status()
+                response = HttpResponse(content=r.raw, content_type="application/json")
+                response["Content-Disposition"] = "inline"
+                return response
+
 
 def list_recordings(
     filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
@@ -683,7 +704,9 @@ def list_recordings(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
-            recording.person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id)
+            if person:
+                recording.person = person
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data

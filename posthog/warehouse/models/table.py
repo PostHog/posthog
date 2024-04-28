@@ -69,6 +69,17 @@ STR_TO_HOGQL_MAPPING = {
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "file is empty": "The provided file contains no data",
+    "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
+    "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
+    "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
 
