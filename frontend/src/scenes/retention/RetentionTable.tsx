@@ -1,9 +1,11 @@
 import './RetentionTable.scss'
 
 import clsx from 'clsx'
+import { mean } from 'd3'
 import { useActions, useValues } from 'kea'
 import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
@@ -28,6 +30,34 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     ))}
                 </tr>
 
+                {tableRows.length > 0 ? (
+                    <tr className="border-b" key={-1}>
+                        {range(0, tableRows[0].length).map((columnIndex) => (
+                            <td key={columnIndex}>
+                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
+                                    columnIndex == 0 ? (
+                                        <span className="RetentionTable__TextTab">Mean</span>
+                                    ) : null
+                                ) : (
+                                    <CohortDay
+                                        percentage={
+                                            mean(
+                                                tableRows.map((row) => {
+                                                    if (columnIndex < row.length) {
+                                                        return row[columnIndex].percentage
+                                                    }
+                                                    return null
+                                                })
+                                            ) || 0
+                                        }
+                                        latest={false}
+                                    />
+                                )}
+                            </td>
+                        ))}
+                    </tr>
+                ) : undefined}
+
                 {tableRows.map((row, rowIndex) => (
                     <tr
                         key={rowIndex}
@@ -40,9 +70,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                         {row.map((column, columnIndex) => (
                             <td key={columnIndex}>
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
-                                    <span className="RetentionTable__TextTab" key="columnIndex">
-                                        {column}
-                                    </span>
+                                    <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
                                     <CohortDay
                                         percentage={column.percentage}
