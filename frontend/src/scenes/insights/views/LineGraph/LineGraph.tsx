@@ -1,5 +1,6 @@
 import 'chartjs-adapter-dayjs-3'
 
+import { LegendOptions } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -235,7 +236,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: any
+    legend?: LegendOptions<ChartType>
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
