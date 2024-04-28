@@ -65,6 +65,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'showLegend',
                 'vizSpecificOptions',
             ],
         ],

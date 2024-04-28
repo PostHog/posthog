@@ -235,7 +235,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    showLegend?: boolean | null
+    legend?: any
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -269,7 +269,7 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
-    showLegend,
+    legend,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -438,9 +438,7 @@ export function LineGraph_({
                     borderRadius: 4,
                     borderColor: 'white',
                 },
-                legend: {
-                    display: !!showLegend,
-                },
+                legend: legend,
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {

@@ -1,4 +1,6 @@
+import { defaults } from 'chart.js'
 import { useValues } from 'kea'
+import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -45,6 +47,7 @@ export function ActionsLineGraph({
         isStickiness,
         isTrends,
         isDataWarehouseSeries,
+        showLegend,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -75,6 +78,9 @@ export function ActionsLineGraph({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source)
 
+    const shortenLifecycleLabels = (s: string | null): string =>
+        capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
+
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
@@ -100,7 +106,7 @@ export function ActionsLineGraph({
                               return date
                           },
                           renderSeries: (_, datum) => {
-                              return capitalizeFirstLetter(datum.label?.split(' - ')?.[1] ?? datum.label ?? 'None')
+                              return shortenLifecycleLabels(datum.label)
                           },
                       }
                     : undefined
@@ -109,7 +115,18 @@ export function ActionsLineGraph({
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            showLegend={true}
+            legend={{
+                display: !!showLegend,
+                labels: {
+                    generateLabels: (chart: Chart) => {
+                        const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
+                        labelElements.forEach((elt) => {
+                            elt.text = shortenLifecycleLabels(elt.text)
+                        })
+                        return labelElements
+                    },
+                },
+            }}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined
