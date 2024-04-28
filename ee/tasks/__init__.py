@@ -1,4 +1,3 @@
-"""
 from ee.session_recordings.persistence_tasks import (
     persist_finished_recordings,
     persist_single_recording,
@@ -24,8 +23,7 @@ __all__ = [
     "deliver_subscription_report",
     "handle_subscription_value_change",
     "embed_batch_of_recordings_task",
-    #"generate_recordings_embeddings_batch",
+    "generate_recordings_embeddings_batch",
     "generate_replay_embedding_error_clusters",
     "cluster_replay_error_embeddings",
 ]
-"""
