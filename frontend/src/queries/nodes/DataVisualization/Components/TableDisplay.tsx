@@ -43,7 +43,7 @@ export const TableDisplay = (): JSX.Element => {
                 {
                     value: ChartDisplayType.BoldNumber,
                     icon: <Icon123 />,
-                    label: 'Number',
+                    label: 'Single Value',
                 },
             ],
         },

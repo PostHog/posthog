@@ -103,7 +103,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     ) {
         component = <Chart />
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
-        component = <HogQLBoldNumber displayValue={5} />
+        component = <HogQLBoldNumber displayValue={response?.results[0][0]} />
     }
 
     return (
