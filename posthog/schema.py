@@ -1349,7 +1349,6 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showValuesOnSeries: Optional[bool] = None
-    showLegend: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
 
