@@ -1,5 +1,6 @@
-import { defaults } from 'chart.js'
+import { ChartType, defaults, LegendOptions } from 'chart.js'
 import { useValues } from 'kea'
+import { DeepPartial } from 'kea-forms'
 import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -81,6 +82,21 @@ export function ActionsLineGraph({
     const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
+    const legend: DeepPartial<LegendOptions<ChartType>> = {
+        display: !!showLegend,
+    }
+    if (isLifecycle) {
+        legend.labels = {
+            generateLabels: (chart: Chart) => {
+                const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
+                labelElements.forEach((elt) => {
+                    elt.text = shortenLifecycleLabels(elt.text)
+                })
+                return labelElements
+            },
+        }
+    }
+
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
@@ -115,20 +131,7 @@ export function ActionsLineGraph({
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
-            legend={{
-                display: !!showLegend,
-                labels: isLifecycle
-                    ? {
-                          generateLabels: (chart: Chart) => {
-                              const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
-                              labelElements.forEach((elt) => {
-                                  elt.text = shortenLifecycleLabels(elt.text)
-                              })
-                              return labelElements
-                          },
-                      }
-                    : undefined,
-            }}
+            legend={legend}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined

@@ -5,6 +5,7 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { DeepPartial } from 'kea-forms'
 import {
     ActiveElement,
     Chart,
@@ -236,7 +237,7 @@ export interface LineGraphProps {
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
-    legend?: LegendOptions<ChartType>
+    legend?: DeepPartial<LegendOptions<ChartType>>
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {

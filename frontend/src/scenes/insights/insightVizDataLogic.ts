@@ -256,7 +256,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         valueOnSeries: [
-            (s) => [s.isTrends, s.isStickiness, s.insightFilter],
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
             (isTrends, isStickiness, isLifecycle, insightFilter): boolean => {
                 return !!(
                     ((isTrends || isStickiness || isLifecycle) &&
