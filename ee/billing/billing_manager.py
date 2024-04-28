@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -6,6 +5,7 @@ import jwt
 import requests
 import structlog
 from django.utils import timezone
+from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
 
@@ -48,7 +48,7 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
         try:
             response = res.json()
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
-        except json.decoder.JSONDecodeError:
+        except JSONDecodeError:
             raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
 
 

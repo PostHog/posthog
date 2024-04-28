@@ -294,7 +294,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind: 'support',
                 severity_level: null,
                 target_area: null,
-                message: SUPPORT_TICKET_TEMPLATES.support,
+                message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -349,7 +349,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? SUPPORT_TICKET_TEMPLATES[kind],
+                message: message ?? '',
             })
 
             if (values.sidePanelAvailable) {
