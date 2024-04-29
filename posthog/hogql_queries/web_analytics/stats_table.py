@@ -38,9 +38,50 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         if self.query.breakdownBy == WebStatsBreakdown.InitialPage:
             if self.query.includeBounceRate:
                 return self.to_entry_bounce_query()
+        if self._has_session_properties():
+            return self._to_main_query_with_session_properties()
         return self.to_main_query()
 
     def to_main_query(self) -> ast.SelectQuery:
+        with self.timings.measure("stats_table_query"):
+            query = parse_select(
+                """
+SELECT
+    breakdown_value AS "context.columns.breakdown_value",
+    count(person_id) AS "context.columns.visitors",
+    sum(filtered_pageview_count) AS "context.columns.views"
+FROM (
+    SELECT
+        any(person_id) AS person_id,
+        count() AS filtered_pageview_count,
+        {breakdown_value} AS breakdown_value
+    FROM events
+    WHERE and(
+        timestamp >= {date_from},
+        timestamp < {date_to},
+        events.event == '$pageview',
+        {all_properties},
+        {where_breakdown}
+    )
+    GROUP BY events.`$session_id`, breakdown_value
+)
+GROUP BY "context.columns.breakdown_value"
+ORDER BY "context.columns.visitors" DESC,
+"context.columns.breakdown_value" ASC
+""",
+                timings=self.timings,
+                placeholders={
+                    "breakdown_value": self._counts_breakdown_value(),
+                    "where_breakdown": self.where_breakdown(),
+                    "all_properties": self._all_properties(),
+                    "date_from": self._date_from(),
+                    "date_to": self._date_to(),
+                },
+            )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _to_main_query_with_session_properties(self) -> ast.SelectQuery:
         with self.timings.measure("stats_table_query"):
             query = parse_select(
                 """
@@ -74,8 +115,8 @@ ORDER BY "context.columns.visitors" DESC,
                 placeholders={
                     "breakdown_value": self._counts_breakdown_value(),
                     "where_breakdown": self.where_breakdown(),
-                    "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
+                    "session_properties": self._session_properties(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
                 },
@@ -341,11 +382,29 @@ ORDER BY "context.columns.visitors" DESC,
         ]
         return property_to_expr(properties, team=self.team, scope="event")
 
+    def _has_session_properties(self) -> bool:
+        return any(
+            get_property_type(p) == "session" for p in self.query.properties + self._test_account_filters
+        ) or self.query.breakdownBy in {
+            WebStatsBreakdown.InitialChannelType,
+            WebStatsBreakdown.InitialUTMSource,
+            WebStatsBreakdown.InitialUTMCampaign,
+            WebStatsBreakdown.InitialUTMMedium,
+            WebStatsBreakdown.InitialUTMTerm,
+            WebStatsBreakdown.InitialUTMContent,
+            WebStatsBreakdown.InitialPage,
+            WebStatsBreakdown.ExitPage,
+        }
+
     def _session_properties(self) -> ast.Expr:
         properties = [
             p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
         ]
         return property_to_expr(properties, team=self.team, scope="session")
+
+    def _all_properties(self) -> ast.Expr:
+        properties = self.query.properties + self._test_account_filters
+        return property_to_expr(properties, team=self.team)
 
     def _date_to(self) -> ast.Expr:
         return self.query_date_range.date_to_as_hogql()
