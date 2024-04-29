@@ -609,7 +609,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             properties: webAnalyticsFilters,
                                             breakdownBy: WebStatsBreakdown.InitialPage,
                                             dateRange,
-                                            includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                            includeBounceRate: true,
                                             sampling,
                                             doPathCleaning: isPathCleaningEnabled,
                                             limit: 10,
