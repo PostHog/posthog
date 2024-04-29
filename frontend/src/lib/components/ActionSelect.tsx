@@ -1,6 +1,8 @@
 import { LemonButtonProps } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { actionLogic } from 'scenes/actions/actionLogic'
 
 interface LemonSelectActionProps {
     value?: number | null
@@ -20,6 +22,8 @@ export function LemonSelectAction({
     allowClear,
     size,
 }: LemonSelectActionProps): JSX.Element {
+    const { action } = useValues(actionLogic({ id: value ?? undefined }))
+
     return (
         <TaxonomicPopover
             groupType={TaxonomicFilterGroupType.Actions}
@@ -29,7 +33,14 @@ export function LemonSelectAction({
             type="secondary"
             placeholder={placeholder}
             data-attr="event-name-box"
-            renderValue={(v) => (v !== null ? <span>Action: {v}</span> : null)}
+            renderValue={(v) =>
+                v !== null ? (
+                    <>
+                        <span>{value} - </span>
+                        <span>{action?.name ?? 'Loading...'}</span>
+                    </>
+                ) : null
+            }
             allowClear={allowClear}
             size={size}
             fullWidth

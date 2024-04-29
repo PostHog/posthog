@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     TOOLBAR_HEATMAPS: 'toolbar-heatmaps', // owner: #team-replay
     THEME: 'theme', // owner: @aprilfools
     SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
+    PLUGINS_ACTION_MATCHING: 'plugins-action-matching', // owner: @benjackwhite
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

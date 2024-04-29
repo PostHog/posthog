@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { endWithPunctation } from 'lib/utils'
@@ -85,6 +86,9 @@ export function PluginDrawer(): JSX.Element {
         }
         updateInvisibleAndRequiredFields()
     }, [editingPlugin?.id, editingPlugin?.config_schema, editingPlugin?.pluginConfig?.match_action])
+
+    const actionMatchingFlag = !!useFeatureFlag('PLUGINS_ACTION_MATCHING')
+    const actionMatchingEnabled = (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) && editingPlugin?.capabilities?.methods?.includes('composeWebhook')
 
     return (
         <>
@@ -179,7 +183,7 @@ export function PluginDrawer(): JSX.Element {
                                 </>
                             ) : null}
 
-                            {editingPlugin.capabilities?.methods?.includes('composeWebhook') ? (
+                            {actionMatchingEnabled ? (
                                 <>
                                     <h3 className="l3 mt-8">Filter by action</h3>
 
