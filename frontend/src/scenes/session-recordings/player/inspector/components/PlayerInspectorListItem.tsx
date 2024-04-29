@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -15,6 +14,7 @@ import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
+import { formattedTimestamp } from '../../utils/timestamp'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemDoctor } from './ItemDoctor'
@@ -202,12 +202,9 @@ export function PlayerInspectorListItem({
                 <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
                         {timestampFormat != TimestampFormat.Relative ? (
-                            <TZLabel
-                                time={TimestampFormat.UTC ? item.timestamp.tz('utc') : item.timestamp}
-                                formatDate="DD, MMM"
-                                formatTime="HH:mm:ss"
-                                noStyles
-                            />
+                            formattedTimestamp(
+                                timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp
+                            )
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (

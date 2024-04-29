@@ -42,12 +42,12 @@ export function Timestamp(): JSX.Element {
                         {colonDelimitedDuration(endTimeSeconds, fixedUnits)}
                     </>
                 ) : currentTimestamp ? (
-                    <>
-                        {dayjs(currentTimestamp).tz('UTC').format('DD/MM/YYYY, HH:mm:ss')}{' '}
-                        {timestampFormat === TimestampFormat.UTC
-                            ? 'UTC'
-                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())}
-                    </>
+                    `${(timestampFormat === TimestampFormat.UTC
+                        ? dayjs(currentTimestamp).tz('UTC')
+                        : dayjs(currentTimestamp)
+                    ).format('DD/MM/YYYY, HH:mm:ss')} ${
+                        TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
+                    }`
                 ) : (
                     '--/--/----, 00:00:00'
                 )}
