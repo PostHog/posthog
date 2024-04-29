@@ -860,7 +860,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insights = values
                 .sortTilesByLayout(tiles || values.insightTiles || [])
                 .filter((t) => {
-                    if (!initialLoad) {
+                    if (!initialLoad || !t.last_refresh) {
                         return true
                     }
 

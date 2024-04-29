@@ -727,7 +727,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    lastRefreshed: dayjs('2021-09-21T11:48:48.444504Z'),
+                    lastRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
                 })
         })
 
