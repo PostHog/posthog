@@ -121,7 +121,7 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
-    aggregate_fields = {
+    aggregate_fields: dict[str, ast.Expr] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
