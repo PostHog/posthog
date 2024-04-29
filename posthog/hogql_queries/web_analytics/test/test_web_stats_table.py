@@ -367,3 +367,104 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             results,
         )
+
+    def test_bounce_rate_one_user(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_bounce_rate=True,
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 1, 1, 0],
+                ["/b", 1, 1, None],
+                ["/c", 1, 1, None],
+            ],
+            results,
+        )
+
+    def test_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.9),
+                ("/a", "2023-12-02T12:00:01", 0.9),
+                ("/b", "2023-12-02T12:00:02", 0.2),
+                ("/c", "2023-12-02T12:00:03", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_bounce_rate=True,
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 3, 4, 1 // 3],
+                ["/b", 2, 2, None],
+                ["/c", 2, 2, None],
+            ],
+            results,
+        )
+
+    def test_bounce_rate_path_cleaning(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a/123", "2023-12-02T12:00:00", 0.1),
+                ("/b/123", "2023-12-02T12:00:01", 0.2),
+                ("/c/123", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_bounce_rate=True,
+            path_cleaning_filters=[
+                {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
+                {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
+                {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
+            ],
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a/:id", 1, 1, 0],
+                ["/b/:id", 1, 1, None],
+                ["/c/:id", 1, 1, None],
+            ],
+            results,
+        )

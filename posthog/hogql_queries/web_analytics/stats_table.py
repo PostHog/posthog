@@ -248,20 +248,20 @@ ORDER BY "context.columns.visitors" DESC,
             query = parse_select(
                 """
 SELECT
-    counts."context.columns.breakdown_value" AS "context.columns.breakdown_value",
-    counts."context.columns.visitors" AS "context.columns.visitors",
-    counts."context.columns.views" AS "context.columns.views",
-    bounce."context.columns.bounce_rate" AS "context.columns.bounce_rate"
+    counts.breakdown_value AS "context.columns.breakdown_value",
+    counts.visitors AS "context.columns.visitors",
+    counts.views AS "context.columns.views",
+    bounce.bounce_rate AS "context.columns.bounce_rate"
 FROM (
     SELECT
-        "context.columns.breakdown_value" AS "context.columns.breakdown_value",
-        count(person_id) AS "context.columns.visitors",
-        sum(filtered_pageview_count) AS "context.columns.views"
+        breakdown_value,
+        count(person_id) AS visitors,
+        sum(filtered_pageview_count) AS views
     FROM (
         SELECT
             any(person_id) AS person_id,
             count() AS filtered_pageview_count,
-            {breakdown_value} AS "context.columns.breakdown_value"
+            {breakdown_value} AS breakdown_value
         FROM events
         JOIN sessions
         ON events.`$session_id` = sessions.session_id
@@ -273,18 +273,18 @@ FROM (
             {session_properties},
             {where_breakdown}
         )
-        GROUP BY events.`$session_id`, "context.columns.breakdown_value"
+        GROUP BY events.`$session_id`, breakdown_value
     )
-    GROUP BY "context.columns.breakdown_value"
+    GROUP BY breakdown_value
 ) as counts
 LEFT JOIN (
     SELECT
-        "context.columns.breakdown_value" AS "context.columns.breakdown_value",
-        avg(is_bounce) AS "context.columns.bounce_rate"
+        breakdown_value,
+        avg(is_bounce) AS bounce_rate
     FROM (
         SELECT
-            session.$entry_pathname AS "context.columns.breakdown_value",
-            any(session.$is_bounce) AS is_bounce
+            {bounce_breakdown_value} AS breakdown_value, -- use $entry_pathname to find the bounce rate for sessions that started on this pathname
+            any(session.`$is_bounce`) AS is_bounce
         FROM events
         JOIN sessions
         ON events.`$session_id` = sessions.session_id
@@ -294,13 +294,13 @@ LEFT JOIN (
             events.event == '$pageview',
             {event_properties},
             {session_properties},
-            "context.columns.breakdown_value" IS NOT NULL
+            breakdown_value IS NOT NULL
         )
-        GROUP BY events.`$session_id`, "context.columns.breakdown_value"
+        GROUP BY events.`$session_id`, breakdown_value
     )
-    GROUP BY "context.columns.breakdown_value"
+    GROUP BY breakdown_value
 ) as bounce
-ON counts."context.columns.breakdown_value" = bounce."context.columns.breakdown_value"
+ON counts.breakdown_value = bounce.breakdown_value
 ORDER BY "context.columns.visitors" DESC,
 "context.columns.breakdown_value" ASC
 """,
@@ -312,6 +312,7 @@ ORDER BY "context.columns.visitors" DESC,
                     "event_properties": self._event_properties(),
                     "date_from": self._date_from(),
                     "date_to": self._date_to(),
+                    "bounce_breakdown_value": self._bounce_entry_pathname_breakdown(),
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -424,9 +425,9 @@ ORDER BY "context.columns.visitors" DESC,
     def where_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Region:
-                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.City:
-                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+                return parse_expr("tupleElement(breakdown_value, 2) IS NOT NULL")
             case WebStatsBreakdown.InitialChannelType:
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.InitialUTMSource:
@@ -440,7 +441,7 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.InitialUTMContent:
                 return parse_expr("TRUE")  # actually show null values
             case _:
-                return parse_expr('"context.columns.breakdown_value" IS NOT NULL')
+                return parse_expr("breakdown_value IS NOT NULL")
 
     def _scroll_prev_pathname_breakdown(self):
         return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"]))
