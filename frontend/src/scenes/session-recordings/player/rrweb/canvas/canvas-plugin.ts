@@ -5,6 +5,10 @@ import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
+function isCanvasMutation(e: eventWithTime): boolean {
+    return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
+}
+
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
     const containers = new Map<number, HTMLImageElement>([])
@@ -66,36 +70,42 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         },
 
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, _isSync: boolean, { replayer }: { replayer: Replayer }) => {
-            if (e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation) {
-                const source = replayer.getMirror().getNode(e.data.id) as HTMLCanvasElement
-                const target = canvases.get(e.data.id) || (source && cloneCanvas(e.data.id, source))
+        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+            // skip when fast forwarding
+            if (isSync) {
+                const isCanvas = isCanvasMutation(e)
 
-                if (!target) {
-                    return
-                }
+                if (isCanvas) {
+                    const data = e.data as canvasMutationData
+                    const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
+                    const target = canvases.get(data.id) || (source && cloneCanvas(data.id, source))
 
-                target.width = source.clientWidth
-                target.height = source.clientHeight
+                    if (!target) {
+                        return
+                    }
 
-                await canvasMutation({
-                    event: e,
-                    mutation: e.data,
-                    target: target,
-                    imageMap,
-                    canvasEventMap,
-                    errorHandler: (error: any) => {
-                        if (error instanceof Error) {
-                            captureException(error)
-                        } else {
-                            console.error(error)
-                        }
-                    },
-                })
+                    target.width = source.clientWidth
+                    target.height = source.clientHeight
 
-                const img = containers.get(e.data.id)
-                if (img) {
-                    img.src = target.toDataURL()
+                    await canvasMutation({
+                        event: e,
+                        mutation: data,
+                        target: target,
+                        imageMap,
+                        canvasEventMap,
+                        errorHandler: (error: any) => {
+                            if (error instanceof Error) {
+                                captureException(error)
+                            } else {
+                                console.error(error)
+                            }
+                        },
+                    })
+
+                    const img = containers.get(data.id)
+                    if (img) {
+                        img.src = target.toDataURL()
+                    }
                 }
             }
         },
