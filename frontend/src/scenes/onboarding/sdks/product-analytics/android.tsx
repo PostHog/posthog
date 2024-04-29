@@ -16,7 +16,7 @@ function AndroidCaptureSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Kotlin}>{`PostHog.capture(event = "test-event")`}</CodeSnippet>
 }
 
-function AdvertiseAndroidReplay(): JSX.Element {
+export function AdvertiseAndroidReplay(): JSX.Element {
     return (
         <div>
             <LemonDivider className="my-8" />
