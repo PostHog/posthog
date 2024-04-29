@@ -3,8 +3,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 interface LemonSelectActionProps {
-    value: number | null
-    onChange: (value: number | null) => void
+    value?: number | null
+    onChange?: (value: number | null) => void
     disabled?: boolean
     placeholder?: string
     allowClear?: boolean
@@ -14,7 +14,7 @@ interface LemonSelectActionProps {
 
 export function LemonSelectAction({
     value,
-    onChange,
+    onChange = () => {},
     disabled,
     placeholder = 'Select an action',
     allowClear,

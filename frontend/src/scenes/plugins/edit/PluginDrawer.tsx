@@ -76,6 +76,7 @@ export function PluginDrawer(): JSX.Element {
             form.setFieldsValue({
                 ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
                 __enabled: editingPlugin.pluginConfig.enabled,
+                __matchActionId: editingPlugin.pluginConfig.match_action,
                 ...editingPluginInitialChanges,
             })
             generateApiKeysIfNeeded(form)
@@ -83,7 +84,7 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
         updateInvisibleAndRequiredFields()
-    }, [editingPlugin?.id, editingPlugin?.config_schema])
+    }, [editingPlugin?.id, editingPlugin?.config_schema, editingPlugin?.pluginConfig?.match_action])
 
     return (
         <>
@@ -182,13 +183,13 @@ export function PluginDrawer(): JSX.Element {
                                 <>
                                     <h3 className="l3 mt-8">Filter by action</h3>
 
-                                    <LemonSelectAction
-                                        fullWidth
-                                        value={null}
-                                        onChange={function (value: number | null): void {
-                                            console.log('vlaue!', value)
-                                        }}
-                                    />
+                                    <Form.Item
+                                        fieldKey="__matchActionId"
+                                        name="__matchActionId"
+                                        data-attr="plugin-match-action"
+                                    >
+                                        <LemonSelectAction fullWidth allowClear />
+                                    </Form.Item>
                                 </>
                             ) : null}
 

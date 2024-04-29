@@ -563,7 +563,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
-    match_action = ActionSerializer()
+    match_action = serializers.PrimaryKeyRelatedField(
+        queryset=Action.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = PluginConfig
@@ -654,10 +658,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     def validate_match_action(self, value: Action):
         if value:
             if value.team_id != self.context["team_id"]:
-                raise ValidationError("Action does not belong to the current team!")
-
-            if value.team.organization_id != self.context["organization_id"]:
-                raise ValidationError("Action does not belong to the current organization!")
+                raise ValidationError("Action must belong to the same project as the plugin config.")
 
         return value
 
