@@ -241,13 +241,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
         )
 
         try:
+            # Print the query in ClickHouse dialect to catch unresolved field errors, discard the result
+            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
                 "values": {},
                 "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
             }
-            # Also print the query in ClickHouse dialect to catch unresolved field errors
-            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
         except errors.ExposedHogQLError:
             raise serializers.ValidationError("Unsupported HogQL query")
 
