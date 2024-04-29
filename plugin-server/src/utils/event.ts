@@ -1,5 +1,4 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
@@ -76,21 +75,21 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
             : null,
     }
 }
-export function convertToPostHogEvent(event: RawClickHouseEvent): PostHogEvent {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
-    properties['$elements_chain'] = event.elements_chain // TODO: tests
+export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     return {
-        uuid: event.uuid,
+        uuid: event.eventUuid,
         event: event.event!,
-        team_id: event.team_id,
-        distinct_id: event.distinct_id,
-        properties,
-        timestamp: new Date(clickHouseTimestampToISO(event.timestamp)),
+        team_id: event.teamId,
+        distinct_id: event.distinctId,
+        properties: event.properties,
+        timestamp: new Date(event.timestamp),
     }
 }
 
 export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
+    properties['$elements_chain'] = event.elements_chain
+
     return {
         eventUuid: event.uuid,
         event: event.event!,
@@ -180,19 +179,4 @@ export function formPipelineEvent(message: Message): PipelineEvent {
         site_url: combinedEvent.site_url || null,
     })
     return event
-}
-
-export function formPluginEvent(event: RawClickHouseEvent): PluginEvent {
-    const postIngestionEvent = convertToIngestionEvent(event)
-    return {
-        distinct_id: postIngestionEvent.distinctId,
-        ip: null, // deprecated : within properties[$ip] now
-        site_url: '',
-        team_id: postIngestionEvent.teamId,
-        now: DateTime.now().toISO(),
-        event: postIngestionEvent.event,
-        properties: postIngestionEvent.properties,
-        timestamp: postIngestionEvent.timestamp,
-        uuid: postIngestionEvent.eventUuid,
-    }
 }

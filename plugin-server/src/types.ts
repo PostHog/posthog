@@ -514,6 +514,9 @@ export type VMMethods = {
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
+// Helper when ensuring that a required method is implemented
+export type VMMethodsConcrete = Required<VMMethods>
+
 export enum AlertLevel {
     P0 = 0,
     P1 = 1,
