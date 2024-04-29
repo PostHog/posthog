@@ -294,7 +294,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     @property
     def has_group_type(self) -> bool:
-        return self.group_type_index and 0 <= self.group_type_index <= 4
+        return self.group_type_index is not None and 0 <= self.group_type_index <= 4
 
     @property
     def group_type_index(self) -> int | None:
