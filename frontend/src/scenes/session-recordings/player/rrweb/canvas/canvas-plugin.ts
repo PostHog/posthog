@@ -5,15 +5,24 @@ import { ReplayPlugin } from 'rrweb/typings/types'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
-function isCanvasMutation(e: eventWithTime): boolean {
+type CanvasEventWithTime = eventWithTime & {
+    type: EventType.IncrementalSnapshot
+    data: canvasMutationData
+}
+
+function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
     return e.type === EventType.IncrementalSnapshot && e.data.source === IncrementalSource.CanvasMutation
 }
+
+const PRELOAD_BUFFER_SIZE = 30;
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
     const containers = new Map<number, HTMLImageElement>([])
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
+    const preloadBuffer = new Set<CanvasEventWithTime>();
+    let nextPreloadIndex: number | null = null;
 
     const deserializeAndPreloadCanvasEvents = async (data: canvasMutationData, event: eventWithTime): Promise<void> => {
         if (!canvasEventMap.has(event)) {
@@ -55,6 +64,28 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             promises.push(deserializeAndPreloadCanvasEvents(event.data, event))
         }
     }
+
+    const canvasMutationEvents = events.filter(isCanvasMutation);
+
+    const preload = async (currentEvent?: eventWithTime): Promise<void> => {
+        const nextIndex = nextPreloadIndex ? nextPreloadIndex : findIndex(currentEvent)
+        const eventIndex = nextIndex > -1 ? nextIndex : 0;
+        const startIndex = eventIndex > -1 ? eventIndex : 0;
+        const eventsToPreload = canvasMutationEvents
+          .slice(startIndex, startIndex + PRELOAD_BUFFER_SIZE - preloadBuffer.size)
+    
+        nextPreloadIndex = nextPreloadIndex ? nextPreloadIndex + 1 : startIndex;
+    
+        for (const event of eventsToPreload) {
+          if (!preloadBuffer.has(event) && !canvasEventMap.has(event)) {
+            preloadBuffer.add(event);
+            await deserializeAndPreloadCanvasEvents(event.data as canvasMutationData, event);
+            preloadBuffer.delete(event);
+          }
+        }
+      }
+
+      preload()
 
     return {
         onBuild: (node, { id }) => {
