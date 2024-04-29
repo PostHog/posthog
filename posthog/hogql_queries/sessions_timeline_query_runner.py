@@ -34,7 +34,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    query_type = SessionsTimelineQuery
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)

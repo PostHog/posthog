@@ -21,7 +21,6 @@ from posthog.schema import (
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
-    query_type = WebStatsTableQuery
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

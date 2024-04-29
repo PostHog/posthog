@@ -22,7 +22,6 @@ from posthog.schema import (
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
-    query_type = HogQLQuery
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
