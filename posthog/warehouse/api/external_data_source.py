@@ -42,7 +42,6 @@ PostgresErrors = {
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
-    "": "",
 }
 
 
