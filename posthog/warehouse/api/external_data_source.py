@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 
+from psycopg2 import OperationalError
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -34,6 +35,15 @@ from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
+
+GenericPostgresError = "Could not fetch Postgres schemas. Please check all connection details are valid."
+PostgresErrors = {
+    "password authentication failed for user": "Invalid user or password",
+    "could not translate host name": "Could not connect to the host",
+    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    'database "': "Database does not exist",
+    "": "",
+}
 
 
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -421,13 +431,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             try:
                 result = get_postgres_schemas(host, port, database, user, password, schema)
-            except Exception as e:
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                if len(result) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Postgres schema doesn't exist"},
+                    )
+            except OperationalError as e:
+                exposed_error = self._expose_postgres_error(e)
+
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Could not fetch Postgres schemas. Please check all connection details are valid."
-                    },
+                    data={"message": exposed_error or GenericPostgresError},
+                )
+            except Exception as e:
+                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericPostgresError},
                 )
 
             result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
@@ -459,6 +480,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
+
+    def _expose_postgres_error(self, error: OperationalError) -> str | None:
+        error_msg = " ".join(str(n) for n in error.args)
+
+        for key, value in PostgresErrors.items():
+            if key in error_msg:
+                return value
+        return None
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):
