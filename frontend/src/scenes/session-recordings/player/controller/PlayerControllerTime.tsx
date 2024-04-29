@@ -46,7 +46,9 @@ export function Timestamp(): JSX.Element {
                         ? dayjs(currentTimestamp).tz('UTC')
                         : dayjs(currentTimestamp)
                     ).format('DD/MM/YYYY, HH:mm:ss')} ${
-                        TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
+                        timestampFormat === TimestampFormat.UTC
+                            ? 'UTC'
+                            : shortTimeZone(undefined, dayjs(currentTimestamp).toDate())
                     }`
                 ) : (
                     '--/--/----, 00:00:00'
