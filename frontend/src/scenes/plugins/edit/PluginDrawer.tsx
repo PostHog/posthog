@@ -2,6 +2,7 @@ import { IconCode, IconLock } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { Form } from 'antd'
 import { useActions, useValues } from 'kea'
+import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -174,6 +175,20 @@ export function PluginDrawer(): JSX.Element {
                                             </Tooltip>
                                         ))}
                                     </div>
+                                </>
+                            ) : null}
+
+                            {editingPlugin.capabilities?.methods?.includes('composeWebhook') ? (
+                                <>
+                                    <h3 className="l3 mt-8">Filter by action</h3>
+
+                                    <LemonSelectAction
+                                        fullWidth
+                                        value={null}
+                                        onChange={function (value: number | null): void {
+                                            console.log('vlaue!', value)
+                                        }}
+                                    />
                                 </>
                             ) : null}
 
