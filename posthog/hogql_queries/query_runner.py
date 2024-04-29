@@ -444,14 +444,10 @@ class QueryRunner(ABC, Generic[Q]):
                                 ),
                             ],
                         )
-                    except Exception as e:
+                    except Exception:
                         # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
                         capture_exception()
-                        logger.error(
-                            "Failed to apply dashboard property filters",
-                            exception=e,
-                            exc_info=True,
-                        )
+                        logger.exception("Failed to apply dashboard property filters")
                 else:
                     query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:
