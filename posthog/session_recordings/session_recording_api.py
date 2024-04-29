@@ -644,7 +644,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             with requests.get(url=url, stream=True, headers=headers) as streaming_response:
                 streaming_response.raise_for_status()
 
-                breakpoint()
                 response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
 
                 etag = streaming_response.headers.get("ETag")
@@ -655,8 +654,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # but let's cache for an hour since people won't re-watch too often
                 response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
 
-                # these are probably always going to be JSON,
-                # but we're setting it on the S3 object so let's allow that to control it
                 response["Content-Type"] = "application/json"
 
                 response["Content-Disposition"] = "inline"
