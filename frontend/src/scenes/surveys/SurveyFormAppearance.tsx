@@ -21,7 +21,7 @@ export function SurveyFormAppearance({
     const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
 
     return survey.type !== SurveyType.API ? (
-        <>
+        <div className="py-4">
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 activePreview={showThankYou ? 'confirmation' : 'survey'}
@@ -49,7 +49,7 @@ export function SurveyFormAppearance({
                         : []),
                 ]}
             />
-        </>
+        </div>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>

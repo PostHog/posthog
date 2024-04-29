@@ -644,11 +644,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div
-                className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ zIndex: 999999 }}
-            >
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
                     activePreview={selectedQuestion || 0}
                     survey={survey}
