@@ -592,16 +592,35 @@ export const dashboardLogic = kea<dashboardLogicType>([
             () => [router.selectors.searchParams],
             (searchParams) => searchParams.highlightInsightId,
         ],
-        lastRefreshed: [
+        sortedDates: [
             (s) => [s.insightTiles],
-            (insightTiles): Dayjs | null => {
+            (insightTiles): Dayjs[] => {
                 if (!insightTiles || !insightTiles.length) {
-                    return null
+                    return []
                 }
 
                 const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
-                const sortedDates = sortDayJsDates(validDates)
-                return sortedDates.length > 0 ? sortedDates[sortedDates.length - 1] : null
+                return sortDayJsDates(validDates)
+            },
+        ],
+        lastRefreshed: [
+            (s) => [s.sortedDates],
+            (sortedDates): Dayjs | null => {
+                if (!sortedDates.length) {
+                    return null
+                }
+
+                return sortedDates[sortedDates.length - 1]
+            },
+        ],
+        oldestRefreshed: [
+            (s) => [s.sortedDates],
+            (sortedDates): Dayjs | null => {
+                if (!sortedDates.length) {
+                    return null
+                }
+
+                return sortedDates[0]
             },
         ],
         blockRefresh: [
@@ -840,6 +859,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const insights = values
                 .sortTilesByLayout(tiles || values.insightTiles || [])
+                .filter((t) => {
+                    const lastRefreshed = dayjs(t.last_refresh)
+                    return (
+                        !lastRefreshed.isValid() ||
+                        lastRefreshed.isBefore(
+                            dayjs().subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                        )
+                    )
+                })
                 .map((t) => t.insight)
                 .filter((i): i is InsightModel => !!i)
 
@@ -1025,8 +1053,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (
-                values.lastRefreshed &&
-                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
+                values.oldestRefreshed &&
+                values.oldestRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
                 !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
                 actions.refreshAllDashboardItems({ action: 'refresh', initialLoad, dashboardQueryId })
