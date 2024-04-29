@@ -88,7 +88,9 @@ export function PluginDrawer(): JSX.Element {
     }, [editingPlugin?.id, editingPlugin?.config_schema, editingPlugin?.pluginConfig?.match_action])
 
     const actionMatchingFlag = !!useFeatureFlag('PLUGINS_ACTION_MATCHING')
-    const actionMatchingEnabled = (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) && editingPlugin?.capabilities?.methods?.includes('composeWebhook')
+    const actionMatchingEnabled =
+        (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) &&
+        editingPlugin?.capabilities?.methods?.includes('composeWebhook')
 
     return (
         <>
