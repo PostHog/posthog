@@ -51,6 +51,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                             ) || 0
                                         }
                                         latest={false}
+                                        clickable={false}
                                     />
                                 )}
                             </td>
@@ -74,6 +75,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                 ) : (
                                     <CohortDay
                                         percentage={column.percentage}
+                                        clickable={true}
                                         latest={isLatestPeriod && columnIndex === row.length - 1}
                                     />
                                 )}
@@ -86,14 +88,25 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
     )
 }
 
-function CohortDay({ percentage, latest }: { percentage: number; latest: boolean }): JSX.Element {
+function CohortDay({
+    percentage,
+    latest,
+    clickable,
+}: {
+    percentage: number
+    latest: boolean
+    clickable: boolean
+}): JSX.Element {
     const backgroundColorSaturation = percentage / 100
     const backgroundColor = gradateColor(BRAND_BLUE_HSL, backgroundColorSaturation, 0.1)
     const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--default)' // Ensure text contrast
 
     const numberCell = (
         <div
-            className={clsx('RetentionTable__Tab', { 'RetentionTable__Tab--period': latest })}
+            className={clsx('RetentionTable__Tab', {
+                'RetentionTable__Tab--clickable': clickable,
+                'RetentionTable__Tab--period': latest,
+            })}
             // eslint-disable-next-line react/forbid-dom-props
             style={!latest ? { backgroundColor, color: textColor } : undefined}
         >
