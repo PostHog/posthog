@@ -259,15 +259,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     if (fromDashboard !== props.id) {
                         return values.dashboard
-                    } else {
-                        return await api.update(
-                            `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
-                            {
-                                tile,
-                                toDashboard,
-                            }
-                        )
                     }
+                    return await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                        {
+                            tile,
+                            toDashboard,
+                        }
+                    )
                 },
             },
         ],
@@ -601,8 +600,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const validDates = insightTiles.map((i) => dayjs(i.last_refresh)).filter((date) => date.isValid())
-                const oldest = sortDayJsDates(validDates)
-                return oldest.length > 0 ? oldest[0] : null
+                const sortedDates = sortDayJsDates(validDates)
+                return sortedDates.length > 0 ? sortedDates[sortedDates.length - 1] : null
             },
         ],
         blockRefresh: [
@@ -704,9 +703,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return -1
                     } else if (ay > by || (ay == by && ax > bx)) {
                         return 1
-                    } else {
-                        return 0
                     }
+                    return 0
                 })
             },
         ],
