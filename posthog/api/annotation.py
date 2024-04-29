@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
@@ -40,11 +40,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def update(self, instance: Annotation, validated_data: Dict[str, Any]) -> Annotation:
+    def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
 
-    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
+    def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
         annotation = Annotation.objects.create(
@@ -66,14 +66,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
-    queryset = Annotation.objects.select_related("dashboard_item")
+    queryset = Annotation.objects.select_related("dashboard_item").select_related("created_by")
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().select_related("created_by")
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":
@@ -83,7 +82,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return queryset
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def _filter_queryset_by_parents_lookups(self, queryset):
         team = self.team
         return queryset.filter(
             Q(scope=Annotation.Scope.ORGANIZATION, organization_id=team.organization_id) | Q(team=team)

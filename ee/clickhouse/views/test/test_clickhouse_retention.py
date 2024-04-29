@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import List, Literal, Optional, TypedDict, Union
+from typing import Literal, Optional, TypedDict, Union
 
 from django.test.client import Client
 
@@ -719,10 +719,10 @@ class RetentionRequest:
     period: Union[Literal["Hour"], Literal["Day"], Literal["Week"], Literal["Month"]]
     retention_type: Literal["retention_first_time", "retention"]  # probably not an exhaustive list
 
-    breakdowns: Optional[List[Breakdown]] = None
+    breakdowns: Optional[list[Breakdown]] = None
     breakdown_type: Optional[Literal["person", "event"]] = None
 
-    properties: Optional[List[PropertyFilter]] = None
+    properties: Optional[list[PropertyFilter]] = None
     filter_test_accounts: Optional[str] = None
 
     limit: Optional[int] = None
@@ -734,26 +734,26 @@ class Value(TypedDict):
 
 
 class Cohort(TypedDict):
-    values: List[Value]
+    values: list[Value]
     date: str
     label: str
 
 
 class RetentionResponse(TypedDict):
-    result: List[Cohort]
+    result: list[Cohort]
 
 
 class Person(TypedDict):
-    distinct_ids: List[str]
+    distinct_ids: list[str]
 
 
 class RetentionTableAppearance(TypedDict):
     person: Person
-    appearances: List[int]
+    appearances: list[int]
 
 
 class RetentionTablePeopleResponse(TypedDict):
-    result: List[RetentionTableAppearance]
+    result: list[RetentionTableAppearance]
 
 
 def get_retention_ok(client: Client, team_id: int, request: RetentionRequest) -> RetentionResponse:

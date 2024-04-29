@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
+    SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -66,7 +67,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
@@ -190,6 +190,7 @@ export interface HogQLQueryModifiers {
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+    debug?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -240,8 +241,9 @@ export interface HogQLQuery extends DataNode {
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    explain?: boolean
     response?: HogQLQueryResponse
+    /** @deprecated use modifiers.debug instead */
+    explain?: boolean
 }
 
 export interface HogQLNotice {
@@ -986,7 +988,7 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {

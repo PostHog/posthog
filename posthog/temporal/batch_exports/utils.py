@@ -24,8 +24,7 @@ def peek_first_and_rewind(
     def rewind_gen() -> collections.abc.Generator[T, None, None]:
         """Yield the item we popped to rewind the generator."""
         yield first
-        for i in gen:
-            yield i
+        yield from gen
 
     return (first, rewind_gen())
 

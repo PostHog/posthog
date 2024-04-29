@@ -6,10 +6,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
@@ -75,9 +75,13 @@ export function ActionsLineGraph({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source)
 
-    return indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result) => result.count !== 0).length > 0 ? (
+    if (
+        !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
+    ) {
+        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+    }
+
+    return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
@@ -143,15 +147,7 @@ export function ActionsLineGraph({
                           ) {
                               openPersonsModal({
                                   title,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: query.source,
-                                      day,
-                                      status: dataset.status,
-                                      series: dataset.action?.order ?? 0,
-                                      breakdown: dataset.breakdown_value,
-                                      compare: dataset.compare_label,
-                                  },
+                                  query: datasetToActorsQuery({ dataset, query: query.source, day }),
                                   additionalSelect: isLifecycle
                                       ? {}
                                       : {
@@ -177,7 +173,5 @@ export function ActionsLineGraph({
                       }
             }
         />
-    ) : (
-        <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     )
 }

@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, date
-from typing import Optional, Any, Literal, List, Tuple
+from typing import Optional, Any, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -123,11 +123,14 @@ class SQLValueEscaper:
             return f"toDateTime({self.visit(datetime_string)})"  # no timezone for hogql
         return f"toDateTime64({self.visit(datetime_string)}, 6, {self.visit(self._timezone)})"
 
+    def visit_fakedate(self, value: date):
+        return self.visit_date(value)
+
     def visit_date(self, value: date):
         return f"toDate({self.visit(value.strftime('%Y-%m-%d'))})"
 
-    def visit_list(self, value: List):
+    def visit_list(self, value: list):
         return f"[{', '.join(str(self.visit(x)) for x in value)}]"
 
-    def visit_tuple(self, value: Tuple):
+    def visit_tuple(self, value: tuple):
         return f"({', '.join(str(self.visit(x)) for x in value)})"

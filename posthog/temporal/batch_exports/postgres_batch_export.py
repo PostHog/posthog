@@ -98,7 +98,7 @@ async def copy_tsv_to_postgres(
             # TODO: Switch to binary encoding as CSV has a million edge cases.
             sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
                 table_name=sql.Identifier(table_name),
-                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
             )
         ) as copy:
             while data := tsv_file.read():
@@ -439,6 +439,7 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_postgres_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 # Raised on errors that are related to database operation.
                 # For example: unexpected disconnect, database or other object not found.

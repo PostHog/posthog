@@ -16,8 +16,9 @@ export type SharedListMiniFilter = {
 }
 
 export enum TimestampFormat {
-    Absolute = 'absolute',
     Relative = 'relative',
+    UTC = 'utc',
+    Device = 'device',
 }
 
 const MiniFilters: SharedListMiniFilter[] = [
@@ -182,7 +183,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setHideViewedRecordings: (hideViewedRecordings: boolean) => ({ hideViewedRecordings }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSearchQuery: (search: string) => ({ search }),
         setDurationTypeToShow: (type: DurationType) => ({ type }),
@@ -278,14 +278,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
 
-        timestampMode: [
-            'relative' as 'absolute' | 'relative',
-            { persist: true },
-            {
-                setTimestampMode: (_, { mode }) => mode,
-            },
-        ],
-
         selectedMiniFilters: [
             ['all-automatic', 'console-all', 'events-all', 'performance-all'] as string[],
             { persist: true },
@@ -307,9 +299,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         if (enabled) {
                             if (selectedFilter.alone) {
                                 return false
-                            } else {
-                                return filterInTab.alone ? false : true
                             }
+                            return filterInTab.alone ? false : true
                         }
 
                         if (existingSelected !== key) {

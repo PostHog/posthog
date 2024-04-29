@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal, Optional
 
 from rest_framework import status
 
@@ -15,7 +15,7 @@ class DashboardAPI:
         self,
         model_id: int,
         model_type: Literal["insights", "dashboards"],
-        extra_data: Optional[Dict] = None,
+        extra_data: Optional[dict] = None,
         expected_get_status: int = status.HTTP_404_NOT_FOUND,
     ) -> None:
         if extra_data is None:
@@ -33,10 +33,10 @@ class DashboardAPI:
 
     def create_dashboard(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_201_CREATED,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
         response = self.client.post(f"/api/projects/{team_id}/dashboards/", data)
@@ -49,10 +49,10 @@ class DashboardAPI:
     def update_dashboard(
         self,
         dashboard_id: int,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
         response = self.client.patch(f"/api/projects/{team_id}/dashboards/{dashboard_id}", data)
@@ -67,8 +67,8 @@ class DashboardAPI:
         dashboard_id: int,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        query_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
 
@@ -82,8 +82,8 @@ class DashboardAPI:
         self,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[Dict] = None,
-    ) -> Dict:
+        query_params: Optional[dict] = None,
+    ) -> dict:
         if team_id is None:
             team_id = self.team.id
 
@@ -100,8 +100,8 @@ class DashboardAPI:
         self,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[Dict] = None,
-    ) -> Dict:
+        query_params: Optional[dict] = None,
+    ) -> dict:
         if team_id is None:
             team_id = self.team.id
 
@@ -122,8 +122,8 @@ class DashboardAPI:
         insight_id: int,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-        query_params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        query_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
 
@@ -138,10 +138,10 @@ class DashboardAPI:
 
     def create_insight(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_201_CREATED,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
@@ -160,10 +160,10 @@ class DashboardAPI:
     def update_insight(
         self,
         insight_id: int,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
@@ -177,10 +177,10 @@ class DashboardAPI:
         self,
         dashboard_id: int,
         text: str = "I AM TEXT!",
-        extra_data: Optional[Dict] = None,
+        extra_data: Optional[dict] = None,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
@@ -218,10 +218,10 @@ class DashboardAPI:
     def update_text_tile(
         self,
         dashboard_id: int,
-        tile: Dict,
+        tile: dict,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
-    ) -> Tuple[int, Dict[str, Any]]:
+    ) -> tuple[int, dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
 
@@ -271,7 +271,7 @@ class DashboardAPI:
 
     def add_insight_to_dashboard(
         self,
-        dashboard_ids: List[int],
+        dashboard_ids: list[int],
         insight_id: int,
         expected_status: int = status.HTTP_200_OK,
     ):

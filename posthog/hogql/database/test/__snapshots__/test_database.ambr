@@ -675,6 +675,52 @@
               "type": "integer"
           }
       ],
+      "heatmaps": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "x",
+              "type": "integer"
+          },
+          {
+              "key": "y",
+              "type": "integer"
+          },
+          {
+              "key": "scale_factor",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_width",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_height",
+              "type": "integer"
+          },
+          {
+              "key": "pointer_target_fixed",
+              "type": "boolean"
+          },
+          {
+              "key": "current_url",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "type",
+              "type": "string"
+          }
+      ],
       "raw_session_replay_events": [
           {
               "key": "session_id",
@@ -1655,6 +1701,52 @@
           {
               "key": "duration",
               "type": "integer"
+          }
+      ],
+      "heatmaps": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "x",
+              "type": "integer"
+          },
+          {
+              "key": "y",
+              "type": "integer"
+          },
+          {
+              "key": "scale_factor",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_width",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_height",
+              "type": "integer"
+          },
+          {
+              "key": "pointer_target_fixed",
+              "type": "boolean"
+          },
+          {
+              "key": "current_url",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "type",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [

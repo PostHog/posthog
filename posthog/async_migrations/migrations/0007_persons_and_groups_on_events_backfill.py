@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Dict, Tuple, Union
+from typing import Union
 
 import structlog
 from django.conf import settings
@@ -289,7 +289,7 @@ class Migration(AsyncMigrationDefinition):
             self._check_person_data()
             self._check_groups_data()
 
-    def _where_clause(self) -> Tuple[str, Dict[str, Union[str, int]]]:
+    def _where_clause(self) -> tuple[str, dict[str, Union[str, int]]]:
         team_id = self.get_parameter("TEAM_ID")
         team_id_filter = f" AND team_id = %(team_id)s" if team_id else ""
         where_clause = f"WHERE timestamp > toDateTime(%(timestamp_lower_bound)s) AND timestamp < toDateTime(%(timestamp_upper_bound)s) {team_id_filter}"

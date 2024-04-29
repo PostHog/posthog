@@ -1,8 +1,8 @@
 # In order to add, delete or modify a dependency, please update
 # the reference here and then run:
 #
-# - `pip-compile --rebuild requirements.in`
-# - `pip-compile --rebuild requirements-dev.in`
+# - `uv pip compile requirements.in -o requirements.txt`
+# - `uv pip compile requirements-dev.in -o requirements-dev.txt`
 #
 aiohttp>=3.9.0
 aioboto3==12.0.0
@@ -33,7 +33,7 @@ djangorestframework==3.14.0
 djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.2.0
 django-fernet-encrypted-fields==0.1.3
-dlt==0.4.7
+dlt==0.4.9a2
 dnspython==2.2.1
 drf-exceptions-hog==0.4.0
 drf-extensions==0.7.0
@@ -53,7 +53,7 @@ pandas==2.2.0
 Pillow==10.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
-psycopg[binary]==3.1.13
+psycopg[binary]==3.1.18
 pyarrow==15.0.0
 pydantic==2.5.3
 pyjwt==2.4.0

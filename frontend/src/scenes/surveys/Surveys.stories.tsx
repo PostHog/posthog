@@ -40,6 +40,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     start_date: null,
     end_date: null,
     archived: false,
+    responses_limit: null,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -110,6 +111,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     start_date: '2023-04-29T10:04:37.977401Z',
     end_date: null,
     archived: false,
+    responses_limit: null,
 }
 
 const MOCK_SURVEY_SHOWN = {
@@ -168,9 +170,8 @@ const meta: Meta = {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
-                    } else {
-                        return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
+                    return res(ctx.json(MOCK_SURVEY_SHOWN))
                 },
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [

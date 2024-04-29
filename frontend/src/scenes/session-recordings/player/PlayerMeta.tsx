@@ -1,7 +1,6 @@
 import './PlayerMeta.scss'
 
-import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { IconDownload, IconMagic, IconSearch } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconMagic, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -68,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta(): JSX.Element {
+export function PlayerMeta({ linkIconsOnly = false }: { linkIconsOnly?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -181,10 +180,10 @@ export function PlayerMeta(): JSX.Element {
                     </div>
 
                     {sessionRecordingId && (
-                        <>
-                            <PlayerMetaLinks />
+                        <div className="flex items-center gap-0.5">
+                            <PlayerMetaLinks iconsOnly={linkIconsOnly} />
                             {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
-                        </>
+                        </div>
                     )}
                 </div>
                 <div
@@ -258,7 +257,7 @@ const MenuActions = (): JSX.Element => {
     const items: LemonMenuItems = [
         {
             label: 'Export to file',
-            onClick: exportRecordingToFile,
+            onClick: () => exportRecordingToFile(false),
             icon: <IconDownload />,
             tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
         },

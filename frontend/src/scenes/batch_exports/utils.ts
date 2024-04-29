@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BatchExportConfiguration, BatchExportDestination, BatchExportRun } from '~/types'
+import { AvailableFeature, BatchExportConfiguration, BatchExportRun, BatchExportService } from '~/types'
 
 export function intervalToFrequency(interval: BatchExportConfiguration['interval']): string {
     return {
@@ -15,7 +15,7 @@ export function isRunInProgress(run: BatchExportRun): boolean {
     return ['Running', 'Starting'].includes(run.status)
 }
 
-export function humanizeDestination(destination: BatchExportDestination): string {
+export function humanizeDestination(destination: BatchExportService): string {
     if (destination.type === 'S3') {
         return `s3://${destination.config.bucket_name}/${destination.config.prefix}`
     }
