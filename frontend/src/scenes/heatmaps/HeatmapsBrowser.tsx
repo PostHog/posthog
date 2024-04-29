@@ -15,9 +15,9 @@ export function HeatmapsBrowser(): JSX.Element {
 
     return (
         <div className="flex flex-wrap gap-2">
-            <div className="border rounded bg-bg-light flex-1">
+            {/* <div className="border rounded bg-bg-light flex-1">
                 <p className="p-2">Controls</p>
-            </div>
+            </div> */}
 
             <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                 <div className="bg-accent-3000 p-2 border-b flex items-center gap-2">
@@ -69,7 +69,7 @@ export function HeatmapsBrowser(): JSX.Element {
                         onLoad={onIframeLoad}
                     />
                 ) : (
-                    <div className="w-full h-full">
+                    <div className="w-full h-full bg-bg-light">
                         <p className="italic m-2">Select a URL</p>
                         {/* TODO: Add a bunch of suggested pages */}
                     </div>
