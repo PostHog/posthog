@@ -332,6 +332,13 @@
   SELECT ifNull(e__group_0.properties___industry, '') AS value,
          count(*) AS count
   FROM events AS e
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
   LEFT JOIN
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
             groups.group_type_index AS index,
@@ -340,7 +347,7 @@
      WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e.person_id))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e__pdi.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
