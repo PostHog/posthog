@@ -29,8 +29,9 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -112,16 +113,10 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            surveyType={survey.type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
+                                                        <SurveyAppearancePreview
+                                                            survey={survey}
+                                                            activePreview="survey"
+                                                            questionIndex={0}
                                                         />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -649,7 +644,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8">
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
                     activePreview={selectedQuestion || 0}
                     survey={survey}

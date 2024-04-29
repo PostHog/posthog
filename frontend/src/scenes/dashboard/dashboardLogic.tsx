@@ -259,15 +259,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     if (fromDashboard !== props.id) {
                         return values.dashboard
-                    } else {
-                        return await api.update(
-                            `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
-                            {
-                                tile,
-                                toDashboard,
-                            }
-                        )
                     }
+                    return await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                        {
+                            tile,
+                            toDashboard,
+                        }
+                    )
                 },
             },
         ],
@@ -704,9 +703,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return -1
                     } else if (ay > by || (ay == by && ax > bx)) {
                         return 1
-                    } else {
-                        return 0
                     }
+                    return 0
                 })
             },
         ],
