@@ -54,7 +54,7 @@ def publish_subscription(team_id: str, session_id: str) -> None:
         raise e
 
 
-def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[dict]]:
+def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
     try:
         redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
         key = get_key(team_id, session_id)
@@ -86,7 +86,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
             for s in encoded_snapshots:
                 for line in s[0].splitlines():
-                    snapshots.append(json.loads(line))
+                    snapshots.append(line)
 
             REALTIME_SUBSCRIPTIONS_LOADED_COUNTER.labels(attempt_count=attempt_count).inc()
             return snapshots

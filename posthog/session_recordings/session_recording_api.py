@@ -673,11 +673,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self, recording: SessionRecording, request: request.Request, event_properties: dict
     ) -> HttpResponse:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-            # snapshots is the JSONL content from Redis
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            snapshot_lines = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
         event_properties["source"] = "realtime"
-        event_properties["snapshots_length"] = len(snapshots)
+        event_properties["snapshots_length"] = len(snapshot_lines)
         posthoganalytics.capture(
             self._distinct_id_from_request(request),
             "session recording snapshots v2 loaded",
@@ -686,14 +685,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         response = HttpResponse(
             # convert list to a jsonl response
-            content=(
-                "\n".join(
-                    [
-                        json.dumps(snapshot, cls=SurrogatePairSafeJSONEncoder, separators=(",", ":"))
-                        for snapshot in snapshots
-                    ]
-                )
-            ),
+            content=("\n".join(snapshot_lines)),
             content_type="application/json",
         )
         # the browser is not allowed to cache this at all
