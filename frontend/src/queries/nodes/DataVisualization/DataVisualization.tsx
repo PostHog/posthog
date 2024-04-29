@@ -77,14 +77,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery]
     )
 
-    let component: JSX.Element | null = null
     if (!showEditingUI && (!response || responseLoading)) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    }
+    let component: JSX.Element | null = null
+    if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <DataTable
                 uniqueKey={props.uniqueKey}
@@ -103,7 +104,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     ) {
         component = <Chart />
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
-        component = <HogQLBoldNumber displayValue={response?.results[0][0]} />
+        component = (
+            <HogQLBoldNumber
+                displayValue={
+                    ((!response || responseLoading) && 'loading...') ||
+                    props.cachedResults?.[0]?.[0] ||
+                    response?.results?.[0]?.[0] ||
+                    'Error'
+                }
+            />
+        )
     }
 
     return (
