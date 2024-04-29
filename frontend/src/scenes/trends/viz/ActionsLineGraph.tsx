@@ -75,9 +75,13 @@ export function ActionsLineGraph({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source)
 
-    return indexedResults &&
-        indexedResults[0]?.data &&
-        indexedResults.filter((result) => result.count !== 0).length > 0 ? (
+    if (
+        !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
+    ) {
+        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+    }
+
+    return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
@@ -169,7 +173,5 @@ export function ActionsLineGraph({
                       }
             }
         />
-    ) : (
-        <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     )
 }

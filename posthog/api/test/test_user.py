@@ -887,6 +887,25 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
+    def test_user_cannot_update_protected_fields(self):
+        self.user.is_staff = False
+        self.user.save()
+        fields = {
+            "date_joined": "2021-01-01T00:00:00Z",
+            "uuid": str(uuid.uuid4()),
+            "distinct_id": "distinct_id",
+            "pending_email": "changed@example.com",
+            "is_email_verified": True,
+        }
+
+        initial_user = self.client.get("/api/users/@me/").json()
+
+        for field, value in fields.items():
+            response = self.client.patch("/api/users/@me/", {field: value})
+            assert (
+                response.json()[field] == initial_user[field]
+            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+
 
 class TestUserSlackWebhook(APIBaseTest):
     ENDPOINT: str = "/api/user/test_slack_webhook/"

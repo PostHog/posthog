@@ -46,6 +46,7 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
+    stop_surveys_reached_target,
 )
 from posthog.utils import get_crontab
 
@@ -237,6 +238,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             clear_clickhouse_deleted_person.s(),
             name="clickhouse clear deleted person data",
         )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12"),
+        stop_surveys_reached_target.s(),
+        name="stop surveys that reached responses limits",
+    )
 
     if settings.EE_AVAILABLE:
         # every interval seconds, we calculate N replay embeddings
