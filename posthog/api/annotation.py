@@ -66,14 +66,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
-    queryset = Annotation.objects.select_related("dashboard_item")
+    queryset = Annotation.objects.select_related("dashboard_item").select_related("created_by")
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination
     search_fields = ["content"]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset().select_related("created_by")
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":
@@ -83,7 +82,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return queryset
 
-    def filter_queryset_by_parents_lookups(self, queryset):
+    def _filter_queryset_by_parents_lookups(self, queryset):
         team = self.team
         return queryset.filter(
             Q(scope=Annotation.Scope.ORGANIZATION, organization_id=team.organization_id) | Q(team=team)

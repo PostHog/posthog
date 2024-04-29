@@ -5,6 +5,7 @@ import jwt
 import requests
 import structlog
 from django.utils import timezone
+from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
 
@@ -44,7 +45,11 @@ def build_billing_token(license: License, organization: Organization):
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
-        raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.json())
+        try:
+            response = res.json()
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+        except JSONDecodeError:
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
 
 
 class BillingManager:

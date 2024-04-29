@@ -281,4 +281,23 @@ describe('Surveys', () => {
             .contains('DRAFT')
             .should('exist')
     })
+
+    it.only('can set responses limit', () => {
+        cy.get('h1').should('contain', 'Surveys')
+        cy.get('[data-attr=new-survey]').click()
+        cy.get('[data-attr=new-blank-survey]').click()
+
+        cy.get('[data-attr=survey-name]').focus().type(name)
+
+        // Set responses limit
+        cy.get('.LemonCollapsePanel').contains('Completion conditions').click()
+        cy.get('[data-attr=survey-responses-limit-input]').focus().type('228').click()
+
+        // Save the survey
+        cy.get('[data-attr=save-survey]').first().click()
+        cy.get('button[data-attr="launch-survey"]').should('have.text', 'Launch')
+
+        cy.reload()
+        cy.contains('The survey will be stopped once 228 responses are received.').should('be.visible')
+    })
 })

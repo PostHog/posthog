@@ -5,9 +5,8 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("posthog", "0405_team_heatmaps_opt_in"),
+        ("posthog", "0406_survey_responses_limit"),
     ]
 
     operations = [

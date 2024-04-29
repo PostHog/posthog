@@ -12,7 +12,7 @@ patchedDependencies:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
   rrweb@2.0.0-alpha.13:
-    hash: awo7hmdoglvq4pl5b43lreupza
+    hash: g7jnlxuwyxkja3n62yb6xpim6q
     path: patches/rrweb@2.0.0-alpha.13.patch
 
 dependencies:
@@ -260,8 +260,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.130.0
-    version: 1.130.0
+    specifier: 1.130.1
+    version: 1.130.1
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -333,7 +333,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza)
+    version: 2.0.0-alpha.13(patch_hash=g7jnlxuwyxkja3n62yb6xpim6q)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -17567,8 +17567,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.130.0:
-    resolution: {integrity: sha512-bCrw5HunoXLybO20Q1bYEg68i5WCZWKxhStYJK4OR/9jrm7GwZ53GDrN78p8apFi0EH5ay4YZGbLFSkg+SsZWQ==}
+  /posthog-js@1.130.1:
+    resolution: {integrity: sha512-BC283kxeJnVIeAxn7ZPHf5sCTA6oXs4uvo9fdGAsbKwwfmF9g09rnJOOaoF95J/auf8HT4YB6Vt2KytqtJD44w==}
     dependencies:
       fflate: 0.4.8
       preact: 10.20.2
@@ -19277,7 +19277,7 @@ packages:
     resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.13(patch_hash=awo7hmdoglvq4pl5b43lreupza):
+  /rrweb@2.0.0-alpha.13(patch_hash=g7jnlxuwyxkja3n62yb6xpim6q):
     resolution: {integrity: sha512-a8GXOCnzWHNaVZPa7hsrLZtNZ3CGjiL+YrkpLo0TfmxGLhjNZbWY2r7pE06p+FcjFNlgUVTmFrSJbK3kO7yxvw==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.13

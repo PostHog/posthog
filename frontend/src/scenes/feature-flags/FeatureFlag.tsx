@@ -618,13 +618,12 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     const { generateUsageDashboard, enrichUsageDashboard } = useActions(featureFlagLogic)
     const { featureFlagLoading } = useValues(featureFlagLogic)
     let dashboard: DashboardType | null = null
-    let connectedDashboardExists = false
     if (dashboardId) {
+        // FIXME: Refactor out into <ConnectedDashboard />, as React hooks under conditional branches are no good
         const dashboardLogicValues = useValues(
             dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
         )
         dashboard = dashboardLogicValues.dashboard
-        connectedDashboardExists = !dashboardLogicValues.receivedErrorsFromAPI
     }
 
     const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
@@ -632,7 +631,6 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     useEffect(() => {
         if (
-            connectedDashboardExists &&
             dashboard &&
             hasEnrichedAnalytics &&
             !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
@@ -652,7 +650,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
 
     return (
         <div>
-            {connectedDashboardExists ? (
+            {dashboard ? (
                 <>
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
                         <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>

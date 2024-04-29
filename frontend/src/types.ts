@@ -2436,6 +2436,7 @@ export interface Survey {
     end_date: string | null
     archived: boolean
     remove_targeting_flag?: boolean
+    responses_limit: number | null
 }
 
 export enum SurveyUrlMatchType {

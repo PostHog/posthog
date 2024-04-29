@@ -96,8 +96,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     permission_classes = [PremiumFeaturePermission]
     premium_feature = AvailableFeature.SUBSCRIPTIONS
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.GET.dict()
 
         if self.action == "list" and "deleted" not in filters:

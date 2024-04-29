@@ -10,6 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 import pytest
 
+from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
@@ -4405,6 +4406,67 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
+
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="other-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "tear", "value": "tear", "type": "person"}], "rollout_percentage": 100}
+                ],
+            },
+        )
+
+        matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html?\x00")
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {
+                    "active-flag": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    }
+                },
+                {},
+                True,
+            ),
+        )
+        self.assertEqual(matcher.failed_to_fetch_conditions, True)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
+        # with operational error, should set db down
+        with connection.execute_wrapper(QueryTimeoutWrapper()):
+            matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html")
+
+            self.assertEqual(
+                matcher.get_matches(),
+                (
+                    {"active-flag": True},
+                    {
+                        "active-flag": {
+                            "condition_index": 0,
+                            "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                        }
+                    },
+                    {},
+                    True,
+                ),
+            )
+            self.assertEqual(matcher.failed_to_fetch_conditions, True)
+            mock_database_healthcheck.set_connection.assert_called_once_with(False)
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)

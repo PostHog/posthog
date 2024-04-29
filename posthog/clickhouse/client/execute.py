@@ -202,7 +202,11 @@ def _prepare_query(
         rendered_sql = substitute_params(query, args)
         prepared_args = None
 
-    formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    if "--" in rendered_sql or "/*" in rendered_sql:
+        # This can take a very long time with e.g. large funnel queries
+        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    else:
+        formatted_sql = rendered_sql
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 
     if app_settings.SHELL_PLUS_PRINT_SQL:
