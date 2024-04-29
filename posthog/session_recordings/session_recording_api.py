@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
+from collections.abc import Generator
 
 from django.conf import settings
 
@@ -227,7 +228,7 @@ def ensure_not_weak(etag: str) -> str:
 
 
 @contextmanager
-def stream_from(url: str, headers: dict | None = None) -> requests.Response:
+def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response, None, None]:
     """
     Stream data from a URL using optional headers.
 
