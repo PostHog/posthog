@@ -35,7 +35,7 @@ export function Timestamp(): JSX.Element {
 
     return (
         <LemonButton data-attr="recording-timestamp" onClick={rotateTimestampFormat} active>
-            <span className="text-center whitespace-nowrap">
+            <span className="text-center whitespace-nowrap font-mono">
                 {timestampFormat === TimestampFormat.Relative ? (
                     <>
                         {colonDelimitedDuration(startTimeSeconds, fixedUnits)} /{' '}
