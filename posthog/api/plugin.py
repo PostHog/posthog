@@ -20,7 +20,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
-from posthog.api.action import ActionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.action.action import Action
