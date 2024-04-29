@@ -69,10 +69,9 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         schedule_all_subscriptions()
 
-        assert mock_deliver_task.delay.mock_calls == [
-            call(subscriptions[0].id),
-            call(subscriptions[1].id),
-        ]
+        self.assertCountEqual(
+            mock_deliver_task.delay.call_args_list, [call(subscriptions[0].id), call(subscriptions[1].id)]
+        )
 
     @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(

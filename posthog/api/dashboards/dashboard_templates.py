@@ -72,6 +72,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
     scope_object = "dashboard_template"
     permission_classes = [OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
+    queryset = DashboardTemplate.objects.all()
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
     @action(methods=["GET"], detail=False)
@@ -79,7 +80,8 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)
 
-    def get_queryset(self, *args, **kwargs):
+    def dangerously_get_queryset(self):
+        # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
         filters = self.request.GET.dict()
         scope = filters.pop("scope", None)
         search = filters.pop("search", None)

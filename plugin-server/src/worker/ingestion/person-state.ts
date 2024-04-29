@@ -112,8 +112,15 @@ export class PersonState {
                     // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                     person.properties = {}
 
-                    // See documentation on the field.
-                    person.force_upgrade = true
+                    if (this.timestamp > person.created_at.plus({ minutes: 1 })) {
+                        // See documentation on the field.
+                        //
+                        // Note that we account for timestamp vs person creation time (with a little
+                        // padding for good measure) to account for ingestion lag. It's possible for
+                        // events to be processed after person creation even if they were sent prior
+                        // to person creation, and the user did nothing wrong in that case.
+                        person.force_upgrade = true
+                    }
 
                     return person
                 }

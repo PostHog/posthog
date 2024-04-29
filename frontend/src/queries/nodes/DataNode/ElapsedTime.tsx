@@ -8,7 +8,7 @@ import { QueryTiming } from '~/queries/schema'
 
 export interface TimingsProps {
     timings: QueryTiming[]
-    elapsedTime: number
+    elapsedTime?: number
 }
 
 export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | null {
@@ -26,7 +26,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
                     <div>{time.toFixed(3)}s</div>
                 </div>
             ))}
-            {timings.length > 0 ? (
+            {elapsedTime !== undefined && timings.length > 0 ? (
                 <div className={clsx('flex justify-between items-start space-x-2')}>
                     <div>+ HTTP overhead</div>
                     <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>

@@ -441,7 +441,7 @@ describe('dashboardLogic', () => {
 
         it('allows consumers to respond', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                receivedErrorsFromAPI: true,
+                dashboardFailedToLoad: true,
             })
         })
     })
@@ -478,20 +478,20 @@ describe('dashboardLogic', () => {
 
             it('fetches dashboard items on mount', async () => {
                 await expectLogic(logic)
-                    .toDispatchActions(['loadDashboardItems'])
+                    .toDispatchActions(['loadDashboard'])
                     .toMatchValues({
                         dashboard: null,
                         tiles: [],
                         insightTiles: [],
                         textTiles: [],
                     })
-                    .toDispatchActions(['loadDashboardItemsSuccess'])
+                    .toDispatchActions(['loadDashboardSuccess'])
                     .toMatchValues({
                         dashboard: expect.objectContaining(dashboards['5']),
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
-                        receivedErrorsFromAPI: false,
+                        dashboardFailedToLoad: false,
                     })
             })
         })
@@ -675,7 +675,7 @@ describe('dashboardLogic', () => {
                 } as InsightModel)
             })
                 .toFinishAllListeners()
-                .toDispatchActions(['loadDashboardItems'])
+                .toDispatchActions(['loadDashboard'])
         })
     })
 
@@ -688,7 +688,7 @@ describe('dashboardLogic', () => {
         it('fetches dashboard items on mount', async () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
-                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(
                         ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 2
@@ -747,7 +747,7 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic)
-                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
         })
@@ -818,6 +818,6 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([])
         // Ensuring we do go back to the API for 800, which was added to dashboard 5
-        expectLogic(fiveLogic).toDispatchActions(['loadDashboardItems']).toFinishAllListeners()
+        expectLogic(fiveLogic).toDispatchActions(['loadDashboard']).toFinishAllListeners()
     })
 })
