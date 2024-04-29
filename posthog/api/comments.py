@@ -71,8 +71,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     # TODO: Update when fully released
     scope_object = "INTERNAL"
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         if params.get("user"):
