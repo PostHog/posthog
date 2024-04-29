@@ -5,13 +5,13 @@ from posthog.constants import AvailableFeature
 
 
 class Tier(TypedDict):
-    flat_amount_usd: Decimal
-    unit_amount_usd: Decimal
-    current_amount_usd: Decimal
+    flat_amount_usd: str
+    unit_amount_usd: str
+    current_amount_usd: str
     up_to: Optional[int]
     current_usage: int
     projected_usage: Optional[int]
-    projected_amount_usd: Optional[Decimal]
+    projected_amount_usd: Optional[str]
 
 
 class CustomerProduct(TypedDict):

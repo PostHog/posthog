@@ -71,7 +71,6 @@ def compute_usage_per_tier(current_usage: int, projected_usage: int, tiers):
         else:
             tier_max_usage = float("inf")
 
-        # NOTE: flat_amount_decimal and unit_amount_decimal are a string but in cents rather than usd
         flat_amount_usd = Decimal(tier.get("flat_amount_usd") or 0)
         unit_amount_usd = Decimal(tier.get("unit_amount_usd") or 0)
         usage_this_tier = int(min(remaining_usage, tier_max_usage))
@@ -90,22 +89,22 @@ def compute_usage_per_tier(current_usage: int, projected_usage: int, tiers):
 
         result.append(
             Tier(
-                flat_amount_usd=flat_amount_usd,
-                unit_amount_usd=unit_amount_usd,
+                flat_amount_usd=str(flat_amount_usd),
+                unit_amount_usd=str(unit_amount_usd),
                 up_to=tier.get("up_to", None),
-                current_amount_usd=current_amount_usd,
+                current_amount_usd=str(current_amount_usd),
                 current_usage=usage_this_tier,
                 projected_usage=projected_usage_this_tier,
-                projected_amount_usd=projected_amount_usd,
+                projected_amount_usd=str(projected_amount_usd),
             )
         )
     return result
 
 
 def sum_total_across_tiers(tiers):
-    total = 0
+    total = Decimal(0)
     for tier in tiers:
-        total += tier["current_amount_usd"]
+        total += Decimal(tier["current_amount_usd"])
     return total
 
 
