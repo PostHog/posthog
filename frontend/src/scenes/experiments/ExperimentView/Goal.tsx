@@ -210,16 +210,27 @@ export function Goal(): JSX.Element {
 
     return (
         <div>
-            <h2 className="font-semibold text-lg mb-0">Experiment goal</h2>
-            <div className="text-muted text-xs">
-                This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
-                {experimentInsightType === InsightType.FUNNELS
-                    ? 'experiment measures conversion at each stage.'
-                    : 'experiment tracks the count of a single metric.'}
+            <div>
+                <div className="inline-flex space-x-2">
+                    <h2 className="font-semibold text-lg mb-0">Experiment goal</h2>
+                    <Tooltip
+                        title={
+                            <>
+                                {' '}
+                                This <b>{experimentInsightType === InsightType.FUNNELS ? 'funnel' : 'trend'}</b>{' '}
+                                {experimentInsightType === InsightType.FUNNELS
+                                    ? 'experiment measures conversion at each stage.'
+                                    : 'experiment tracks the count of a single metric.'}
+                            </>
+                        }
+                    >
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
             </div>
             <div className="inline-flex space-x-6">
                 <div>
-                    <div className="card-secondary mb-2 mt-4">
+                    <div className="card-secondary mb-2 mt-2">
                         {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                     </div>
                     <MetricDisplay filters={experiment.filters} />

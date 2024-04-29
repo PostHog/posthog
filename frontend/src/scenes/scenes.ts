@@ -164,6 +164,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
+    [Scene.PipelineNodeNew]: {
+        projectBased: true,
+        name: 'Pipeline new step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
+    },
     [Scene.Pipeline]: {
         projectBased: true,
         name: 'Pipeline',
@@ -512,6 +518,8 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,

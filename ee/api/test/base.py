@@ -1,5 +1,5 @@
 import datetime
-from typing import Dict, Optional, cast
+from typing import Optional, cast
 
 from zoneinfo import ZoneInfo
 
@@ -20,7 +20,7 @@ class LicensedTestMixin:
     def license_required_response(
         self,
         message: str = "This feature is part of the premium PostHog offering. Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options.",
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "server_error",
             "code": "payment_required",

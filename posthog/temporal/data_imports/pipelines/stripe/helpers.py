@@ -1,6 +1,7 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Optional, Union, Iterable, Tuple
+from typing import Any, Optional, Union
+from collections.abc import Iterable
 
 import stripe
 import dlt
@@ -32,7 +33,7 @@ async def stripe_get_data(
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
     **kwargs: Any,
-) -> Dict[Any, Any]:
+) -> dict[Any, Any]:
     if start_date:
         start_date = transform_date(start_date)
     if end_date:
@@ -148,7 +149,7 @@ async def stripe_pagination(
 def stripe_source(
     api_key: str,
     account_id: str,
-    endpoints: Tuple[str, ...],
+    endpoints: tuple[str, ...],
     team_id,
     job_id,
     schema_id,
@@ -161,6 +162,9 @@ def stripe_source(
             stripe_pagination,
             name=endpoint,
             write_disposition="append",
+            columns={
+                "description": {"data_type": "text", "nullable": True},
+            },
         )(
             api_key=api_key,
             account_id=account_id,

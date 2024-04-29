@@ -488,11 +488,51 @@ index 0d49411b1f6d31103bed898c0e81d1d74ab51234..0b2160ef08aa3ae5310f63c295abc0a5
          }
      }
      applyMutation(d, isSync) {
+diff --git a/es/rrweb/packages/rrweb/src/replay/media/index.js b/es/rrweb/packages/rrweb/src/replay/media/index.js
+index 22fee601e786c1d8dfb5c01d2e359c8bcbac7c42..20c3e14adfde860563e8dd902041bd14c860f462 100644
+--- a/es/rrweb/packages/rrweb/src/replay/media/index.js
++++ b/es/rrweb/packages/rrweb/src/replay/media/index.js
+@@ -21,7 +21,7 @@ class MediaManager {
+         this.mediaMap.forEach((mediaState, target) => {
+             this.syncTargetWithState(target);
+             if (options.pause) {
+-                target.pause();
++                target?.pause();
+             }
+         });
+     }
+@@ -49,7 +49,7 @@ class MediaManager {
+             target.currentTime = seekToTime;
+         }
+         else {
+-            target.pause();
++            target?.pause();
+             target.currentTime = mediaState.currentTimeAtLastInteraction;
+         }
+     }
+@@ -117,7 +117,7 @@ class MediaManager {
+                 void target.play();
+             }
+             else {
+-                target.pause();
++                target?.pause();
+             }
+         }
+         catch (error) {
+@@ -141,7 +141,7 @@ class MediaManager {
+             isPlaying = target.getAttribute('autoplay') !== null;
+         }
+         if (isPlaying && playerIsPaused)
+-            target.pause();
++            target?.pause();
+         let playbackRate = 1;
+         if (typeof mediaAttributes.rr_mediaPlaybackRate === 'number') {
+             playbackRate = mediaAttributes.rr_mediaPlaybackRate;
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-index 38a23aaae8d683fa584329eced277dd8de55d1ff..1090307f2974c2eb6259d650fd02ef2e2c40e790 100644
+index 38a23aaae8d683fa584329eced277dd8de55d1ff..278e06bc6c8c964581d461405a0f0a4544344fa1 100644
 --- a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
 +++ b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-@@ -1255,54 +1255,15 @@ function parse(css, options = {}) {
+@@ -1255,54 +1255,19 @@ function parse(css, options = {}) {
          });
      }
      function selector() {
@@ -547,6 +587,10 @@ index 38a23aaae8d683fa584329eced277dd8de55d1ff..1090307f2974c2eb6259d650fd02ef2e
 -        }
 -        return result;
 +                return m.replace(/,/g, '\u200C');
++            })
++            .split(/\s*(?![^(]*\)),\s*/)
++            .map((s) => {
++                return s.replace(/\u200C/g, ',');
 +            });
      }
      function declaration() {

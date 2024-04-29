@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -37,7 +37,7 @@ class TrendsActors(ActorBaseQuery):
             return self.entity.math_group_type_index
         return None
 
-    def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
+    def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
             self._filter = self._filter.shallow_clone(
@@ -95,7 +95,7 @@ class TrendsActors(ActorBaseQuery):
                 }
             )
 
-        extra_fields: List[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
+        extra_fields: list[str] = ["distinct_id", "team_id"] if not self.is_aggregating_by_groups else []
         if self._filter.include_recordings:
             extra_fields += ["uuid"]
 
@@ -147,7 +147,7 @@ class TrendsActors(ActorBaseQuery):
             return "person_id"
 
     @cached_property
-    def _aggregation_actor_value_expression_with_params(self) -> Tuple[str, Dict[str, Any]]:
+    def _aggregation_actor_value_expression_with_params(self) -> tuple[str, dict[str, Any]]:
         if self.entity.math in PROPERTY_MATH_FUNCTIONS:
             math_aggregate_operation, _, math_params = process_math(
                 self.entity, self._team, filter=self._filter, event_table_alias="e"

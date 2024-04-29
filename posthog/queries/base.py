@@ -3,14 +3,12 @@ import hashlib
 import re
 from typing import (
     Any,
-    Callable,
-    Dict,
-    List,
     Optional,
     TypeVar,
     Union,
     cast,
 )
+from collections.abc import Callable
 from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from dateutil import parser
@@ -47,7 +45,7 @@ def determine_compared_filter(filter: FilterType) -> FilterType:
     return filter.shallow_clone({"date_from": date_from.isoformat(), "date_to": date_to.isoformat()})
 
 
-def convert_to_comparison(trend_entities: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
+def convert_to_comparison(trend_entities: list[dict[str, Any]], filter, label: str) -> list[dict[str, Any]]:
     for entity in trend_entities:
         labels = [
             "{} {}".format(filter.interval if filter.interval is not None else "day", i)
@@ -72,7 +70,7 @@ def convert_to_comparison(trend_entities: List[Dict[str, Any]], filter, label: s
 """
 
 
-def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
+def handle_compare(filter, func: Callable, team: Team, **kwargs) -> list:
     all_entities = []
     base_entitites = func(filter=filter, team=team, **kwargs)
     if filter.compare:
@@ -88,7 +86,7 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
     return all_entities
 
 
-def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:
+def match_property(property: Property, override_property_values: dict[str, Any]) -> bool:
     # only looks for matches where key exists in override_property_values
     # doesn't support operator is_not_set
 
@@ -276,8 +274,8 @@ def lookup_q(key: str, value: Any) -> Q:
 def property_to_Q(
     team_id: int,
     property: Property,
-    override_property_values: Optional[Dict[str, Any]] = None,
-    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+    override_property_values: Optional[dict[str, Any]] = None,
+    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     if override_property_values is None:
@@ -382,8 +380,8 @@ def property_to_Q(
 def property_group_to_Q(
     team_id: int,
     property_group: PropertyGroup,
-    override_property_values: Optional[Dict[str, Any]] = None,
-    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+    override_property_values: Optional[dict[str, Any]] = None,
+    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     if override_property_values is None:
@@ -426,9 +424,9 @@ def property_group_to_Q(
 
 def properties_to_Q(
     team_id: int,
-    properties: List[Property],
-    override_property_values: Optional[Dict[str, Any]] = None,
-    cohorts_cache: Optional[Dict[int, CohortOrEmpty]] = None,
+    properties: list[Property],
+    override_property_values: Optional[dict[str, Any]] = None,
+    cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
 ) -> Q:
     """

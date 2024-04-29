@@ -139,3 +139,23 @@ multiIf(
             "gad_source": wrap_with_null_if_empty(gad_source),
         },
     )
+
+
+POSSIBLE_CHANNEL_TYPES = [
+    "Cross Network",
+    "Paid Search",
+    "Paid Video",
+    "Paid Shopping",
+    "Paid Other",
+    "Direct",
+    "Organic Search",
+    "Organic Video",
+    "Organic Shopping",
+    "Push",
+    "SMS",
+    "Audio",
+    "Email",
+    "Referral",
+    "Affiliate",
+    "Other",
+]

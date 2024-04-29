@@ -2,11 +2,10 @@
 
 from typing import (
     Any,
-    List,
     Optional,
-    Iterator,
     Union,
 )
+from collections.abc import Iterator
 import operator
 
 import dlt
@@ -63,7 +62,7 @@ class TableLoader:
             return query
         return query.where(filter_op(self.cursor_column, self.last_value))  # type: ignore
 
-    def load_rows(self) -> Iterator[List[TDataItem]]:
+    def load_rows(self) -> Iterator[list[TDataItem]]:
         query = self.make_query()
         with self.engine.connect() as conn:
             result = conn.execution_options(yield_per=self.chunk_size).execute(query)
@@ -104,7 +103,7 @@ def engine_from_credentials(credentials: Union[ConnectionStringCredentials, Engi
     return create_engine(credentials)
 
 
-def get_primary_key(table: Table) -> List[str]:
+def get_primary_key(table: Table) -> list[str]:
     return [c.name for c in table.primary_key]
 
 

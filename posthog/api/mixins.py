@@ -1,4 +1,4 @@
-from typing import TypeVar, Type
+from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -9,7 +9,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class PydanticModelMixin:
-    def get_model(self, data: dict, model: Type[T]) -> T:
+    def get_model(self, data: dict, model: type[T]) -> T:
         try:
             return model.model_validate(data)
         except ValidationError as exc:

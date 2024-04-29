@@ -2,7 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
@@ -52,7 +52,7 @@ class Change:
 class Trigger:
     job_type: str
     job_id: str
-    payload: Dict
+    payload: dict
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,13 +62,13 @@ class Detail:
     # The short_id if it has one
     short_id: Optional[str] = None
     type: Optional[str] = None
-    changes: Optional[List[Change]] = None
+    changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, (Detail, Change, Trigger)):
+        if isinstance(obj, Detail | Change | Trigger):
             return obj.__dict__
         if isinstance(obj, datetime):
             return obj.isoformat()
@@ -132,7 +132,7 @@ common_field_exclusions = [
 ]
 
 
-field_exclusions: Dict[ActivityScope, List[str]] = {
+field_exclusions: dict[ActivityScope, list[str]] = {
     "Notebook": [
         "text_content",
     ],
@@ -199,7 +199,7 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
 }
 
 
-def describe_change(m: Any) -> Union[str, Dict]:
+def describe_change(m: Any) -> Union[str, dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -213,7 +213,7 @@ def describe_change(m: Any) -> Union[str, Dict]:
         return str(m)
 
 
-def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
+def _read_through_relation(relation: models.Manager) -> list[Union[dict, str]]:
     described_models = [describe_change(r) for r in relation.all()]
 
     if all(isinstance(elem, str) for elem in described_models):
@@ -227,11 +227,11 @@ def changes_between(
     model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
-) -> List[Change]:
+) -> list[Change]:
     """
     Identifies changes between two models by comparing fields
     """
-    changes: List[Change] = []
+    changes: list[Change] = []
 
     if previous is None and current is None:
         # there are no changes between two things that don't exist
@@ -282,14 +282,14 @@ def changes_between(
 
 def dict_changes_between(
     model_type: ActivityScope,
-    previous: Dict[Any, Any],
-    new: Dict[Any, Any],
+    previous: dict[Any, Any],
+    new: dict[Any, Any],
     use_field_exclusions: bool = False,
-) -> List[Change]:
+) -> list[Change]:
     """
     Identifies changes between two dictionaries by comparing fields
     """
-    changes: List[Change] = []
+    changes: list[Change] = []
 
     if previous == new:
         return changes
@@ -395,7 +395,7 @@ class ActivityPage:
     limit: int
     has_next: bool
     has_previous: bool
-    results: List[ActivityLog]
+    results: list[ActivityLog]
 
 
 def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1) -> ActivityPage:
@@ -430,7 +430,7 @@ def load_activity(
     return get_activity_page(activity_query, limit, page)
 
 
-def load_all_activity(scope_list: List[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
+def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
     activity_query = (
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope__in=scope_list).order_by("-created_at")
     )

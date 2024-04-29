@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Optional, Union
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
@@ -41,18 +41,18 @@ from posthog.test.base import APIBaseTest, _create_event, _create_person
 @dataclass
 class Series:
     event: str
-    timestamps: List[str]
+    timestamps: list[str]
 
 
 @dataclass
 class SeriesTestData:
     distinct_id: str
-    events: List[Series]
-    properties: Dict[str, str | int]
+    events: list[Series]
+    properties: dict[str, str | int]
 
 
 StickinessProperties = Union[
-    List[
+    list[
         Union[
             EventPropertyFilter,
             PersonPropertyFilter,
@@ -74,9 +74,9 @@ class TestStickinessQueryRunner(APIBaseTest):
     default_date_from = "2020-01-11"
     default_date_to = "2020-01-20"
 
-    def _create_events(self, data: List[SeriesTestData]):
+    def _create_events(self, data: list[SeriesTestData]):
         person_result = []
-        properties_to_create: Dict[str, str] = {}
+        properties_to_create: dict[str, str] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
@@ -194,7 +194,7 @@ class TestStickinessQueryRunner(APIBaseTest):
 
     def _run_query(
         self,
-        series: Optional[List[EventsNode | ActionsNode]] = None,
+        series: Optional[list[EventsNode | ActionsNode]] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
         interval: Optional[IntervalType] = None,
@@ -203,7 +203,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         filter_test_accounts: Optional[bool] = False,
         limit_context: Optional[LimitContext] = None,
     ):
-        query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query_date_from = date_from or self.default_date_from
         query_date_to = None if date_to == "now" else date_to or self.default_date_to
         query_interval = interval or IntervalType.day
@@ -223,8 +223,8 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         response = self._run_query()
         assert isinstance(response, StickinessQueryResponse)
-        assert isinstance(response.results, List)
-        assert isinstance(response.results[0], Dict)
+        assert isinstance(response.results, list)
+        assert isinstance(response.results[0], dict)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_stickiness_runs_with_poe(self):
@@ -232,8 +232,8 @@ class TestStickinessQueryRunner(APIBaseTest):
 
         response = self._run_query()
         assert isinstance(response, StickinessQueryResponse)
-        assert isinstance(response.results, List)
-        assert isinstance(response.results[0], Dict)
+        assert isinstance(response.results, list)
+        assert isinstance(response.results[0], dict)
 
     def test_days(self):
         self._create_test_events()
@@ -423,7 +423,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_event_filtering(self):
         self._create_test_events()
 
-        series: List[EventsNode | ActionsNode] = [
+        series: list[EventsNode | ActionsNode] = [
             EventsNode(
                 event="$pageview",
                 properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.exact, value="Chrome")],
@@ -450,7 +450,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_any_event(self):
         self._create_test_events()
 
-        series: List[EventsNode | ActionsNode] = [
+        series: list[EventsNode | ActionsNode] = [
             EventsNode(
                 event=None,
             )
@@ -484,7 +484,7 @@ class TestStickinessQueryRunner(APIBaseTest):
             properties=[{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
         )
 
-        series: List[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]
+        series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]
 
         response = self._run_query(series=series)
 
@@ -541,7 +541,7 @@ class TestStickinessQueryRunner(APIBaseTest):
         self._create_test_groups()
         self._create_test_events()
 
-        series: List[EventsNode | ActionsNode] = [
+        series: list[EventsNode | ActionsNode] = [
             EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
         ]
 
@@ -565,7 +565,7 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_hogql_aggregations(self):
         self._create_test_events()
 
-        series: List[EventsNode | ActionsNode] = [
+        series: list[EventsNode | ActionsNode] = [
             EventsNode(event="$pageview", math="hogql", math_hogql="e.properties.prop")
         ]
 

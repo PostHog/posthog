@@ -5,7 +5,7 @@ import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -39,6 +39,7 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportDestination,
@@ -97,9 +98,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     pagination_class = RunsCursorPagination
     filter_rewrite_rules = {"team_id": "batch_export__team_id"}
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset):
         after = self.request.GET.get("after", "-7d")
         before = self.request.GET.get("before", None)
         after_datetime = relative_date_parse(after, self.team.timezone_info)
@@ -233,13 +232,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
         """Return a batch export schema from a HogQL query ast."""
-        context = HogQLContext(
-            team_id=self.context["team_id"],
-            enable_select_queries=True,
-            limit_top_select=False,
-        )
-
         try:
+            # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
+            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+
+            # Recreate the context
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
                 "values": {},
@@ -324,11 +331,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
 class BatchExportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
-    queryset = BatchExport.objects.all()
+    queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()
     serializer_class = BatchExportSerializer
-
-    def get_queryset(self):
-        return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -428,12 +432,12 @@ class BatchExportLogEntrySerializer(DataclassSerializer):
         dataclass = BatchExportLogEntry
 
 
-class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class BatchExportLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "batch_export"
     serializer_class = BatchExportLogEntrySerializer
 
-    def get_queryset(self):
-        limit_raw = self.request.GET.get("limit")
+    def list(self, request: request.Request, *args, **kwargs):
+        limit_raw = request.GET.get("limit")
         limit: int | None
         if limit_raw:
             try:
@@ -443,24 +447,32 @@ class BatchExportLogViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, views
         else:
             limit = None
 
-        after_raw: str | None = self.request.GET.get("after")
+        after_raw: str | None = request.GET.get("after")
         after: dt.datetime | None = None
         if after_raw is not None:
             after = dt.datetime.fromisoformat(after_raw.replace("Z", "+00:00"))
 
-        before_raw: str | None = self.request.GET.get("before")
+        before_raw: str | None = request.GET.get("before")
         before: dt.datetime | None = None
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
-        return fetch_batch_export_log_entries(
-            team_id=self.parents_query_dict["team_id"],
+        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (request.GET.getlist("level_filter", []))]
+        data = fetch_batch_export_log_entries(
+            team_id=self.team_id,
             batch_export_id=self.parents_query_dict["batch_export_id"],
             run_id=self.parents_query_dict.get("run_id", None),
             after=after,
             before=before,
-            search=self.request.GET.get("search"),
+            search=request.GET.get("search"),
             limit=limit,
             level_filter=level_filter,
         )
+
+        page = self.paginate_queryset(data)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(data, many=True)
+        return response.Response(serializer.data)

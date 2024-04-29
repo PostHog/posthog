@@ -1,7 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
 from datetime import timedelta
-from typing import List
 
 from corsheaders.defaults import default_headers
 
@@ -160,7 +159,7 @@ SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
-AUTHENTICATION_BACKENDS: List[str] = [
+AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",

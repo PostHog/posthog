@@ -1,7 +1,8 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Optional, Union, cast
 
+from sentry_sdk import capture_exception, set_tag
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -118,7 +119,7 @@ def log_insight_activity(
     team_id: int,
     user: User,
     was_impersonated: bool,
-    changes: Optional[List[Change]] = None,
+    changes: Optional[list[Change]] = None,
 ) -> None:
     """
     Insight id and short_id are passed separately as some activities (like delete) alter the Insight instance
@@ -148,7 +149,7 @@ class QuerySchemaParser(JSONParser):
     """
 
     def parse(self, stream, media_type=None, parser_context=None):
-        data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
+        data = super().parse(stream, media_type, parser_context)
         try:
             query = data.get("query", None)
             if query:
@@ -197,7 +198,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Any:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError()
 
     def to_representation(self, instance):
@@ -306,7 +307,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "is_cached",
         )
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
@@ -345,8 +346,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return insight
 
-    def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
-        dashboards_before_change: List[Union[str, Dict]] = []
+    def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
+        dashboards_before_change: list[Union[str, dict]] = []
         try:
             # since it is possible to be undeleting a soft deleted insight
             # the state captured before the update has to include soft deleted insights
@@ -411,7 +412,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 changes=changes,
             )
 
-    def _synthetic_dashboard_changes(self, dashboards_before_change: List[Dict]) -> List[Change]:
+    def _synthetic_dashboard_changes(self, dashboards_before_change: list[dict]) -> list[Change]:
         artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
         if artificial_dashboard_changes:
             return [
@@ -426,7 +427,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         return []
 
-    def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
+    def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
@@ -536,15 +537,23 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
             # we fake the insight being properly `query`-based.
             # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
-            insight.query = filter_to_query(insight.filters).model_dump()
             try:
-                return calculate_for_query_based_insight(
-                    insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])
-                )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
-            finally:
-                insight.query = None
+                insight.query = filter_to_query(insight.filters).model_dump()
+            except:
+                # If `filter_to_query` failed, let's capture this and proceed with legacy filters
+                set_tag("filter_to_query_todo", True)
+                capture_exception()
+            else:
+                try:
+                    return calculate_for_query_based_insight(
+                        insight,
+                        dashboard=dashboard,
+                        refresh_requested=refresh_requested_by_client(self.context["request"]),
+                    )
+                except ExposedHogQLError as e:
+                    raise ValidationError(str(e))
+                finally:
+                    insight.query = None
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
@@ -591,6 +600,7 @@ class InsightViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     sharing_enabled_actions = ["retrieve", "list"]
+    queryset = Insight.objects_including_soft_deleted.all()
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -598,34 +608,31 @@ class InsightViewSet(
 
     parser_classes = (QuerySchemaParser,)
 
-    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
             self.request.query_params.get("basic", "0")
         ):
             return InsightBasicSerializer
         return super().get_serializer_class()
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["is_shared"] = isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication)
         return context
 
-    def get_queryset(self) -> QuerySet:
-        queryset: QuerySet
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        include_deleted = False
+
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
-            queryset = Insight.objects.filter(
+            queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
         elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset = Insight.objects_including_soft_deleted.all()
-        else:
-            queryset = Insight.objects.all()
+            include_deleted = True
 
-        # Optimize tag retrieval
-        queryset = self.prefetch_tagged_items_if_available(queryset)
-        # Disallow access to other teams' insights
-        queryset = self.filter_queryset_by_parents_lookups(queryset)
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -867,7 +874,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response({**result, "next": next})
 
     @cached_by_filters
-    def calculate_trends(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_trends(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -919,7 +926,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(funnel)
 
     @cached_by_filters
-    def calculate_funnel(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_funnel(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
@@ -959,7 +966,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_retention(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_retention(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         data = {}
         if not request.GET.get("date_from") and not request.data.get("date_from"):
@@ -989,7 +996,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         return Response(result)
 
     @cached_by_filters
-    def calculate_path(self, request: request.Request) -> Dict[str, Any]:
+    def calculate_path(self, request: request.Request) -> dict[str, Any]:
         team = self.team
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
 

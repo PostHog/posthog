@@ -1,3 +1,4 @@
+import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
@@ -57,6 +58,13 @@ export type HeatmapJsData = {
 }
 export type HeatmapFixedPositionMode = 'fixed' | 'relative' | 'hidden'
 
+export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
+    { value: 'default', label: 'Default (multicolor)' },
+    { value: 'red', label: 'Red (monocolor)' },
+    { value: 'green', label: 'Green (monocolor)' },
+    { value: 'blue', label: 'Blue (monocolor)' },
+]
+
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
@@ -86,9 +94,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
         fetchHeatmapApi: (params: HeatmapRequestType) => ({ params }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
+        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
+        windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
@@ -150,6 +160,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             'fixed' as HeatmapFixedPositionMode,
             {
                 setHeatmapFixedPositionMode: (_, { mode }) => mode,
+            },
+        ],
+
+        heatmapColorPalette: [
+            'default' as string | null,
+            { persist: true },
+            {
+                setHeatmapColorPalette: (_, { Palette }) => Palette,
             },
         ],
     }),

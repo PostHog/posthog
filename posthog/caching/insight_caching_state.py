@@ -1,7 +1,7 @@
 from datetime import timedelta
 from enum import Enum
 from functools import cached_property
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import structlog
 from django.core.paginator import Paginator
@@ -232,10 +232,10 @@ def _iterate_large_queryset(queryset, page_size):
         yield page.object_list
 
 
-def _execute_insert(states: List[Optional[InsightCachingState]]):
+def _execute_insert(states: list[Optional[InsightCachingState]]):
     from django.db import connection
 
-    models: List[InsightCachingState] = list(filter(None, states))
+    models: list[InsightCachingState] = list(filter(None, states))
     if len(models) == 0:
         return
 

@@ -1,6 +1,6 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
-import { MutableRefObject, useCallback, useEffect, useRef } from 'react'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
@@ -49,9 +49,25 @@ function HeatmapMouseInfo({
 }
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmapJsData, heatmapEnabled, heatmapFilters } = useValues(heatmapLogic)
+    const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
+        useValues(heatmapLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
+
+    const heatmapJSColorGradient = useMemo((): Record<string, string> => {
+        switch (heatmapColorPalette) {
+            case 'blue':
+                return { '.0': 'rgba(0, 0, 255, 0)', '.100': 'rgba(0, 0, 255, 1)' }
+            case 'green':
+                return { '.0': 'rgba(0, 255, 0, 0)', '.100': 'rgba(0, 255, 0, 1)' }
+            case 'red':
+                return { '.0': 'rgba(255, 0, 0, 0)', '.100': 'rgba(255, 0, 0, 1)' }
+
+            default:
+                // Defaults taken from heatmap.js
+                return { '.25': 'rgb(0,0,255)', '0.55': 'rgb(0,255,0)', '0.85': 'yellow', '1.0': 'rgb(255,0,0)' }
+        }
+    }, [heatmapColorPalette])
 
     const updateHeatmapData = useCallback((): void => {
         try {
@@ -69,6 +85,7 @@ export function Heatmap(): JSX.Element | null {
 
         heatmapsJsRef.current = heatmapsJs.create({
             container,
+            gradient: heatmapJSColorGradient,
         })
 
         updateHeatmapData()
@@ -78,13 +95,25 @@ export function Heatmap(): JSX.Element | null {
         updateHeatmapData()
     }, [heatmapJsData])
 
+    useEffect(() => {
+        if (!heatmapsJsContainerRef.current) {
+            return
+        }
+
+        heatmapsJsRef.current?.configure({
+            container: heatmapsJsContainerRef.current,
+            gradient: heatmapJSColorGradient,
+        })
+    }, [heatmapJSColorGradient])
+
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null
     }
 
     return (
-        <div className="fixed inset-0 overflow-hidden">
-            <div className="absolute inset-0" ref={setHeatmapContainer} />
+        <div className="fixed inset-0 overflow-hidden w-full h-full">
+            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
+            <div key={`${windowWidth}x${windowHeight}`} className="absolute inset-0" ref={setHeatmapContainer} />
             <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} />
         </div>
     )
