@@ -42,7 +42,7 @@ export class ActionManager {
 
     public getTeamActions(teamId: Team['id']): ActionMap {
         if (!this.ready) {
-            throw new Error('ActionManager is not ready! Run actionManager.prepare() before this')
+            throw new Error('ActionManager is not ready! Run actionManager.start() before this')
         }
         return this.actionCache[teamId] || {}
     }

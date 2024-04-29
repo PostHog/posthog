@@ -1,7 +1,7 @@
 import { EachBatchPayload } from 'kafkajs'
 
 import { PluginMethod, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
-import { convertToIngestionEvent } from '../../../utils/event'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import {
     processComposeWebhookStep,
     processOnEventStep,
@@ -56,7 +56,7 @@ export async function eachMessageAppsOnEventHandlers(
             .filter((pluginConfig) => pluginConfig.method === PluginMethod.onEvent)
             .every((pluginConfig) => queue.pluginsServer.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id))
 
-        const event = convertToIngestionEvent(clickHouseEvent, skipElementsChain)
+        const event = convertToPostIngestionEvent(clickHouseEvent, skipElementsChain)
 
         await Promise.all([handleOnEventPlugins(event, queue), handleComposeWebhookPlugins(event, queue)])
     } else {

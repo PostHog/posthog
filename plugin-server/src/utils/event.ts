@@ -86,9 +86,11 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     }
 }
 
-export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
+export function convertToPostIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
-    properties['$elements_chain'] = event.elements_chain
+    if (event.elements_chain) {
+        properties['$elements_chain'] = event.elements_chain
+    }
 
     return {
         eventUuid: event.uuid,

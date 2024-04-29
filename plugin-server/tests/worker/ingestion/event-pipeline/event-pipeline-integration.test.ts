@@ -5,7 +5,7 @@ import fetch from 'node-fetch'
 import { Hook, Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
-import { convertToIngestionEvent } from '../../../../src/utils/event'
+import { convertToPostIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
@@ -32,7 +32,7 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
-        const postIngestionEvent = convertToIngestionEvent(result.args[0])
+        const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
             processOnEventStep(runner.hub, postIngestionEvent),
             processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
@@ -45,8 +45,8 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
