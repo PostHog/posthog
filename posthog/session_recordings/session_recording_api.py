@@ -614,9 +614,37 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+            # streams the file from S3 to the client
+            # will not decompress the possibly large file because of `stream=True`
+            # however, we pass some headers through to the client
+            # particularly we should signal the content-encoding
+            # to help the client know it needs to decompress
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
+
+                # Create the HttpResponse object
+                response = HttpResponse(content=r.raw)
+
+                # if object storage has an ETag we pass it along
+                etag = r.headers.get("ETag")
+                if etag:
+                    response["ETag"] = etag
+
+                # blobs are immutable, _really_ we can cache forever
+                # but let's cache for an hour since people won't re-watch too often
+                cache_control = r.headers.get("Cache-Control")
+                response["Cache-Control"] = cache_control or "max-age=3600"
+
+                # Ensure the Content-Encoding is correctly set for gzipped content
+                # this _should_ be being set on the S3 object
+                content_encoding = r.headers.get("Content-Encoding")
+                response["Content-Encoding"] = content_encoding or "gzip"
+
+                # these are probably always going to be JSON,
+                # but we're setting it on the S3 object so let's allow that to control it
+                content_type = r.headers.get("Content-Type")
+                response["Content-Type"] = content_type or "application/json"
+
                 response["Content-Disposition"] = "inline"
                 return response
 
