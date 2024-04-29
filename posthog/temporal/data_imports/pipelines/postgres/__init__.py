@@ -13,9 +13,10 @@ from dlt.sources.credentials import ConnectionStringCredentials
 
 from .helpers import (
     table_rows,
-    engine_from_credentials,
+    async_engine_from_credentials,
     get_primary_key,
     SqlDatabaseTableConfiguration,
+    engine_from_credentials,
 )
 
 
@@ -23,7 +24,7 @@ def postgres_source(
     host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
 ) -> DltSource:
     credentials = ConnectionStringCredentials(
-        f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+        f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
     )
     db_source = sql_database(credentials, schema=schema, table_names=table_names)
 
@@ -63,10 +64,12 @@ def sql_database(
         metadata.reflect(bind=engine)
         tables = list(metadata.tables.values())
 
+    async_engine = async_engine_from_credentials
+
     for table in tables:
         yield dlt.resource(
             table_rows,
             name=table.name,
             primary_key=get_primary_key(table),
             spec=SqlDatabaseTableConfiguration,
-        )(engine, table)
+        )(async_engine, table)

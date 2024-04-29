@@ -5,24 +5,23 @@ from typing import (
     Optional,
     Union,
 )
-from collections.abc import Iterator
 import operator
 
 import dlt
 from dlt.sources.credentials import ConnectionStringCredentials
 from dlt.common.configuration.specs import BaseConfiguration, configspec
-from dlt.common.typing import TDataItem
 from .settings import DEFAULT_CHUNK_SIZE
 
 from sqlalchemy import Table, create_engine, Column
 from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.sql import Select
 
 
 class TableLoader:
     def __init__(
         self,
-        engine: Engine,
+        engine: AsyncEngine,
         table: Table,
         chunk_size: int = 1000,
         incremental: Optional[dlt.sources.incremental[Any]] = None,
@@ -62,20 +61,21 @@ class TableLoader:
             return query
         return query.where(filter_op(self.cursor_column, self.last_value))  # type: ignore
 
-    def load_rows(self) -> Iterator[list[TDataItem]]:
+    async def load_rows(self):
         query = self.make_query()
-        with self.engine.connect() as conn:
-            result = conn.execution_options(yield_per=self.chunk_size).execute(query)
+        async with self.engine.connect() as conn:
+            conn = await conn.execution_options(yield_per=self.chunk_size)
+            result = await conn.execute(query)
             for partition in result.partitions(size=self.chunk_size):
                 yield [dict(row._mapping) for row in partition]
 
 
-def table_rows(
-    engine: Engine,
+async def table_rows(
+    engine: AsyncEngine,
     table: Table,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
-) -> Iterator[TDataItem]:
+):
     """
     A DLT source which loads data from an SQL database using SQLAlchemy.
     Resources are automatically created for each table in the schema or from the given list of tables.
@@ -90,9 +90,19 @@ def table_rows(
         Iterable[DltResource]: A list of DLT resources for each table to be loaded.
     """
     loader = TableLoader(engine, table, incremental=incremental, chunk_size=chunk_size)
-    yield from loader.load_rows()
+
+    async for row in loader.load_rows():
+        yield row
 
     engine.dispose()
+
+
+def async_engine_from_credentials(credentials: Union[ConnectionStringCredentials, AsyncEngine, str]) -> AsyncEngine:
+    if isinstance(credentials, AsyncEngine):
+        return credentials
+    if isinstance(credentials, ConnectionStringCredentials):
+        credentials = credentials.to_native_representation()
+    return create_async_engine(credentials, pool_pre_ping=True)
 
 
 def engine_from_credentials(credentials: Union[ConnectionStringCredentials, Engine, str]) -> Engine:

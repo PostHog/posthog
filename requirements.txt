@@ -34,11 +34,13 @@ async-generator==1.10
     # via
     #   trio
     #   trio-websocket
-async-timeout==4.0.2
+async-timeout==4.0.3
     # via
     #   aiohttp
     #   aiokafka
+    #   asyncpg
     #   redis
+asyncpg==0.29.0
 attrs==23.2.0
     # via
     #   aiohttp
@@ -222,6 +224,7 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
 grpcio==1.57.0
     # via
     #   google-api-core
