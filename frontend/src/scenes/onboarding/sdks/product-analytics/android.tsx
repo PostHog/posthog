@@ -17,24 +17,22 @@ function AndroidCaptureSnippet(): JSX.Element {
 
 function AdvertiseAndroidReplay(): JSX.Element {
     return (
-        <>
-            <LemonBanner type="info" className="mt-8">
+        <LemonBanner type="info" className="mt-8">
+            <div>
+                <h3>
+                    Session Replay for Android <LemonTag type="highlight">NEW</LemonTag>
+                </h3>
                 <div>
-                    <h3>
-                        Session Replay for Android <LemonTag type="highlight">NEW</LemonTag>
-                    </h3>
-                    <div>
-                        Session replay is now in beta for Android.{' '}
-                        <Link
-                            to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, SDKKey.ANDROID)}
-                            data-attr="product-analytics-onboarding-android-replay-cta"
-                        >
-                            Learn how to set it up
-                        </Link>
-                    </div>
+                    Session replay is now in beta for Android.{' '}
+                    <Link
+                        to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, SDKKey.ANDROID)}
+                        data-attr="product-analytics-onboarding-android-replay-cta"
+                    >
+                        Learn how to set it up
+                    </Link>
                 </div>
-            </LemonBanner>
-        </>
+            </div>
+        </LemonBanner>
     )
 }
 
