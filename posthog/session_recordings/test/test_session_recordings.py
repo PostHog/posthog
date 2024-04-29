@@ -1,7 +1,7 @@
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY, patch, MagicMock, call
+from unittest.mock import ANY, patch, MagicMock, call, Mock
 from urllib.parse import urlencode
 
 from parameterized import parameterized
@@ -657,6 +657,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
 
+    @staticmethod
+    def _setup_mock_requests_get(headers: dict | None = None) -> Mock:
+        if headers is None:
+            headers = {"blah": "desired-value"}
+
+        # Create a mock response object
+        requests_get = Mock()
+
+        # Setup status code and content if necessary
+        requests_get.status_code = 200
+        requests_get.content = b"Example content"
+
+        # Setup headers and the .get method for headers
+        requests_get.headers = headers
+
+        # Mock the __enter__ and __exit__ methods to support the 'with' context
+        requests_get.__enter__ = Mock(return_value=requests_get)
+        requests_get.__exit__ = Mock(
+            return_value=False
+        )  # Normally handles exceptions, False means it does not suppress exceptions
+
+        return requests_get
+
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -666,7 +689,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_can_get_session_recording_blob(
         self,
-        _mock_requests,
+        mock_requests,
         mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
@@ -687,8 +710,74 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_presigned_url.side_effect = presigned_url_sideeffect
 
+        mock_requests.get.return_value = self._setup_mock_requests_get()
+
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
+
+        # default headers if the object store does nothing
+        assert response.headers.__dict__ == {
+            "_store": {
+                "content-type": ("Content-Type", "application/json"),
+                "cache-control": ("Cache-Control", "max-age=3600"),
+                "content-encoding": ("Content-Encoding", "gzip"),
+                "content-disposition": ("Content-Disposition", "inline"),
+                "allow": ("Allow", "GET, HEAD, OPTIONS"),
+                "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
+                "content-length": ("Content-Length", "49"),
+                "vary": ("Vary", "Origin"),
+                "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
+                "referrer-policy": ("Referrer-Policy", "same-origin"),
+                "cross-origin-opener-policy": ("Cross-Origin-Opener-Policy", "same-origin"),
+            }
+        }
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
+    @patch("posthog.session_recordings.session_recording_api.requests")
+    def test_can_override_headers_from_object_storage(
+        self,
+        mock_requests,
+        mock_presigned_url,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        blob_key = f"1682608337071"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+
+        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+
+        def presigned_url_sideeffect(key: str, **kwargs):
+            if key == f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{blob_key}":
+                return f"https://test.com/"
+            else:
+                return None
+
+        mock_presigned_url.side_effect = presigned_url_sideeffect
+
+        mock_requests.get.return_value = self._setup_mock_requests_get(
+            {
+                "Content-Type": "application/magical",
+                "Content-Encoding": "from the mock",
+                "ETag": "represents the file contents",
+                "Cache-Control": "more specific cache control",
+            }
+        )
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        assert response.headers.get("content-type") == "application/magical"
+        assert response.headers.get("content-encoding") == "from the mock"
+        assert response.headers.get("etag") == "represents the file contents"
+        assert response.headers.get("cache-control") == "more specific cache control"
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -699,7 +788,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.requests")
     def test_validates_blob_keys(
         self,
-        _mock_requests,
+        mock_requests,
         mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
@@ -726,7 +815,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # we don't generate a pre-signed url if the blob key is invalid
         assert mock_presigned_url.call_count == 0
         # we don't try to load the data if the blob key is invalid
-        assert _mock_requests.call_count == 0
+        assert mock_requests.call_count == 0
         # we do check the session before validating input
         # TODO it would be maybe cheaper to validate the input first
         assert mock_get_session_recording.call_count == 1

@@ -214,6 +214,17 @@ def list_recordings_response(
     return response
 
 
+def ensure_not_weak(etag: str) -> str:
+    """
+    minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
+    we don't really care about the semantic difference between a strong and a weak etag here,
+    so we can just strip it.
+    """
+    if etag.startswith("W/"):
+        return etag[2:]
+    return etag
+
+
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "session_recording"
@@ -616,34 +627,36 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
             # streams the file from S3 to the client
             # will not decompress the possibly large file because of `stream=True`
-            # however, we pass some headers through to the client
+            #
+            # we pass some headers through to the client
             # particularly we should signal the content-encoding
             # to help the client know it needs to decompress
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
+            #
+            # if the client provides an e-tag we can use it to check if the file has changed
+            # object store will respect this and send back 304 if the file hasn't changed,
+            # and we don't need to send the large file over the wire
 
-                # Create the HttpResponse object
-                response = HttpResponse(content=r.raw)
+            if_none_match = request.headers.get("If-None-Match")
+            headers = {}
+            if if_none_match:
+                headers["If-None-Match"] = ensure_not_weak(if_none_match)
 
-                # if object storage has an ETag we pass it along
-                etag = r.headers.get("ETag")
+            with requests.get(url=url, stream=True, headers=headers) as streaming_response:
+                streaming_response.raise_for_status()
+
+                response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
+
+                etag = streaming_response.headers.get("ETag")
                 if etag:
-                    response["ETag"] = etag
+                    response["ETag"] = ensure_not_weak(etag)
 
                 # blobs are immutable, _really_ we can cache forever
                 # but let's cache for an hour since people won't re-watch too often
-                cache_control = r.headers.get("Cache-Control")
-                response["Cache-Control"] = cache_control or "max-age=3600"
-
-                # Ensure the Content-Encoding is correctly set for gzipped content
-                # this _should_ be being set on the S3 object
-                content_encoding = r.headers.get("Content-Encoding")
-                response["Content-Encoding"] = content_encoding or "gzip"
+                response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
 
                 # these are probably always going to be JSON,
                 # but we're setting it on the S3 object so let's allow that to control it
-                content_type = r.headers.get("Content-Type")
-                response["Content-Type"] = content_type or "application/json"
+                response["Content-Type"] = "application/json"
 
                 response["Content-Disposition"] = "inline"
                 return response
