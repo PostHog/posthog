@@ -1,4 +1,5 @@
 import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
+import { captureException } from '@sentry/react'
 import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
@@ -83,7 +84,13 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     target: target,
                     imageMap,
                     canvasEventMap,
-                    errorHandler: () => {},
+                    errorHandler: (error: any) => {
+                        if (error instanceof Error) {
+                            captureException(error)
+                        } else {
+                            console.error(error)
+                        }
+                    },
                 })
 
                 const img = containers.get(e.data.id)
