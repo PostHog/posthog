@@ -14,13 +14,13 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
-import React, { useMemo } from 'react'
+import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BillingV2PlanType, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -71,27 +71,8 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
-    const getSupportPlans = (): BillingV2PlanType[] => {
-        const platformAndSupportProduct = billing?.products?.find(
-            (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
-        )
-        if (!platformAndSupportProduct?.plans) {
-            return []
-        }
-
-        const addonPlans = platformAndSupportProduct?.addons?.map((addon) => addon.plans).flat()
-        const insertionIndex = Math.max(0, (platformAndSupportProduct?.plans?.length ?? 1) - 1)
-        const allPlans = platformAndSupportProduct?.plans?.slice(0) || []
-        allPlans.splice(insertionIndex, 0, ...addonPlans)
-        return allPlans
-    }
-
-    const supportPlans = useMemo(() => getSupportPlans(), [billing])
-    const hasAddonPlan = billing?.products
-        ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
-        ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
     return (
         <Section title="Email an engineer">
             <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light">
@@ -105,7 +86,7 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 </div>
                 {supportPlans?.map((plan) => {
                     // If they have an addon plan, only show the addon plan
-                    const currentPlan = plan.current_plan && (!hasAddonPlan || plan.plan_key?.includes('addon'))
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
                     return (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
                             <div className={currentPlan ? 'font-bold' : undefined}>
