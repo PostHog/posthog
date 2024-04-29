@@ -13,7 +13,7 @@ export function FeatureFlagsAndroidInstructions(): JSX.Element {
             <SDKInstallAndroidInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.ANDROID} />
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseAndroidReplay />
+                <AdvertiseAndroidReplay context="flags-onboarding" />
             </FlaggedFeature>
         </>
     )

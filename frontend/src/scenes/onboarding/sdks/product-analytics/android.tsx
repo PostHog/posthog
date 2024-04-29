@@ -16,7 +16,11 @@ function AndroidCaptureSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Kotlin}>{`PostHog.capture(event = "test-event")`}</CodeSnippet>
 }
 
-export function AdvertiseAndroidReplay(): JSX.Element {
+export function AdvertiseAndroidReplay({
+    context,
+}: {
+    context: 'product-analytics-onboarding' | 'flags-onboarding'
+}): JSX.Element {
     return (
         <div>
             <LemonDivider className="my-8" />
@@ -28,7 +32,7 @@ export function AdvertiseAndroidReplay(): JSX.Element {
                     Session replay is now in beta for Android.{' '}
                     <Link
                         to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, SDKKey.ANDROID)}
-                        data-attr="product-analytics-onboarding-android-replay-cta"
+                        data-attr={`${context}-android-replay-cta`}
                     >
                         Learn how to set it up
                     </Link>
@@ -45,7 +49,7 @@ export function ProductAnalyticsAndroidInstructions(): JSX.Element {
             <h3>Send an Event</h3>
             <AndroidCaptureSnippet />
             <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE_ONBOARDING} match={true}>
-                <AdvertiseAndroidReplay />
+                <AdvertiseAndroidReplay context="product-analytics-onboarding" />
             </FlaggedFeature>
         </>
     )
