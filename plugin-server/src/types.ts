@@ -671,8 +671,8 @@ export interface ClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-/** Event in a database-agnostic shape, AKA an ingestion event.
- * This is what should be passed around most of the time in the plugin server.
+/** Event structure before initial ingestion.
+ * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
  */
 export interface PreIngestionEvent {
     eventUuid: string
@@ -682,6 +682,10 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: ISOTimestamp
 }
+
+/** Parsed event structure after initial ingestion.
+ * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
+ */
 
 export interface PostIngestionEvent extends PreIngestionEvent {
     elementsList: Element[]

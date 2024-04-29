@@ -254,6 +254,7 @@ class PluginConfig(models.Model):
     description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
     # Used in the frontend to hide pluginConfigs that user deleted
     deleted: models.BooleanField = models.BooleanField(default=False, null=True)
+    # If set, the plugin-server will only trigger this plugin for events that match this action
     match_action = models.ForeignKey(
         "posthog.Action",
         on_delete=models.PROTECT,
