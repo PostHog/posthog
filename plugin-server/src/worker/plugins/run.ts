@@ -208,8 +208,7 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
             const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
 
             if (!relatedAction) {
-                // TODO: Log an error!
-                return false
+                throw new Error('Related action not found')
             }
 
             const matched = hub.actionMatcher.checkAction(event, relatedAction)

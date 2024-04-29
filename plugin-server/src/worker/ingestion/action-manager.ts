@@ -2,6 +2,7 @@ import * as schedule from 'node-schedule'
 
 import { Action, ActionStep, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { getPluginConfigMatchActionRows } from '../../utils/db/sql'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
@@ -9,11 +10,14 @@ export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
 
 export class ActionManager {
+    private started: boolean
     private ready: boolean
     private actionCache: ActionCache
+    private asyncActionCache: Record<Action['id'], Promise<Action | null>>
     private pubSub: PubSub
 
     constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+        this.started = false
         this.ready = false
         this.actionCache = {}
 
@@ -30,6 +34,11 @@ export class ActionManager {
     }
 
     public async start(): Promise<void> {
+        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
+        if (this.started) {
+            return
+        }
+        this.started = true
         await this.pubSub.start()
         await this.reloadAllActions()
 
@@ -97,6 +106,11 @@ export async function fetchAllActionsGroupedByTeam(
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
+    const rawPluginsWithActionMatching = await getPluginConfigMatchActionRows(client)
+    const pluginConfigActionMatchIds = rawPluginsWithActionMatching.map(({ match_action_id }) => match_action_id)
+
+    const additionalActionIds = [...restHookActionIds, ...pluginConfigActionMatchIds]
+
     const rawActions = (
         await client.query<RawAction>(
             PostgresUse.COMMON_READ,
@@ -119,7 +133,7 @@ export async function fetchAllActionsGroupedByTeam(
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
-            [restHookActionIds],
+            [additionalActionIds],
             'fetchActions'
         )
     ).rows

@@ -1,5 +1,5 @@
 import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
-import { PostgresUse } from './postgres'
+import { PostgresRouter, PostgresUse } from './postgres'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     const fields = specificField
@@ -11,6 +11,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
         posthog_pluginconfig.enabled,
         posthog_pluginconfig.order,
         posthog_pluginconfig.config,
+        posthog_pluginconfig.match_action_id,
         posthog_pluginconfig.updated_at,
         posthog_pluginconfig.created_at
     `
@@ -97,6 +98,21 @@ export async function getPluginConfigRows(hub: Hub): Promise<PluginConfig[]> {
         pluginConfigsInForceQuery(),
         undefined,
         'getPluginConfigRows'
+    )
+    return rows
+}
+
+export async function getPluginConfigMatchActionRows(
+    postgres: PostgresRouter
+): Promise<Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[]> {
+    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[] } = await postgres.query(
+        PostgresUse.COMMON_READ,
+        `SELECT posthog_pluginconfig.id, posthog_pluginconfig.team_id, posthog_pluginconfig.match_action_id 
+            FROM posthog_pluginconfig
+            WHERE posthog_pluginconfig.match_action_id IS NOT NULL 
+            AND posthog_pluginconfig.enabled`,
+        undefined,
+        'getPluginConfigMatchActionRows'
     )
     return rows
 }
