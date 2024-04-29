@@ -1,7 +1,7 @@
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import ANY, patch, MagicMock, call, Mock
+from unittest.mock import ANY, patch, MagicMock, call
 from urllib.parse import urlencode
 
 from parameterized import parameterized
@@ -31,6 +31,7 @@ from posthog.test.base import (
     FuzzyInt,
     _create_event,
 )
+from posthog.session_recordings.test import setup_mock_requests_get
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -657,29 +658,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ]
         }
 
-    @staticmethod
-    def _setup_mock_requests_get(headers: dict | None = None) -> Mock:
-        if headers is None:
-            headers = {"blah": "desired-value"}
-
-        # Create a mock response object
-        requests_get = Mock()
-
-        # Setup status code and content if necessary
-        requests_get.status_code = 200
-        requests_get.content = b"Example content"
-
-        # Setup headers and the .get method for headers
-        requests_get.headers = headers
-
-        # Mock the __enter__ and __exit__ methods to support the 'with' context
-        requests_get.__enter__ = Mock(return_value=requests_get)
-        requests_get.__exit__ = Mock(
-            return_value=False
-        )  # Normally handles exceptions, False means it does not suppress exceptions
-
-        return requests_get
-
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -710,7 +688,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_presigned_url.side_effect = presigned_url_sideeffect
 
-        mock_requests.get.return_value = self._setup_mock_requests_get()
+        mock_requests.get.return_value = setup_mock_requests_get()
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -720,7 +698,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "_store": {
                 "content-type": ("Content-Type", "application/json"),
                 "cache-control": ("Cache-Control", "max-age=3600"),
-                "content-encoding": ("Content-Encoding", "gzip"),
                 "content-disposition": ("Content-Disposition", "inline"),
                 "allow": ("Allow", "GET, HEAD, OPTIONS"),
                 "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
@@ -762,11 +739,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_presigned_url.side_effect = presigned_url_sideeffect
 
-        mock_requests.get.return_value = self._setup_mock_requests_get(
+        mock_requests.get.return_value = setup_mock_requests_get(
             {
                 "Content-Type": "application/magical",
                 "Content-Encoding": "from the mock",
-                "ETag": "represents the file contents",
+                "ETag": 'W/"represents the file contents"',
                 "Cache-Control": "more specific cache control",
             }
         )
@@ -774,9 +751,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
 
-        assert response.headers.get("content-type") == "application/magical"
-        assert response.headers.get("content-encoding") == "from the mock"
-        assert response.headers.get("etag") == "represents the file contents"
+        assert response.headers.get("content-type") == "application/json"  # we don't override this
+        assert response.headers.get("content-encoding") is None  # we don't override this
+        assert response.headers.get("etag") == "represents the file contents"  # we don't allow weak etags
         assert response.headers.get("cache-control") == "more specific cache control"
 
     @patch(

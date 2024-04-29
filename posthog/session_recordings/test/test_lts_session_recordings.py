@@ -1,11 +1,12 @@
 import uuid
-from unittest.mock import patch, MagicMock, call, Mock
+from unittest.mock import patch, MagicMock, call
 
 from rest_framework import status
 
 from posthog.models import Team
 from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.test import setup_mock_requests_get
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
@@ -151,13 +152,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.side_effect = list_objects_func
         mock_get_presigned_url.return_value = "https://example.com"
 
-        mock_response = Mock()
-        mock_response.raise_for_status.return_value = None
-        mock_response.raw = "the file contents"
-
-        # Set up the mock to work as a context manager
-        mock_requests.return_value.__enter__.return_value = mock_response
-        mock_requests.return_value.__exit__.return_value = None
+        mock_requests.get.return_value = setup_mock_requests_get()
 
         SessionRecording.objects.create(
             team=self.team,
@@ -214,13 +209,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_presigned_url.return_value = "https://example.com"
         mock_read.return_value = legacy_compressed_original
 
-        mock_response = Mock()
-        mock_response.raise_for_status.return_value = None
-        mock_response.raw = "the file contents"
-
-        # Set up the mock to work as a context manager
-        mock_requests.return_value.__enter__.return_value = mock_response
-        mock_requests.return_value.__exit__.return_value = None
+        mock_requests.get.return_value = setup_mock_requests_get()
 
         with mute_selected_signals():
             SessionRecording.objects.create(

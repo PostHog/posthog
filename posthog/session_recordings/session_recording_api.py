@@ -221,7 +221,7 @@ def ensure_not_weak(etag: str) -> str:
     so we can just strip it.
     """
     if etag.startswith("W/"):
-        return etag[2:]
+        return etag[2:].lstrip('"').rstrip('"')
     return etag
 
 
@@ -644,6 +644,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             with requests.get(url=url, stream=True, headers=headers) as streaming_response:
                 streaming_response.raise_for_status()
 
+                breakpoint()
                 response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
 
                 etag = streaming_response.headers.get("ETag")
