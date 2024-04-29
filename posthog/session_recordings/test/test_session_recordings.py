@@ -31,7 +31,7 @@ from posthog.test.base import (
     FuzzyInt,
     _create_event,
 )
-from posthog.session_recordings.test import setup_mock_requests_get
+from posthog.session_recordings.test import setup_stream_from
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -664,10 +664,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     def test_can_get_session_recording_blob(
         self,
-        mock_requests,
+        _mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
@@ -688,8 +688,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_presigned_url.side_effect = presigned_url_sideeffect
 
-        mock_requests.get.return_value = setup_mock_requests_get()
-
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
 
@@ -701,7 +699,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "content-disposition": ("Content-Disposition", "inline"),
                 "allow": ("Allow", "GET, HEAD, OPTIONS"),
                 "x-frame-options": ("X-Frame-Options", "SAMEORIGIN"),
-                "content-length": ("Content-Length", "49"),
+                "content-length": ("Content-Length", "15"),
                 "vary": ("Vary", "Origin"),
                 "x-content-type-options": ("X-Content-Type-Options", "nosniff"),
                 "referrer-policy": ("Referrer-Policy", "same-origin"),
@@ -715,10 +713,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch(
+        "posthog.session_recordings.session_recording_api.stream_from",
+        return_value=setup_stream_from(
+            {
+                "Content-Type": "application/magical",
+                "Content-Encoding": "from the mock",
+                "ETag": 'W/"represents the file contents"',
+                "Cache-Control": "more specific cache control",
+            }
+        ),
+    )
     def test_can_override_headers_from_object_storage(
         self,
-        mock_requests,
+        _mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
@@ -738,15 +746,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 return None
 
         mock_presigned_url.side_effect = presigned_url_sideeffect
-
-        mock_requests.get.return_value = setup_mock_requests_get(
-            {
-                "Content-Type": "application/magical",
-                "Content-Encoding": "from the mock",
-                "ETag": 'W/"represents the file contents"',
-                "Cache-Control": "more specific cache control",
-            }
-        )
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -762,10 +761,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_validates_blob_keys(
         self,
-        mock_requests,
+        mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
@@ -792,7 +791,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # we don't generate a pre-signed url if the blob key is invalid
         assert mock_presigned_url.call_count == 0
         # we don't try to load the data if the blob key is invalid
-        assert mock_requests.call_count == 0
+        assert mock_stream_from.call_count == 0
         # we do check the session before validating input
         # TODO it would be maybe cheaper to validate the input first
         assert mock_get_session_recording.call_count == 1
@@ -804,10 +803,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_can_get_session_recording_realtime(
         self,
-        _mock_requests,
+        _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
         _mock_exists,
@@ -838,10 +837,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_can_get_session_recording_realtime_utf16_data(
         self,
-        _mock_requests,
+        _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
         _mock_exists,
@@ -869,9 +868,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.requests")
+    @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_cannot_get_session_recording_blob_for_made_up_sessions(
-        self, _mock_requests, mock_presigned_url, mock_get_session_recording
+        self, _mock_stream_from, mock_presigned_url, mock_get_session_recording
     ) -> None:
         session_id = str(uuid.uuid4())
         blob_key = f"1682608337071"

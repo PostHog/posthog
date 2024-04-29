@@ -6,7 +6,7 @@ from rest_framework import status
 from posthog.models import Team
 from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.test import setup_mock_requests_get
+from posthog.session_recordings.test import setup_stream_from
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 # this is the utf-16 surrogate pass encoded, gzipped and base64 encoded version of the above
@@ -125,7 +125,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.requests.get")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_loaded(
@@ -152,8 +152,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.side_effect = list_objects_func
         mock_get_presigned_url.return_value = "https://example.com"
 
-        mock_requests.get.return_value = setup_mock_requests_get()
-
         SessionRecording.objects.create(
             team=self.team,
             session_id=session_id,
@@ -177,13 +175,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             call(f"{lts_storage_path}/1-2", expiration=60),
         ]
 
-        assert response_data == "the file contents"
+        assert response_data == "Example content"
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.requests.get")
+    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.tag")
     @patch("posthog.session_recordings.session_recording_api.object_storage.write")
     @patch("posthog.session_recordings.session_recording_api.object_storage.read")
@@ -208,8 +206,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.side_effect = list_objects_func
         mock_get_presigned_url.return_value = "https://example.com"
         mock_read.return_value = legacy_compressed_original
-
-        mock_requests.get.return_value = setup_mock_requests_get()
 
         with mute_selected_signals():
             SessionRecording.objects.create(
@@ -250,4 +246,4 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # and the mock content is returned
         response_data = response.content.decode("utf-8")
-        assert response_data == "the file contents"
+        assert response_data == "Example content"

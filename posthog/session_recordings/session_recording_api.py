@@ -225,6 +225,28 @@ def ensure_not_weak(etag: str) -> str:
     return etag
 
 
+def stream_from(url: str, headers: dict | None = None) -> requests.Response:
+    """
+    Stream data from a URL using optional headers.
+
+    Tricky: mocking the requests library, so we can control the response here is a bit of a pain.
+    the mocks are complex to write, so tests fail when the code actually works
+    by wrapping this interaction we can mock this method
+    instead of trying to mock the internals of the requests library
+    """
+    if headers is None:
+        headers = {}
+
+    # The requests.Session object is used to ensure the session is closed when done
+    session = requests.Session()
+    response = session.get(url, headers=headers, stream=True)
+
+    # so it can be used as a context manager
+    response.__enter__ = lambda: response
+    response.__exit__ = lambda: session.close()
+    return response
+
+
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
 class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "session_recording"
@@ -641,7 +663,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if if_none_match:
                 headers["If-None-Match"] = ensure_not_weak(if_none_match)
 
-            with requests.get(url=url, stream=True, headers=headers) as streaming_response:
+            with stream_from(url=url, headers=headers) as streaming_response:
                 streaming_response.raise_for_status()
 
                 response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
@@ -652,6 +674,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
                 # blobs are immutable, _really_ we can cache forever
                 # but let's cache for an hour since people won't re-watch too often
+                # we're setting cache control and ETag which might be considered overkill,
+                # but it helps avoid network latency from the client to PostHog, then to object storage, and back again
+                # when a client has a fresh copy
                 response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
 
                 response["Content-Type"] = "application/json"
