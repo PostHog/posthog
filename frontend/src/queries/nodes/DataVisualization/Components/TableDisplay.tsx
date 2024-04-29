@@ -20,6 +20,11 @@ export const TableDisplay = (): JSX.Element => {
                     icon: <IconTableChart />,
                     label: 'Table',
                 },
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    icon: <Icon123 />,
+                    label: 'Big Number',
+                },
             ],
         },
         {
@@ -34,16 +39,6 @@ export const TableDisplay = (): JSX.Element => {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
-                },
-            ],
-        },
-        {
-            title: 'Summary Values',
-            options: [
-                {
-                    value: ChartDisplayType.BoldNumber,
-                    icon: <Icon123 />,
-                    label: 'Single Value',
                 },
             ],
         },
