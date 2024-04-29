@@ -19,7 +19,7 @@ export function HeatmapsBrowser(): JSX.Element {
                 <p className="p-2">Controls</p>
             </div>
 
-            <div className="flex flex-col overflow-hidden w-full h-screen rounded border">
+            <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                 <div className="bg-accent-3000 p-2 border-b flex items-center gap-2">
                     <span className="flex-1">
                         <LemonInputSelect
@@ -58,7 +58,7 @@ export function HeatmapsBrowser(): JSX.Element {
                 {browserUrl ? (
                     <iframe
                         ref={iframeRef}
-                        className=" w-full h-full"
+                        className="w-full h-full"
                         src={appEditorUrl(browserUrl, {
                             userIntent: 'heatmaps',
                         })}
