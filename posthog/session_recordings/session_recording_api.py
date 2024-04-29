@@ -613,6 +613,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             event_properties,
         )
 
+        if request.GET.get("__debug_s3_direct"):
+            return HttpResponse(url, content_type="application/json")
+
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
             with requests.get(url=url, stream=True) as r:
                 r.raise_for_status()

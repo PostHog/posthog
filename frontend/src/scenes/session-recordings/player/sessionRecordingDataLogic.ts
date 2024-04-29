@@ -345,9 +345,11 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSourceResponse | null,
             {
                 loadSnapshotsForSource: async ({ source }, breakpoint) => {
+                    const directSnapshotDownload = values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_S3_DIRECT_PRESIGNED]
                     const params = {
                         source: source.source,
                         blob_key: source.blob_key,
+                        __debug_s3_direct: directSnapshotDownload,
                     }
 
                     const snapshotLoadingStartTime = performance.now()
@@ -364,7 +366,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     const blobResponseType = source.source === SnapshotSourceType.blob
 
-                    const response = blobResponseType
+                    let response = blobResponseType
                         ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params).catch((e) => {
                               if (source.source === 'realtime' && e.status === 404) {
                                   // Realtime source is not always available so a 404 is expected
@@ -373,6 +375,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                               throw e
                           })
                         : (await api.recordings.listSnapshots(props.sessionRecordingId, params)).snapshots ?? []
+
+                    if (directSnapshotDownload) {
+                        const presignedURL = response[0] as string
+                        const awsResponse = await fetch(presignedURL)
+                        response = await awsResponse.json()
+                    }
 
                     const { transformed, untransformed } = await processEncodedResponse(
                         response,
