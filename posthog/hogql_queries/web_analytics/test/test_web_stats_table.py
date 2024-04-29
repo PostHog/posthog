@@ -1,3 +1,4 @@
+import uuid
 from typing import Union
 
 from freezegun import freeze_time
@@ -39,6 +40,55 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
+    def _create_pageviews(self, distinct_id: str, list_path_time_scroll: list[tuple[str, str, float]]):
+        person_time = list_path_time_scroll[0][1]
+        with freeze_time(person_time):
+            person_result = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={
+                    "name": distinct_id,
+                    **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
+                },
+            )
+            session_id = str(uuid.uuid4())
+            prev_path_time_scroll = None
+            for path_time_scroll in list_path_time_scroll:
+                pathname, time, scroll = path_time_scroll
+                prev_pathname, _, prev_scroll = prev_path_time_scroll or (None, None, None)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=time,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": "http://www.example.com" + pathname,
+                        "$prev_pageview_pathname": prev_pathname,
+                        "$prev_pageview_max_scroll_percentage": prev_scroll,
+                        "$prev_pageview_max_content_percentage": prev_scroll,
+                    },
+                )
+                prev_path_time_scroll = path_time_scroll
+            if prev_path_time_scroll:
+                prev_pathname, _, prev_scroll = prev_path_time_scroll
+                _create_event(
+                    team=self.team,
+                    event="$pageleave",
+                    distinct_id=distinct_id,
+                    timestamp=prev_path_time_scroll[1],
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": prev_pathname,
+                        "$current_url": "http://www.example.com" + pathname,
+                        "$prev_pageview_pathname": prev_pathname,
+                        "$prev_pageview_max_scroll_percentage": prev_scroll,
+                        "$prev_pageview_max_content_percentage": prev_scroll,
+                    },
+                )
+        return person_result
+
     def _run_web_stats_table_query(
         self,
         date_from,
@@ -46,7 +96,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         breakdown_by=WebStatsBreakdown.Page,
         limit=None,
         path_cleaning_filters=None,
-        use_sessions_table=False,
+        use_sessions_table=True,
+        include_bounce_rate=False,
+        include_scroll_depth=False,
     ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -54,6 +106,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdownBy=breakdown_by,
             limit=limit,
             doPathCleaning=bool(path_cleaning_filters),
+            includeBounceRate=include_bounce_rate,
+            includeScrollDepth=include_scroll_depth,
         )
         self.team.path_cleaning_filters = path_cleaning_filters or []
         if use_sessions_table:
@@ -104,8 +158,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 ["/", 2, 2],
-                ["/login", 1, 1],
                 ["/docs", 1, 1],
+                ["/login", 1, 1],
             ],
             results,
         )
@@ -203,9 +257,113 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [
                 ["/cleaned/:id", 2, 2],
-                ["/thing_c", 1, 1],
-                ["/not-cleaned", 1, 1],
                 ["/cleaned/:id/path/:id", 1, 1],
+                ["/not-cleaned", 1, 1],
+                ["/thing_c", 1, 1],
+            ],
+            results,
+        )
+
+    def test_scroll_depth_bounce_rate_one_user(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 1, 1, 0, 0.1, 0],
+                ["/b", 1, 1, None, 0.2, 0],
+                ["/c", 1, 1, None, 0.9, 1],
+            ],
+            results,
+        )
+
+    def test_scroll_depth_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.9),
+                ("/a", "2023-12-02T12:00:01", 0.9),
+                ("/b", "2023-12-02T12:00:02", 0.2),
+                ("/c", "2023-12-02T12:00:03", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 3, 4, 1 // 3, 0.5, 0.5],
+                ["/b", 2, 2, None, 0.2, 0],
+                ["/c", 2, 2, None, 0.9, 1],
+            ],
+            results,
+        )
+
+    def test_scroll_depth_bounce_rate_path_cleaning(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a/123", "2023-12-02T12:00:00", 0.1),
+                ("/b/123", "2023-12-02T12:00:01", 0.2),
+                ("/c/123", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+            path_cleaning_filters=[
+                {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
+                {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
+                {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
+            ],
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a/:id", 1, 1, 0, 0.1, 0],
+                ["/b/:id", 1, 1, None, 0.2, 0],
+                ["/c/:id", 1, 1, None, 0.9, 1],
             ],
             results,
         )

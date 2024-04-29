@@ -95,7 +95,7 @@ WHERE
     {where_breakdown}
 ORDER BY
     "context.columns.views" DESC,
-    "context.columns.breakdown_value" DESC
+    "context.columns.breakdown_value" ASC
                 """,
                 timings=self.timings,
                 placeholders={
@@ -125,7 +125,7 @@ ORDER BY
         {where_breakdown}
     ORDER BY
         "context.columns.views" DESC,
-        "context.columns.breakdown_value" DESC
+        "context.columns.breakdown_value" ASC
                     """,
                     timings=self.timings,
                     placeholders={
@@ -148,7 +148,7 @@ ORDER BY
         {where_breakdown}
     ORDER BY
         "context.columns.views" DESC,
-        "context.columns.breakdown_value" DESC
+        "context.columns.breakdown_value" ASC
                     """,
                     timings=self.timings,
                     placeholders={
@@ -300,7 +300,7 @@ WHERE
     {where_breakdown}
 ORDER BY
     "context.columns.views" DESC,
-    "context.columns.breakdown_value" DESC
+    "context.columns.breakdown_value" ASC
                 """,
                 timings=self.timings,
                 backend="cpp",

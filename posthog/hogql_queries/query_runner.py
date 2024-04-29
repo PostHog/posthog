@@ -47,7 +47,7 @@ from posthog.schema import (
     SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -472,12 +472,3 @@ class QueryRunner(ABC, Generic[Q]):
             return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
 
         raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")
-
-
-def get_from_dict_or_attr(obj: Any, key: str):
-    if isinstance(obj, dict):
-        return obj.get(key, None)
-    elif hasattr(obj, key):
-        return getattr(obj, key, None)
-    else:
-        raise AttributeError(f"Object {obj} has no key {key}")

@@ -4,7 +4,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
@@ -196,10 +196,3 @@ def to_data(
         if value is not None and previous is not None and previous != 0
         else None,
     }
-
-
-def get_property_type(property):
-    if isinstance(property, dict):
-        return property["type"]
-    else:
-        return property.type
