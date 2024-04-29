@@ -1,5 +1,6 @@
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from prometheus_client import Histogram
 import json
@@ -225,6 +226,7 @@ def ensure_not_weak(etag: str) -> str:
     return etag
 
 
+@contextmanager
 def stream_from(url: str, headers: dict | None = None) -> requests.Response:
     """
     Stream data from a URL using optional headers.
@@ -237,14 +239,13 @@ def stream_from(url: str, headers: dict | None = None) -> requests.Response:
     if headers is None:
         headers = {}
 
-    # The requests.Session object is used to ensure the session is closed when done
     session = requests.Session()
-    response = session.get(url, headers=headers, stream=True)
 
-    # so it can be used as a context manager
-    response.__enter__ = lambda: response
-    response.__exit__ = lambda: session.close()
-    return response
+    try:
+        response = session.get(url, headers=headers, stream=True)
+        yield response
+    finally:
+        session.close()
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
