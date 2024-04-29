@@ -1,8 +1,7 @@
 import * as schedule from 'node-schedule'
 
-import { Action, ActionStep, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
+import { Action, ActionStep, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { getPluginConfigMatchActionRows } from '../../utils/db/sql'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
 
@@ -105,7 +104,7 @@ export async function fetchAllActionsGroupedByTeam(
     const restHooks = await fetchActionRestHooks(client)
     const restHookActionIds = restHooks.map(({ resource_id }) => resource_id)
 
-    const rawPluginsWithActionMatching = await getPluginConfigMatchActionRows(client)
+    const rawPluginsWithActionMatching = await fetchPluginConfigsWithMatchActions(client)
     const pluginConfigActionMatchIds = rawPluginsWithActionMatching.map(({ match_action_id }) => match_action_id)
 
     const additionalActionIds = [...restHookActionIds, ...pluginConfigActionMatchIds]
@@ -224,4 +223,19 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
 
     const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null
+}
+
+export async function fetchPluginConfigsWithMatchActions(
+    postgres: PostgresRouter
+): Promise<Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[]> {
+    const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[] } = await postgres.query(
+        PostgresUse.COMMON_READ,
+        `SELECT posthog_pluginconfig.id, posthog_pluginconfig.team_id, posthog_pluginconfig.match_action_id 
+            FROM posthog_pluginconfig
+            WHERE posthog_pluginconfig.match_action_id IS NOT NULL 
+            AND posthog_pluginconfig.enabled`,
+        undefined,
+        'fetchPluginConfigsWithMatchActions'
+    )
+    return rows
 }
