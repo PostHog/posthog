@@ -45,14 +45,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
             query = parse_select(
                 """
 SELECT
-    "context.columns.breakdown_value",
+    breakdown_value AS "context.columns.breakdown_value",
     count(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views"
 FROM (
     SELECT
         any(person_id) AS person_id,
         count() AS filtered_pageview_count,
-        {breakdown_value} AS "context.columns.breakdown_value"
+        {breakdown_value} AS breakdown_value
     FROM events
     JOIN sessions
     ON events.`$session_id` = sessions.session_id
@@ -64,7 +64,7 @@ FROM (
         {session_properties},
         {where_breakdown}
     )
-    GROUP BY events.`$session_id`, "context.columns.breakdown_value"
+    GROUP BY events.`$session_id`, breakdown_value
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
@@ -88,7 +88,7 @@ ORDER BY "context.columns.visitors" DESC,
             query = parse_select(
                 """
 SELECT
-    "context.columns.breakdown_value",
+    breakdown_value AS "context.columns.breakdown_value",
     count(person_id) AS "context.columns.visitors",
     sum(filtered_pageview_count) AS "context.columns.views",
     avg(is_bounce) AS "context.columns.bounce_rate"
@@ -96,7 +96,7 @@ FROM (
     SELECT
         any(person_id) AS person_id,
         count() AS filtered_pageview_count,
-        sessions.$entry_pathname AS "context.columns.breakdown_value",
+        {bounce_breakdown} AS breakdown_value,
         any(sessions.$is_bounce) AS is_bounce
     FROM events
     JOIN sessions
@@ -109,7 +109,7 @@ FROM (
         {session_properties},
         {where_breakdown}
     )
-    GROUP BY events.`$session_id`, "context.columns.breakdown_value"
+    GROUP BY events.`$session_id`, breakdown_value
 )
 GROUP BY "context.columns.breakdown_value"
 ORDER BY "context.columns.visitors" DESC,
@@ -117,7 +117,7 @@ ORDER BY "context.columns.visitors" DESC,
 """,
                 timings=self.timings,
                 placeholders={
-                    "breakdown_value": self._counts_breakdown_value(),
+                    "bounce_breakdown": self._bounce_entry_pathname_breakdown(),
                     "where_breakdown": self.where_breakdown(),
                     "session_properties": self._session_properties(),
                     "event_properties": self._event_properties(),
