@@ -60,6 +60,33 @@ export class ActionWebhookFormatter {
         }
     }
 
+    private getFormattedMessage(): [string, string] {
+        let messageText: string
+        let messageMarkdown: string
+
+        try {
+            const [tokens, tokenizedMessage] = this.getTokens()
+            const values: string[] = []
+            const markdownValues: string[] = []
+
+            for (const token of tokens) {
+                const tokenParts = token.split('.') || []
+
+                const [value, markdownValue] = this.getValueOfToken(tokenParts)
+                values.push(value)
+                markdownValues.push(markdownValue)
+            }
+            messageText = format(tokenizedMessage, ...values)
+            messageMarkdown = format(tokenizedMessage, ...markdownValues)
+        } catch (error) {
+            const [actionName, actionMarkdown] = this.getActionDetails()
+            messageText = `⚠ Error: There are one or more formatting errors in the message template for action "${actionName}".`
+            messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for action "${actionMarkdown}".*`
+        }
+
+        return [messageText, messageMarkdown]
+    }
+
     // https://api.slack.com/reference/surfaces/formatting#escaping
     private escapeSlack(text: string): string {
         return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -103,7 +130,7 @@ export class ActionWebhookFormatter {
         }
     }
 
-    getPersonDetails(): [string, string] {
+    private getPersonDetails(): [string, string] {
         // Sync the logic below with the frontend `asDisplay`
         const personDisplayNameProperties =
             this.team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -118,15 +145,15 @@ export class ActionWebhookFormatter {
         return this.toWebhookLink(display, this.personLink)
     }
 
-    getActionDetails(): [string, string] {
+    private getActionDetails(): [string, string] {
         return this.toWebhookLink(this.action.name, this.actionLink)
     }
 
-    getEventDetails(): [string, string] {
+    private getEventDetails(): [string, string] {
         return this.toWebhookLink(this.event.event, this.eventLink)
     }
 
-    getTokens(): [string[], string] {
+    private getTokens(): [string[], string] {
         // This finds property value tokens, basically any string contained in square brackets
         // Examples: "[foo]" is matched in "bar [foo]", "[action.name]" is matched in "action [action.name]"
         // The backslash is used as an escape character - "\[foo\]" is not matched, allowing square brackets in messages
@@ -138,7 +165,7 @@ export class ActionWebhookFormatter {
         return [matchedTokens, tokenizedMessage]
     }
 
-    getValueOfToken(tokenParts: string[]): [string, string] {
+    private getValueOfToken(tokenParts: string[]): [string, string] {
         let text = ''
         let markdown = ''
 
@@ -195,32 +222,5 @@ export class ActionWebhookFormatter {
             throw new Error()
         }
         return [text, markdown]
-    }
-
-    private getFormattedMessage(): [string, string] {
-        let messageText: string
-        let messageMarkdown: string
-
-        try {
-            const [tokens, tokenizedMessage] = this.getTokens()
-            const values: string[] = []
-            const markdownValues: string[] = []
-
-            for (const token of tokens) {
-                const tokenParts = token.split('.') || []
-
-                const [value, markdownValue] = this.getValueOfToken(tokenParts)
-                values.push(value)
-                markdownValues.push(markdownValue)
-            }
-            messageText = format(tokenizedMessage, ...values)
-            messageMarkdown = format(tokenizedMessage, ...markdownValues)
-        } catch (error) {
-            const [actionName, actionMarkdown] = this.getActionDetails()
-            messageText = `⚠ Error: There are one or more formatting errors in the message template for action "${actionName}".`
-            messageMarkdown = `*⚠ Error: There are one or more formatting errors in the message template for action "${actionMarkdown}".*`
-        }
-
-        return [messageText, messageMarkdown]
     }
 }
