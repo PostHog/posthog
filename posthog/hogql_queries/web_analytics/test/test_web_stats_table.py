@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
-from posthog.schema import DateRange, WebStatsTableQuery, WebStatsBreakdown
+from posthog.schema import DateRange, WebStatsTableQuery, WebStatsBreakdown, EventPropertyFilter, PropertyOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -99,10 +99,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         use_sessions_table=True,
         include_bounce_rate=False,
         include_scroll_depth=False,
+        properties=None,
     ):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=[],
+            properties=properties or [],
             breakdownBy=breakdown_by,
             limit=limit,
             doPathCleaning=bool(path_cleaning_filters),
@@ -335,6 +336,48 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    def test_scroll_depth_bounce_rate_with_filter(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.9),
+                ("/a", "2023-12-02T12:00:01", 0.9),
+                ("/b", "2023-12-02T12:00:02", 0.2),
+                ("/c", "2023-12-02T12:00:03", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_scroll_depth=True,
+            include_bounce_rate=True,
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.exact, value="/a")],
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 3, 4, 1 // 3, 0.5, 0.5],
+            ],
+            results,
+        )
+
     def test_scroll_depth_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
@@ -433,6 +476,47 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["/a", 3, 4, 1 // 3],
                 ["/b", 2, 2, None],
                 ["/c", 2, 2, None],
+            ],
+            results,
+        )
+
+    def test_bounce_rate_with_property(self):
+        self._create_pageviews(
+            "p1",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+                ("/b", "2023-12-02T12:00:01", 0.2),
+                ("/c", "2023-12-02T12:00:02", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.9),
+                ("/a", "2023-12-02T12:00:01", 0.9),
+                ("/b", "2023-12-02T12:00:02", 0.2),
+                ("/c", "2023-12-02T12:00:03", 0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                ("/a", "2023-12-02T12:00:00", 0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            use_sessions_table=True,
+            breakdown_by=WebStatsBreakdown.Page,
+            include_bounce_rate=True,
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.exact, value="/a")],
+        ).results
+
+        self.assertEqual(
+            [
+                ["/a", 3, 4, 1 // 3],
             ],
             results,
         )
