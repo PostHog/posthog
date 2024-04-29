@@ -1,5 +1,6 @@
 from typing import Optional
 
+from sentry_sdk import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -34,9 +35,9 @@ class Insight(models.Model):
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    filters: models.JSONField = models.JSONField(default=dict)
+    _filters: models.JSONField = models.JSONField(default=dict, db_column="filters")
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    query: models.JSONField = models.JSONField(null=True, blank=True)
+    _query: models.JSONField = models.JSONField(null=True, blank=True, db_column="query")
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
@@ -97,6 +98,43 @@ class Insight(models.Model):
 
     def __str__(self):
         return self.name or self.derived_name or self.short_id
+
+    @property
+    def filters(self):
+        # hide filters when the feature flag is on and we have a saved or converted query
+        from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
+
+        if hogql_insights_replace_filters(self.team) and self.query is not None:
+            return {}
+
+        return self._filters
+
+    @filters.setter
+    def set_filters(self, value):
+        self._filters = value
+
+    @property
+    def query(self):
+        # return query if present
+        if self._query is not None:
+            return self._query
+
+        # convert filters to query when then feature flag is on
+        from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
+        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+
+        if hogql_insights_replace_filters(self.team) and self._filters:
+            try:
+                return {"kind": "InsightVizNode", "source": filter_to_query(self._filters).model_dump(), "full": True}
+            except Exception as e:
+                capture_exception(e)
+
+        # null by default
+        return None
+
+    @query.setter
+    def set_query(self, value):
+        self._query = value
 
     @property
     def is_sharing_enabled(self):
