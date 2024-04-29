@@ -17,6 +17,7 @@ import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { ManualLinkProvider } from './ManualLinkProvider'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
@@ -180,16 +181,16 @@ function SecondStep(): JSX.Element {
 
     return (
         <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
+            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <ManualLinkProvider />}
         </ModalPage>
     )
 }
 
 function ThirdStep(): JSX.Element {
+    const { isManualLinkFormVisible } = useValues(sourceWizardLogic)
+
     return (
-        <ModalPage page={3}>
-            <PostgresSchemaForm />
-        </ModalPage>
+        <ModalPage page={3}>{isManualLinkFormVisible ? <DatawarehouseTableForm /> : <PostgresSchemaForm />}</ModalPage>
     )
 }
 

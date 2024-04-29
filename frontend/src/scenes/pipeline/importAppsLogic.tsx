@@ -80,6 +80,7 @@ export const importAppsLogic = kea<importAppsLogicType>([
                 return enabledFirst
             },
         ],
+        hasEnabledImportApps: [(s) => [s.importApps], (importApps) => importApps.some((app) => app.enabled)],
     }),
     afterMount(({ actions }) => {
         actions.loadPlugins()

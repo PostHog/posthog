@@ -80,6 +80,7 @@ export class EventsProcessor {
             'Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!',
             () => ({ event: JSON.stringify(data) })
         )
+        distinctId = distinctId.replace('\u0000', '')
 
         let result: PreIngestionEvent | null = null
         try {

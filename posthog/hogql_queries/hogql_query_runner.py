@@ -61,7 +61,6 @@ class HogQLQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
-            explain=bool(self.query.explain),
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

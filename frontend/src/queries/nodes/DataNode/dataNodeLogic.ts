@@ -36,6 +36,7 @@ import {
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    HogQLQueryModifiers,
     InsightVizNode,
     NodeKind,
     PersonsNode,
@@ -63,6 +64,8 @@ export interface DataNodeLogicProps {
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
+    /** Override modifiers when making the request */
+    modifiers?: HogQLQueryModifiers
 
     dataNodeCollectionId?: string
 }
@@ -89,6 +92,16 @@ const queryValid = (q: DataNode): boolean => {
     return true
 }
 
+function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
+    if (!modifiers) {
+        return query
+    }
+    return {
+        ...query,
+        modifiers: { ...query.modifiers, ...modifiers },
+    }
+}
+
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     key((props) => props.key),
@@ -113,15 +126,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!queryEqual(props.query, oldProps.query)) {
-            if (
-                !props.cachedResults ||
-                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
-            ) {
-                actions.loadData()
-            } else {
-                actions.setResponse(props.cachedResults)
-            }
+        if (
+            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
+            !queryEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
+        ) {
+            actions.loadData()
+        } else if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -189,7 +203,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 try {
                                     breakpoint()
                                     const data =
-                                        (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                                        (await query<DataNode>(
+                                            addModifiers(props.query, props.modifiers),
+                                            methodOptions,
+                                            refresh,
+                                            queryId
+                                        )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
                                 } catch (error: any) {
@@ -224,7 +243,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (isEventsQuery(props.query) && values.newQuery) {
                         const now = performance.now()
-                        const newResponse = (await query(values.newQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.newQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
@@ -248,7 +267,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
                         return {
@@ -257,7 +276,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
                             // help typescript by asserting we can't have an array here
@@ -624,7 +643,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0) {
+        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
+            // Attention: When on dashboard we don't want to load data on mount
+            // as it will have be loaded by some other logic
             actions.loadData()
         }
 

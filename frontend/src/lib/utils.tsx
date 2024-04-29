@@ -417,9 +417,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     } else if (!isFinite(d)) {
         if (d > 0) {
             return 'inf'
-        } else {
-            return '-inf'
         }
+        return '-inf'
     }
     const trillion = 1_000_000_000_000
     const billion = 1_000_000_000
@@ -443,9 +442,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     }
     if (d >= thousand) {
         return `${prefix}${(d / thousand).toString()}K`
-    } else {
-        return `${prefix}${d}`
     }
+    return `${prefix}${d}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -552,10 +550,9 @@ export function colonDelimitedDuration(d: string | number | null | undefined, fi
     ;[weeks, days, h, m, s].forEach((unit, i) => {
         if (!fixedUnits && !unit && !stopTrimming && i < 3) {
             return
-        } else {
-            units.push(zeroPad(unit, 2))
-            stopTrimming = true
         }
+        units.push(zeroPad(unit, 2))
+        stopTrimming = true
     })
 
     if (fixedUnits) {
@@ -600,10 +597,9 @@ export function isDomain(url: string): boolean {
         const parsedUrl = new URL(url)
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
-        } else {
-            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
-                return true
-            }
+        }
+        if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+            return true
         }
     } catch {
         return false
@@ -700,10 +696,9 @@ export function autoCaptureEventToDescription(
 
     if (shortForm) {
         return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
-    } else {
-        const value = getValue()
-        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
     }
+    const value = getValue()
+    return [getVerb(), getTag(), value].filter((x) => x).join(' ')
 }
 
 export function determineDifferenceType(
@@ -722,9 +717,8 @@ export function determineDifferenceType(
         return 'day'
     } else if (first.diff(second, 'hours') !== 0) {
         return 'hour'
-    } else {
-        return 'minute'
     }
+    return 'minute'
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
@@ -872,9 +866,8 @@ export function dateFilterToText(
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
             return isDateFormatted ? dayjs(dateFrom).format(dateFormat) : `Today`
-        } else {
-            return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
         }
+        return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
@@ -912,9 +905,8 @@ export function dateFilterToText(
                 return formatDateRange(date, dayjs().endOf('d'))
             } else if (startOfRange) {
                 return formatDate(date, dateFormat)
-            } else {
-                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }
+            return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
         }
     }
 

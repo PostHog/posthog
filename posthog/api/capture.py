@@ -1,8 +1,8 @@
-import hashlib
 import json
 import re
 import structlog
 import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from dateutil import parser
 from django.conf import settings
@@ -19,7 +19,6 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional
-from collections.abc import Iterator
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -625,11 +624,7 @@ def capture_internal(
     ):
         kafka_partition_key = None
     else:
-        if settings.CAPTURE_SKIP_KEY_HASHING:
-            kafka_partition_key = candidate_partition_key
-        else:
-            # TODO: remove after progressive rollout of the option
-            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+        kafka_partition_key = candidate_partition_key
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
 

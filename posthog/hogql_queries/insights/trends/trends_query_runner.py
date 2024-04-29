@@ -50,6 +50,7 @@ from posthog.schema import (
     ChartDisplayType,
     Compare,
     CompareItem,
+    DashboardFilter,
     DayItem,
     EventsNode,
     DataWarehouseNode,
@@ -817,9 +818,17 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
-        updated_query = super().apply_dashboard_filters(*args, **kwargs)
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
+        updated_query: TrendsQuery = super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
         # Remove any set breakdown limit for display on the dashboard
         if updated_query.breakdownFilter:
             updated_query.breakdownFilter.breakdown_limit = None
+
+        if (
+            updated_query.trendsFilter is not None
+            and updated_query.trendsFilter.compare
+            and dashboard_filter.date_from == "all"
+        ):
+            updated_query.trendsFilter.compare = False
+
         return updated_query
