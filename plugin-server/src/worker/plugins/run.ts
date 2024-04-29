@@ -202,22 +202,7 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     // Runs composeWebhook for all plugins for this team in parallel
     let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
 
-    // Filter out plugins if they have a match_action that doesn't match the event
-    pluginMethodsToRun = pluginMethodsToRun.filter(([pluginConfig, composeWebhook]) => {
-        if (pluginConfig.match_action_id) {
-            const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
-
-            if (!relatedAction) {
-                throw new Error('Related action not found')
-            }
-
-            const matched = hub.actionMatcher.checkAction(event, relatedAction)
-
-            return matched
-        }
-
-        return [pluginConfig, composeWebhook]
-    })
+    pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
 
     await Promise.all(
         pluginMethodsToRun
@@ -391,4 +376,39 @@ async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
     ][]
 
     return methodsObtainedFiltered
+}
+
+async function filterPluginMethodsForActionMatches<T>(
+    hub: Hub,
+    event: PostIngestionEvent,
+    pluginMethods: [PluginConfig, T][]
+): Promise<[PluginConfig, T][]> {
+    const filteredList: [PluginConfig, T][] = []
+
+    await Promise.all(
+        pluginMethods.map(async ([pluginConfig, method]) => {
+            if (pluginConfig.match_action_id) {
+                const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
+
+                if (!relatedAction) {
+                    // TODO: Is this what we want to do here?
+                    status.error('🔴', 'Could not find action for PluginConfig!', {
+                        pluginConfigId: pluginConfig.id,
+                        teamId: event.teamId,
+                    })
+
+                    return
+                }
+
+                const matched = await hub.actionMatcher.checkAction(event, relatedAction)
+
+                if (!matched) {
+                    return
+                }
+            }
+            filteredList.push([pluginConfig, method])
+        })
+    )
+
+    return filteredList
 }

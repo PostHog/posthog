@@ -13,7 +13,6 @@ export class ActionManager {
     private started: boolean
     private ready: boolean
     private actionCache: ActionCache
-    private asyncActionCache: Record<Action['id'], Promise<Action | null>>
     private pubSub: PubSub
 
     constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
