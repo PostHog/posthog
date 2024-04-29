@@ -548,6 +548,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pl-16 pb-8">
                             {product.tiered && tableTierData ? (
                                 <>
+                                    <LemonBanner type="info" className="text-xs">
+                                        The data in this table is refreshed once per day. Please refer to the gauge
+                                        above for the most up-to-date statistics on your usage.
+                                    </LemonBanner>
                                     <LemonTable
                                         stealth
                                         embedded
