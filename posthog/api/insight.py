@@ -53,7 +53,7 @@ from posthog.helpers.multi_property_breakdown import (
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.apply_dashboard_filters import DATA_TABLE_LIKE_NODE_KINDS
+from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.legacy_compatibility.feature_flag import (
     hogql_insights_replace_filters,
     should_use_hogql_backend_in_insight_serialization,
@@ -724,14 +724,10 @@ class InsightViewSet(
                 insight = request.GET[INSIGHT]
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.exclude(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.filter(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 else:
                     queryset = queryset.filter(query__isnull=True)
                     queryset = queryset.filter(filters__insight=insight)
