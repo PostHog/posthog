@@ -29,7 +29,6 @@ import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uui
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -100,29 +99,6 @@ const layoutsByTile = (layouts: Layouts): Record<number, Record<DashboardLayoutS
         })
     })
     return itemLayouts
-}
-
-interface InsightCacheReloadProps {
-    cachedInsight: InsightModel
-    dashboardId: number
-    refreshedInsight: InsightModel
-}
-
-/**
- * :TRICKY: Changes in dashboards don't automatically propagate to already mounted insights!
- * This function updates insightLogics individually.
- *
- * Call this whenever updating already rendered tiles within dashboardLogic
- */
-function updateExistingInsightState({ cachedInsight, dashboardId, refreshedInsight }: InsightCacheReloadProps): void {
-    if (refreshedInsight.filters.insight) {
-        const itemResultLogic = insightLogic.findMounted({
-            dashboardItemId: refreshedInsight.short_id,
-            dashboardId: dashboardId,
-            cachedInsight: cachedInsight,
-        })
-        itemResultLogic?.actions.setInsight(refreshedInsight, { fromPersistentApi: true })
-    }
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
@@ -365,10 +341,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const newTiles = state.tiles.slice()
 
                         if (tileIndex >= 0) {
-                            if (insight.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
-                                if (updateTileOnDashboards?.includes(props.id)) {
-                                    newTiles[tileIndex].last_refresh = insight.last_refresh
+                            if (insight.dashboards?.includes(props.id) && updateTileOnDashboards?.includes(props.id)) {
+                                newTiles[tileIndex] = {
+                                    ...newTiles[tileIndex],
+                                    insight: insight,
+                                    last_refresh: insight.last_refresh,
                                 }
                             } else {
                                 newTiles.splice(tileIndex, 1)
@@ -892,7 +869,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
-            const hardRefreshWithoutCache = ['refresh', 'load_missing'].includes(action)
+            const hardRefreshWithoutCache = ['refresh', 'load_missing', 'refresh_insights_on_filters_updated'].includes(
+                action
+            )
 
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
@@ -915,7 +894,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const refreshedInsightResponse: Response = await api.getResponse(apiUrl, methodOptions)
                     const refreshedInsight: InsightModel = await getJSONOrNull(refreshedInsightResponse)
                     breakpoint()
-                    updateExistingInsightState({ cachedInsight: insight, dashboardId, refreshedInsight })
                     dashboardsModel.actions.updateDashboardInsight(
                         refreshedInsight,
                         [],
@@ -1057,7 +1035,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 allLoaded = false
             } else {
                 const tilesWithNoResults = values.tiles?.filter((t) => !!t.insight && !t.insight.result) || []
-                const tilesWithResults = values.tiles?.filter((t) => !!t.insight && t.insight.result) || []
 
                 if (tilesWithNoResults.length) {
                     actions.refreshAllDashboardItems({
@@ -1067,17 +1044,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         dashboardQueryId,
                     })
                     allLoaded = false
-                }
-
-                for (const tile of tilesWithResults) {
-                    if (tile.insight) {
-                        updateExistingInsightState({
-                            cachedInsight: tile.insight,
-                            dashboardId: dashboard.id,
-                            refreshedInsight: tile.insight,
-                        })
-                        dashboardsModel.actions.updateDashboardInsight(tile.insight)
-                    }
                 }
             }
 
