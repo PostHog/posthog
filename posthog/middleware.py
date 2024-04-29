@@ -16,7 +16,6 @@ from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
-from django.utils import timezone
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
@@ -674,7 +673,7 @@ class AutoLogoutImpersonateMiddleware:
 
         expire_since_last_activity = settings.IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY
 
-        if expire_since_last_activity and time.time() - init_time > 1:
+        if expire_since_last_activity:
             request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
 
         return self.get_response(request)
