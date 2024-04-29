@@ -59,6 +59,7 @@ describe('sql', () => {
             team_id: 2,
             created_at: expect.anything(),
             updated_at: expect.anything(),
+            match_action_id: null,
         }
 
         const rows1 = await getPluginConfigRows(hub)
@@ -88,7 +89,6 @@ describe('sql', () => {
                 updated_at: expect.any(String),
                 url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
                 capabilities: {},
-                match_action_id: null,
             },
         ]
 
