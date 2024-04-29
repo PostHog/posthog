@@ -1013,6 +1013,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
         plugin_config = PluginConfig.objects.first()
@@ -1055,6 +1056,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "name in ui",
                 "description": "description in ui",
                 "deleted": False,
+                "match_action": None,
             },
         )
         self.client.delete(f"/api/plugin_config/{plugin_config_id}")
@@ -1375,6 +1377,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1404,6 +1407,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
 
@@ -1435,6 +1439,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "name": "Hello World",
                 "description": "Greet the World and Foo a Bar, JS edition!",
                 "deleted": False,
+                "match_action": None,
             },
         )
         plugin_config = PluginConfig.objects.get(plugin=plugin_id)
@@ -1483,6 +1488,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "description": None,
                     "deleted": False,
+                    "match_action": None,
                 },
                 {
                     "id": plugin_config2.pk,
@@ -1499,6 +1505,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "name": "ui name",
                     "description": "ui description",
                     "deleted": False,
+                    "match_action": None,
                 },
             ],
         )
