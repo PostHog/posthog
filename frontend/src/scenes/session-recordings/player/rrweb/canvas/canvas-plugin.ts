@@ -18,7 +18,7 @@ function findEvent(events: CanvasEventWithTime[], target: CanvasEventWithTime): 
     return events.findIndex((event) => event.data.id === target.data.id)
 }
 
-const PRELOAD_BUFFER_SIZE = 30
+const PRELOAD_BUFFER_SIZE = 20
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
@@ -27,6 +27,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
     const preloadBuffer = new Set<CanvasEventWithTime>()
     let nextPreloadIndex: number | null = null
+    let latestCanvasEvent: CanvasEventWithTime | null = null
 
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
@@ -144,14 +145,23 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
-            // skip when fast forwarding
-            if (isSync) {
-                // reset preload index if scrubbing
-                nextPreloadIndex = null
+            const isCanvas = isCanvasMutation(e)
 
-                if (isCanvasMutation(e)) {
-                    void processMutation(e, replayer)
+            if (!isCanvas) {
+                if (latestCanvasEvent) {
+                    void processMutation(latestCanvasEvent, replayer)
                 }
+                // pruneBuffer(e)
+                return
+            }
+
+            // scrubbing / fast forwarding
+            if (isSync) {
+                // reset preload index
+                nextPreloadIndex = null
+                latestCanvasEvent = e
+            } else {
+                void processMutation(e, replayer)
             }
         },
     } as ReplayPlugin
