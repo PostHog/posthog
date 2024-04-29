@@ -54,7 +54,9 @@ def publish_subscription(team_id: str, session_id: str) -> None:
         raise e
 
 
-def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[list[str]]:
+def get_realtime_snapshots(
+    team_id: str, session_id: str, attempt_count=0, after_timestamp: int | None = None
+) -> Optional[list[str]]:
     try:
         redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
         key = get_key(team_id, session_id)
@@ -85,6 +87,11 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
             snapshots = []
 
             for s in encoded_snapshots:
+                # s[0] is the content
+                # s[1] is the time the content was written to redis
+                # if after_timestamp is set, we only want snapshots after that time
+                if after_timestamp and s[1] <= after_timestamp:
+                    continue
                 for line in s[0].splitlines():
                     snapshots.append(line)
 
