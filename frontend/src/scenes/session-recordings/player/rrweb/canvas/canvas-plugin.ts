@@ -112,7 +112,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
         const img = containers.get(data.id)
         if (img) {
-            img.src = target.toDataURL()
+            img.src = target.toDataURL('image/jpeg', 0.5)
         }
     }
 
