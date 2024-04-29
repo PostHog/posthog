@@ -498,18 +498,34 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         now = datetime.now()
         with freeze_time(now):
             self.login_as_other_user()
-            client = self.client
-            res = client.get("/api/users/@me")
+            res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
-            assert client.session.get("loginas_started_at") == now.timestamp()
+            assert self.client.session.get("loginas_started_at") == now.timestamp()
 
         with freeze_time(now + timedelta(seconds=10)):
-            res = client.get("/api/users/@me")
+            res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
 
         with freeze_time(now + timedelta(seconds=35)):
-            res = client.get("/api/users/@me")
-            assert res.json()["email"] == "other-user@posthog.com"
+            res = self.client.get("/api/users/@me")
             assert res.status_code == 401
+
+    def test_after_timeout_redirects_to_logout_then_admin(self):
+        now = datetime.now()
+        with freeze_time(now):
+            self.login_as_other_user()
+
+        with freeze_time(now + timedelta(seconds=35)):
+            res = self.client.get("/dashboards")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/logout/"
+
+            res = self.client.get("/logout/")
+            assert res.status_code == 302
+            assert res.headers["Location"] == "/admin/"
+
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "user1@posthog.com"
