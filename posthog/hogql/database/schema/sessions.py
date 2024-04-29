@@ -180,14 +180,24 @@ def select_from_sessions_table(
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
-                name="and",
+                name="not",
                 args=[
-                    ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
-                    ast.Call(name="equals", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]),
-                    ast.Call(name="less", args=[aggregate_fields["$session_duration"], ast.Constant(value=30)]),
+                    ast.Call(
+                        name="or",
+                        args=[
+                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                            ast.Call(
+                                name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
+                            ),
+                            ast.Call(
+                                name="greaterOrEquals",
+                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                            ),
+                        ],
+                    )
                 ],
             ),
         ],

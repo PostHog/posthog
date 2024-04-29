@@ -57,11 +57,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             useSessionsTable=use_sessions_table,
         )
         if use_sessions_table:
-            runner: Union[WebOverviewQueryRunner, LegacyWebOverviewQueryRunner] = LegacyWebOverviewQueryRunner(
+            runner: Union[WebOverviewQueryRunner, LegacyWebOverviewQueryRunner] = WebOverviewQueryRunner(
                 team=self.team, query=query, limit_context=limit_context
             )
         else:
-            runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
+            runner = LegacyWebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
     @parameterized.expand([(True,), (False,)])
