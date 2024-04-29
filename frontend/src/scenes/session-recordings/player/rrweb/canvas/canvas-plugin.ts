@@ -19,6 +19,7 @@ function findEvent(events: CanvasEventWithTime[], target: CanvasEventWithTime): 
 }
 
 const PRELOAD_BUFFER_SIZE = 20
+const BUFFER_TIME = 30000 // 30 seconds
 
 export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const canvases = new Map<number, HTMLCanvasElement>([])
@@ -63,6 +64,23 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         canvases.set(id, cloneNode)
         document.adoptNode(cloneNode)
         return cloneNode
+    }
+
+    const pruneQueue: eventWithTime[] = []
+    const pruneBuffer = (event: eventWithTime): void => {
+        while (pruneQueue.length) {
+            const difference = Math.abs(event.timestamp - pruneQueue[0].timestamp)
+            if (difference <= BUFFER_TIME && pruneQueue.length <= PRELOAD_BUFFER_SIZE) {
+                break
+            }
+
+            const eventToPrune = pruneQueue.shift()
+            if (eventToPrune && isCanvasMutation(eventToPrune) && canvasEventMap.has(eventToPrune)) {
+                canvasEventMap.delete(eventToPrune)
+            }
+        }
+
+        pruneQueue.push(event)
     }
 
     const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
@@ -151,7 +169,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 if (latestCanvasEvent) {
                     void processMutation(latestCanvasEvent, replayer)
                 }
-                // pruneBuffer(e)
+                pruneBuffer(e)
                 return
             }
 
@@ -160,6 +178,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 // reset preload index
                 nextPreloadIndex = null
                 latestCanvasEvent = e
+                pruneBuffer(e)
             } else {
                 void processMutation(e, replayer)
             }
