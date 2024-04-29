@@ -825,11 +825,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {
-            "snapshots": [
-                {"some": "data"},
-            ],
-        }
+        assert response.json() == {"some": "data"}
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -864,7 +860,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"snapshots": [{"some": "𐐷 probably from console logs"}]}
+        assert response.json() == {"some": "𐐷 probably from console logs"}
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
