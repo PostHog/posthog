@@ -39,6 +39,7 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportDestination,
@@ -246,7 +247,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 "hogql_query": print_prepared_ast(hogql_query, context=context, dialect="hogql"),
             }
             # Also print the query in ClickHouse dialect to catch unresolved field errors
-            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
+            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
         except errors.ExposedHogQLError:
             raise serializers.ValidationError("Unsupported HogQL query")
 
