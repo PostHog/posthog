@@ -1,4 +1,3 @@
-from typing import Set
 from urllib.parse import urlparse
 
 import structlog
@@ -20,7 +19,7 @@ def backfill_recording_domains(apps, _):
         teams_in_batch = all_teams[i : i + batch_size]
 
         for team in teams_in_batch:
-            recording_domains: Set[str] = set()
+            recording_domains: set[str] = set()
             for app_url in team.app_urls:
                 # Extract just the domain from the URL
                 parsed_url = urlparse(app_url)

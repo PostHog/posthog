@@ -86,7 +86,6 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "email_opt_in",
             "is_email_verified",
-            "pending_email",
             "notification_settings",
             "anonymize_data",
             "toolbar_mode",
@@ -107,8 +106,22 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
         ]
+
+        read_only_fields = [
+            "date_joined",
+            "uuid",
+            "distinct_id",
+            "pending_email",
+            "is_email_verified",
+            "has_password",
+            "is_impersonated",
+            "team",
+            "organization",
+            "organizations",
+            "has_social_auth",
+        ]
+
         extra_kwargs = {
-            "date_joined": {"read_only": True},
             "password": {"write_only": True},
         }
 

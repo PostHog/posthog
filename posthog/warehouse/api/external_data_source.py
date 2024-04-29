@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, List, Tuple, Dict
+from typing import Any
 
 import structlog
 from rest_framework import filters, serializers, status, viewsets
@@ -17,6 +17,7 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
     is_any_external_data_job_paused,
+    trigger_external_data_source_workflow,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
@@ -41,6 +42,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -67,6 +69,28 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_status(self, instance: ExternalDataSource) -> str:
+        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
+        any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
+        any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
+        any_running = any(schema.status == ExternalDataSchema.Status.RUNNING for schema in active_schemas)
+        any_completed = any(schema.status == ExternalDataSchema.Status.COMPLETED for schema in active_schemas)
+
+        if any_failures:
+            return ExternalDataSchema.Status.ERROR
+        elif any_cancelled:
+            return ExternalDataSchema.Status.CANCELLED
+        elif any_paused:
+            return ExternalDataSchema.Status.PAUSED
+        elif any_running:
+            return ExternalDataSchema.Status.RUNNING
+        elif any_completed:
+            return ExternalDataSchema.Status.COMPLETED
+        else:
+            # Fallback during migration phase of going from source -> schema as the source of truth for syncs
+            return instance.status
 
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
@@ -98,7 +122,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["source_id"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
@@ -169,13 +193,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
+        active_schemas: list[ExternalDataSchema] = []
+
         for schema in enabled_schemas:
-            ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=True)
+            active_schemas.append(
+                ExternalDataSchema.objects.create(
+                    name=schema, team=self.team, source=new_source_model, should_sync=True
+                )
+            )
         for schema in disabled_schemas:
             ExternalDataSchema.objects.create(name=schema, team=self.team, source=new_source_model, should_sync=False)
 
         try:
-            sync_external_data_job_workflow(new_source_model, create=True)
+            for active_schema in active_schemas:
+                sync_external_data_job_workflow(active_schema, create=True)
         except Exception as e:
             # Log error but don't fail because the source model was already created
             logger.exception("Could not trigger external data job", exc_info=e)
@@ -258,7 +289,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_postgres_source(
         self, request: Request, *args: Any, **kwargs: Any
-    ) -> Tuple[ExternalDataSource, List[Any]]:
+    ) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -317,21 +348,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        latest_completed_job = (
-            ExternalDataJob.objects.filter(pipeline_id=instance.pk, team_id=instance.team_id, status="Completed")
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_completed_job:
+        all_jobs = ExternalDataJob.objects.filter(
+            pipeline_id=instance.pk, team_id=instance.team_id, status="Completed"
+        ).all()
+        for job in all_jobs:
             try:
-                delete_data_import_folder(latest_completed_job.folder_path)
+                delete_data_import_folder(job.folder_path)
             except Exception as e:
-                logger.exception(
-                    f"Could not clean up data import folder: {latest_completed_job.folder_path}", exc_info=e
-                )
+                logger.exception(f"Could not clean up data import folder: {job.folder_path}", exc_info=e)
                 pass
 
-        delete_external_data_schedule(instance)
+        for schema in ExternalDataSchema.objects.filter(
+            team_id=self.team_id, source_id=instance.id, should_sync=True
+        ).all():
+            delete_external_data_schedule(str(schema.id))
+
+        delete_external_data_schedule(str(instance.id))
         return super().destroy(request, *args, **kwargs)
 
     @action(methods=["POST"], detail=True)
@@ -345,12 +377,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         try:
-            trigger_external_data_workflow(instance)
+            trigger_external_data_source_workflow(instance)
 
-        except temporalio.service.RPCError as e:
-            # schedule doesn't exist
-            if e.message == "sql: no rows in result set":
-                sync_external_data_job_workflow(instance, create=True)
+        except temporalio.service.RPCError:
+            # if the source schedule has been removed - trigger the schema schedules
+            for schema in ExternalDataSchema.objects.filter(
+                team_id=self.team_id, source_id=instance.id, should_sync=True
+            ).all():
+                try:
+                    trigger_external_data_workflow(schema)
+                except temporalio.service.RPCError as e:
+                    if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                        sync_external_data_job_workflow(schema, create=True)
+
+                except Exception as e:
+                    logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)
+
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
             raise
@@ -402,7 +444,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
@@ -413,8 +455,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": False} for row in schemas]
+        options = [{"table": row, "should_sync": True} for row in schemas]
         return Response(status=status.HTTP_200_OK, data=options)
+
+    @action(methods=["POST"], detail=False)
+    def source_prefix(self, request: Request, *arg: Any, **kwargs: Any):
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        if self.prefix_required(source_type):
+            if not prefix:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Source type already exists. Prefix is required"},
+                )
+            elif self.prefix_exists(source_type, prefix):
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
+
+        return Response(status=status.HTTP_200_OK)
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):

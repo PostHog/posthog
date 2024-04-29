@@ -131,7 +131,7 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir share && \
-    ( curl -s -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
     chmod -R 755 ./share/GeoLite2-City.mmdb
 
 
@@ -249,7 +249,8 @@ RUN apt-get update && \
     "libpq-dev" \
     "libxmlsec1" \
     "libxmlsec1-dev" \
-    "libxml2"
+    "libxml2" \
+    "gettext-base"
 
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \
@@ -311,6 +312,6 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
-COPY unit.json /docker-entrypoint.d/unit.json
+COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 USER root
 CMD ["./bin/docker"]

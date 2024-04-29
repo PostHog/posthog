@@ -2,25 +2,18 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { ExternalDataSourceType } from '~/types'
+import { SourceConfig } from '~/types'
 
-import { SOURCE_DETAILS } from '../../new/sourceWizardLogic'
-import { sourceFormLogic } from './sourceFormLogic'
+import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 
 interface SourceFormProps {
-    sourceType: ExternalDataSourceType
+    sourceConfig: SourceConfig
 }
 
-export default function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
+export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Element {
     return (
-        <Form
-            logic={sourceFormLogic}
-            props={{ sourceType }}
-            formKey="sourceConnectionDetails"
-            className="space-y-4"
-            enableFormOnSubmit
-        >
-            {SOURCE_DETAILS[sourceType].fields.map((field) => (
+        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
+            {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => (
                 <LemonField key={field.name} name={['payload', field.name]} label={field.label}>
                     <LemonInput className="ph-ignore-input" data-attr={field.name} />
                 </LemonField>

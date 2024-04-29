@@ -57,6 +57,7 @@ export function SupportForm(): JSX.Element | null {
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
     const { user } = useValues(userLogic)
+    // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
 
@@ -69,32 +70,7 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
-    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
-        const message = supportLogic.values.sendSupportRequest.message
-
-        // do not overwrite modified message
-        if (
-            !(
-                message === SUPPORT_TICKET_TEMPLATES.bug ||
-                message === SUPPORT_TICKET_TEMPLATES.feedback ||
-                message === SUPPORT_TICKET_TEMPLATES.support ||
-                !message
-            )
-        ) {
-            return
-        }
-
-        if (kind === 'bug') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
-        } else if (kind === 'feedback') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
-        } else if (kind === 'support') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
-        }
-    }
-
     useEffect(() => {
-        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -124,7 +100,15 @@ export function SupportForm(): JSX.Element | null {
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
             <LemonField name="target_area" label="Topic">
-                <LemonSelect fullWidth options={TARGET_AREA_TO_NAME} />
+                <LemonSelect
+                    disabledReason={
+                        !user
+                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                            : null
+                    }
+                    fullWidth
+                    options={TARGET_AREA_TO_NAME}
+                />
             </LemonField>
             <LemonField
                 name="message"
@@ -133,7 +117,7 @@ export function SupportForm(): JSX.Element | null {
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2">
                         <LemonTextArea
-                            placeholder="Type your message here"
+                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
                             {...props}
                         />

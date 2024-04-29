@@ -21,10 +21,7 @@ def create_default_modifiers_for_team(
         modifiers = modifiers.model_copy()
 
     if modifiers.personsOnEventsMode is None:
-        if team.person_on_events_v3_querying_enabled:
-            modifiers.personsOnEventsMode = PersonsOnEventsMode.v3_enabled
-        else:
-            modifiers.personsOnEventsMode = team.person_on_events_mode
+        modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.disabled
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.auto

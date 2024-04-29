@@ -1,5 +1,4 @@
 import json
-from typing import Dict
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -21,7 +20,7 @@ from posthog.models.signals import mute_selected_signals
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
 from posthog.utils import generate_cache_key
 
-valid_template: Dict = {
+valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
@@ -903,7 +902,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["tiles"]), len(existing_dashboard.insights.all()))
 
         existing_dashboard_item_id_set = {tile1.pk, tile2.pk}
-        response_item_id_set = set(map(lambda x: x.get("id", None), response["tiles"]))
+        response_item_id_set = {x.get("id", None) for x in response["tiles"]}
         # check both sets are disjoint to verify that the new items' ids are different than the existing items
 
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
@@ -1186,7 +1185,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
-        template: Dict = {**valid_template, "tiles": []}
+        template: dict = {**valid_template, "tiles": []}
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -1194,8 +1193,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_create_from_template_json_cam_provide_text_tile(self) -> None:
-        template: Dict = {
+    def test_create_from_template_json_can_provide_text_tile(self) -> None:
+        template: dict = {
             **valid_template,
             "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}],
         }
@@ -1225,14 +1224,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
-    def test_create_from_template_json_cam_provide_query_tile(self) -> None:
-        template: Dict = {
+    def test_create_from_template_json_can_provide_query_tile(self) -> None:
+        template: dict = {
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
             "tiles": [
                 {
                     "type": "INSIGHT",
-                    "query": {"kind": "a datatable"},
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "kind": "EventsQuery",
+                            "select": ["*"],
+                        },
+                    },
                     "filters": {"date_from": None},
                     "layouts": {},
                 }
@@ -1277,7 +1283,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "name": None,
                     "next_allowed_client_refresh": None,
                     "order": None,
-                    "query": {"kind": "a datatable"},
+                    "query": {
+                        "kind": "DataTableNode",
+                        "columns": ["person", "id", "created_at", "person.$delete"],
+                        "source": {
+                            "actionId": None,
+                            "after": None,
+                            "before": None,
+                            "event": None,
+                            "filterTestAccounts": None,
+                            "fixedProperties": None,
+                            "kind": "EventsQuery",
+                            "limit": None,
+                            "modifiers": None,
+                            "offset": None,
+                            "orderBy": None,
+                            "personId": None,
+                            "properties": None,
+                            "response": None,
+                            "select": ["*"],
+                            "where": None,
+                        },
+                    },
                     "result": None,
                     "saved": False,
                     "short_id": ANY,

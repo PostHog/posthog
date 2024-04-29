@@ -1,18 +1,18 @@
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
-    create_external_data_job_model,
+    create_external_data_job_model_activity,
     create_source_templates,
-    run_external_data_job,
+    import_data_activity,
     update_external_data_job_model,
-    validate_schema_activity,
+    check_schedule_activity,
 )
 
 WORKFLOWS = [ExternalDataJobWorkflow]
 
 ACTIVITIES = [
-    create_external_data_job_model,
+    create_external_data_job_model_activity,
     update_external_data_job_model,
-    run_external_data_job,
-    validate_schema_activity,
+    import_data_activity,
     create_source_templates,
+    check_schedule_activity,
 ]

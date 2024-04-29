@@ -7,13 +7,17 @@ import hubspotLogo from 'public/hubspot-logo.svg'
 import postgresLogo from 'public/postgres-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 import zendeskLogo from 'public/zendesk-logo.png'
+import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+
+import { SourceConfig } from '~/types'
 
 import PostgresSchemaForm from '../external/forms/PostgresSchemaForm'
 import SourceForm from '../external/forms/SourceForm'
+import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
-import { SourceConfig, sourceWizardLogic } from './sourceWizardLogic'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
+import { sourceWizardLogic } from './sourceWizardLogic'
 
 export const scene: SceneExport = {
     component: NewSourceWizard,
@@ -21,25 +25,45 @@ export const scene: SceneExport = {
 }
 export function NewSourceWizard(): JSX.Element {
     const { modalTitle, modalCaption } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit } = useActions(sourceWizardLogic)
-    const { currentStep } = useValues(sourceWizardLogic)
+    const { onBack, onSubmit, closeWizard } = useActions(sourceWizardLogic)
+    const { currentStep, isLoading, canGoBack, canGoNext, nextButtonText, showSkipButton } =
+        useValues(sourceWizardLogic)
+    const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
-    const footer = (): JSX.Element | null => {
+    const footer = useCallback(() => {
         if (currentStep === 1) {
             return null
         }
 
         return (
             <div className="mt-2 flex flex-row justify-end gap-2">
-                <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
+                <LemonButton
+                    type="secondary"
+                    center
+                    data-attr="source-modal-back-button"
+                    onClick={onBack}
+                    disabledReason={!canGoBack && 'You cant go back from here'}
+                >
                     Back
                 </LemonButton>
-                <LemonButton type="primary" center onClick={() => onSubmit()} data-attr="source-link">
-                    Link
+                {showSkipButton && (
+                    <LemonButton type="primary" center onClick={() => closeWizard()} data-attr="source-link">
+                        Skip
+                    </LemonButton>
+                )}
+                <LemonButton
+                    loading={isLoading || manualLinkIsLoading}
+                    disabledReason={!canGoNext && 'You cant click next yet'}
+                    type="primary"
+                    center
+                    onClick={() => onSubmit()}
+                    data-attr="source-link"
+                >
+                    {nextButtonText}
                 </LemonButton>
             </div>
         )
-    }
+    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
 
     return (
         <>
@@ -50,7 +74,7 @@ export function NewSourceWizard(): JSX.Element {
                             type="secondary"
                             center
                             data-attr="source-form-cancel-button"
-                            to={urls.dataWarehouse()}
+                            onClick={closeWizard}
                         >
                             Cancel
                         </LemonButton>
@@ -63,6 +87,7 @@ export function NewSourceWizard(): JSX.Element {
                 <FirstStep />
                 <SecondStep />
                 <ThirdStep />
+                <FourthStep />
                 {footer()}
             </>
         </>
@@ -155,7 +180,7 @@ function SecondStep(): JSX.Element {
 
     return (
         <ModalPage page={2}>
-            {selectedConnector ? <SourceForm sourceType={selectedConnector.name} /> : <DatawarehouseTableForm />}
+            {selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />}
         </ModalPage>
     )
 }
@@ -164,6 +189,14 @@ function ThirdStep(): JSX.Element {
     return (
         <ModalPage page={3}>
             <PostgresSchemaForm />
+        </ModalPage>
+    )
+}
+
+function FourthStep(): JSX.Element {
+    return (
+        <ModalPage page={4}>
+            <SyncProgressStep />
         </ModalPage>
     )
 }

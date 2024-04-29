@@ -24,7 +24,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             userLogic,
             ['user'],
             databaseTableListLogic,
-            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading'],
+            ['filteredTables', 'dataWarehouse', 'dataWarehouseLoading', 'databaseLoading'],
             dataWarehouseSavedQueriesLogic,
             ['savedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
@@ -43,18 +43,11 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         ],
     })),
     actions({
-        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
         setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
     }),
     reducers({
-        isSourceModalOpen: [
-            false,
-            {
-                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
-            },
-        ],
         selectedRow: [
             null as DataWarehouseTableType | null,
             {
@@ -183,9 +176,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         selectRow: () => {
             actions.setIsEditingSavedQuery(false)
         },
-        updateDataWarehouseSavedQuerySuccess: async (_, view) => {
+        updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             actions.setIsEditingSavedQuery(false)
-            lemonToast.success(`${view.name} successfully updated`)
+            lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
         },
     })),
     afterMount(({ actions, values }) => {

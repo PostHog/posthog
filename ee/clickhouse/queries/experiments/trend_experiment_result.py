@@ -1,8 +1,9 @@
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
-from typing import List, Optional, Tuple, Type
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
@@ -20,6 +21,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
     UNIQUE_USERS,
     ExperimentSignificanceCode,
+    ExperimentNoResultsErrorKeys,
 )
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -76,7 +78,7 @@ class ClickhouseTrendExperimentResult:
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
-        trend_class: Type[Trends] = Trends,
+        trend_class: type[Trends] = Trends,
         custom_exposure_filter: Optional[Filter] = None,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
@@ -93,6 +95,7 @@ class ClickhouseTrendExperimentResult:
 
         uses_math_aggregation = uses_math_aggregation_by_user_or_property_value(filter)
 
+        # Keep in sync with https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/experiments/ExperimentView/components.tsx#L91
         query_filter = filter.shallow_clone(
             {
                 "display": TRENDS_CUMULATIVE if not uses_math_aggregation else TRENDS_LINEAR,
@@ -313,7 +316,7 @@ class ClickhouseTrendExperimentResult:
         return control_variant, test_variants
 
     @staticmethod
-    def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
+    def calculate_results(control_variant: Variant, test_variants: list[Variant]) -> list[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
 
@@ -343,9 +346,9 @@ class ClickhouseTrendExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant,
-        test_variants: List[Variant],
-        probabilities: List[Probability],
-    ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        test_variants: list[Variant],
+        probabilities: list[Probability],
+    ) -> tuple[ExperimentSignificanceCode, Probability]:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
         for variant in test_variants:
@@ -372,7 +375,7 @@ class ClickhouseTrendExperimentResult:
         return ExperimentSignificanceCode.SIGNIFICANT, p_value
 
 
-def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: List[Variant]) -> float:
+def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: list[Variant]) -> float:
     random_sampler = default_rng()
     simulations_count = 100_000
 
@@ -396,7 +399,7 @@ def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants
     return winnings / simulations_count
 
 
-def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[Probability]:
+def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[Probability]:
     """
     Calculates the probability of winning for each variant.
     """
@@ -455,7 +458,7 @@ def poisson_p_value(control_count, control_exposure, test_count, test_exposure):
     return min(1, 2 * min(low_p_value, high_p_value))
 
 
-def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) -> Probability:
+def calculate_p_value(control_variant: Variant, test_variants: list[Variant]) -> Probability:
     best_test_variant = max(test_variants, key=lambda variant: variant.count)
 
     return poisson_p_value(
@@ -466,34 +469,36 @@ def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) ->
     )
 
 
-def validate_event_variants(insight_results, variants):
-    if not insight_results or not insight_results[0]:
-        raise ValidationError("No experiment events have been ingested yet.", code="no-events")
+def validate_event_variants(trend_results, variants):
+    errors = {
+        ExperimentNoResultsErrorKeys.NO_EVENTS: True,
+        ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
+        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+    }
 
-    missing_variants = []
+    if not trend_results or not trend_results[0]:
+        raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+    errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
     # Check if "control" is present
-    control_found = False
-    for event in insight_results:
+    for event in trend_results:
         event_variant = event.get("breakdown_value")
         if event_variant == "control":
-            control_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not control_found:
-        missing_variants.append("control")
 
     # Check if at least one of the test variants is present
     test_variants = [variant for variant in variants if variant != "control"]
-    test_variant_found = False
-    for event in insight_results:
+    for event in trend_results:
         event_variant = event.get("breakdown_value")
         if event_variant in test_variants:
-            test_variant_found = True
+            errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+            errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
             break
-    if not test_variant_found:
-        missing_variants.extend(test_variants)
 
-    if not len(missing_variants) == 0:
-        missing_variants_str = ", ".join(missing_variants)
-        message = f"No experiment events have been ingested yet for the following variants: {missing_variants_str}"
-        raise ValidationError(message, code=f"missing-flag-variants::{missing_variants_str}")
+    has_errors = any(errors.values())
+    if has_errors:
+        raise ValidationError(detail=json.dumps(errors))

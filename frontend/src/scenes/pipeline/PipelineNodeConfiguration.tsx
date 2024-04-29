@@ -3,6 +3,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, Tooltip } from '@p
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
@@ -11,8 +12,9 @@ import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEd
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
-import { PluginType } from '~/types'
+import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
+import { pipelineLogic } from './pipelineLogic'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
 
 export function PipelineNodeConfiguration(): JSX.Element {
@@ -31,12 +33,20 @@ export function PipelineNodeConfiguration(): JSX.Element {
     } = useValues(pipelineNodeLogic)
     const { resetConfiguration, submitConfiguration, setNewConfigurationServiceOrPluginID } =
         useActions(pipelineNodeLogic)
+    const { canEnableNewDestinations } = useValues(pipelineLogic)
 
     let selector = <></>
 
     if (isNew) {
         if (!stage) {
             return <NotFound object="pipeline app stage" />
+        }
+        if (stage === PipelineStage.Destination && !canEnableNewDestinations) {
+            return (
+                <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+                    <></>
+                </PayGateMini>
+            )
         }
         const pluginsOptions = Object.values(newConfigurationPlugins).map((plugin) => ({
             value: plugin.id,

@@ -54,7 +54,11 @@ export function DistributionTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <LemonTable loading={false} columns={columns} dataSource={experiment.parameters.feature_flag_variants} />
+            <LemonTable
+                loading={false}
+                columns={columns}
+                dataSource={experiment.feature_flag?.filters.multivariate?.variants || []}
+            />
         </div>
     )
 }

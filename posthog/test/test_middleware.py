@@ -310,6 +310,30 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
+    def test_project_redirects_to_new_team_when_accessing_project_by_token(self):
+        res = self.client.get(f"/project/{self.second_team.api_token}/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.second_team.pk}/home"
+
+    def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
+        res = self.client.get(f"/project/phc_123/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+
+    def test_project_redirects_to_current_team_when_accessing_inaccessible_project_by_token(self):
+        res = self.client.get(f"/project/{self.no_access_team.api_token}/home")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home"
+
+    def test_project_redirects_including_query_params(self):
+        res = self.client.get(f"/project/phc_123?t=1")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}?t=1"
+
+        res = self.client.get(f"/project/phc_123/home?t=1")
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):

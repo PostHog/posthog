@@ -1,4 +1,4 @@
-from typing import Dict, Set, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -6,7 +6,7 @@ from posthog.hogql.database.models import DateTimeDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
-from posthog.utils import PersonOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 
 def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -81,9 +81,9 @@ class PropertyFinder(TraversingVisitor):
 
     def __init__(self, context: HogQLContext):
         super().__init__()
-        self.person_properties: Set[str] = set()
-        self.event_properties: Set[str] = set()
-        self.group_properties: Dict[int, Set[str]] = {}
+        self.person_properties: set[str] = set()
+        self.event_properties: set[str] = set()
+        self.group_properties: dict[int, set[str]] = {}
         self.found_timestamps = False
         self.context = context
 
@@ -123,9 +123,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: Dict[str, str],
-        person_properties: Dict[str, str],
-        group_properties: Dict[str, str],
+        event_properties: dict[str, str],
+        person_properties: dict[str, str],
+        group_properties: dict[str, str],
         context: HogQLContext,
     ):
         super().__init__(clear_types=False)
@@ -224,10 +224,10 @@ class PropertySwapper(CloningVisitor):
     ):
         property_name = str(node.chain[-1])
         if property_type == "person":
-            if self.context.modifiers.personsOnEventsMode != PersonOnEventsMode.DISABLED:  # type: ignore[comparison-overlap]
+            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.disabled:
                 materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")  # type: ignore[unreachable]
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
         elif property_type == "group":
             name_parts = property_name.split("_")
             name_parts.pop(0)

@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.db import models
@@ -72,7 +72,8 @@ class License(models.Model):
     ]
 
     ENTERPRISE_PLAN = "enterprise"
-    ENTERPRISE_FEATURES = SCALE_FEATURES + [
+    ENTERPRISE_FEATURES = [
+        *SCALE_FEATURES,
         AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
@@ -84,7 +85,7 @@ class License(models.Model):
     PLAN_TO_SORTING_VALUE = {SCALE_PLAN: 10, ENTERPRISE_PLAN: 20}
 
     @property
-    def available_features(self) -> List[AvailableFeature]:
+    def available_features(self) -> list[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
 
     @property

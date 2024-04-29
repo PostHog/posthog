@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Dict, List, cast
+from typing import cast
 from unittest import mock
 from unittest.mock import ANY, Mock, patch
 from urllib.parse import quote
@@ -326,7 +326,7 @@ class TestUserAPI(APIBaseTest):
         )
 
     def _assert_set_scene_choice(
-        self, scene: str, dashboard: Dashboard, user: User, expected_choices: List[Dict]
+        self, scene: str, dashboard: Dashboard, user: User, expected_choices: list[dict]
     ) -> None:
         response = self.client.post(
             "/api/users/@me/scene_personalisation",
@@ -886,6 +886,25 @@ class TestUserAPI(APIBaseTest):
         assert_forbidden_url("https://subdomain.example.com")
         assert_allowed_url("https://subdomain.otherexample.com")
         assert_allowed_url("https://sub.subdomain.otherexample.com")
+
+    def test_user_cannot_update_protected_fields(self):
+        self.user.is_staff = False
+        self.user.save()
+        fields = {
+            "date_joined": "2021-01-01T00:00:00Z",
+            "uuid": str(uuid.uuid4()),
+            "distinct_id": "distinct_id",
+            "pending_email": "changed@example.com",
+            "is_email_verified": True,
+        }
+
+        initial_user = self.client.get("/api/users/@me/").json()
+
+        for field, value in fields.items():
+            response = self.client.patch("/api/users/@me/", {field: value})
+            assert (
+                response.json()[field] == initial_user[field]
+            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
 
 
 class TestUserSlackWebhook(APIBaseTest):

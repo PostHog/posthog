@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
@@ -67,9 +67,9 @@ class SimplifyFilterMixin:
         self,
         team: "Team",
         entity_type: Literal["events", "actions", "exclusions"],
-        entity_params: Dict,
+        entity_params: dict,
         **kwargs,
-    ) -> Dict:
+    ) -> dict:
         from posthog.models.entity import Entity, ExclusionEntity
 
         EntityClass = ExclusionEntity if entity_type == "exclusions" else Entity
@@ -82,7 +82,7 @@ class SimplifyFilterMixin:
 
         return EntityClass({**entity_params, "properties": properties}).to_dict()
 
-    def _simplify_properties(self, team: "Team", properties: List["Property"], **kwargs) -> "PropertyGroup":
+    def _simplify_properties(self, team: "Team", properties: list["Property"], **kwargs) -> "PropertyGroup":
         simplified_properties_values = []
         for prop in properties:
             simplified_properties_values.append(self._simplify_property(team, prop, **kwargs))

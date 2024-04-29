@@ -1,6 +1,7 @@
 import itertools
 from datetime import timedelta
-from typing import List, Generator, Sequence, Iterator, Optional
+from typing import Optional
+from collections.abc import Generator, Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -42,7 +43,7 @@ class ActorsQueryRunner(QueryRunner):
     def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
-            for session_id in set(event[2] for event in event_results)
+            for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
         )
 
@@ -53,7 +54,7 @@ class ActorsQueryRunner(QueryRunner):
         actors_lookup,
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
-    ) -> Generator[List, None, None]:
+    ) -> Generator[list, None, None]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
@@ -70,9 +71,7 @@ class ActorsQueryRunner(QueryRunner):
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
-        matching_events_list = itertools.chain.from_iterable(
-            (row[column_index_events] for row in self.paginator.results)
-        )
+        matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
@@ -85,7 +84,7 @@ class ActorsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         missing_actors_count = None
-        results: Sequence[List] | Iterator[List] = self.paginator.results
+        results: Sequence[list] | Iterator[list] = self.paginator.results
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
@@ -105,18 +104,19 @@ class ActorsQueryRunner(QueryRunner):
             types=[t for _, t in response.types] if response.types else None,
             columns=input_columns,
             hogql=response.hogql,
+            modifiers=self.modifiers,
             missing_actors_count=missing_actors_count,
             **self.paginator.response_params(),
         )
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         if self.query.select:
             return self.query.select
 
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> List[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select

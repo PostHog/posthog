@@ -1,7 +1,7 @@
 import gzip
 import json
 from io import BytesIO
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from urllib.parse import parse_qs
 
 import lzstring
@@ -11,7 +11,7 @@ from django.test.client import FakePayload
 from jsonschema import validate
 
 
-def validate_response(openapi_spec: Dict[str, Any], response: Any, path_override: Optional[str] = None):
+def validate_response(openapi_spec: dict[str, Any], response: Any, path_override: Optional[str] = None):
     # Validates are response against the OpenAPI spec. If `path_override` is
     # provided, the path in the response will be overridden with the provided
     # value. This is useful for validating responses from e.g. the /batch

@@ -292,7 +292,7 @@ async def assert_clickhouse_records_in_s3(
 
     assert len(s3_data) == len(expected_records)
     assert s3_data[0] == expected_records[0]
-    assert s3_data == expected_records
+    assert s3_data == expected_records, f"Not all s3 records match expected records. Not printing due to large size."
 
 
 TEST_S3_SCHEMAS: list[BatchExportSchema | None] = [
@@ -1363,21 +1363,16 @@ async def test_insert_into_s3_activity_heartbeats(
             inserted_at=part_inserted_at,
         )
 
-    current_part_number = 1
+    heartbeat_details = []
 
-    def assert_heartbeat_details(*details):
-        """A function to track and assert we are heartbeating."""
-        nonlocal current_part_number
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
 
         details = HeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(details)
 
-        last_uploaded_part_dt = dt.datetime.fromisoformat(details.last_uploaded_part_timestamp)
-        assert last_uploaded_part_dt == data_interval_end - s3_batch_export.interval_time_delta / current_part_number
-
-        assert len(details.upload_state.parts) == current_part_number
-        current_part_number = len(details.upload_state.parts) + 1
-
-    activity_environment.on_heartbeat = assert_heartbeat_details
+    activity_environment.on_heartbeat = track_hearbeat_details
 
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
@@ -1394,9 +1389,13 @@ async def test_insert_into_s3_activity_heartbeats(
     with override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1):
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
-    # This checks that the assert_heartbeat_details function was actually called.
-    # The '+ 1' is because we increment current_part_number one last time after we are done.
-    assert current_part_number == n_expected_parts + 1
+    assert len(heartbeat_details) > 0
+
+    for detail in heartbeat_details:
+        last_uploaded_part_dt = dt.datetime.fromisoformat(detail.last_uploaded_part_timestamp)
+        assert last_uploaded_part_dt == data_interval_end - s3_batch_export.interval_time_delta / len(
+            detail.upload_state.parts
+        )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,

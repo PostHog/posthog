@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.1
@@ -58,6 +58,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -80,7 +81,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.10
@@ -111,7 +112,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.11
@@ -142,6 +143,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -164,7 +166,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.12
@@ -196,7 +198,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.13
@@ -206,7 +208,7 @@
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
-         AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+         AND NOT "posthog_annotation"."deleted")
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.14
@@ -285,7 +287,7 @@
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
-  LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1000
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.15
@@ -364,7 +366,7 @@
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
-  LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1000
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.2
@@ -396,7 +398,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.3
@@ -407,7 +409,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.4
@@ -417,7 +419,7 @@
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
-         AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+         AND NOT "posthog_annotation"."deleted")
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.5
@@ -448,7 +450,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.6
@@ -479,6 +481,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -501,7 +504,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.7
@@ -533,7 +536,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.8
@@ -543,7 +546,7 @@
   WHERE ((("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
            AND "posthog_annotation"."scope" = 'organization')
           OR "posthog_annotation"."team_id" = 2)
-         AND NOT "posthog_annotation"."deleted") /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+         AND NOT "posthog_annotation"."deleted")
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.9
@@ -622,6 +625,6 @@
           OR "posthog_annotation"."team_id" = 2)
          AND NOT "posthog_annotation"."deleted")
   ORDER BY "posthog_annotation"."date_marker" DESC
-  LIMIT 1000 /*controller='project_annotations-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/annotations/%3F%24'*/
+  LIMIT 1000
   '''
 # ---

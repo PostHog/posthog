@@ -170,12 +170,11 @@ class Insight(models.Model):
         else:
             return self.filters
 
-    def dashboard_query(self, dashboard: Optional[Dashboard]) -> Optional[dict]:
+    def get_effective_query(self, *, dashboard: Optional[Dashboard]) -> Optional[dict]:
+        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+
         if not dashboard or not self.query:
             return self.query
-        from posthog.hogql_queries.apply_dashboard_filters import (
-            apply_dashboard_filters,
-        )
 
         return apply_dashboard_filters(self.query, dashboard.filters, self.team)
 
@@ -212,7 +211,7 @@ class Insight(models.Model):
         from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
 
         if hogql_insights_replace_filters(self.team) and self.query is not None:
-            return dict()
+            return {}
 
         return self._filters
 
@@ -235,23 +234,6 @@ class InsightViewed(models.Model):
 @timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
-        if insight.query is not None:
-            dashboard_filters = dashboard.filters if dashboard else None
-
-            if dashboard_filters:
-                from posthog.hogql_queries.apply_dashboard_filters import (
-                    apply_dashboard_filters,
-                )
-
-                q = apply_dashboard_filters(insight.query, dashboard_filters, insight.team)
-            else:
-                q = insight.query
-
-            if q.get("source"):
-                q = q["source"]
-
-            return generate_cache_key("{}_{}_{}".format(q, dashboard_filters, insight.team_id))
-
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
         return candidate_filters_hash

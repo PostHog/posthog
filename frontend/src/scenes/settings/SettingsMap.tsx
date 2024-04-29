@@ -11,6 +11,8 @@ import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/Aut
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './project/HeatmapsSettings'
+import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
@@ -30,7 +32,6 @@ import {
     ReplayCostControl,
     ReplayGeneral,
 } from './project/SessionRecordingSettings'
-import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
 import { SlackIntegration } from './project/SlackIntegration'
 import { SurveySettings } from './project/SurveySettings'
 import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
@@ -76,13 +77,18 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-autocapture',
-        title: 'Autocapture',
+        title: 'Autocapture & heatmaps',
 
         settings: [
             {
                 id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
+            },
+            {
+                id: 'heatmaps',
+                title: 'Heatmaps',
+                component: <HeatmapsSettings />,
             },
             {
                 id: 'exception-autocapture',
@@ -137,11 +143,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'persons-on-events',
-                title: 'Persons on events (beta)',
-                component: <SettingPersonsOnEvents />,
             },
         ],
     },
@@ -219,6 +220,12 @@ export const SettingsMap: SettingSection[] = [
                 id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
+            },
+            {
+                id: 'integration-ip-allowlist',
+                title: 'Static IP addresses',
+                flag: 'IP_ALLOWLIST_SETTING',
+                component: <IPAllowListInfo />,
             },
         ],
     },

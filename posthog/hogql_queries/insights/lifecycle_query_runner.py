@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, List
+from typing import Optional
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -212,7 +212,7 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql)
+        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     @cached_property
     def query_date_range(self):
@@ -225,7 +225,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: List[ast.Expr] = []
+        event_filters: list[ast.Expr] = []
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(

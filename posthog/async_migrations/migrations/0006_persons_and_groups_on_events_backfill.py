@@ -1,5 +1,3 @@
-from typing import List
-
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
@@ -19,7 +17,7 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0005_person_replacing_by_version"
 
-    operations: List[AsyncMigrationOperation] = []
+    operations: list[AsyncMigrationOperation] = []
 
     def is_required(self):
         return False

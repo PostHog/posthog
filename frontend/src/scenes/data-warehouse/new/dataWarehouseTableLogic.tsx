@@ -34,12 +34,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     path(['scenes', 'data-warehouse', 'tableLogic']),
     props({} as TableLogicProps),
     connect(() => ({
-        actions: [
-            databaseTableListLogic,
-            ['loadDatabase'],
-            dataWarehouseSceneLogic,
-            ['loadDataWarehouse', 'toggleSourceModal'],
-        ],
+        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseSceneLogic, ['loadDataWarehouse']],
     })),
     actions({
         editingTable: (editing: boolean) => ({ editing }),
@@ -74,7 +69,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
             actions.loadDataWarehouse()
-            actions.toggleSourceModal(false)
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {

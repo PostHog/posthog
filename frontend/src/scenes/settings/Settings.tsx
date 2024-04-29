@@ -84,7 +84,7 @@ export function Settings({
                 </>
             )}
 
-            <div className="flex-1 w-full space-y-2 overflow-hidden">
+            <div className="flex-1 w-full space-y-2 min-w-0">
                 {!hideSections && selectedLevel === 'project' && (
                     <LemonBanner type="info">
                         These settings only apply to the current project{' '}

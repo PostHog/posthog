@@ -213,9 +213,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                     return '-24h'
                 } else if (daysSinceInstall <= 7) {
                     return '-7d'
-                } else {
-                    return DEFAULT_DATE_FROM
                 }
+                return DEFAULT_DATE_FROM
             },
         ],
 
@@ -258,9 +257,8 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                                 capabilities.scheduled_tasks?.includes(method)
                             )
                         )
-                    } else {
-                        return !!capabilities.methods?.includes(tab)
                     }
+                    return !!capabilities.methods?.includes(tab)
                 },
         ],
 

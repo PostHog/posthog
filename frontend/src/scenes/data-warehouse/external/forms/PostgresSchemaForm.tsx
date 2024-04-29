@@ -1,11 +1,9 @@
 import { LemonSwitch, LemonTable } from '@posthog/lemon-ui'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
-import { sourceFormLogic } from './sourceFormLogic'
 
 export default function PostgresSchemaForm(): JSX.Element {
-    useMountedLogic(sourceFormLogic({ sourceType: 'Postgres' }))
     const { selectSchema } = useActions(sourceWizardLogic)
     const { databaseSchema } = useValues(sourceWizardLogic)
 

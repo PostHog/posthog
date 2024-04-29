@@ -21,10 +21,9 @@ export function useOutsideClickHandler(
                 allRefs.some((maybeRef) => {
                     if (typeof maybeRef === 'string') {
                         return event.composedPath?.()?.find((e) => (e as HTMLElement)?.matches?.(maybeRef))
-                    } else {
-                        const ref = maybeRef.current
-                        return event.target && ref && `contains` in ref && ref.contains(event.target as Element)
                     }
+                    const ref = maybeRef.current
+                    return event.target && ref && `contains` in ref && ref.contains(event.target as Element)
                 })
             ) {
                 return

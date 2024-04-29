@@ -44,9 +44,8 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 updateValidationErrors: (_, { markers }): string[] => {
                     if (!markers || markers.length === 0) {
                         return []
-                    } else {
-                        return markers.map((marker: MonacoMarker) => marker.message)
                     }
+                    return markers.map((marker: MonacoMarker) => marker.message)
                 },
                 clear: () => [],
             },

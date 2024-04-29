@@ -10,6 +10,7 @@ from posthog.celery import app
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
+    calculate_replay_embeddings,
     check_async_migration_health,
     check_data_import_row_limits,
     check_flags_to_rollback,
@@ -45,8 +46,7 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
-    calculate_replay_embeddings,
-    calculate_replay_error_clusters,
+    stop_surveys_reached_target,
 )
 from posthog.utils import get_crontab
 
@@ -97,12 +97,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Send all instance usage to the Billing service
     # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="2", minute="15", day_of_week="mon"),
+        crontab(hour="3", minute="15", day_of_week="mon"),
         send_org_usage_reports.s(),
         name="send instance usage report, monday",
     )
     sender.add_periodic_task(
-        crontab(hour="0", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
+        crontab(hour="2", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
@@ -239,6 +239,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="clickhouse clear deleted person data",
         )
 
+    sender.add_periodic_task(
+        crontab(hour="*/12"),
+        stop_surveys_reached_target.s(),
+        name="stop surveys that reached responses limits",
+    )
+
     if settings.EE_AVAILABLE:
         # every interval seconds, we calculate N replay embeddings
         # the goal is to process _enough_ every 24 hours that
@@ -249,13 +255,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             calculate_replay_embeddings.s(),
             name="calculate replay embeddings",
         )
-
-        add_periodic_task_with_expiry(
-            sender,
-            crontab(hour="10", minute=str(randrange(0, 40))),
-            calculate_replay_error_clusters.s(),
-            name="calculate replay error clusters",
-        )  # every day at a random minute past 10am. Randomize to avoid overloading license.posthog.com
 
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),

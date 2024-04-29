@@ -1,32 +1,25 @@
-import { Link } from '@posthog/lemon-ui'
+import { lemonToast, Link } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataSourceSyncSchema, ExternalDataSourceType } from '~/types'
+import {
+    Breadcrumb,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSourceSyncSchema,
+    SourceConfig,
+    SourceFieldConfig,
+} from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
-import { sourceFormLogic } from '../external/forms/sourceFormLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
-
-export interface SourceConfig {
-    name: ExternalDataSourceType
-    caption: string | React.ReactNode
-    fields: FieldConfig[]
-    disabledReason?: string | null
-}
-interface FieldConfig {
-    name: string
-    label: string
-    type: string
-    required: boolean
-    placeholder: string
-}
 
 export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     Stripe: {
@@ -167,6 +160,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
         selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        clearSource: true,
+        updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
+        createSource: true,
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setSourceId: (id: string) => ({ sourceId: id }),
+        closeWizard: true,
+        cancelWizard: true,
+        setStep: (step: number) => ({ step }),
+        getDatabaseSchemas: true,
     }),
     connect({
         values: [
@@ -177,14 +179,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [
-            dataWarehouseSceneLogic,
-            ['toggleSourceModal'],
-            dataWarehouseTableLogic,
-            ['resetTable'],
-            dataWarehouseSettingsLogic,
-            ['loadSources'],
-        ],
+        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
     }),
     reducers({
         selectedConnector: [
@@ -205,6 +200,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onNext: (state) => state + 1,
                 onBack: (state) => state - 1,
                 onClear: () => 1,
+                setStep: (_, { step }) => step,
             },
         ],
         databaseSchema: [
@@ -220,8 +216,82 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 },
             },
         ],
+        source: [
+            { payload: {}, prefix: '' } as {
+                prefix: string
+                payload: Record<string, any>
+            },
+            {
+                updateSource: (state, { source }) => {
+                    return {
+                        prefix: source.prefix ?? state.prefix,
+                        payload: {
+                            ...(state.payload ?? {}),
+                            ...(source.payload ?? {}),
+                        },
+                    }
+                },
+                clearSource: () => ({ payload: {}, prefix: '' }),
+            },
+        ],
+        isLoading: [
+            false as boolean,
+            {
+                onNext: () => false,
+                setIsLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        sourceId: [
+            null as string | null,
+            {
+                setSourceId: (_, { sourceId }) => sourceId,
+            },
+        ],
     }),
     selectors({
+        isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
+        canGoBack: [
+            (s) => [s.currentStep],
+            (currentStep): boolean => {
+                return currentStep !== 4
+            },
+        ],
+        canGoNext: [
+            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId],
+            (currentStep, allSources, sourceId): boolean => {
+                const source = allSources?.results.find((n) => n.id === sourceId)
+
+                if (currentStep === 4) {
+                    return source !== undefined && source.status === 'Completed'
+                }
+
+                return true
+            },
+        ],
+        showSkipButton: [
+            (s) => [s.currentStep],
+            (currentStep): boolean => {
+                return currentStep === 4
+            },
+        ],
+        nextButtonText: [
+            (s) => [s.currentStep, s.isManualLinkingSelected],
+            (currentStep, isManualLinkingSelected): string => {
+                if (currentStep === 2 && isManualLinkingSelected) {
+                    return 'Link'
+                }
+
+                if (currentStep === 3) {
+                    return 'Import'
+                }
+
+                if (currentStep === 4) {
+                    return 'Finish'
+                }
+
+                return 'Next'
+            },
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
@@ -291,14 +361,22 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return 'Select tables to import'
                 }
 
+                if (currentStep === 4) {
+                    return 'Importing your data...'
+                }
+
                 return ''
             },
         ],
         modalCaption: [
             (s) => [s.selectedConnector, s.currentStep],
             (selectedConnector, currentStep) => {
-                if (currentStep == 2 && selectedConnector) {
+                if (currentStep === 2 && selectedConnector) {
                     return SOURCE_DETAILS[selectedConnector.name]?.caption
+                }
+
+                if (currentStep === 4) {
+                    return "Sit tight as we import your data! After it's done, we'll show you a few examples to help you make the most of using the data within PostHog."
                 }
 
                 return ''
@@ -306,10 +384,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        onBack: () => {
+            if (values.currentStep <= 1) {
+                actions.selectConnector(null)
+            }
+        },
         onClear: () => {
             actions.selectConnector(null)
+            actions.clearSource()
             actions.toggleManualLinkFormVisible(false)
             actions.resetTable()
+            actions.setIsLoading(false)
         },
         onSubmit: () => {
             // Shared function that triggers different actions depending on the current step
@@ -320,29 +405,166 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (values.currentStep === 2) {
                 if (values.selectedConnector?.name) {
-                    const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
-                    logic.actions.submitSourceConnectionDetails()
-                    if (logic.values.isSourceConnectionDetailsValid) {
-                        // Ugly mess with multiple forms. TODO: clean this up
-                        logic.actions.setExternalDataSourceValues({ ...logic.values.sourceConnectionDetails })
-                        logic.actions.setDatabaseSchemaFormValues({ ...logic.values.sourceConnectionDetails })
-                        logic.actions.submitDatabaseSchemaForm()
-                    }
+                    actions.submitSourceConnectionDetails()
                 } else {
+                    // Used for manual S3 file links
                     dataWarehouseTableLogic.actions.submitTable()
                 }
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const logic = sourceFormLogic({ sourceType: values.selectedConnector?.name })
-
-                logic.actions.setExternalDataSourceValue('payload', {
-                    ...logic.values.externalDataSource.payload,
-                    schemas: values.databaseSchema.filter((schema) => schema.should_sync).map((schema) => schema.table),
+                actions.updateSource({
+                    payload: {
+                        schemas: values.databaseSchema
+                            .filter((schema) => schema.should_sync)
+                            .map((schema) => schema.table),
+                    },
                 })
-                logic.actions.setExternalDataSourceValue('prefix', logic.values.externalDataSource.prefix)
-                logic.actions.submitExternalDataSource()
+                actions.setIsLoading(true)
+                actions.createSource()
+            }
+
+            if (values.currentStep === 4) {
+                actions.closeWizard()
+            }
+        },
+        closeWizard: () => {
+            actions.onClear()
+            actions.clearSource()
+            actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
+            router.actions.push(urls.dataWarehouseSettings())
+        },
+        cancelWizard: () => {
+            actions.onClear()
+            actions.setStep(1)
+            actions.loadSources(null)
+        },
+        createSource: async () => {
+            if (values.selectedConnector === null) {
+                // This should never happen
+                return
+            }
+            try {
+                const { id } = await api.externalDataSources.create({
+                    ...values.source,
+                    source_type: values.selectedConnector.name,
+                })
+                lemonToast.success('New Data Resource Created')
+                actions.setSourceId(id)
+                actions.resetSourceConnectionDetails()
+                actions.loadSources(null)
+                actions.onNext()
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
+            } finally {
+                actions.setIsLoading(false)
+            }
+        },
+        handleRedirect: async ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'hubspot': {
+                    actions.updateSource({
+                        source_type: 'Hubspot',
+                        payload: {
+                            code: searchParams.code,
+                            redirect_uri: getHubspotRedirectUri(),
+                        },
+                    })
+                    return
+                }
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
+        },
+        submitSourceConnectionDetailsSuccess: () => {
+            actions.getDatabaseSchemas()
+        },
+        getDatabaseSchemas: async () => {
+            if (values.selectedConnector) {
+                const schemas = await api.externalDataSources.database_schema(
+                    values.selectedConnector.name,
+                    values.source.payload ?? {}
+                )
+                actions.setDatabaseSchemas(schemas)
+                actions.onNext()
             }
         },
     })),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
+            if (kind === 'hubspot') {
+                router.actions.push(urls.dataWarehouseTable(), { kind, code: searchParams.code })
+            }
+        },
+        '/data-warehouse/new': (_, searchParams) => {
+            if (searchParams.kind == 'hubspot' && searchParams.code) {
+                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
+                actions.handleRedirect(searchParams.kind, {
+                    code: searchParams.code,
+                })
+                actions.setStep(2)
+            }
+        },
+    })),
+    forms(({ actions, values }) => ({
+        sourceConnectionDetails: {
+            defaults: {
+                prefix: '',
+                payload: {},
+            } as {
+                prefix: string
+                payload: Record<string, any>
+            },
+            errors: (sourceValues) => {
+                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues)
+            },
+            submit: async (sourceValues) => {
+                if (values.selectedConnector) {
+                    const payload = {
+                        ...sourceValues,
+                        source_type: values.selectedConnector.name,
+                    }
+                    actions.setIsLoading(true)
+
+                    try {
+                        await api.externalDataSources.source_prefix(payload.source_type, payload.prefix)
+                        actions.updateSource(payload)
+                        actions.setIsLoading(false)
+                    } catch (e: any) {
+                        if (e?.data?.message) {
+                            actions.setSourceConnectionDetailsManualErrors({ prefix: e.data.message })
+                        }
+                        actions.setIsLoading(false)
+
+                        throw e
+                    }
+                }
+            },
+        },
+    })),
 ])
+
+const getErrorsForFields = (
+    fields: SourceFieldConfig[],
+    { prefix, payload }: { prefix: string; payload: Record<string, any> }
+): Record<string, any> => {
+    const errors: Record<string, any> = {
+        payload: {},
+    }
+
+    // Prefix errors
+    if (!/^[a-zA-Z0-9_-]*$/.test(prefix ?? '')) {
+        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    }
+
+    // Payload errors
+    for (const field of fields) {
+        const fieldValue = payload[field.name]
+        if (field.required && !fieldValue) {
+            errors['payload'][field.name] = `Please enter a ${field.label.toLowerCase()}`
+        }
+    }
+
+    return errors
+}

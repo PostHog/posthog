@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Union
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -112,7 +112,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
     @staticmethod
     def determine_time_delta(
         total_intervals: int, period: str
-    ) -> Tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
+    ) -> tuple[Union[timedelta, relativedelta], Union[timedelta, relativedelta]]:
         if period == "Hour":
             return timedelta(hours=total_intervals), timedelta(hours=1)
         elif period == "Week":

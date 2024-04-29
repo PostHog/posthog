@@ -2,7 +2,7 @@ import typing
 from abc import ABC
 from datetime import timedelta
 from math import ceil
-from typing import Optional, List, Union, Type
+from typing import Optional, Union
 
 from django.conf import settings
 from django.core.cache import cache
@@ -24,6 +24,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
+    SessionPropertyFilter,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -32,7 +33,7 @@ WebQueryNode = Union[WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery]
 
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
-    query_type: Type[WebQueryNode]
+    query_type: type[WebQueryNode]
 
     @cached_property
     def query_date_range(self):
@@ -51,25 +52,25 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         return None
 
     @cached_property
-    def property_filters_without_pathname(self) -> List[Union[EventPropertyFilter, PersonPropertyFilter]]:
+    def property_filters_without_pathname(
+        self,
+    ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
     def session_where(self, include_previous_period: Optional[bool] = None):
-        properties = (
-            [
-                parse_expr(
-                    "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
-                    placeholders={
-                        "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                        if include_previous_period
-                        else self.query_date_range.date_from_as_hogql(),
-                        "date_to": self.query_date_range.date_to_as_hogql(),
-                    },
-                )
-            ]
-            + self.property_filters_without_pathname
-            + self._test_account_filters
-        )
+        properties = [
+            parse_expr(
+                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                placeholders={
+                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
+                    if include_previous_period
+                    else self.query_date_range.date_from_as_hogql(),
+                    "date_to": self.query_date_range.date_to_as_hogql(),
+                },
+            ),
+            *self.property_filters_without_pathname,
+            *self._test_account_filters,
+        ]
         return property_to_expr(
             properties,
             self.team,
@@ -246,8 +247,8 @@ WHERE
             else n / self._sample_rate.numerator
         )
 
-    def _cache_key(self) -> str:
-        original = super()._cache_key()
+    def get_cache_key(self) -> str:
+        original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
 

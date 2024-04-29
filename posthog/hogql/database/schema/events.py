@@ -1,5 +1,3 @@
-from typing import Dict
-
 from posthog.hogql.database.models import (
     VirtualTable,
     StringDatabaseField,
@@ -20,7 +18,7 @@ from posthog.hogql.database.schema.sessions import join_events_table_to_sessions
 
 
 class EventsPersonSubTable(VirtualTable):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "id": StringDatabaseField(name="person_id"),
         "created_at": DateTimeDatabaseField(name="person_created_at"),
         "properties": StringJSONDatabaseField(name="person_properties"),
@@ -54,7 +52,7 @@ class EventsGroupSubTable(VirtualTable):
 
 
 class EventsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid"),
         "event": StringDatabaseField(name="event"),
         "properties": StringJSONDatabaseField(name="properties"),

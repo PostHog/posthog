@@ -10,11 +10,10 @@ export function getConfigSchemaArray(
 ): PluginConfigSchema[] {
     if (Array.isArray(configSchema)) {
         return configSchema
-    } else {
-        return Object.entries(configSchema)
-            .map(([key, value]) => ({ key, ...value }))
-            .sort((a, b) => (a.order || 999999) - (b.order || 999999))
     }
+    return Object.entries(configSchema)
+        .map(([key, value]) => ({ key, ...value }))
+        .sort((a, b) => (a.order || 999999) - (b.order || 999999))
 }
 
 export function getConfigSchemaObject(
@@ -28,9 +27,8 @@ export function getConfigSchemaObject(
             }
         })
         return newSchema
-    } else {
-        return configSchema
     }
+    return configSchema
 }
 
 export function defaultConfigForPlugin(plugin: PluginType): Record<string, any> {

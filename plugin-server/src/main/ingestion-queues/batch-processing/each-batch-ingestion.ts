@@ -28,7 +28,8 @@ require('@sentry/tracing')
 
 export enum IngestionOverflowMode {
     Disabled,
-    Reroute,
+    Reroute, // preserves partition locality
+    RerouteRandomly, // discards partition locality
     ConsumeSplitByDistinctId,
     ConsumeSplitEvenly,
 }
@@ -162,6 +163,7 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
+                        pluginEvent.distinct_id = pluginEvent.distinct_id.replaceAll('\u0000', '')
                         const result = (await retryIfRetriable(async () => {
                             const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)
@@ -217,7 +219,7 @@ export async function eachBatchParallelIngestion(
                 op: 'emitToOverflow',
                 data: { eventCount: splitBatch.toOverflow.length },
             })
-            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow))
+            processingPromises.push(emitToOverflow(queue, splitBatch.toOverflow, overflowMode))
             overflowSpan.finish()
         }
 
@@ -257,14 +259,18 @@ export function computeKey(pluginEvent: PipelineEvent): string {
     return `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 }
 
-async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]) {
+async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+    const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
                 topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
-                key: null, // No locality guarantees in overflow
+                // ``message.key`` should not be undefined here, but in the
+                // (extremely) unlikely event that it is, set it to ``null``
+                // instead as that behavior is safer.
+                key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
                 waitForAck: true,
             })
@@ -286,6 +292,9 @@ export function splitIngestionBatch(
         toProcess: [],
         toOverflow: [],
     }
+    const shouldRerouteToOverflow = [IngestionOverflowMode.Reroute, IngestionOverflowMode.RerouteRandomly].includes(
+        overflowMode
+    )
 
     if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
@@ -314,7 +323,7 @@ export function splitIngestionBatch(
 
     const batches: Map<string, { message: Message; pluginEvent: PipelineEvent }[]> = new Map()
     for (const message of kafkaMessages) {
-        if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
+        if (shouldRerouteToOverflow && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
             // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
@@ -334,12 +343,8 @@ export function splitIngestionBatch(
         }
 
         const eventKey = computeKey(pluginEvent)
-        if (
-            overflowMode === IngestionOverflowMode.Reroute &&
-            !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)
-        ) {
+        if (shouldRerouteToOverflow && !ConfiguredLimiter.consume(eventKey, 1, message.timestamp)) {
             // Local overflow detection triggering, reroute to overflow topic too
-            message.key = null
             ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
             if (LoggingLimiter.consume(eventKey, 1)) {
                 status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)

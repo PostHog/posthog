@@ -175,7 +175,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         # contents as a string in `staged_files`.
         if match := re.match(r"^PUT file://(?P<file_path>.*) @%(?P<table_name>.*)$", sql_text):
             file_path = match.group("file_path")
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 staged_files.append(f.read())
 
             if fail == "put":
@@ -414,9 +414,12 @@ async def test_snowflake_export_workflow_exports_events(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with unittest.mock.patch(
-                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
-            ) as mock, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
+            with (
+                unittest.mock.patch(
+                    "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
+                ) as mock,
+                override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+            ):
                 fake_conn = FakeSnowflakeConnection()
                 mock.return_value = fake_conn
 
@@ -482,10 +485,13 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            with responses.RequestsMock(
-                target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
-                assert_all_requests_are_fired=False,
-            ) as rsps, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2):
+            with (
+                responses.RequestsMock(
+                    target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
+                    assert_all_requests_are_fired=False,
+                ) as rsps,
+                override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2),
+            ):
                 queries, staged_files = add_mock_snowflake_api(rsps)
                 await activity_environment.client.execute_workflow(
                     SnowflakeBatchExportWorkflow.run,
@@ -881,8 +887,8 @@ def assert_clickhouse_records_in_snowflake(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     # Ordering is not guaranteed, so we sort before comparing.
     inserted_records.sort(key=operator.itemgetter("event"))

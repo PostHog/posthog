@@ -1,4 +1,5 @@
-from typing import Dict, Optional, Union, cast
+import dataclasses
+from typing import Optional, Union, cast
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
@@ -31,7 +32,7 @@ def execute_hogql_query(
     *,
     query_type: str = "hogql_query",
     filters: Optional[HogQLFilters] = None,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
@@ -39,9 +40,13 @@ def execute_hogql_query(
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
     pretty: Optional[bool] = True,
+    context: Optional[HogQLContext] = None,
 ) -> HogQLQueryResponse:
     if timings is None:
         timings = HogQLTimings()
+
+    if context is None:
+        context = HogQLContext(team_id=team.pk)
 
     query_modifiers = create_default_modifiers_for_team(team, modifiers)
 
@@ -82,13 +87,16 @@ def execute_hogql_query(
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
         with timings.measure("prepare_ast"):
-            hogql_query_context = HogQLContext(
+            hogql_query_context = dataclasses.replace(
+                context,
+                # set the team.pk here so someone can't pass a context for a different team 🤷‍️
                 team_id=team.pk,
                 team=team,
                 enable_select_queries=True,
                 timings=timings,
                 modifiers=query_modifiers,
             )
+
             with timings.measure("clone"):
                 cloned_query = clone_expr(select_query, True)
             select_query_hogql = cast(
@@ -125,13 +133,16 @@ def execute_hogql_query(
 
     # Print the ClickHouse SQL query
     with timings.measure("print_ast"):
-        clickhouse_context = HogQLContext(
+        clickhouse_context = dataclasses.replace(
+            context,
+            # set the team.pk here so someone can't pass a context for a different team 🤷‍️
             team_id=team.pk,
             team=team,
             enable_select_queries=True,
             timings=timings,
             modifiers=query_modifiers,
         )
+
         clickhouse_sql = print_ast(
             select_query,
             context=clickhouse_context,
@@ -164,7 +175,7 @@ def execute_hogql_query(
         except Exception as e:
             if explain:
                 results, types = None, None
-                if isinstance(e, (ExposedCHQueryError, ExposedHogQLError)):
+                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                     error = str(e)
                 else:
                     error = "Unknown error"

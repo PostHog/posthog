@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from posthog.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType, CLICKHOUSE_ASYNC_DELETION_TABLE
@@ -22,16 +22,18 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 class AsyncEventDeletion(AsyncDeletionProcess):
     DELETION_TYPES = [DeletionType.Team, DeletionType.Person]
 
-    def process(self, deletions: List[AsyncDeletion]):
+    def process(self, deletions: list[AsyncDeletion]):
         if len(deletions) == 0:
             logger.debug("No AsyncDeletion to perform")
             return
+
+        team_ids = list({row.team_id for row in deletions})
 
         logger.info(
             "Starting AsyncDeletion on `events` table in ClickHouse",
             {
                 "count": len(deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": team_ids,
             },
         )
         temp_table_name = f"{CLICKHOUSE_DATABASE}.async_deletion_run"
@@ -49,10 +51,13 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             ON CLUSTER '{CLICKHOUSE_CLUSTER}'
             DELETE
             WHERE
-                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
-                joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                team_id IN %(team_ids)s AND
+                (
+                    joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0 OR
+                    joinGet({temp_table_name}, 'id', team_id, 1, toString(person_id)) > 0
+                )
             """,
-            {},
+            {"team_ids": team_ids},
             workload=Workload.OFFLINE,
         )
 
@@ -66,7 +71,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             "Starting AsyncDeletion for teams on other tables",
             {
                 "count": len(team_deletions),
-                "team_ids": list(set(row.team_id for row in deletions)),
+                "team_ids": list({row.team_id for row in deletions}),
             },
         )
         for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
@@ -74,13 +79,15 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 f"""
                 ALTER TABLE {table}
                 ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-                DELETE WHERE joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
+                DELETE WHERE
+                team_id IN %(team_ids)s AND
+                joinGet({temp_table_name}, 'id', team_id, 0, toString(team_id)) > 0
                 """,
-                {},
+                {"team_ids": [deletion.team_id for deletion in team_deletions]},
                 workload=Workload.OFFLINE,
             )
 
-    def _fill_table(self, deletions: List[AsyncDeletion], temp_table_name: str):
+    def _fill_table(self, deletions: list[AsyncDeletion], temp_table_name: str):
         sync_execute(f"DROP TABLE IF EXISTS {temp_table_name}", workload=Workload.OFFLINE)
         sync_execute(
             CLICKHOUSE_ASYNC_DELETION_TABLE.format(table_name=temp_table_name, cluster=CLICKHOUSE_CLUSTER),
@@ -104,18 +111,18 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 workload=Workload.OFFLINE,
             )
 
-    def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
+    def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
         if deletion_type == DeletionType.Team:
             team_ids_with_data = self._verify_by_column("team_id", async_deletions)
             return [row for row in async_deletions if (row.team_id,) not in team_ids_with_data]
         elif deletion_type in (DeletionType.Person, DeletionType.Group):
             columns = f"team_id, {self._column_name(async_deletions[0])}"
-            with_data = set((team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions))
+            with_data = {(team_id, str(key)) for team_id, key in self._verify_by_column(columns, async_deletions)}
             return [row for row in async_deletions if (row.team_id, row.key) not in with_data]
         else:
             return []
 
-    def _verify_by_column(self, distinct_columns: str, async_deletions: List[AsyncDeletion]) -> Set[Tuple[Any, ...]]:
+    def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
         clickhouse_result = sync_execute(
             f"""
@@ -126,7 +133,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             args,
             workload=Workload.OFFLINE,
         )
-        return set(tuple(row) for row in clickhouse_result)
+        return {tuple(row) for row in clickhouse_result}
 
     def _column_name(self, async_deletion: AsyncDeletion):
         assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)
@@ -135,7 +142,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
         else:
             return f"$group_{async_deletion.group_type_index}"
 
-    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
+    def _condition(self, async_deletion: AsyncDeletion, suffix: str) -> tuple[str, dict]:
         if async_deletion.deletion_type == DeletionType.Team:
             return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
         else:

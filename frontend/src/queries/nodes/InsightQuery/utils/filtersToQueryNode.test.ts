@@ -283,6 +283,27 @@ describe('filtersToQueryNode', () => {
             } as InsightQueryNode
             expect(result).toEqual(query)
         })
+
+        it('converts date range with explicit date setting', () => {
+            const filters: Partial<FilterType> = {
+                insight: InsightType.RETENTION,
+                date_to: '2021-12-08',
+                date_from: '2021-12-08',
+                explicit_date: 'y',
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.RetentionQuery,
+                dateRange: {
+                    date_to: '2021-12-08',
+                    date_from: '2021-12-08',
+                    explicitDate: true,
+                },
+            } as InsightQueryNode
+            expect(result).toEqual(query)
+        })
     })
 
     describe('filter with series', () => {

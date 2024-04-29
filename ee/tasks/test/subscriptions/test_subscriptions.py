@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List
 from unittest.mock import MagicMock, call, patch
 
 from zoneinfo import ZoneInfo
@@ -25,10 +24,10 @@ from posthog.test.base import APIBaseTest
 @patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
-    subscriptions: List[Subscription] = None  # type: ignore
+    subscriptions: list[Subscription] = None  # type: ignore
     dashboard: Dashboard
     insight: Insight
-    tiles: List[DashboardTile] = None  # type: ignore
+    tiles: list[DashboardTile] = None  # type: ignore
     asset: ExportedAsset
 
     def setUp(self) -> None:
@@ -51,17 +50,18 @@ class TestSubscriptionsTasks(APIBaseTest):
         mock_send_email: MagicMock,
         mock_send_slack: MagicMock,
     ) -> None:
-        subscriptions = [
-            create_subscription(team=self.team, insight=self.insight, created_by=self.user),
-            create_subscription(team=self.team, insight=self.insight, created_by=self.user),
-            create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
-            create_subscription(
-                team=self.team,
-                dashboard=self.dashboard,
-                created_by=self.user,
-                deleted=True,
-            ),
-        ]
+        with freeze_time("2022-02-02T08:30:00.000Z"):  # Create outside of buffer before running
+            subscriptions = [
+                create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+                create_subscription(team=self.team, insight=self.insight, created_by=self.user),
+                create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
+                create_subscription(
+                    team=self.team,
+                    dashboard=self.dashboard,
+                    created_by=self.user,
+                    deleted=True,
+                ),
+            ]
         # Modify a subscription to have its target time at least an hour ahead
         subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
         subscriptions[2].save()

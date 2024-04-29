@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -69,6 +69,17 @@ STR_TO_HOGQL_MAPPING = {
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "file is empty": "The provided file contains no data",
+    "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
+    "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
+    "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
 
@@ -98,6 +109,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
+    row_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="How many rows are currently synced in this table"
+    )
+
     __repr__ = sane_repr("name")
 
     def table_name_without_prefix(self) -> str:
@@ -107,7 +122,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             prefix = ""
         return self.name[len(prefix) :]
 
-    def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
+    def get_columns(self, safe_expose_ch_error=True) -> dict[str, str]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -131,11 +146,32 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return {item[0]: item[1] for item in result}
 
+    def get_count(self, safe_expose_ch_error=True) -> int:
+        try:
+            result = sync_execute(
+                """SELECT count() FROM
+                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
+                {
+                    "url_pattern": self.url_pattern,
+                    "access_key": self.credential.access_key,
+                    "access_secret": self.credential.access_secret,
+                    "format": self.format,
+                },
+            )
+        except Exception as err:
+            capture_exception(err)
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise err
+
+        return result[0][0]
+
     def hogql_definition(self) -> S3Table:
         if not self.columns:
             raise Exception("Columns must be fetched and saved to use in HogQL.")
 
-        fields: Dict[str, FieldOrTable] = {}
+        fields: dict[str, FieldOrTable] = {}
         structure = []
         for column, type in self.columns.items():
             # Support for 'old' style columns
@@ -163,7 +199,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             fields[column] = hogql_type(name=column)
 
         # Replace fields with any redefined fields if they exist
-        fields = external_tables.get(self.table_name_without_prefix(), fields)
+        external_table_fields = external_tables.get(self.table_name_without_prefix())
+        if external_table_fields is not None:
+            default_fields = external_tables.get("*", {})
+            fields = {**external_table_fields, **default_fields}
 
         return S3Table(
             name=self.name,

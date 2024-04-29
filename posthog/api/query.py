@@ -1,9 +1,9 @@
-import json
 import re
 import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
+from posthog.hogql_queries.query_runner import ExecutionMode
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError, NotAuthenticated
@@ -76,7 +76,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         tag_queries(query=request.data["query"])
         try:
-            result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
+            result = process_query_model(
+                self.team,
+                data.query,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS
+                if data.refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+            )
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -146,29 +152,3 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-
-    def _query_json_from_request(self, request):
-        if request.method == "POST":
-            if request.content_type in ["", "text/plain", "application/json"]:
-                query_source = request.body
-            else:
-                query_source = request.POST.get("query")
-        else:
-            query_source = request.GET.get("query")
-
-        if query_source is None:
-            raise ValidationError("Please provide a query in the request body or as a query parameter.")
-
-        # TODO with improved pydantic validation we don't need the validation here
-        try:
-
-            def parsing_error(ex):
-                raise ValidationError(ex)
-
-            query = json.loads(
-                query_source,
-                parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}"),
-            )
-        except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-            raise ValidationError("Invalid JSON: %s" % (str(error_main)))
-        return query
