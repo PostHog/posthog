@@ -17,10 +17,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
-    // connect({
-    //     values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
-    // }),
-
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setBrowserUrl: (url: string) => ({ url }),
@@ -30,14 +26,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             type,
             payload,
         }),
-        // updatePath: (path: string) => ({ path }),
-        // setInitialPath: (path: string) => ({ path }),
-        // unmountIframe: true,
-        // handleExternalUrl: (urlOrPath: string) => ({ urlOrPath }),
-        // setMenuOptions: (menuOptions: DocsMenuOption[] | null) => ({ menuOptions }),
-        // setIframeReady: (ready: boolean) => ({ ready }),
-        // setActiveMenuName: (activeMenuName: string | null) => ({ activeMenuName }),
-        // navigateToPage: (path: string) => ({ path }),
     }),
 
     loaders({
@@ -58,7 +46,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
                     const res = await api.query(query)
 
-                    return res.results?.map((x) => x[0])
+                    return res.results?.map((x) => x[0]) as string[]
                 },
             },
         ],
