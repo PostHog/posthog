@@ -11,6 +11,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
@@ -35,8 +36,11 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     EventsQuery,
+    FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
 )
 from posthog.test.base import (
@@ -1139,8 +1143,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            [  # Property group filter, which is what's actually used these days
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR,
+                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                        )
+                    ],
+                )
+            ],
+            [  # Classic list of filters
+                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
+            ],
+        ]
+    )
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    def test_insight_refreshing_query(self, spy_execute_hogql_query) -> None:
+    def test_insight_refreshing_query(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -1169,7 +1191,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     event="$pageview",
                 )
             ],
-            properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+            properties=properties_filter,
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
