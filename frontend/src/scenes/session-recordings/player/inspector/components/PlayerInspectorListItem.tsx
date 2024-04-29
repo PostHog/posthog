@@ -14,7 +14,6 @@ import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
-import { formattedTimestamp } from '../../utils/timestamp'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemDoctor } from './ItemDoctor'
@@ -202,9 +201,10 @@ export function PlayerInspectorListItem({
                 <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
                         {timestampFormat != TimestampFormat.Relative ? (
-                            formattedTimestamp(
-                                timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp
-                            )
+                            (timestampFormat === TimestampFormat.UTC
+                                ? item.timestamp.tz('UTC')
+                                : item.timestamp
+                            ).format('DD, MMM HH:mm:ss')
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (
