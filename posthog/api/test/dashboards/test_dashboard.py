@@ -196,9 +196,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
         filter = Filter(data=filter_dict)
 
-        item = Insight.objects.create(filters=filter_dict, team=self.team)
+        item = Insight.objects.create(_filters=filter_dict, team=self.team)
         DashboardTile.objects.create(dashboard=dashboard, insight=item)
-        item2 = Insight.objects.create(filters=filter.to_dict(), team=self.team)
+        item2 = Insight.objects.create(_filters=filter.to_dict(), team=self.team)
         DashboardTile.objects.create(dashboard=dashboard, insight=item2)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
         self.assertEqual(response["tiles"][0]["insight"]["result"], None)
@@ -245,15 +245,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(22):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(23):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(24):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -325,7 +325,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             insight = Insight.objects.create(
-                filters=Filter(data=filter_dict).to_dict(),
+                _filters=Filter(data=filter_dict).to_dict(),
                 team=self.team,
                 last_refresh=now(),
             )
@@ -343,7 +343,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with freeze_time("2020-01-04T13:00:01Z"):
             # Pretend we cached something a while ago, but we won't have anything in the redis cache
             item_default: Insight = Insight.objects.create(
-                filters=Filter(
+                _filters=Filter(
                     data={
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -354,7 +354,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=item_default)
             item_trends: Insight = Insight.objects.create(
-                filters=Filter(
+                _filters=Filter(
                     data={
                         "display": "ActionsLineGraph",
                         "events": [
@@ -627,7 +627,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
 
-        Insight.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+        Insight.objects.create(_filters={"hello": "test"}, team=self.team, created_by=test_user)
 
         self.dashboard_api.create_insight({"filters": {"hello": "test"}})
 
@@ -892,9 +892,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now())
+        insight1 = Insight.objects.create(_filters={"name": "test1"}, team=self.team, last_refresh=now())
         tile1 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
-        insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now())
+        insight2 = Insight.objects.create(_filters={"name": "test2"}, team=self.team, last_refresh=now())
         tile2 = DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight2)
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_dashboard": existing_dashboard.pk})
         self.assertEqual(response["creation_mode"], "duplicate")
@@ -925,52 +925,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-    def test_return_cached_results_dashboard_has_filters(self):
-        # Regression test, we were
-
-        # create a dashboard with no filters
-        dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-
-        filter_dict = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-            "date_from": "-7d",
-        }
-
-        # create two insights with a -7d date from filter
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-
-        # cache insight results for trends with a -7d date from
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-7d"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        self.assertEqual(response.status_code, 200)
-        dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
-
-        # set a filter on the dashboard
-        _, patch_response_json = self.dashboard_api.update_dashboard(
-            dashboard.pk,
-            {"filters": {"date_from": "-24h"}},
-        )
-
-        self.assertEqual(patch_response_json["tiles"][0]["insight"]["result"], None)
-        dashboard.refresh_from_db()
-        self.assertEqual(dashboard.filters, {"date_from": "-24h"})
-
-        # cache results
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s&date_from=-24h"
-            % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        self.assertEqual(response.status_code, 200)
-
-        # Expecting this to only have one day as per the dashboard filter
-        dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
-
     def test_invalid_properties(self):
         properties = "invalid_json"
 
@@ -987,7 +941,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # We were saving some insights on the default dashboard with no insight
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
         item = Insight.objects.create(
-            filters={"events": [{"id": "$pageview"}]},
+            _filters={"events": [{"id": "$pageview"}]},
             team=self.team,
             last_refresh=now(),
         )

@@ -167,7 +167,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly signups",
-            filters={
+            _filters={
                 "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
                 "actions": [],
                 "display": TRENDS_LINEAR,
@@ -201,7 +201,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Last month's signups by country",
-            filters={
+            _filters={
                 "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
                 "actions": [],
                 "display": TRENDS_WORLD_MAP,
@@ -235,7 +235,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Activation",
-            filters={
+            _filters={
                 "events": [
                     {
                         "custom_name": "Signed up",
@@ -292,7 +292,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="New user retention",
-            filters={
+            _filters={
                 "period": "Week",
                 "display": "ActionsTable",
                 "insight": "RETENTION",
@@ -353,7 +353,7 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Active user lifecycle",
             description="An active user being defined by interaction with files.",
-            filters={
+            _filters={
                 "events": [],
                 "actions": [
                     {
@@ -399,7 +399,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly file volume",
-            filters={
+            _filters={
                 "events": [
                     {
                         "custom_name": "Uploaded bytes",
@@ -457,7 +457,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Monthly app revenue",
-            filters={
+            _filters={
                 "events": [
                     {
                         "id": EVENT_PAID_BILL,
@@ -498,7 +498,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Bills paid",
-            filters={
+            _filters={
                 "events": [
                     {
                         "id": EVENT_PAID_BILL,
@@ -547,7 +547,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Daily unique visitors over time",
-            filters={
+            _filters={
                 "events": [{"id": PAGEVIEW_EVENT, "type": "events", "order": 0, "math": "dau"}],
                 "actions": [],
                 "display": TRENDS_LINEAR,
@@ -580,7 +580,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Most popular pages",
-            filters={
+            _filters={
                 "events": [
                     {
                         "id": PAGEVIEW_EVENT,
@@ -640,7 +640,7 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="Homepage view to signup conversion",
-            filters={
+            _filters={
                 "events": [
                     {
                         "custom_name": "Viewed homepage",
@@ -695,7 +695,7 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="User paths starting at homepage",
-            filters={
+            _filters={
                 "date_to": None,
                 "insight": "PATHS",
                 "date_from": "-30d",
@@ -716,7 +716,7 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="File interactions",
-            filters={
+            _filters={
                 "events": [
                     {"id": EVENT_UPLOADED_FILE, "type": "events", "order": 0},
                     {"id": EVENT_DELETED_FILE, "type": "events", "order": 2},
@@ -760,7 +760,7 @@ class HedgeboxMatrix(Matrix):
                 team=team,
                 key=FILE_PREVIEWS_FLAG_KEY,
                 name="File previews (ticket #2137). Work-in-progress, so only visible internally at the moment",
-                filters={
+                _filters={
                     "groups": [
                         {
                             "properties": [
@@ -788,7 +788,7 @@ class HedgeboxMatrix(Matrix):
                 team=team,
                 key=NEW_SIGNUP_PAGE_FLAG_KEY,
                 name="New sign-up flow",
-                filters={
+                _filters={
                     "groups": [{"properties": [], "rollout_percentage": None}],
                     "multivariate": {
                         "variants": [
@@ -812,7 +812,7 @@ class HedgeboxMatrix(Matrix):
                 description="We've rebuilt our sign-up page to offer a more personalized experience. Let's see if this version performs better with potential users.",
                 feature_flag=new_signup_page_flag,
                 created_by=user,
-                filters={
+                _filters={
                     "events": [
                         {
                             "id": "$pageview",

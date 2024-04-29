@@ -42,7 +42,7 @@ class AppDataGenerator(DataGenerator):
         insight = Insight.objects.create(
             team=self.team,
             name="Installed App -> Rated App -> Rated App 5 Stars",
-            filters={
+            _filters={
                 "actions": [
                     {
                         "id": installed_app_action.id,

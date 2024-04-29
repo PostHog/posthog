@@ -65,7 +65,7 @@ class WebDataGenerator(DataGenerator):
             team=self.team,
             name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
-            filters={
+            _filters={
                 "actions": [
                     {
                         "id": homepage.id,

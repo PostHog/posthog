@@ -69,7 +69,7 @@ class RevenueDataGenerator(DataGenerator):
         insight = Insight.objects.create(
             team=self.team,
             name="Entered Free Trial -> Purchase (Premium)",
-            filters={
+            _filters={
                 "events": [
                     {
                         "id": "$pageview",

@@ -24,7 +24,7 @@ class TestInsightModel(BaseTest):
         self.assertRegex(d.short_id, r"[0-9A-Za-z_-]{8}")
 
     def test_dashboard_with_no_filters_does_not_override_date_from(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
         filters_with_no_dashboard = insight.dashboard_filters(dashboard=None)
 
         filters_with_dashboard_with_no_date_from = insight.dashboard_filters(
@@ -37,7 +37,7 @@ class TestInsightModel(BaseTest):
         assert filters_with_no_dashboard == filters_with_dashboard_with_no_date_from
 
     def test_dashboard_with_date_from_filters_does_override_date_from(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
 
         filters_with_dashboard_with_different_date_from = insight.dashboard_filters(
             dashboard=(Dashboard.objects.create(team=self.team, filters={"date_from": "-14d"}))
@@ -46,7 +46,7 @@ class TestInsightModel(BaseTest):
         assert filters_with_dashboard_with_different_date_from["date_from"] == "-14d"
 
     def test_dashboard_with_date_from_filters_does_override_date_to(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "2023-06-17", "date_to": "2023-06-25"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "2023-06-17", "date_to": "2023-06-25"})
 
         filters_with_dashboard_with_different_date_from = insight.dashboard_filters(
             dashboard=(Dashboard.objects.create(team=self.team, filters={"date_from": "-14d"}))
@@ -56,7 +56,7 @@ class TestInsightModel(BaseTest):
         assert filters_with_dashboard_with_different_date_from["date_to"] is None
 
     def test_dashboard_with_same_date_from_filters_generates_expected_date_from(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
 
         filters_with_dashboard_with_same_date_from = insight.dashboard_filters(
             dashboard=(Dashboard.objects.create(team=self.team, filters={"date_from": "-30d"}))
@@ -65,7 +65,7 @@ class TestInsightModel(BaseTest):
         assert filters_with_dashboard_with_same_date_from["date_from"] == "-30d"
 
     def test_dashboard_with_date_from_all_overrides_compare(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d", "compare": True})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d", "compare": True})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "all"})
 
         filters = insight.dashboard_filters(dashboard=dashboard)
@@ -73,7 +73,7 @@ class TestInsightModel(BaseTest):
         assert filters["compare"] is None
 
     def test_dashboard_does_not_affect_filters_hash_with_absent_date_from(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={})
 
         filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
@@ -82,7 +82,7 @@ class TestInsightModel(BaseTest):
         assert filters_hash_no_dashboard == filters_hash_with_absent_date_from
 
     def test_dashboard_does_not_affect_filters_hash_with_null_date_from(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": None})
 
         filters_hash_no_dashboard = generate_insight_cache_key(insight, None)
@@ -91,7 +91,7 @@ class TestInsightModel(BaseTest):
         assert filters_hash_no_dashboard == filters_hash_with_null_date_from
 
     def test_dashboard_with_date_from_changes_filters_hash(self) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"date_from": "-30d"})
+        insight = Insight.objects.create(team=self.team, _filters={"date_from": "-30d"})
         dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-90d"})
 
         filters_hash_one = generate_insight_cache_key(insight, None)
@@ -210,7 +210,7 @@ class TestInsightModel(BaseTest):
         for query_filters, dashboard_filters, expected_filters in test_cases:
             query_insight = Insight.objects.create(
                 team=self.team,
-                query={
+                _query={
                     "kind": "DataTableNode",
                     "source": {
                         "filters": query_filters,

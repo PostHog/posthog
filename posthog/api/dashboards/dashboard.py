@@ -228,6 +228,8 @@ class DashboardSerializer(DashboardBasicSerializer):
                 "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
             }
             new_data.pop("dashboards", None)
+            new_data["_filters"] = new_data.pop("filters")
+            new_data["_query"] = new_data.pop("query")
             new_tags = new_data.pop("tags", None)
             insight_serializer = InsightSerializer(data=new_data, context=self.context)
             insight_serializer.is_valid()

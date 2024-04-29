@@ -32,12 +32,12 @@ class TagsTestCase(TestMigrations):
         }
         self.insight_with_tags = Insight.objects.create(
             dashboard=self.dashboard,
-            filters=filter_dict,
+            _filters=filter_dict,
             team_id=self.team.id,
             deprecated_tags=["c", "d", "d", "existing tag"],
         )
         self.insight_without_tags = Insight.objects.create(
-            dashboard=self.dashboard, filters=filter_dict, team_id=self.team.id
+            dashboard=self.dashboard, _filters=filter_dict, team_id=self.team.id
         )
         TaggedItem.objects.create(tag=tag, insight_id=self.insight_with_tags.id)
 
@@ -62,7 +62,7 @@ class TagsTestCase(TestMigrations):
             [
                 Insight(
                     dashboard=self.dashboard2,
-                    filters=filter_dict,
+                    _filters=filter_dict,
                     team_id=self.team2.id,
                     deprecated_tags=[_tag, "existing tag"],
                 )

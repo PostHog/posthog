@@ -25,7 +25,7 @@ filters2 = {
 
 class TestInsightCachingState(BaseTest):
     def test_insight_creation_updating_deletion(self):
-        insight = Insight.objects.create(team=self.team, filters=filters)
+        insight = Insight.objects.create(team=self.team, _filters=filters)
 
         initial_caching_state = self.get_caching_state()
         assert initial_caching_state is not None
@@ -49,7 +49,7 @@ class TestInsightCachingState(BaseTest):
     def test_dashboard_tile_creation_updating_deletion(self):
         with mute_selected_signals():
             dashboard = Dashboard.objects.create(team=self.team)
-            insight = Insight.objects.create(team=self.team, filters=filters)
+            insight = Insight.objects.create(team=self.team, _filters=filters)
 
         dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
@@ -78,7 +78,7 @@ class TestInsightCachingState(BaseTest):
 
     def test_sharing_configuration_insight(self):
         with mute_selected_signals():
-            insight = Insight.objects.create(team=self.team, filters=filters)
+            insight = Insight.objects.create(team=self.team, _filters=filters)
 
         SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
 
@@ -86,7 +86,7 @@ class TestInsightCachingState(BaseTest):
 
     def test_dashboard(self):
         dashboard = Dashboard.objects.create(team=self.team)
-        insight = Insight.objects.create(team=self.team, filters=filters)
+        insight = Insight.objects.create(team=self.team, _filters=filters)
         dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         initial_caching_state = dashboard_tile.caching_state
@@ -103,7 +103,7 @@ class TestInsightCachingState(BaseTest):
     def test_dashboard_updating_last_accessed_at_does_not_sync(self):
         with mute_selected_signals():
             dashboard = Dashboard.objects.create(team=self.team)
-            insight = Insight.objects.create(team=self.team, filters=filters)
+            insight = Insight.objects.create(team=self.team, _filters=filters)
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
         dashboard.last_accessed_at = now()

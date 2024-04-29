@@ -115,7 +115,7 @@ class TestChangesBetweenInsights(BaseTest):
             name=kwargs.get("name", "the name"),
             derived_name=kwargs.get("derived_name", "the derived name"),
             description=kwargs.get("description", "an insight description"),
-            filters=kwargs.get("filters", {}),
+            _filters=kwargs.get("filters", {}),
             filters_hash=kwargs.get("filters_hash", "a hash string"),
             order=kwargs.get("order", 0),
             deleted=kwargs.get("deleted", False),

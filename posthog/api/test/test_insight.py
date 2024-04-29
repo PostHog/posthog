@@ -69,13 +69,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(_filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
@@ -197,7 +197,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             saved=True,
             team=self.team,
             created_by=self.user,
@@ -205,13 +205,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # create without saved
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(_filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/",
@@ -229,7 +229,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             favorited=True,
             team=self.team,
             created_by=self.user,
@@ -237,13 +237,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # create without favorited
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             created_by=self.user,
         )
 
         # create without user
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team)
+        Insight.objects.create(_filters=Filter(data=filter_dict).to_dict(), team=self.team)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?favorited=true&user=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -277,7 +277,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -285,7 +285,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
         new_team = Team.objects.create(organization=self.organization)
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=new_team,
             short_id="12345678",
         )
@@ -305,11 +305,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
-        Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True)
+        Insight.objects.create(_filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -935,7 +935,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             name="insight with custom filters",
             created_by=self.user,
-            filters={"events": [{"id": "$pageview"}]},
+            _filters={"events": [{"id": "$pageview"}]},
         )
 
         for custom_name, expected_name in zip(
@@ -1248,7 +1248,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         Dashboard.objects.update(
             id=dashboard_id,
-            filters={
+            _filters={
                 "properties": [{"key": "prop", "value": "val"}],
                 "date_from": "-14d",
             },
@@ -1286,7 +1286,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataTableNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", _filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
             ),
         ).model_dump()
         insight_id, _ = self.dashboard_api.create_insight(
@@ -1311,7 +1311,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         query = DataVisualizationNode(
             source=HogQLQuery(
-                query="SELECT count(1) FROM events", filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
+                query="SELECT count(1) FROM events", _filters=HogQLFilters(dateRange=DateRange(date_from="-3d"))
             ),
         ).model_dump()
         insight_id, _ = self.dashboard_api.create_insight(
@@ -1738,7 +1738,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_logged_out_user_cannot_retrieve_insight(self) -> None:
         self.client.logout()
         insight = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -1769,13 +1769,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
         insight = Insight.objects.create(
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
         Insight.objects.create(  # This one isn't shared
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="abcdfghi",
         )
@@ -1848,7 +1848,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.logout()
         deleted_insight = Insight.objects.create(
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
             deleted=True,
@@ -1871,7 +1871,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.logout()
         insight = Insight.objects.create(
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -1896,7 +1896,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_logged_out_user_cannot_retrieve_insight_with_disabled_insight_sharing_access_token(self) -> None:
         self.client.logout()
         insight = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -1941,20 +1941,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         flush_persons_and_events()
         insight = Insight.objects.create(
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
         deleted_insight = Insight.objects.create(
             name="Barfoo",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="87654321",
             deleted=True,
         )
         deleted_tile_insight = Insight.objects.create(
             name="Foobaz",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="abcdabcd",
         )
@@ -2006,7 +2006,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.logout()
         insight = Insight.objects.create(
             name="Foobar",
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -2073,7 +2073,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -2094,7 +2094,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
         )
@@ -2117,7 +2117,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         other_team = Team.objects.create(organization=self.organization, name="other team")
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=other_team,
             short_id="12345678",
         )
@@ -2292,17 +2292,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filter_dict3 = {"events": [{"id": "$pageview"}], "breakdown": "email"}
 
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="11223344",
         )
         insight2 = Insight.objects.create(
-            filters=Filter(data=filter_dict2).to_dict(),
+            _filters=Filter(data=filter_dict2).to_dict(),
             team=self.team,
             short_id="44332211",
         )
         Insight.objects.create(
-            filters=Filter(data=filter_dict3).to_dict(),
+            _filters=Filter(data=filter_dict3).to_dict(),
             team=self.team,
             short_id="00992281",
         )
@@ -2442,7 +2442,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
         other_insight = Insight.objects.create(
-            filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
+            _filters=Filter(data={"events": [{"id": "$pageview"}]}).to_dict(),
             team=other_team,
             short_id="abcabc",
             deleted=True,
@@ -3133,7 +3133,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
 
         insight = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
+            _filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="xyz123",
         )

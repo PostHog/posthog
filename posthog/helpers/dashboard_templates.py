@@ -519,9 +519,9 @@ def _create_tile_for_insight(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": filter_test_accounts},
+        _filters={**filters, "filter_test_accounts": filter_test_accounts},
+        _query=query,
         is_sample=True,
-        query=query,
     )
     DashboardTile.objects.create(
         insight=insight,

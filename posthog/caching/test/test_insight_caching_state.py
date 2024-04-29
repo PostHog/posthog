@@ -50,7 +50,7 @@ def create_insight(
     if query is not None:
         filters = {}
 
-    insight = Insight.objects.create(team=team, filters=filters, deleted=deleted, query=query)
+    insight = Insight.objects.create(team=team, _filters=filters, deleted=deleted, query=query)
     if viewed_at_delta is not None:
         InsightViewed.objects.create(
             insight=insight,
@@ -101,7 +101,7 @@ def create_tile(
     else:
         if query is not None:
             insight_filters = {}
-        insight = Insight.objects.create(team=team, filters=insight_filters, deleted=insight_deleted, query=query)
+        insight = Insight.objects.create(team=team, _filters=insight_filters, deleted=insight_deleted, query=query)
 
     return DashboardTile.objects.create(
         dashboard=dashboard,

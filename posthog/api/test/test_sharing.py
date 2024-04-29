@@ -56,7 +56,7 @@ class TestSharing(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            _filters=Filter(data=cls.insight_filter_dict).to_dict(),
             team=cls.team,
             created_by=cls.user,
         )

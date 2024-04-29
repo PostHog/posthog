@@ -50,7 +50,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         self.dashboard_tile = dashboard_tile
 
     def test_synchronously_update_cache_insight(self):
-        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}], "properties": []})
+        insight = Insight.objects.create(team=self.team, _filters={"events": [{"id": "$pageview"}], "properties": []})
 
         result = synchronously_update_cache(insight, None)
 

@@ -645,7 +645,7 @@ class InsightViewSet(
             queryset = self._filter_request(self.request, queryset)
 
             if self.request.query_params.get("include_query_insights", "false").lower() != "true":
-                queryset = queryset.exclude(Q(filters={}) & Q(query__isnull=False))
+                queryset = queryset.exclude(Q(_filters={}) & Q(_query__isnull=False))
 
         order = self.request.GET.get("order", None)
         if order:
