@@ -272,6 +272,19 @@ class LifecycleQueryRunner(QueryRunner):
                 for property in self.team.test_account_filters:
                     event_filters.append(property_to_expr(property, self.team))
 
+        if self.has_group_type:
+            event_filters.append(
+                ast.Not(
+                    expr=ast.Call(
+                        name="has",
+                        args=[
+                            ast.Array(exprs=[ast.Constant(value="")]),
+                            self.target_field,
+                        ],
+                    ),
+                ),
+            )
+
         if len(event_filters) == 0:
             return ast.Constant(value=True)
         elif len(event_filters) == 1:
@@ -280,34 +293,23 @@ class LifecycleQueryRunner(QueryRunner):
             return ast.And(exprs=event_filters)
 
     @property
+    def has_group_type(self) -> bool:
+        return self.group_type_index and 0 <= self.group_type_index <= 4
+
+    @property
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
+
+    @property
+    def target_field(self):
+        if self.has_group_type:
+            return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
+        return ast.Field(chain=["person_id"])
 
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
-            target_field = "person_id"
-
-            event_filters = [self.event_filter]
-
-            if self.group_type_index is not None:
-                group_index = int(self.group_type_index)
-                if 0 <= group_index <= 4:
-                    target_field = f"$group_{group_index}"
-
-                    event_filters.append(
-                        ast.Not(
-                            expr=ast.Call(
-                                name="has",
-                                args=[
-                                    ast.Array(exprs=[ast.Constant(value="")]),
-                                    ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
-                                ],
-                            ),
-                        ),
-                    )
-
-            #                         events.person_id as person_id,
+            # events.person_id as person_id,
             # removed the above line from the select ( we need to replace person_id with target everywhere )
             events_query = parse_select(
                 """
@@ -331,8 +333,8 @@ class LifecycleQueryRunner(QueryRunner):
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
-                    "target": ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
-                    "event_filter": ast.And(exprs=event_filters),
+                    "target": ast.Alias(alias="target", expr=self.target_field),
+                    "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])
                     ),
