@@ -329,7 +329,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 // 3, 0.5, 0.5],
+                ["/a", 3, 4, 1 / 3, 0.5, 0.5],
                 ["/b", 2, 2, None, 0.2, 0],
                 ["/c", 2, 2, None, 0.9, 1],
             ],
@@ -373,7 +373,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 // 3, 0.5, 0.5],
+                ["/a", 3, 4, 1 / 3, 0.5, 0.5],
             ],
             results,
         )
@@ -473,7 +473,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 // 3],
+                ["/a", 3, 4, 1 / 3],
                 ["/b", 2, 2, None],
                 ["/c", 2, 2, None],
             ],
@@ -516,7 +516,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 // 3],
+                ["/a", 3, 4, 1 / 3],
             ],
             results,
         )
@@ -613,7 +613,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 8, 1 // 3],
+                ["/a", 3, 8, 1 / 3],
             ],
             results,
         )
@@ -654,7 +654,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["/a", 3, 4, 1 // 3],
+                ["/a", 3, 4, 1 / 3],
             ],
             results,
         )
