@@ -20,8 +20,10 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
 
+from posthog.api.action import ActionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
+from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
@@ -561,6 +563,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
+    match_action = ActionSerializer()
 
     class Meta:
         model = PluginConfig
@@ -579,6 +582,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "deleted",
+            "match_action",
         ]
         read_only_fields = [
             "id",
@@ -646,6 +650,16 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         # metrics (for fatal errors) or plugin log entries (for all errors) for
         # error details instead.
         return None
+
+    def validate_match_action(self, value: Action):
+        if value:
+            if value.team_id != self.context["team_id"]:
+                raise ValidationError("Action does not belong to the current team!")
+
+            if value.team.organization_id != self.context["organization_id"]:
+                raise ValidationError("Action does not belong to the current organization!")
+
+        return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
