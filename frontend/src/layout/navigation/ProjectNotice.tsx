@@ -26,7 +26,6 @@ function CountDown({ datetime }: { datetime: dayjs.Dayjs }): JSX.Element {
 
     useEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)
-
         return () => clearInterval(interval)
     }, [])
 
