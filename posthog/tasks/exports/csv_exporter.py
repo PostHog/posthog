@@ -100,10 +100,12 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             return
 
     if isinstance(results, list):
-        first_result = results[0]
+        first_result = next(iter(results), None)
 
-        # persons modal like
-        if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+        if not first_result:
+            return
+        elif len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+            # persons modal like
             yield from results[0].get("people")
             return
         elif isinstance(first_result, list) or first_result.get("action_id"):

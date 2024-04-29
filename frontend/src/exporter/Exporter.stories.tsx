@@ -42,6 +42,11 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 export const TrendsLineInsight: Story = Template.bind({})
 TrendsLineInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') }
 
+/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
+export const TrendsLineInsightNoResults: Story = Template.bind({})
+// @ts-expect-error
+TrendsLineInsightNoResults.args = { insight: { ...TrendsLineInsight.args.insight, result: null } }
+
 export const TrendsLineMultiInsight: Story = Template.bind({})
 TrendsLineMultiInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
@@ -108,6 +113,11 @@ FunnelLeftToRightInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
 }
 
+/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
+export const FunnelLeftToRightInsightNoResults: Story = Template.bind({})
+// @ts-expect-error
+FunnelLeftToRightInsightNoResults.args = { insight: { ...FunnelLeftToRightInsight.args.insight, result: null } }
+
 export const FunnelLeftToRightBreakdownInsight: Story = Template.bind({})
 FunnelLeftToRightBreakdownInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
@@ -117,6 +127,10 @@ export const FunnelTopToBottomInsight: Story = Template.bind({})
 FunnelTopToBottomInsight.args = {
     insight: require('../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
 }
+/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
+export const FunnelTopToBottomInsightNoResults: Story = Template.bind({})
+// @ts-expect-error
+FunnelTopToBottomInsightNoResults.args = { insight: { ...FunnelTopToBottomInsight.args.insight, result: null } }
 
 export const FunnelTopToBottomBreakdownInsight: Story = Template.bind({})
 FunnelTopToBottomBreakdownInsight.args = {
@@ -152,3 +166,19 @@ UserPathsInsight.args = { insight: require('../mocks/fixtures/api/projects/team_
 
 export const Dashboard: Story = Template.bind({})
 Dashboard.args = { dashboard }
+
+export const EventTableInsight: Story = Template.bind({})
+EventTableInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json') }
+
+/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
+export const EventTableInsightNoResults: Story = Template.bind({})
+// @ts-expect-error
+EventTableInsightNoResults.args = { insight: { ...EventTableInsight.args.insight, result: null } }
+
+export const SQLInsight: Story = Template.bind({})
+SQLInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json') }
+
+/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
+export const SQLInsightNoResults: Story = Template.bind({})
+// @ts-expect-error
+SQLInsightNoResults.args = { insight: { ...SQLInsight.args.insight, result: null } }

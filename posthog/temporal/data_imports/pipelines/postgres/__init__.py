@@ -16,7 +16,6 @@ from .helpers import (
     engine_from_credentials,
     get_primary_key,
     SqlDatabaseTableConfiguration,
-    SqlTableResourceConfiguration,
 )
 
 
@@ -31,7 +30,7 @@ def postgres_source(
     return db_source
 
 
-@dlt.source
+@dlt.source(max_table_nesting=0)
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,

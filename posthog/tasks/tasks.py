@@ -9,6 +9,7 @@ from django.utils import timezone
 from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
@@ -32,7 +33,18 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value, acks_late=True)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.ANALYTICS_QUERIES.value,
+    acks_late=True,
+    autoretry_for=(
+        # Important: Only retry for things that might be okay on the next try
+        CHQueryErrorTooManySimultaneousQueries,
+    ),
+    retry_backoff=1,
+    retry_backoff_max=2,
+    max_retries=3,
+)
 def process_query_task(
     team_id: int,
     user_id: int,
@@ -550,7 +562,14 @@ def schedule_cache_updates_task() -> None:
     schedule_cache_updates()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=10,
+    retry_backoff_max=30,
+    max_retries=3,
+    retry_jitter=True,
+)
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
 

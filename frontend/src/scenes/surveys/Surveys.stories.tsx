@@ -170,9 +170,8 @@ const meta: Meta = {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
-                    } else {
-                        return res(ctx.json(MOCK_SURVEY_SHOWN))
                     }
+                    return res(ctx.json(MOCK_SURVEY_SHOWN))
                 },
                 // flag targeting has loaders, make sure they don't keep loading
                 '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [

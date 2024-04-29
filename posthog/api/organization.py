@@ -147,8 +147,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_permissions(self):
-        # When listing there is no individual object to check for
+    def dangerously_get_permissions(self):
         if self.action == "list":
             return [permission() for permission in [permissions.IsAuthenticated, APIScopePermission]]
 
@@ -163,15 +162,15 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     APIScopePermission,
                 ]
             ]
-        return super().get_permissions()
 
-    def get_queryset(self) -> QuerySet:
+        # We don't override for other actions
+        raise NotImplementedError()
+
+    def safely_get_queryset(self, queryset) -> QuerySet:
         return cast(User, self.request.user).organizations.all()
 
-    def get_object(self):
-        organization = self.organization
-        self.check_object_permissions(self.request, organization)
-        return organization
+    def safely_get_object(self, queryset):
+        return self.organization
 
     # Override base view as the "parent_query_dict" for an organization is the same as the organization itself
     @cached_property
