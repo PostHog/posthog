@@ -116,7 +116,7 @@ async function runSingleTeamPluginComposeWebhook(
         return
     }
 
-    const webhook: Webhook = maybeWebhook!
+    const webhook: Webhook = maybeWebhook
 
     const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
         webhook,
@@ -203,6 +203,8 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
 
     pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
+
+    // Inject special plugin!
 
     await Promise.all(
         pluginMethodsToRun
