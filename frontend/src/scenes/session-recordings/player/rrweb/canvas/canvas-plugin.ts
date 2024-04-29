@@ -27,6 +27,7 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
     const preloadBuffer = new Set<CanvasEventWithTime>()
+    const pruneQueue: eventWithTime[] = []
     let nextPreloadIndex: number | null = null
     let latestCanvasEvent: CanvasEventWithTime | null = null
 
@@ -66,7 +67,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         return cloneNode
     }
 
-    const pruneQueue: eventWithTime[] = []
     const pruneBuffer = (event: eventWithTime): void => {
         while (pruneQueue.length) {
             const difference = Math.abs(event.timestamp - pruneQueue[0].timestamp)
@@ -115,13 +115,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             img.src = target.toDataURL()
         }
     }
-
-    // const promises: Promise<any>[] = []
-    // for (const event of events) {
-    //     if (event.type === EventType.IncrementalSnapshot && event.data.source === IncrementalSource.CanvasMutation) {
-    //         promises.push(deserializeAndPreloadCanvasEvents(event.data, event))
-    //     }
-    // }
 
     const preload = async (currentEvent?: CanvasEventWithTime): Promise<void> => {
         const currentIndex = nextPreloadIndex
