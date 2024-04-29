@@ -221,55 +221,54 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     const pluginsDeferred = []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
     for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
-        if (processEvent) {
-            const timer = new Date()
-            const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
+        const timer = new Date()
+        const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
 
-            if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
-                continue
+        if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
+            continue
+        }
+
+        try {
+            returnedEvent = (await processEvent(returnedEvent!)) || null
+            if (returnedEvent && returnedEvent.team_id !== teamId) {
+                returnedEvent.team_id = teamId
+                throw new IllegalOperationError('Plugin tried to change event.team_id')
             }
-
-            try {
-                returnedEvent = (await processEvent(returnedEvent!)) || null
-                if (returnedEvent && returnedEvent.team_id !== teamId) {
-                    returnedEvent.team_id = teamId
-                    throw new IllegalOperationError('Plugin tried to change event.team_id')
-                }
-                pluginsSucceeded.push(pluginIdentifier)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
-                    .observe(new Date().getTime() - timer.getTime())
-                await hub.appMetrics.queueMetric({
+            pluginsSucceeded.push(pluginIdentifier)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
+                .observe(new Date().getTime() - timer.getTime())
+            await hub.appMetrics.queueMetric({
+                teamId,
+                pluginConfigId: pluginConfig.id,
+                category: 'processEvent',
+                successes: 1,
+            })
+        } catch (error) {
+            await processError(hub, pluginConfig, error, returnedEvent)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
+                .observe(new Date().getTime() - timer.getTime())
+            pluginsFailed.push(pluginIdentifier)
+            await hub.appMetrics.queueError(
+                {
                     teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'processEvent',
-                    successes: 1,
-                })
-            } catch (error) {
-                await processError(hub, pluginConfig, error, returnedEvent)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
-                    .observe(new Date().getTime() - timer.getTime())
-                pluginsFailed.push(pluginIdentifier)
-                await hub.appMetrics.queueError(
-                    {
-                        teamId,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'processEvent',
-                        failures: 1,
-                    },
-                    {
-                        error,
-                        event,
-                    }
-                )
-            }
-
-            if (!returnedEvent) {
-                return null
-            }
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
         }
 
+        if (!returnedEvent) {
+            return null
+        }
+
+        // TODO: I don't follow this... it feels like it should be is own separate processing logic...
         const onEvent = await pluginConfig.vm?.getOnEvent()
         if (onEvent) {
             pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
