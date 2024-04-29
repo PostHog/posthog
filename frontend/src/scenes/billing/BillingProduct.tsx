@@ -268,9 +268,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                       }))
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
                       const totalForTier =
-                          parseFloat(tier.current_amount_usd || '') +
+                          parseFloat(tier.current_amount_usd || '0') +
                           (product.addons?.reduce(
-                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || '0'),
                               0
                               // if there aren't any addons we get NaN from the above, so we need to default to 0
                           ) || 0)

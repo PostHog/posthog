@@ -9,6 +9,9 @@ class Tier(TypedDict):
     unit_amount_usd: Decimal
     current_amount_usd: Decimal
     up_to: Optional[int]
+    current_usage: int
+    projected_usage: Optional[int]
+    projected_amount_usd: Optional[Decimal]
 
 
 class CustomerProduct(TypedDict):
