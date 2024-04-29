@@ -76,9 +76,8 @@ const concurrencyController = new ConcurrencyController(Infinity)
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
         return compareInsightQuery(a, b, true)
-    } else {
-        return objectsEqual(a, b)
     }
+    return objectsEqual(a, b)
 }
 
 /** Tests wether a query is valid to prevent unnecessary requests.  */
@@ -86,9 +85,8 @@ const queryValid = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         // funnels require at least two steps
         return q.series.length >= 2
-    } else {
-        return true
     }
+    return true
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
@@ -115,15 +113,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!queryEqual(props.query, oldProps.query)) {
-            if (
-                !props.cachedResults ||
-                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
-            ) {
-                actions.loadData()
-            } else {
-                actions.setResponse(props.cachedResults)
-            }
+        if (
+            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
+            !queryEqual(props.query, oldProps.query) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
+        ) {
+            actions.loadData()
+        } else if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -406,9 +405,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (firstTimestamp) {
                                 const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
                                 return nextQuery
-                            } else {
-                                return query
                             }
+                            return query
                         }
                     }
                 }
@@ -627,7 +625,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0) {
+        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
+            // Attention: When on dashboard we don't want to load data on mount
+            // as it will have be loaded by some other logic
             actions.loadData()
         }
 

@@ -89,9 +89,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
-    } else {
-        return { source: query }
     }
+    return { source: query }
 }
 
 const SYNC_ONLY_QUERY_KINDS = [
@@ -416,9 +415,8 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
         return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
     } else if (isPathsFilter(filters)) {
         return `api/projects/${currentTeamId}/insights/path${refresh ? '?refresh=true' : ''}`
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export function legacyInsightQueryData({
@@ -469,9 +467,8 @@ export function legacyInsightQueryExportContext({
             method: 'POST',
             body: filters,
         }
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export async function legacyInsightQuery({

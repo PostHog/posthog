@@ -59,9 +59,8 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 return events.filter((e) => {
                     if (showRecordingSnapshots) {
                         return true
-                    } else {
-                        return e.event !== '$snapshot'
                     }
+                    return e.event !== '$snapshot'
                 })
             },
         ],

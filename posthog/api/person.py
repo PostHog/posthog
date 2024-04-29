@@ -1,5 +1,6 @@
 import json
 import posthoganalytics
+from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
 from typing import (  # noqa: UP035
@@ -7,6 +8,7 @@ from typing import (  # noqa: UP035
     List,
     Optional,
     TypeVar,
+    Union,
     cast,
 )
 from collections.abc import Callable
@@ -173,10 +175,20 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         team = self.context["get_team"]()
         return get_person_name(team, person)
 
-    def to_representation(self, instance: Person) -> dict[str, Any]:
-        representation = super().to_representation(instance)
-        representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
-        return representation
+    def to_representation(self, instance: Union[Person, MissingPerson]) -> dict[str, Any]:
+        if isinstance(instance, Person):
+            representation = super().to_representation(instance)
+            representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
+            return representation
+        elif isinstance(instance, MissingPerson):
+            return {
+                "id": None,
+                "name": None,
+                "distinct_ids": [instance.distinct_id],
+                "properties": instance.properties,
+                "created_at": None,
+                "uuid": instance.uuid,
+            }
 
 
 # person distinct ids can grow to be a very large list
@@ -230,14 +242,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
-    def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset):
         person_id = self.kwargs[self.lookup_field]
 
         try:
@@ -247,12 +257,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
             )
 
-        obj = get_object_or_404(queryset)
-
-        # May raise a permission denied
-        self.check_object_permissions(self.request, obj)
-
-        return obj
+        return get_object_or_404(queryset)
 
     @extend_schema(
         parameters=[

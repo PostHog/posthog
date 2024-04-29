@@ -181,6 +181,7 @@
          "posthog_survey"."end_date",
          "posthog_survey"."updated_at",
          "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",

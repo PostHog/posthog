@@ -3,7 +3,6 @@ import json
 from typing import Any, Optional, cast
 
 from django.db import connection
-from django.db.models import Prefetch
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,7 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventProperty, PropertyDefinition, TaggedItem, User
+from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 
@@ -35,7 +34,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group"],
+        choices=["event", "person", "group", "session"],
         help_text="What property definitions to return",
         default="event",
     )
@@ -190,6 +189,16 @@ class QueryContext:
                     **self.params,
                     "type": PropertyDefinition.Type.GROUP,
                     "group_type_index": group_type_index,
+                },
+            )
+        elif type == "session":
+            return dataclasses.replace(
+                self,
+                should_join_event_property=False,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.SESSION,
+                    "group_type_index": -1,
                 },
             )
 
@@ -477,10 +486,10 @@ class PropertyDefinitionViewSet(
     ordering = "name"
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator
+    queryset = PropertyDefinition.objects.all()
 
-    def get_queryset(self):
-        queryset = PropertyDefinition.objects
-
+    def dangerously_get_queryset(self):
+        queryset = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [
                 f'posthog_propertydefinition."{f.column}"'
@@ -506,13 +515,8 @@ class PropertyDefinitionViewSet(
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects.prefetch_related(
-                    Prefetch(
-                        "tagged_items",
-                        queryset=TaggedItem.objects.select_related("tag"),
-                        to_attr="prefetched_tags",
-                    )
-                )
+                queryset = EnterprisePropertyDefinition.objects
+
                 order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False
@@ -583,7 +587,7 @@ class PropertyDefinitionViewSet(
                 serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
-    def get_object(self):
+    def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
