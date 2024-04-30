@@ -2,7 +2,6 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { DatePicker } from 'lib/components/DatePicker'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
@@ -38,33 +37,20 @@ export function ExperimentDates(): JSX.Element {
                     Start date
                 </div>
                 <div className="flex">
-                    <LemonCalendarSelectInput
-                        value={dayjs(start_date)}
-                        onChange={(newStartDate) => {
-                            if (newStartDate) {
-                                changeExperimentStartDate(newStartDate.toISOString())
-                            }
-                        }}
-                        showTime
-                        data-attr="experiment-start-date-picker"
-                        clearable={false}
-                    />
                     {isStartDatePickerOpen ? (
-                        <DatePicker
-                            showTime={true}
-                            showSecond={false}
-                            open={true}
+                        <LemonCalendarSelectInput
+                            showTime
+                            visible
                             value={dayjs(start_date)}
-                            onBlur={() => setIsStartDatePickerOpen(false)}
-                            onOk={(newStartDate: dayjs.Dayjs) => {
-                                changeExperimentStartDate(newStartDate.toISOString())
+                            onChange={(newStartDate) => {
+                                if (newStartDate) {
+                                    changeExperimentStartDate(newStartDate.toISOString())
+                                }
                             }}
-                            autoFocus={true}
-                            disabledDate={(dateMarker) => {
-                                return dateMarker.toDate() > new Date()
-                            }}
-                            allowClear={false}
+                            onClose={() => setIsStartDatePickerOpen(false)}
                             data-attr="experiment-start-date-picker"
+                            clearable={false}
+                            validPeriod="past"
                         />
                     ) : (
                         <>

@@ -193,34 +193,37 @@ export function LemonCalendarSelectInput(
         buttonProps?: LemonButtonWithSideActionProps
         placeholder?: string
         clearable?: boolean
+        visible?: boolean
     }
 ): JSX.Element {
-    const { buttonProps, placeholder, clearable, ...calendarProps } = props
-    const [visible, setVisible] = useState(false)
+    const { buttonProps, placeholder, clearable, visible: controlledVisible, ...calendarProps } = props
+    const [uncontrolledVisible, setUncontrolledVisible] = useState(false)
+
+    const visible = controlledVisible ?? uncontrolledVisible
 
     const showClear = props.value && clearable
 
     return (
         <Popover
             actionable
-            onClickOutside={() => setVisible(false)}
+            onClickOutside={() => setUncontrolledVisible(false)}
             visible={visible}
             overlay={
                 <LemonCalendarSelect
                     {...calendarProps}
                     onChange={(value) => {
                         props.onChange(value)
-                        setVisible(false)
+                        setUncontrolledVisible(false)
                     }}
                     onClose={() => {
-                        setVisible(false)
+                        setUncontrolledVisible(false)
                         props.onClose?.()
                     }}
                 />
             }
         >
             <LemonButton
-                onClick={() => setVisible(true)}
+                onClick={() => setUncontrolledVisible(true)}
                 type="secondary"
                 fullWidth
                 sideAction={
