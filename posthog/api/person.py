@@ -242,14 +242,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset):
         queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
-    def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset):
         person_id = self.kwargs[self.lookup_field]
 
         try:
@@ -259,12 +257,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 f"The ID provided does not look like a personID. If you are using a distinctId, please use /persons?distinct_id={person_id} instead."
             )
 
-        obj = get_object_or_404(queryset)
-
-        # May raise a permission denied
-        self.check_object_permissions(self.request, obj)
-
-        return obj
+        return get_object_or_404(queryset)
 
     @extend_schema(
         parameters=[
