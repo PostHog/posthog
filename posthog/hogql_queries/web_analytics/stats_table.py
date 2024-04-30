@@ -246,12 +246,12 @@ LEFT JOIN (
         SELECT
             {scroll_breakdown_value} AS breakdown_value, -- use $prev_pageview_pathname to find the scroll depth when leaving this pathname
             avgState(CASE
-                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) IS NULL THEN NULL
-                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) > 0.8 THEN 1
+                WHEN _accurateCastOrNull(events.properties.`$prev_pageview_max_content_percentage`, 'Float64') IS NULL THEN NULL
+                WHEN _accurateCastOrNull(events.properties.`$prev_pageview_max_content_percentage`, 'Float64') > 0.8 THEN 1
                 ELSE 0
                 END
             ) AS scroll_gt80_percentage_state,
-            avgState(toFloat(events.properties.`$prev_pageview_max_scroll_percentage`)) as average_scroll_percentage_state
+            avgState(_accurateCastOrNull(events.properties.`$prev_pageview_max_scroll_percentage`, 'Float64')) as average_scroll_percentage_state
         FROM events
         JOIN sessions
         ON events.`$session_id` = sessions.session_id
