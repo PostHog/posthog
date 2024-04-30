@@ -11,7 +11,6 @@ from posthog.schema import InsightActorsQueryOptions, InsightActorsQueryOptionsR
 
 class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
-    query_type = InsightActorsQueryOptions
 
     @cached_property
     def source_runner(self) -> QueryRunner:

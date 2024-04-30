@@ -46,7 +46,6 @@ class SeriesWithExtras:
 
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
-    query_type = StickinessQuery
     series: list[SeriesWithExtras]
 
     def __init__(

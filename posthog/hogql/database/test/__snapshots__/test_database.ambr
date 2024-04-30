@@ -224,7 +224,9 @@
                   "$end_timestamp",
                   "$urls",
                   "$entry_url",
+                  "$entry_pathname",
                   "$exit_url",
+                  "$exit_pathname",
                   "$initial_utm_source",
                   "$initial_utm_campaign",
                   "$initial_utm_medium",
@@ -238,7 +240,8 @@
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -619,7 +622,15 @@
               "type": "string"
           },
           {
+              "key": "$entry_pathname",
+              "type": "string"
+          },
+          {
               "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
@@ -673,6 +684,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
           }
       ],
       "heatmaps": [
@@ -1252,7 +1267,9 @@
                   "$end_timestamp",
                   "$urls",
                   "$entry_url",
+                  "$entry_pathname",
                   "$exit_url",
+                  "$exit_pathname",
                   "$initial_utm_source",
                   "$initial_utm_campaign",
                   "$initial_utm_medium",
@@ -1266,7 +1283,8 @@
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -1647,7 +1665,15 @@
               "type": "string"
           },
           {
+              "key": "$entry_pathname",
+              "type": "string"
+          },
+          {
               "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
@@ -1701,6 +1727,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
           }
       ],
       "heatmaps": [

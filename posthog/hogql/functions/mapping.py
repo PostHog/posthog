@@ -579,7 +579,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
-    "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
@@ -613,6 +613,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMaxIf": HogQLFunctionMeta("argMaxIf", 3, 3, aggregate=True),
     "argMinMerge": HogQLFunctionMeta("argMinMerge", 1, 1, aggregate=True),
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
+    "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
+    "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     # "topK": HogQLFunctionMeta("topK", 1, 1, aggregate=True),

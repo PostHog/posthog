@@ -62,7 +62,9 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
     "$entry_url": StringDatabaseField(name="$entry_url"),
+    "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_url": StringDatabaseField(name="$exit_url"),
+    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
     "$initial_utm_source": StringDatabaseField(name="$initial_utm_source"),
     "$initial_utm_campaign": StringDatabaseField(name="$initial_utm_campaign"),
     "$initial_utm_medium": StringDatabaseField(name="$initial_utm_medium"),
@@ -79,6 +81,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
 }
 
 
@@ -118,7 +121,7 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
-    aggregate_fields = {
+    aggregate_fields: dict[str, ast.Expr] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
@@ -132,7 +135,16 @@ def select_from_sessions_table(
             ],
         ),
         "$entry_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
+        "$entry_pathname": ast.Call(
+            name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
+        ),
         "$exit_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+        "$exit_pathname": ast.Call(
+            name="path",
+            args=[
+                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+            ],
+        ),
         "$initial_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
         "$initial_utm_campaign": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]
@@ -153,26 +165,51 @@ def select_from_sessions_table(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$session_duration": ast.Call(
-            name="dateDiff",
-            args=[
-                ast.Constant(value="second"),
-                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
-                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
-            ],
-        ),
-        "$channel_type": create_channel_type_expr(
-            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
-            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-            referring_domain=ast.Call(
-                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
-            ),
-            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
-        ),
     }
+    # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
+    # for now just remove the duplicate definitions from the code
+    aggregate_fields["$session_duration"] = ast.Call(
+        name="dateDiff",
+        args=[
+            ast.Constant(value="second"),
+            aggregate_fields["$start_timestamp"],
+            aggregate_fields["$end_timestamp"],
+        ],
+    )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$is_bounce"] = ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
+            ast.Constant(value=None),
+            ast.Call(
+                name="not",
+                args=[
+                    ast.Call(
+                        name="or",
+                        args=[
+                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                            ast.Call(
+                                name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
+                            ),
+                            ast.Call(
+                                name="greaterOrEquals",
+                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+    aggregate_fields["$channel_type"] = create_channel_type_expr(
+        campaign=aggregate_fields["$initial_utm_campaign"],
+        medium=aggregate_fields["$initial_utm_medium"],
+        source=aggregate_fields["$initial_utm_source"],
+        referring_domain=aggregate_fields["$initial_referring_domain"],
+        gclid=aggregate_fields["$initial_gclid"],
+        gad_source=aggregate_fields["$initial_gad_source"],
+    )
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
@@ -302,16 +339,16 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
     if key == "$channel_type":
         return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
 
-    expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
-
-    if not expr:
-        return []
-
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
+        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+
+        if not expr:
+            return []
+
         if search_term:
             return insight_sync_execute(
                 SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
@@ -325,5 +362,8 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
             query_type="get_session_property_values",
             team_id=team.pk,
         )
+    if isinstance(field_definition, BooleanDatabaseField):
+        # ideally we'd be able to just send [[True], [False]]
+        return [["1"], ["0"]]
 
     return []

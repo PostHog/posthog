@@ -264,17 +264,15 @@ export function formatBreakdownLabel(
                 formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
             )
             .join('::')
-    } else {
-        return ''
     }
+    return ''
 }
 
 export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     if (breakdownFilter.breakdown_type === 'cohort') {
         return 'Cohort'
-    } else {
-        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
+    return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
@@ -313,9 +311,8 @@ export function concatWithPunctuation(phrases: string[]): string {
         return phrases[0]
     } else if (phrases.length === 2) {
         return `${phrases[0]} and ${phrases[1]}`
-    } else {
-        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+    return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {

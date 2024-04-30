@@ -35,7 +35,6 @@ DEFAULT_TOTAL_INTERVALS = 11
 
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
-    query_type = RetentionQuery
 
     def __init__(
         self,

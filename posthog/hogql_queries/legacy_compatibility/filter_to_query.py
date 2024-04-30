@@ -366,6 +366,7 @@ def _insight_filter(filter: dict):
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
                 toggledLifecycles=filter.get("toggledLifecycles"),
+                showLegend=filter.get("show_legend"),
                 showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }

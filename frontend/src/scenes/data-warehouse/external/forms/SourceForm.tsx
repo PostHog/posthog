@@ -15,7 +15,12 @@ export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Eleme
         <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
             {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => (
                 <LemonField key={field.name} name={['payload', field.name]} label={field.label}>
-                    <LemonInput className="ph-ignore-input" data-attr={field.name} />
+                    <LemonInput
+                        className="ph-ignore-input"
+                        data-attr={field.name}
+                        placeholder={field.placeholder}
+                        type={field.type}
+                    />
                 </LemonField>
             ))}
             <LemonField name="prefix" label="Table Prefix (optional)">

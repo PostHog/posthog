@@ -39,6 +39,7 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportDestination,
@@ -231,13 +232,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
     def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
         """Return a batch export schema from a HogQL query ast."""
-        context = HogQLContext(
-            team_id=self.context["team_id"],
-            enable_select_queries=True,
-            limit_top_select=False,
-        )
-
         try:
+            # Print the query in ClickHouse dialect to catch unresolved field errors, and discard the result
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
+            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+
+            # Recreate the context
+            context = HogQLContext(
+                team_id=self.context["team_id"],
+                enable_select_queries=True,
+                limit_top_select=False,
+            )
             batch_export_schema: BatchExportsSchema = {
                 "fields": [],
                 "values": {},
