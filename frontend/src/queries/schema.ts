@@ -860,6 +860,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
 export interface QueryRequest {
@@ -1041,7 +1042,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
-    // ExitPage = 'ExitPage'
+    ExitPage = 'ExitPage', // not supported in the legacy version
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',

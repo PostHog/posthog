@@ -3179,6 +3179,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -3195,6 +3198,9 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "show_legend": {
+                    "type": "boolean"
+                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },
@@ -5822,6 +5828,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "ExitPage",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
