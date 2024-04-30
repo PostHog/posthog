@@ -301,11 +301,14 @@ def get_query_runner(
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
+# R (for Response) should have a structure similar to QueryResponse.
+# Due to the way schema.py is generated, we don't have a good inheritance story here.
+R = TypeVar("R", bound=BaseModel)
 
 
-class QueryRunner(ABC, Generic[Q]):
+class QueryRunner(ABC, Generic[Q, R]):
     query: Q
-    query_type: type[Q]
+
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -330,13 +333,15 @@ class QueryRunner(ABC, Generic[Q]):
         assert isinstance(query, self.query_type)
         self.query = query
 
+    @property
+    def query_type(self) -> type[Q]:
+        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
     @abstractmethod
-    def calculate(self) -> BaseModel:
-        # The returned model should have a structure similar to QueryResponse.
-        # Due to the way schema.py is generated, we don't have a good inheritance story here.
+    def calculate(self) -> R:
         raise NotImplementedError()
 
     def run(
@@ -383,7 +388,7 @@ class QueryRunner(ABC, Generic[Q]):
                 if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                     return cached_response
 
-        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
+        fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
@@ -417,13 +422,13 @@ class QueryRunner(ABC, Generic[Q]):
                 "hogql",
             )
 
-    def toJSON(self) -> str:
+    def to_json(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
+            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod

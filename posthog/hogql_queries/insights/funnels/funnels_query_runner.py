@@ -32,7 +32,6 @@ from posthog.schema import (
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
-    query_type = FunnelsQuery
     context: FunnelQueryContext
 
     def __init__(

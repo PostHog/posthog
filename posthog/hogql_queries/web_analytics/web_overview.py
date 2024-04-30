@@ -16,7 +16,6 @@ from posthog.schema import WebOverviewQueryResponse, WebOverviewQuery
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
-    query_type = WebOverviewQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):
