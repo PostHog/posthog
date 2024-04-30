@@ -1096,7 +1096,7 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
     if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
         CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$initial_${key.replace(/^\$/, '')}`] = {
             ...value,
-            label: `Initial ${value.label}`,
+            label: `Session ${value.label}`,
             description:
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
