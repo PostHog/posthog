@@ -1,10 +1,11 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from posthog.models.team.team import Team
+from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.models import Team
 
 
-class OrganizationTeamInline(admin.TabularInline):
+class TeamInline(admin.TabularInline):
     extra = 0
     model = Team
 
@@ -13,7 +14,6 @@ class OrganizationTeamInline(admin.TabularInline):
         "displayed_name",
         "api_token",
         "app_urls",
-        "name",
         "created_at",
         "updated_at",
         "anonymize_ips",
@@ -32,11 +32,11 @@ class OrganizationTeamInline(admin.TabularInline):
         "plugins_opt_in",
         "opt_out_capture",
     )
-    readonly_fields = ("id", "displayed_name", "created_at", "updated_at")
+    readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name"]
 
     def displayed_name(self, team: Team):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}. {}</a>',
+            '<a href="/admin/posthog/team/{}/change/">{}.&nbsp;{}</a>',
             team.pk,
             team.pk,
             team.name,
