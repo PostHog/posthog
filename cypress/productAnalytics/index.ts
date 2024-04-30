@@ -186,9 +186,11 @@ export const dashboard = {
         cy.get('[data-attr="taxonomic-filter-searchfield"]').click()
         cy.get('[data-attr="prop-filter-event_properties-1"]').click({ force: true })
         cy.get('[data-attr="prop-val"]').click()
-        cy.get('[data-attr="prop-val-0"]').click({ force: true }).type('{enter}', { force: true })
+        cy.get('[data-attr="prop-val-0"]').click({ force: true })
+        // click .dashboard to blur
+        cy.get('.dashboard').click({ force: true })
         cy.get('.PropertyFilterButton').should('have.length', 1)
-        cy.cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('button').contains('Apply and save dashboard').click()
     },
 }
 
