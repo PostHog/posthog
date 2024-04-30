@@ -33,6 +33,7 @@ type_mapping: dict[str, dict[str, Any]] = {
     "numeric": {"data_type": "decimal", "precision": None, "scale": None},
     "text": {"data_type": "text"},
     "varchar": {"data_type": "text", "precision": None},
+    "character varying": {"data_type": "text", "precision": None},
     "bytea": {"data_type": "binary"},
     "timestamp": {"data_type": "timestamp"},
     "date": {"data_type": "date"},
