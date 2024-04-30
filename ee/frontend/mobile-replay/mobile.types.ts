@@ -67,6 +67,7 @@ export type serializedNodeWithId = serializedNode & { id: number }
 export type MobileNodeType =
     | 'text'
     | 'image'
+    | 'screenshot'
     | 'rectangle'
     | 'placeholder'
     | 'web_view'
@@ -75,7 +76,6 @@ export type MobileNodeType =
     | 'radio_group'
     | 'status_bar'
     | 'navigation_bar'
-    | 'screenshot'
 
 export type MobileStyles = {
     /**
@@ -304,6 +304,7 @@ export type wireframeNavigationBar = wireframeBase & {
 export type wireframe =
     | wireframeText
     | wireframeImage
+    | wireframeScreenshot
     | wireframeRectangle
     | wireframeDiv
     | wireframeInputComponent
@@ -312,7 +313,6 @@ export type wireframe =
     | wireframePlaceholder
     | wireframeStatusBar
     | wireframeNavigationBar
-    | wireframeScreenshot
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

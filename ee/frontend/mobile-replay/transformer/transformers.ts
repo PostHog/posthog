@@ -992,6 +992,10 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
+function chooseParentId(nodeType: MobileNodeType, providedParentId: number): number {
+    return nodeType === 'screenshot' ? BODY_ID : providedParentId
+}
+
 function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe, context)
 
@@ -1000,7 +1004,7 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
     }
 
     const addition: addedNodeMutation = {
-        parentId: add.wireframe.type === 'screenshot' ? BODY_ID : add.parentId,
+        parentId: chooseParentId(add.wireframe.type, add.parentId),
         nextId: null,
         node: converted.result,
     }
@@ -1018,7 +1022,7 @@ function makeIncrementalAdd(add: MobileNodeMutation, context: ConversionContext)
  */
 function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
     return {
-        parentId: update.wireframe.type === 'screenshot' ? BODY_ID : update.parentId,
+        parentId: chooseParentId(update.wireframe.type, update.parentId),
         id: update.wireframe.id,
     }
 }
