@@ -271,7 +271,7 @@ export function LineGraph_({
     hideAnnotations,
     hideXAxis,
     hideYAxis,
-    legend,
+    legend = { display: false },
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
