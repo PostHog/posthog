@@ -11,6 +11,7 @@
 
 -c requirements.txt
 
+async-timeout==4.0.3
 ruff~=0.3.7
 mypy~=1.8.0
 mypy-baseline~=0.6.1
