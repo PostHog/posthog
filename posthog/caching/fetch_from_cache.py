@@ -22,6 +22,7 @@ insight_cache_read_counter = Counter(
 @dataclass(frozen=True)
 class InsightResult:
     result: Optional[Any]
+    columns: Optional[list]
     last_refresh: Optional[datetime]
     cache_key: Optional[str]
     is_cached: bool
@@ -33,6 +34,7 @@ class InsightResult:
 @dataclass(frozen=True)
 class NothingInCacheResult(InsightResult):
     result: Optional[Any] = None
+    columns: Optional[list] = None
     last_refresh: Optional[datetime] = None
     cache_key: Optional[str] = None
     is_cached: bool = False
