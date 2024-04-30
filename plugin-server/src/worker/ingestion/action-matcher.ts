@@ -189,7 +189,7 @@ export class ActionMatcher {
     private getElementsList(event: PostIngestionEvent): Element[] {
         extendPostIngestionEventWithElementsList(event)
 
-        return this.getElementsList(event) ?? []
+        return event.elementsList ?? []
     }
 
     /**
