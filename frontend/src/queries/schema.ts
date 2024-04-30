@@ -209,7 +209,7 @@ export interface HogQLQueryResponse {
     clickhouse?: string
     /** Query results */
     results?: any[]
-    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string
     /** Returned columns */
     columns?: any[]
@@ -860,6 +860,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
 export interface QueryRequest {
@@ -895,6 +896,8 @@ export interface QueryResponse {
     results: unknown
     timings?: QueryTiming[]
     hogql?: string
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
@@ -1041,7 +1044,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
-    // ExitPage = 'ExitPage'
+    ExitPage = 'ExitPage', // not supported in the legacy version
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',

@@ -30,7 +30,6 @@ from posthog.utils import format_label_date
 
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
-    query_type = LifecycleQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:
