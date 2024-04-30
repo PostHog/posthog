@@ -204,8 +204,6 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 
     pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
 
-    // Inject special plugin!
-
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
             runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
