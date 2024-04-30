@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { RefObject } from 'react'
@@ -22,10 +22,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setBrowserUrl: (url: string) => ({ url }),
         setIframePosthogJsConnected: (ready: boolean) => ({ ready }),
         onIframeLoad: true,
+        onIframeToolbarLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
             payload,
         }),
+        setLoading: (loading: boolean) => ({ loading }),
     }),
 
     loaders({
@@ -66,6 +68,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframePosthogJsConnected: (_, { ready }) => ready,
             },
         ],
+
+        loading: [
+            false as boolean,
+            {
+                setLoading: (_, { loading }) => loading,
+                setBrowserUrl: () => true,
+                onIframeToolbarLoad: () => false,
+            },
+        ],
     }),
 
     listeners(({ actions, props }) => ({
@@ -99,6 +110,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 switch (type) {
                     case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
                         return init()
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_READY:
+                        return actions.onIframeToolbarLoad()
                     default:
                         console.warn(`[PostHog Heatmpas] Received unknown child window message: ${type}`)
                 }
@@ -109,4 +122,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             init()
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        if (values.browserUrl) {
+            actions.setLoading(true)
+        }
+    }),
 ])

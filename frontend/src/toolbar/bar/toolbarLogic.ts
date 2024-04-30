@@ -16,6 +16,7 @@ export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | '
 
 export enum PostHogAppToolbarEvent {
     PH_TOOLBAR_INIT = 'ph-toolbar-init',
+    PH_TOOLBAR_READY = 'ph-toolbar-ready',
     PH_APP_INIT = 'ph-app-init',
     PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
 }
@@ -298,7 +299,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
 
             switch (type) {
                 case PostHogAppToolbarEvent.PH_APP_INIT:
-                    return actions.setIsEmbeddedInApp(true)
+                    actions.setIsEmbeddedInApp(true)
+                    window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
+                    return
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
                     actions.enableHeatmap()
                     return

@@ -1,4 +1,4 @@
-import { LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -10,7 +10,7 @@ export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserSearchOptions, browserUrl } = useValues(logic)
+    const { browserSearchOptions, browserUrl, loading } = useValues(logic)
     const { setBrowserSearch, setBrowserUrl, onIframeLoad } = useActions(logic)
 
     return (
@@ -55,25 +55,31 @@ export function HeatmapsBrowser(): JSX.Element {
                     </LemonButton>
                 </div>
 
-                {browserUrl ? (
-                    <iframe
-                        ref={iframeRef}
-                        className="w-full h-full"
-                        src={appEditorUrl(browserUrl, {
-                            userIntent: 'heatmaps',
-                        })}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            background: '#FFF',
-                        }}
-                        onLoad={onIframeLoad}
-                    />
-                ) : (
-                    <div className="w-full h-full bg-bg-light">
-                        <p className="italic m-2">Select a URL</p>
-                        {/* TODO: Add a bunch of suggested pages */}
-                    </div>
-                )}
+                <div className="relative flex flex-1">
+                    {browserUrl ? (
+                        <>
+                            <iframe
+                                ref={iframeRef}
+                                className="flex-1"
+                                src={appEditorUrl(browserUrl, {
+                                    userIntent: 'heatmaps',
+                                })}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    background: '#FFF',
+                                }}
+                                onLoad={onIframeLoad}
+                            />
+
+                            {loading && <SpinnerOverlay />}
+                        </>
+                    ) : (
+                        <div className="flex-1 bg-bg-light">
+                            <p className="italic m-2">Select a URL</p>
+                            {/* TODO: Add a bunch of suggested pages */}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )
