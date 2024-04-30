@@ -11,7 +11,7 @@ import {
     isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { EntityNode } from '~/queries/schema'
+import { EntityNode, LifecycleQuery } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -153,9 +153,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
                 if (isLifecycle) {
-                    firstAggregationGroupTypeIndex = querySource.aggregation_group_type_index
+                    firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {
                     firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
                     if (!series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)) {
