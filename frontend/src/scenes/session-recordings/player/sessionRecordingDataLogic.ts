@@ -368,7 +368,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw new Error('Missing key')
                     }
 
-                    // todo if we send the timestamp of the latest data then we can avoid loading the same realtime data over the wire multiple times
                     const response = await api.recordings
                         .getBlobSnapshots(props.sessionRecordingId, params)
                         .catch((e) => {
