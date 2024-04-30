@@ -106,7 +106,7 @@ describe('ActionWebhookFormatter', () => {
 
         it.each(cases)('%s', (options) => {
             const formatter = createFormatter(options)
-            const message = formatter.composeWebhook()
+            const message = formatter.generateWebhookPayload()
             // For non-slack messages the text is always markdown
             expect(message.text).toMatchSnapshot()
         })
@@ -125,7 +125,7 @@ describe('ActionWebhookFormatter', () => {
                 webhookUrl: 'https://hooks.slack.com/services/123/456/789',
                 ...options,
             })
-            const message = formatter.composeWebhook()
+            const message = formatter.generateWebhookPayload()
             expect(message.text).toMatchSnapshot()
             expect(message.blocks[0].text.text).toMatchSnapshot()
         })

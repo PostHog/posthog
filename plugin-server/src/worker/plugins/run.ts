@@ -1,11 +1,12 @@
 import { PluginEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
+import { Action, Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
 import { convertToPostHogEvent } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
+import { ActionWebhookFormatter } from '../ingestion/action-webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
@@ -201,10 +202,12 @@ async function runSingleTeamPluginComposeWebhook(
 export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
     let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
-
     pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
 
+    pluginMethodsToRun = pluginMethodsToRun.concat(await getLegacyActionWebhookPluginsForTeam(hub, event))
+
     // Inject special plugin!
+    // Here we load the special "LegacyActionWebhook" plugin which is actually run in memory
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
@@ -388,6 +391,53 @@ async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
     return methodsObtainedFiltered
 }
 
+async function getLegacyActionWebhookPluginsForTeam(
+    hub: Hub,
+    event: PostIngestionEvent
+): Promise<[PluginConfig, () => Webhook | null][]> {
+    const pluginConfigs = hub.pluginConfigsPerTeam.get(event.teamId) || []
+    if (pluginConfigs.length === 0) {
+        return []
+    }
+
+    const filteredList: [PluginConfig, () => Webhook | null][] = []
+
+    await Promise.all(
+        pluginConfigs
+            // TODO: We probably want a stronger check than just the plugin name...
+            .map(async (pluginConfig) => {
+                if (pluginConfig.plugin?.name !== 'Action Webhook' || !pluginConfig.match_action_id) {
+                    return
+                }
+
+                const matchedAction = await getActionMatchingPluginConfigs(hub, pluginConfig, event)
+                const team = await hub.teamManager.fetchTeam(event.teamId)
+
+                if (!matchedAction || !team) {
+                    return
+                }
+
+                filteredList.push([
+                    pluginConfig,
+                    () => {
+                        // TODO: Fix the forced conversion here
+                        const actionWebhookFormatter = new ActionWebhookFormatter(
+                            pluginConfig.config.webhook_url as string,
+                            pluginConfig.config.message_format as string,
+                            matchedAction,
+                            event,
+                            team,
+                            hub.SITE_URL || ''
+                        )
+                        return actionWebhookFormatter.composeWebhook()
+                    },
+                ])
+            })
+    )
+
+    return filteredList
+}
+
 async function filterPluginMethodsForActionMatches<T>(
     hub: Hub,
     event: PostIngestionEvent,
@@ -398,21 +448,8 @@ async function filterPluginMethodsForActionMatches<T>(
     await Promise.all(
         pluginMethods.map(async ([pluginConfig, method]) => {
             if (pluginConfig.match_action_id) {
-                const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
-
-                if (!relatedAction) {
-                    // TODO: Is this what we want to do here?
-                    status.error('🔴', 'Could not find action for PluginConfig!', {
-                        pluginConfigId: pluginConfig.id,
-                        teamId: event.teamId,
-                    })
-
-                    return
-                }
-
-                const matched = await hub.actionMatcher.checkAction(event, relatedAction)
-
-                if (!matched) {
+                const matchedAction = await getActionMatchingPluginConfigs(hub, pluginConfig, event)
+                if (!matchedAction) {
                     return
                 }
             }
@@ -421,4 +458,29 @@ async function filterPluginMethodsForActionMatches<T>(
     )
 
     return filteredList
+}
+
+async function getActionMatchingPluginConfigs(
+    hub: Hub,
+    pluginConfig: PluginConfig,
+    event: PostIngestionEvent
+): Promise<Action | null> {
+    if (!pluginConfig.match_action_id) {
+        return null
+    }
+    const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
+
+    if (!relatedAction) {
+        // TODO: Is this what we want to do here?
+        status.error('🔴', 'Could not find action for PluginConfig!', {
+            pluginConfigId: pluginConfig.id,
+            teamId: event.teamId,
+        })
+
+        return null
+    }
+
+    const matched = await hub.actionMatcher.checkAction(event, relatedAction)
+
+    return matched ? relatedAction : null
 }

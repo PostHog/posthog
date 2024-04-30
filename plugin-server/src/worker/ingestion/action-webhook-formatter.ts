@@ -1,3 +1,4 @@
+import { Webhook } from '@posthog/plugin-scaffold'
 import { format } from 'util'
 
 import { Action, PostIngestionEvent, Team } from '../../types'
@@ -47,7 +48,18 @@ export class ActionWebhookFormatter {
         )}`
     }
 
-    composeWebhook(): Record<string, any> {
+    composeWebhook(): Webhook {
+        return {
+            url: this.webhookUrl,
+            body: JSON.stringify(this.generateWebhookPayload()),
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            method: 'POST',
+        }
+    }
+
+    generateWebhookPayload(): Record<string, any> {
         const [messageText, messageMarkdown] = this.getFormattedMessage()
         if (this.webhookType === WebhookType.Slack) {
             return {

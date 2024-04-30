@@ -90,7 +90,7 @@ export function PluginDrawer(): JSX.Element {
     const actionMatchingFlag = !!useFeatureFlag('PLUGINS_ACTION_MATCHING')
     const actionMatchingEnabled =
         (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) &&
-        editingPlugin?.capabilities?.methods?.includes('composeWebhook')
+        (editingPlugin?.capabilities?.methods?.includes('composeWebhook') || editingPlugin?.name === 'Action Webhook')
 
     return (
         <>
