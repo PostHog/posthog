@@ -52,7 +52,7 @@ const event: PostIngestionEvent = {
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
-    elementsList: [],
+    elementsList: undefined,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
     person_properties: {},
@@ -151,9 +151,9 @@ describe('eachBatchX', () => {
             expect(runOnEvent).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
+                    eventUuid: 'uuid1',
+                    teamId: 2,
+                    distinctId: 'my_id',
                 })
             )
         })
@@ -162,6 +162,7 @@ describe('eachBatchX', () => {
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
         })
+        // TODO: Move these tests to the run.ts part somehow...
         it('parses elements when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
                 { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },

@@ -1,6 +1,6 @@
 import { EachBatchPayload } from 'kafkajs'
 
-import { PluginMethod, PostIngestionEvent, RawClickHouseEvent } from '../../../types'
+import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { convertToPostIngestionEvent } from '../../../utils/event'
 import {
     processComposeWebhookStep,
