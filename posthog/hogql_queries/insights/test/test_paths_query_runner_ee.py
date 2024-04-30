@@ -154,7 +154,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             filter = {"stepLimit": 2}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedQueryResponse)
-            response = result.results
+            response = result.root.results
 
             self.assertEqual(
                 response,
@@ -174,7 +174,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             filter = {"stepLimit": 3}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedQueryResponse)
-            response = result.results
+            response = result.root.results
 
             self.assertEqual(
                 response,
@@ -199,7 +199,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             filter = {"stepLimit": 4}
             result = PathsQueryRunner(query={"kind": "PathsQuery", "pathsFilter": filter}, team=self.team).run()
             assert isinstance(result, CachedQueryResponse)
-            response = result.results
+            response = result.root.results
 
             self.assertEqual(
                 response,
@@ -313,7 +313,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -396,7 +396,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -1850,7 +1850,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -1915,7 +1915,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2059,7 +2059,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2093,7 +2093,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2127,7 +2127,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2162,7 +2162,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2287,7 +2287,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2317,7 +2317,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(len(response), 6)
 
@@ -2416,7 +2416,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2486,7 +2486,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2539,7 +2539,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2636,7 +2636,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2746,7 +2746,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2912,7 +2912,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -2936,7 +2936,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3120,7 +3120,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3227,7 +3227,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3511,7 +3511,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3747,7 +3747,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3799,7 +3799,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3851,7 +3851,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,
@@ -3991,7 +3991,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             self.assertEqual(
@@ -4043,7 +4043,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
             assert isinstance(result, CachedQueryResponse)
-            response = result.results
+            response = result.root.results
 
             self.assertEqual(
                 response,
@@ -4094,7 +4094,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
             assert isinstance(result, CachedQueryResponse)
-            response = result.results
+            response = result.root.results
 
             self.assertEqual(
                 response,
@@ -4197,7 +4197,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ).run()
 
         assert isinstance(result, CachedQueryResponse)
-        response = result.results
+        response = result.root.results
 
         self.assertEqual(
             response,

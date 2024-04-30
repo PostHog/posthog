@@ -87,7 +87,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
             assert isinstance(response, CachedQueryResponse)
-            results = response.results
+            results = response.root.results
             return results
 
     def test_is_not_set_boolean(self):
