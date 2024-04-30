@@ -104,11 +104,13 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
     }
 }
 
+/**
+ * Elements parsing can be really slow so it is only done when required by the caller.
+ * It mutates the event which is not ideal but the performance gains of lazy loading it were deemed worth it.
+ */
 export function extendPostIngestionEventWithElementsList(event: PostIngestionEvent): void {
-    // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked
-    // # SKIP_ELEMENTS_PARSING_PLUGINS
-
     if (event.elementsList) {
+        // Don't set if already done before
         return
     }
 

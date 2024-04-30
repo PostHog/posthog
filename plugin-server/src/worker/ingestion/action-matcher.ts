@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
+import { extendPostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -187,6 +188,15 @@ export class ActionMatcher {
     }
 
     /**
+     * Helper method to build the elementsList if not already present and return it.
+     */
+    private getElementsList(event: PostIngestionEvent): Element[] {
+        extendPostIngestionEventWithElementsList(event)
+
+        return this.getElementsList(event) ?? []
+    }
+
+    /**
      * Sublevel 1 of action matching.
      *
      * Return whether the event is a match for the step (match group).
@@ -196,7 +206,7 @@ export class ActionMatcher {
         return (
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
-            this.checkStepElement(event.elementsList, step) &&
+            this.checkStepElement(this.getElementsList(event), step) &&
             (await this.checkStepFilters(event, step))
         )
     }
@@ -336,10 +346,10 @@ export class ActionMatcher {
         if (filter.key === 'selector') {
             const okValues = Array.isArray(filter.value) ? filter.value : [filter.value]
             return okValues.some((okValue) =>
-                okValue ? this.checkElementsAgainstSelector(event.elementsList, okValue.toString()) : false
+                okValue ? this.checkElementsAgainstSelector(this.getElementsList(event), okValue.toString()) : false
             )
         } else {
-            return event.elementsList.some((element) => this.checkPropertiesAgainstFilter(element, filter))
+            return this.getElementsList(event).some((element) => this.checkPropertiesAgainstFilter(element, filter))
         }
     }
 

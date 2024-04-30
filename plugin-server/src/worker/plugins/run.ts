@@ -23,6 +23,7 @@ async function runSingleTeamPluginOnEvent(
     }, 10 * 1000) // 10 seconds
 
     if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
+        // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
         extendPostIngestionEventWithElementsList(event)
     }
 
