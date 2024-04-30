@@ -212,7 +212,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: getEventDefinitionIcon,
                     },
                     {
-                        name: 'Data Warehouse',
+                        name: 'Data warehouse',
                         searchPlaceholder: 'data warehouse table name',
                         type: TaxonomicFilterGroupType.DataWarehouse,
                         logic: dataWarehouseSceneLogic,
@@ -223,7 +223,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Properties',
+                        name: 'Data warehouse properties',
                         searchPlaceholder: 'data warehouse property',
                         type: TaxonomicFilterGroupType.DataWarehouseProperties,
                         options: schemaColumns,
@@ -233,7 +233,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getIcon: () => <IconServer />,
                     },
                     {
-                        name: 'Data Warehouse Person Properties',
+                        name: 'Data warehouse person properties',
                         searchPlaceholder: 'person properties from data warehouse tables',
                         type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
                         logic: dataWarehouseJoinsLogic,
