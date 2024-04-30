@@ -13,7 +13,7 @@ import { DataNode, HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
 import { QueryTabs } from './QueryTabs'
 
 interface HogQLDebugProps {
-    queryKey: string
+    queryKey: `new-${string}`
     query: HogQLQuery
     setQuery: (query: DataNode) => void
 }
