@@ -94,8 +94,7 @@ class LifecycleQueryRunner(QueryRunner):
     def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # should I update this?
-        with self.timings.measure("persons_query"):
+        with self.timings.measure("actors_query"):
             exprs = []
             if day is not None:
                 exprs.append(

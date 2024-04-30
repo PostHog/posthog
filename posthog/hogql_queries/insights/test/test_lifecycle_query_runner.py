@@ -654,7 +654,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query="""
                 SELECT
-                start_of_period, count(DISTINCT person_id) AS counts, status
+                start_of_period, count(DISTINCT actor_id) AS counts, status
                 FROM {events_query}
                 GROUP BY start_of_period, status
             """,
