@@ -307,8 +307,6 @@ class LifecycleQueryRunner(QueryRunner):
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
-            # events.person_id as person_id,
-            # removed the above line from the select ( we need to replace person_id with target everywhere )
             events_query = parse_select(
                 """
                     SELECT
