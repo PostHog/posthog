@@ -87,7 +87,10 @@ pub struct ProcessedEvent {
     pub ip: String,
     pub data: String,
     pub now: String,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(
+        with = "time::serde::rfc3339::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
 }
