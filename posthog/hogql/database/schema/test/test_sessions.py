@@ -136,3 +136,97 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
         [row1, row2] = response.results or []
         self.assertEqual(row1, (p1.uuid, "source1"))
         self.assertEqual(row2, (p2.uuid, "source2"))
+
+    def test_bounce_rate(self):
+        # person with 2 different sessions
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": "s1a"},
+            timestamp="2023-12-02",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": "s1a"},
+            timestamp="2023-12-03",
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$session_id": "s1b"},
+            timestamp="2023-12-12",
+        )
+        # session with 1 pageview
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d2",
+            properties={"$session_id": "s2"},
+            timestamp="2023-12-11",
+        )
+        # session with 1 pageview and 1 autocapture
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d3",
+            properties={"$session_id": "s3"},
+            timestamp="2023-12-11",
+        )
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="d3",
+            properties={"$session_id": "s3"},
+            timestamp="2023-12-11",
+        )
+        # short session with a pageleave
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": "s4"},
+            timestamp="2023-12-11T12:00:00",
+        )
+        _create_event(
+            event="$pageleave",
+            team=self.team,
+            distinct_id="d4",
+            properties={"$session_id": "s4"},
+            timestamp="2023-12-11T12:00:01",
+        )
+        # long session with a pageleave
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d5",
+            properties={"$session_id": "s5"},
+            timestamp="2023-12-11T12:00:00",
+        )
+        _create_event(
+            event="$pageleave",
+            team=self.team,
+            distinct_id="d5",
+            properties={"$session_id": "s5"},
+            timestamp="2023-12-11T12:00:11",
+        )
+        response = execute_hogql_query(
+            parse_select(
+                "select $is_bounce, session_id from sessions ORDER BY session_id",
+            ),
+            self.team,
+        )
+        self.assertEqual(
+            [
+                (0, "s1a"),
+                (1, "s1b"),
+                (1, "s2"),
+                (0, "s3"),
+                (1, "s4"),
+                (0, "s5"),
+            ],
+            response.results or [],
+        )

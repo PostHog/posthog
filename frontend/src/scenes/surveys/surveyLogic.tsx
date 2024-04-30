@@ -164,9 +164,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
                     return values.survey
-                } else {
-                    return { ...NEW_SURVEY }
                 }
+                return { ...NEW_SURVEY }
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -243,9 +242,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const [totalSeen, dismissed, sent] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
                     return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
-                } else {
-                    return { seen: 0, dismissed: 0, sent: 0 }
                 }
+                return { seen: 0, dismissed: 0, sent: 0 }
             },
         },
         surveyRatingResults: {

@@ -42,7 +42,7 @@ export function ActionsPie({
         labelGroupType,
         trendsFilter,
         formula,
-        showValueOnSeries,
+        showValuesOnSeries,
         showLabelOnSeries,
         supportsPercentStackView,
         showPercentStackView,
@@ -147,7 +147,7 @@ export function ActionsPie({
                             showPersonsModal={showPersonsModal}
                             trendsFilter={trendsFilter}
                             formula={formula}
-                            showValueOnSeries={showValueOnSeries}
+                            showValuesOnSeries={showValuesOnSeries}
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}

@@ -1346,3 +1346,12 @@ def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
     for key, reverse in reversed(specs):
         xs.sort(key=itemgetter(key), reverse=reverse)
     return xs
+
+
+def get_from_dict_or_attr(obj: Any, key: str):
+    if isinstance(obj, dict):
+        return obj.get(key, None)
+    elif hasattr(obj, key):
+        return getattr(obj, key, None)
+    else:
+        raise AttributeError(f"Object {obj} has no key {key}")
