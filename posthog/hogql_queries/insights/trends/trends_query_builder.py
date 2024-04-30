@@ -336,9 +336,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             )
 
             if is_actors_query:
-                orchestrator.events_query_builder.append_select(
-                    ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
+                has_actor_id_alias = any(
+                    isinstance(elem, ast.Alias) and elem.alias == "actor_id"
+                    for elem in orchestrator.events_query_builder._query.select
                 )
+                if not has_actor_id_alias:
+                    orchestrator.events_query_builder.append_select(
+                        ast.Alias(alias="actor_id", expr=self._aggregation_operation.actor_id())
+                    )
                 orchestrator.inner_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
                 orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["actor_id"]))
 
