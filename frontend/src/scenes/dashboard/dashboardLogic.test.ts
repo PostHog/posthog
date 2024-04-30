@@ -720,30 +720,30 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('lastRefreshed', () => {
+    describe('newestRefreshed', () => {
         it('should be the earliest refreshed dashboard', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    lastRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
+                    newestRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
                 })
         })
 
-        it('should refresh all dashboards if lastRefreshed is older than 3 hours', async () => {
+        it('should refresh all dashboards if newestRefreshed is older than 3 hours', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
 
-        it('should not refresh all dashboards if lastRefreshed is older than 3 hours but the feature flag is not set', async () => {
+        it('should not refresh all dashboards if newestRefreshed is older than 3 hours but the feature flag is not set', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
 
-        it('should not refresh if lastRefreshed is less than 3 hours', async () => {
+        it('should not refresh if newestRefreshed is less than 3 hours', async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic)

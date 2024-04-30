@@ -603,7 +603,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortDayJsDates(validDates)
             },
         ],
-        lastRefreshed: [
+        newestRefreshed: [
             (s) => [s.sortedDates],
             (sortedDates): Dayjs | null => {
                 if (!sortedDates.length) {
@@ -624,14 +624,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.lastRefreshed, s.placement],
-            (lastRefreshed: Dayjs, placement: DashboardPlacement) => {
+            (s) => [s.newestRefreshed, s.placement],
+            (newestRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
-                    !!lastRefreshed &&
+                    !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     now()
                         .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                        .isBefore(lastRefreshed)
+                        .isBefore(newestRefreshed)
                 )
             },
         ],
@@ -864,10 +864,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
 
-                    const lastRefreshed = dayjs(t.last_refresh)
+                    const newestRefreshed = dayjs(t.last_refresh)
                     return (
-                        !lastRefreshed.isValid() ||
-                        lastRefreshed.isBefore(
+                        !newestRefreshed.isValid() ||
+                        newestRefreshed.isBefore(
                             dayjs().subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
                         )
                     )
@@ -999,7 +999,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             void loadNextPromise()
 
-            eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
+            eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
         setDates: ({ dateFrom, dateTo }) => {
             actions.updateFilters()
@@ -1031,8 +1031,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Refresh right now after enabling if we haven't refreshed recently
                 if (
                     !values.itemsLoading &&
-                    values.lastRefreshed &&
-                    values.lastRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
+                    values.newestRefreshed &&
+                    values.newestRefreshed.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
                     actions.refreshAllDashboardItems({ action: 'refresh' })
                 }
@@ -1108,16 +1108,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
-            const { dashboard, lastRefreshed } = values
+            const { dashboard, newestRefreshed } = values
             if (dashboard) {
-                eventUsageLogic.actions.reportDashboardViewed(dashboard, lastRefreshed)
+                eventUsageLogic.actions.reportDashboardViewed(dashboard, newestRefreshed)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
                     router.values.location.pathname === urls.dashboard(dashboard.id) ||
                     router.values.location.pathname === urls.projectHomepage() ||
                     router.values.location.pathname.startsWith(urls.sharedDashboard(''))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(dashboard, lastRefreshed, 10)
+                    eventUsageLogic.actions.reportDashboardViewed(dashboard, newestRefreshed, 10)
                 }
             } else {
                 // dashboard has not loaded yet, report after API request is completed
