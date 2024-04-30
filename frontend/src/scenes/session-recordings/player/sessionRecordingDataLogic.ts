@@ -368,15 +368,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         throw new Error('Missing key')
                     }
 
-                    const response = await api.recordings
-                        .getBlobSnapshots(props.sessionRecordingId, params)
-                        .catch((e) => {
-                            if (source.source === 'realtime' && e.status === 404) {
-                                // Realtime source is not always available so a 404 is expected
-                                return []
-                            }
-                            throw e
-                        })
+                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
+                        if (source.source === 'realtime' && e.status === 404) {
+                            // Realtime source is not always available so a 404 is expected
+                            return []
+                        }
+                        throw e
+                    })
 
                     const { transformed, untransformed } = await processEncodedResponse(
                         response,

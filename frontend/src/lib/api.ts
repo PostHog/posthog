@@ -71,6 +71,7 @@ import {
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -1677,9 +1678,9 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(
+        async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any>
+            params: SessionRecordingSnapshotParams
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
@@ -1703,13 +1704,6 @@ const api = {
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
-        async updateRecording(
-            recordingId: SessionRecordingType['id'],
-            recording: Partial<SessionRecordingType>,
-            params?: string
-        ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
-        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
