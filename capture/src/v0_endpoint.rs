@@ -15,7 +15,7 @@ use crate::limiters::billing::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{Compression, ProcessingContext, RawRequest};
 use crate::{
-    api::{CaptureError, CaptureResponse, CaptureResponseCode, ProcessedEvent},
+    api::{CaptureError, CaptureResponse, CaptureResponseCode, DataType, ProcessedEvent},
     router, sinks,
     utils::uuid_v7,
     v0_request::{EventFormData, EventQuery, RawEvent},
@@ -39,7 +39,7 @@ use crate::{
         content_type,
         version,
         compression,
-        is_historical
+        historical_migration
     )
 )]
 #[debug_handler]
@@ -106,11 +106,11 @@ pub async fn event(
             return Err(err);
         }
     };
-    let is_historical = request.is_historical(); // TODO: use to write to historical topic
+    let historical_migration = request.historical_migration();
     let events = request.events(); // Takes ownership of request
 
     tracing::Span::current().record("token", &token);
-    tracing::Span::current().record("is_historical", is_historical);
+    tracing::Span::current().record("historical_migration", historical_migration);
     tracing::Span::current().record("batch_size", events.len());
 
     if events.is_empty() {
@@ -125,6 +125,7 @@ pub async fn event(
         token,
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
+        historical_migration,
     };
 
     let billing_limited = state
@@ -174,12 +175,18 @@ pub fn process_single_event(
         return Err(CaptureError::MissingEventName);
     }
 
+    let data_type = match context.historical_migration {
+        true => DataType::AnalyticsHistorical,
+        false => DataType::AnalyticsMain,
+    };
+
     let data = serde_json::to_string(&event).map_err(|e| {
         tracing::error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
     Ok(ProcessedEvent {
+        data_type,
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: event.extract_distinct_id()?,
         ip: context.client_ip.clone(),

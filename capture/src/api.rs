@@ -80,8 +80,15 @@ impl IntoResponse for CaptureError {
     }
 }
 
-#[derive(Clone, Default, Debug, Serialize, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum DataType {
+    AnalyticsMain,
+    AnalyticsHistorical,
+}
+#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
 pub struct ProcessedEvent {
+    #[serde(skip_serializing)]
+    pub data_type: DataType,
     pub uuid: Uuid,
     pub distinct_id: String,
     pub ip: String,

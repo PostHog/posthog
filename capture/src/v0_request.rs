@@ -149,7 +149,7 @@ impl RawRequest {
         Ok(token)
     }
 
-    pub fn is_historical(&self) -> bool {
+    pub fn historical_migration(&self) -> bool {
         match self {
             RawRequest::Batch(req) => req.historical_migration.unwrap_or_default(),
             _ => false,
@@ -232,6 +232,7 @@ pub struct ProcessingContext {
     pub token: String,
     pub now: String,
     pub client_ip: String,
+    pub historical_migration: bool,
 }
 
 #[cfg(test)]

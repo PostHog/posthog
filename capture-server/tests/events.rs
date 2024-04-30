@@ -13,8 +13,10 @@ async fn it_captures_one_event() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id = random_string("id", 16);
-    let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic).await;
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
     let event = json!({
         "token": token,
@@ -24,7 +26,7 @@ async fn it_captures_one_event() -> Result<()> {
     let res = server.capture_events(event.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    let event = topic.next_event()?;
+    let event = main_topic.next_event()?;
     assert_json_include!(
         actual: event,
         expected: json!({
@@ -37,14 +39,15 @@ async fn it_captures_one_event() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_captures_a_batch() -> Result<()> {
+async fn it_captures_a_posthogjs_array() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);
     let distinct_id1 = random_string("id", 16);
     let distinct_id2 = random_string("id", 16);
 
-    let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic).await;
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
     let event = json!([{
         "token": token,
@@ -59,14 +62,98 @@ async fn it_captures_a_batch() -> Result<()> {
     assert_eq!(StatusCode::OK, res.status());
 
     assert_json_include!(
-        actual: topic.next_event()?,
+        actual: main_topic.next_event()?,
         expected: json!({
             "token": token,
             "distinct_id": distinct_id1
         })
     );
     assert_json_include!(
-        actual: topic.next_event()?,
+        actual: main_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id2
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_captures_a_batch() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id1 = random_string("id", 16);
+    let distinct_id2 = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "batch": [{
+            "event": "event1",
+            "distinct_id": distinct_id1
+        },{
+            "event": "event2",
+            "distinct_id": distinct_id2
+        }]
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    assert_json_include!(
+        actual: main_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id1
+        })
+    );
+    assert_json_include!(
+        actual: main_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id2
+        })
+    );
+
+    Ok(())
+}
+#[tokio::test]
+async fn it_captures_a_historical_batch() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id1 = random_string("id", 16);
+    let distinct_id2 = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let event = json!({
+        "token": token,
+        "historical_migration": true,
+        "batch": [{
+            "event": "event1",
+            "distinct_id": distinct_id1
+        },{
+            "event": "event2",
+            "distinct_id": distinct_id2
+        }]
+    });
+    let res = server.capture_events(event.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    assert_json_include!(
+        actual: histo_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id1
+        })
+    );
+    assert_json_include!(
+        actual: histo_topic.next_event()?,
         expected: json!({
             "token": token,
             "distinct_id": distinct_id2
@@ -175,8 +262,9 @@ async fn it_trims_distinct_id() -> Result<()> {
     let distinct_id2 = random_string("id", 222);
     let (trimmed_distinct_id2, _) = distinct_id2.split_at(200); // works because ascii chars
 
-    let topic = EphemeralTopic::new().await;
-    let server = ServerHandle::for_topic(&topic).await;
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
     let event = json!([{
         "token": token,
@@ -191,14 +279,14 @@ async fn it_trims_distinct_id() -> Result<()> {
     assert_eq!(StatusCode::OK, res.status());
 
     assert_json_include!(
-        actual: topic.next_event()?,
+        actual: main_topic.next_event()?,
         expected: json!({
             "token": token,
             "distinct_id": distinct_id1
         })
     );
     assert_json_include!(
-        actual: topic.next_event()?,
+        actual: main_topic.next_event()?,
         expected: json!({
             "token": token,
             "distinct_id": trimmed_distinct_id2

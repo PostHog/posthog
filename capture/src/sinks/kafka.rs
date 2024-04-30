@@ -11,7 +11,7 @@ use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
-use crate::api::{CaptureError, ProcessedEvent};
+use crate::api::{CaptureError, DataType, ProcessedEvent};
 use crate::config::KafkaConfig;
 use crate::limiters::overflow::OverflowLimiter;
 use crate::prometheus::report_dropped_events;
@@ -80,8 +80,9 @@ impl rdkafka::ClientContext for KafkaContext {
 #[derive(Clone)]
 pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
-    topic: String,
     partition: OverflowLimiter,
+    main_topic: String,
+    historical_topic: String,
 }
 
 impl KafkaSink {
@@ -128,7 +129,8 @@ impl KafkaSink {
         Ok(KafkaSink {
             producer,
             partition,
-            topic: config.kafka_topic,
+            main_topic: config.kafka_topic,
+            historical_topic: config.kafka_historical_topic,
         })
     }
 
@@ -137,22 +139,27 @@ impl KafkaSink {
         self.producer.flush(Duration::new(30, 0))
     }
 
-    async fn kafka_send(
-        producer: FutureProducer<KafkaContext>,
-        topic: String,
-        event: ProcessedEvent,
-        limited: bool,
-    ) -> Result<DeliveryFuture, CaptureError> {
+    async fn kafka_send(&self, event: ProcessedEvent) -> Result<DeliveryFuture, CaptureError> {
         let payload = serde_json::to_string(&event).map_err(|e| {
             error!("failed to serialize event: {}", e);
             CaptureError::NonRetryableSinkError
         })?;
 
-        let key = event.key();
-        let partition_key = if limited { None } else { Some(key.as_str()) };
+        let event_key = event.key();
+        let (topic, partition_key): (&str, Option<&str>) = match &event.data_type {
+            DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
+            DataType::AnalyticsMain => {
+                // TODO: deprecate capture-led overflow or move logic in handler
+                if self.partition.is_limited(&event_key) {
+                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                } else {
+                    (&self.main_topic, Some(event_key.as_str()))
+                }
+            }
+        };
 
-        match producer.send_result(FutureRecord {
-            topic: topic.as_str(),
+        match self.producer.send_result(FutureRecord {
+            topic,
             payload: Some(&payload),
             partition: None,
             key: partition_key,
@@ -206,9 +213,7 @@ impl KafkaSink {
 impl Event for KafkaSink {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let limited = self.partition.is_limited(&event.key());
-        let ack =
-            Self::kafka_send(self.producer.clone(), self.topic.clone(), event, limited).await?;
+        let ack = self.kafka_send(event).await?;
         histogram!("capture_event_batch_size").record(1.0);
         Self::process_ack(ack)
             .instrument(info_span!("ack_wait_one"))
@@ -220,12 +225,8 @@ impl Event for KafkaSink {
         let mut set = JoinSet::new();
         let batch_size = events.len();
         for event in events {
-            let producer = self.producer.clone();
-            let topic = self.topic.clone();
-            let limited = self.partition.is_limited(&event.key());
-
             // We await kafka_send to get events in the producer queue sequentially
-            let ack = Self::kafka_send(producer, topic, event, limited).await?;
+            let ack = self.kafka_send(event).await?;
 
             // Then stash the returned DeliveryFuture, waiting concurrently for the write ACKs from brokers.
             set.spawn(Self::process_ack(ack));
@@ -259,7 +260,7 @@ impl Event for KafkaSink {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::{CaptureError, ProcessedEvent};
+    use crate::api::{CaptureError, DataType, ProcessedEvent};
     use crate::config;
     use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
@@ -292,6 +293,7 @@ mod tests {
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_tls: false,
         };
         let sink = KafkaSink::new(config, handle, limiter).expect("failed to create sink");
@@ -305,6 +307,7 @@ mod tests {
 
         let (cluster, sink) = start_on_mocked_sink().await;
         let event: ProcessedEvent = ProcessedEvent {
+            data_type: DataType::AnalyticsMain,
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
             ip: "".to_string(),
@@ -336,6 +339,7 @@ mod tests {
             .map(char::from)
             .collect();
         let big_event: ProcessedEvent = ProcessedEvent {
+            data_type: DataType::AnalyticsMain,
             uuid: uuid_v7(),
             distinct_id: "id1".to_string(),
             ip: "".to_string(),

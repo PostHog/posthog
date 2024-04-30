@@ -45,7 +45,10 @@ pub struct KafkaConfig {
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
     pub kafka_hosts: String,
+    #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_historical")]
+    pub kafka_historical_topic: String,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
 }

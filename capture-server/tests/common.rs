@@ -39,6 +39,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
+        kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_tls: false,
     },
     otel_url: None,
@@ -61,9 +62,10 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
-    pub async fn for_topic(topic: &EphemeralTopic) -> Self {
+    pub async fn for_topics(main: &EphemeralTopic, historical: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
-        config.kafka.kafka_topic = topic.topic_name().to_string();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
     pub async fn for_config(config: Config) -> Self {
