@@ -15,3 +15,4 @@ from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
+from .project_admin import ProjectAdmin
