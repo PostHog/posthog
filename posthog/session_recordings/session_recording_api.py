@@ -673,7 +673,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self, recording: SessionRecording, request: request.Request, event_properties: dict
     ) -> HttpResponse:
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-            snapshot_lines = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            snapshot_lines = (
+                get_realtime_snapshots(
+                    team_id=self.team.pk,
+                    session_id=str(recording.session_id),
+                )
+                or []
+            )
 
         event_properties["source"] = "realtime"
         event_properties["snapshots_length"] = len(snapshot_lines)

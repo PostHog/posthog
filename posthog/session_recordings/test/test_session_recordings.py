@@ -1,3 +1,4 @@
+import json
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -212,7 +213,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        Person.objects.create(
+        home_team_person = Person.objects.create(
             team=self.team,
             distinct_ids=["user"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
@@ -225,8 +226,39 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["id"], "2")
+
+        assert response_data["results"] == [
+            {
+                "active_seconds": 0,
+                "click_count": 0,
+                "console_error_count": 0,
+                "console_log_count": 0,
+                "console_warn_count": 0,
+                "distinct_id": "user",
+                "end_time": ANY,
+                "id": "2",
+                "inactive_seconds": ANY,
+                "keypress_count": 0,
+                "mouse_activity_count": 0,
+                "person": {
+                    "created_at": ANY,
+                    "distinct_ids": ["user"],
+                    "id": home_team_person.id,
+                    "name": "bob@bob.com",
+                    "properties": {
+                        "$some_prop": "something",
+                        "email": "bob@bob.com",
+                    },
+                    "uuid": ANY,
+                },
+                "recording_duration": ANY,
+                "snapshot_source": "web",
+                "start_time": ANY,
+                "start_url": None,
+                "storage": "object_storage",
+                "viewed": False,
+            },
+        ]
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
@@ -820,12 +852,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_realtime_snapshots.return_value = [
-            {"some": "data"},
+            json.dumps({"some": "data"}),
+            json.dumps({"some": "more data"}),
         ]
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"some": "data"}
+        assert response.content == b'{"some": "data"}\n{"some": "more data"}'
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -855,7 +888,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         annoying_data_from_javascript = "\ud801\udc37 probably from console logs"
 
         mock_realtime_snapshots.return_value = [
-            {"some": annoying_data_from_javascript},
+            json.dumps({"some": annoying_data_from_javascript}),
         ]
 
         response = self.client.get(url)
