@@ -36,6 +36,7 @@ import {
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    HogQLQueryModifiers,
     InsightVizNode,
     NodeKind,
     PersonsNode,
@@ -63,6 +64,8 @@ export interface DataNodeLogicProps {
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
+    /** Override modifiers when making the request */
+    modifiers?: HogQLQueryModifiers
 
     dataNodeCollectionId?: string
 }
@@ -87,6 +90,16 @@ const queryValid = (q: DataNode): boolean => {
         return q.series.length >= 2
     }
     return true
+}
+
+function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
+    if (!modifiers) {
+        return query
+    }
+    return {
+        ...query,
+        modifiers: { ...query.modifiers, ...modifiers },
+    }
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
@@ -190,7 +203,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 try {
                                     breakpoint()
                                     const data =
-                                        (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                                        (await query<DataNode>(
+                                            addModifiers(props.query, props.modifiers),
+                                            methodOptions,
+                                            refresh,
+                                            queryId
+                                        )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
                                 } catch (error: any) {
@@ -225,7 +243,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (isEventsQuery(props.query) && values.newQuery) {
                         const now = performance.now()
-                        const newResponse = (await query(values.newQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.newQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
@@ -249,7 +267,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
                         return {
@@ -258,7 +276,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
                             // help typescript by asserting we can't have an array here

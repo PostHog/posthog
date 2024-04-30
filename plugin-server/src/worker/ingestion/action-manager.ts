@@ -13,6 +13,7 @@ export class ActionManager {
     private ready: boolean
     private actionCache: ActionCache
     private pubSub: PubSub
+    private refreshJob?: schedule.Job
 
     constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
         this.started = false
@@ -41,10 +42,20 @@ export class ActionManager {
         await this.reloadAllActions()
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-        schedule.scheduleJob('*/5 * * * *', async () => {
-            await this.reloadAllActions()
+        this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
+            await this.reloadAllActions().catch((error) => {
+                status.error('🍿', 'Error reloading actions:', error)
+            })
         })
         this.ready = true
+    }
+
+    public async stop(): Promise<void> {
+        if (this.refreshJob) {
+            schedule.cancelJob(this.refreshJob)
+        }
+
+        await this.pubSub.stop()
     }
 
     public getTeamActions(teamId: Team['id']): ActionMap {

@@ -15,11 +15,12 @@ export const WebPropertyFilters = ({
     setWebAnalyticsFilters: (filters: WebAnalyticsPropertyFilters) => void
 }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
+    const useSessionTablePropertyFilters = featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
 
     return (
         <PropertyFilters
             taxonomicGroupTypes={
-                featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                useSessionTablePropertyFilters
                     ? [
                           TaxonomicFilterGroupType.SessionProperties,
                           TaxonomicFilterGroupType.EventProperties,
@@ -30,7 +31,7 @@ export const WebPropertyFilters = ({
             onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))}
             propertyFilters={webAnalyticsFilters}
             pageKey="web-analytics"
-            eventNames={['$pageview', '$pageleave', '$autocapture']}
+            eventNames={useSessionTablePropertyFilters ? ['$pageview'] : ['$pageview', '$pageleave', '$autocapture']}
         />
     )
 }

@@ -145,7 +145,7 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
 }
 
 export function normalizeEvent(event: PluginEvent): PluginEvent {
-    event.distinct_id = event.distinct_id?.toString()
+    event.distinct_id = event.distinct_id?.toString().replace(/\u0000/g, '\uFFFD')
 
     let properties = event.properties ?? {}
     if (event['$set']) {

@@ -37,7 +37,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
-    query_type = EventsQuery
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
