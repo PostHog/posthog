@@ -248,6 +248,7 @@ export interface UserType extends UserBaseType {
     has_password: boolean
     is_staff: boolean
     is_impersonated: boolean
+    is_impersonated_until?: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
