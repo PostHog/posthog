@@ -161,10 +161,6 @@ export class ActionMatcher {
         return matches
     }
 
-    public getActionById(teamId: number, actionId: number): Action | undefined {
-        return this.actionManager.getTeamActions(teamId)[actionId]
-    }
-
     /**
      * Base level of action matching.
      *
@@ -206,6 +202,7 @@ export class ActionMatcher {
         return (
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
+            // The below checks are less performant may parse the elements chain or do a database query hence moved to the end
             this.checkStepElement(this.getElementsList(event), step) &&
             (await this.checkStepFilters(event, step))
         )
