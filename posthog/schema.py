@@ -433,6 +433,7 @@ class HogQLQueryModifiers(BaseModel):
         extra="forbid",
     )
     dataWarehouseEventsModifiers: Optional[list[DataWarehouseEventsModifier]] = None
+    debug: Optional[bool] = None
     inCohortVia: Optional[InCohortVia] = None
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
@@ -1028,6 +1029,7 @@ class WebOverviewQueryResponse(BaseModel):
 class WebStatsBreakdown(str, Enum):
     Page = "Page"
     InitialPage = "InitialPage"
+    ExitPage = "ExitPage"
     InitialChannelType = "InitialChannelType"
     InitialReferringDomain = "InitialReferringDomain"
     InitialUTMSource = "InitialUTMSource"
@@ -1348,6 +1350,7 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showLegend: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 
@@ -1356,6 +1359,7 @@ class LifecycleFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     toggledLifecycles: Optional[list[LifecycleToggle]] = None
 

@@ -14,7 +14,6 @@ from posthog.schema import ActorsQuery, ActorsQueryResponse
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
-    query_type = ActorsQuery
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

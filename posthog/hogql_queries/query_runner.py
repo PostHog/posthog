@@ -8,6 +8,7 @@ from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -46,7 +47,9 @@ from posthog.schema import (
     SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
+
+logger = structlog.get_logger(__name__)
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
     "posthog_query_cache_write_total",
@@ -135,12 +138,9 @@ def get_query_runner(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
-    kind = None
-    if isinstance(query, dict):
-        kind = query.get("kind", None)
-    elif hasattr(query, "kind"):
-        kind = query.kind
-    else:
+    try:
+        kind = get_from_dict_or_attr(query, "kind")
+    except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
@@ -273,27 +273,42 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "WebOverviewQuery":
-        from .web_analytics.web_overview import WebOverviewQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.web_overview import WebOverviewQueryRunner
 
-        return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
+
+            return LegacyWebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebStatsTableQuery":
-        from .web_analytics.stats_table import WebStatsTableQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+
+            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
+# R (for Response) should have a structure similar to QueryResponse.
+# Due to the way schema.py is generated, we don't have a good inheritance story here.
+R = TypeVar("R", bound=BaseModel)
 
 
-class QueryRunner(ABC, Generic[Q]):
+class QueryRunner(ABC, Generic[Q, R]):
     query: Q
-    query_type: type[Q]
+
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -318,13 +333,15 @@ class QueryRunner(ABC, Generic[Q]):
         assert isinstance(query, self.query_type)
         self.query = query
 
+    @property
+    def query_type(self) -> type[Q]:
+        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
     @abstractmethod
-    def calculate(self) -> BaseModel:
-        # The returned model should have a structure similar to QueryResponse.
-        # Due to the way schema.py is generated, we don't have a good inheritance story here.
+    def calculate(self) -> R:
         raise NotImplementedError()
 
     def run(
@@ -371,7 +388,7 @@ class QueryRunner(ABC, Generic[Q]):
                 if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                     return cached_response
 
-        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
+        fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
@@ -405,13 +422,13 @@ class QueryRunner(ABC, Generic[Q]):
                 "hogql",
             )
 
-    def toJSON(self) -> str:
+    def to_json(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
+            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod
@@ -429,15 +446,22 @@ class QueryRunner(ABC, Generic[Q]):
             query_update: dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
-                    query_update["properties"] = PropertyGroupFilter(
-                        type=FilterLogicalOperator.AND,
-                        values=[
-                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties),
-                            PropertyGroupFilterValue(
-                                type=FilterLogicalOperator.AND, values=dashboard_filter.properties
-                            ),
-                        ],
-                    )
+                    try:
+                        query_update["properties"] = PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND,
+                            values=[
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
+                                if isinstance(self.query.properties, list)
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump()),
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND, values=dashboard_filter.properties
+                                ),
+                            ],
+                        )
+                    except Exception:
+                        # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
+                        capture_exception()
+                        logger.exception("Failed to apply dashboard property filters")
                 else:
                     query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:

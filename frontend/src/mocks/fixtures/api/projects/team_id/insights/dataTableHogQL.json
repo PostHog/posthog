@@ -2,7 +2,7 @@
     "id": 14,
     "short_id": "PSWiXI9H",
     "name": "",
-    "derived_name": "from HogQL into a data table.",
+    "derived_name": "SQL query",
     "filters": {},
     "query": {
         "full": true,

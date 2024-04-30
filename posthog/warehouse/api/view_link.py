@@ -1,12 +1,10 @@
 from typing import Optional
 
 from rest_framework import filters, serializers, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql.database.database import create_hogql_database
-from posthog.models import User
 from posthog.warehouse.models import DataWarehouseJoin
 
 
@@ -84,16 +82,5 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by")
-                .order_by(self.ordering)
-            )
-
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+    def safely_get_queryset(self, queryset):
+        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)

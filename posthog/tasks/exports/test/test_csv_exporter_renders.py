@@ -59,10 +59,12 @@ def test_csv_rendering(mock_settings, mock_process_query, mock_request, filename
         if fixture.get("hogql_response"):
             # If HogQL has a different response structure, add it to the fixture as `hogql_response`
             mock_process_query.return_value = fixture["hogql_response"]
-        elif fixture["response"].get("results"):
+        elif fixture["response"].get("results") is not None:
             mock_process_query.return_value = fixture["response"]
         else:
-            mock_process_query.return_value = {"results": fixture["response"].pop("result"), **fixture["response"]}
+            mock_process_query.return_value = fixture["response"]
+            if "result" in fixture["response"]:
+                mock_process_query.return_value["results"] = fixture["response"].pop("result")
         csv_exporter.export_tabular(asset)
         csv_rows = asset.content.decode("utf-8").split("\r\n")
 

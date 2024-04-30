@@ -433,6 +433,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
 
 export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
+        showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
         showValuesOnSeries: filters.show_values_on_series,
     })

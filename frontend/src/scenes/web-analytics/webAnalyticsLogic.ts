@@ -87,21 +87,23 @@ export interface QueryTile extends BaseTile {
     docs?: Docs
 }
 
+export interface TabsTileTab {
+    id: string
+    title: string
+    linkText: string
+    query: QuerySchema
+    showIntervalSelect?: boolean
+    showPathCleaningControls?: boolean
+    insightProps: InsightLogicProps
+    canOpenModal?: boolean
+    canOpenInsight?: boolean
+    docs?: Docs
+}
+
 export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
-    tabs: {
-        id: string
-        title: string
-        linkText: string
-        query: QuerySchema
-        showIntervalSelect?: boolean
-        showPathCleaningControls?: boolean
-        insightProps: InsightLogicProps
-        canOpenModal?: boolean
-        canOpenInsight?: boolean
-        docs?: Docs
-    }[]
+    tabs: TabsTileTab[]
 }
 
 export type WebDashboardTile = QueryTile | TabsTile
@@ -142,6 +144,7 @@ export enum DeviceTab {
 export enum PathTab {
     PATH = 'PATH',
     INITIAL_PATH = 'INITIAL_PATH',
+    EXIT_PATH = 'EXIT_PATH',
 }
 
 export enum GeographyTab {
@@ -181,7 +184,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
         togglePropertyFilter: (
-            type: PropertyFilterType.Event | PropertyFilterType.Person,
+            type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session,
             key: string,
             value: string | number,
             tabChange?: {
@@ -428,6 +431,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
+                const useSessionsTable = !!values.featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+
                 const allTiles: (WebDashboardTile | null)[] = [
                     {
                         tileId: TileId.OVERVIEW,
@@ -441,6 +446,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             dateRange,
                             sampling,
                             compare,
+                            useSessionsTable,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenModal: false,
@@ -564,55 +570,85 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
-                        tabs: [
-                            {
-                                id: PathTab.PATH,
-                                title: 'Top paths',
-                                linkText: 'Path',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.Page,
-                                        dateRange,
-                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
-                                        includeBounceRate: true,
-                                        sampling,
-                                        doPathCleaning: isPathCleaningEnabled,
-                                        limit: 10,
+                        tabs: (
+                            [
+                                {
+                                    id: PathTab.PATH,
+                                    title: 'Top paths',
+                                    linkText: 'Path',
+                                    query: {
+                                        full: true,
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.WebStatsTableQuery,
+                                            properties: webAnalyticsFilters,
+                                            breakdownBy: WebStatsBreakdown.Page,
+                                            dateRange,
+                                            includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                            includeBounceRate: true,
+                                            sampling,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                            limit: 10,
+                                            useSessionsTable,
+                                        },
+                                        embedded: false,
                                     },
-                                    embedded: false,
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.PATH),
+                                    canOpenModal: true,
+                                    showPathCleaningControls: true,
                                 },
-                                insightProps: createInsightProps(TileId.PATHS, PathTab.PATH),
-                                canOpenModal: true,
-                                showPathCleaningControls: true,
-                            },
-                            {
-                                id: PathTab.INITIAL_PATH,
-                                title: 'Top entry paths',
-                                linkText: 'Entry path',
-                                query: {
-                                    full: true,
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.WebStatsTableQuery,
-                                        properties: webAnalyticsFilters,
-                                        breakdownBy: WebStatsBreakdown.InitialPage,
-                                        dateRange,
-                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
-                                        sampling,
-                                        doPathCleaning: isPathCleaningEnabled,
-                                        limit: 10,
+                                {
+                                    id: PathTab.INITIAL_PATH,
+                                    title: 'Top entry paths',
+                                    linkText: 'Entry path',
+                                    query: {
+                                        full: true,
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.WebStatsTableQuery,
+                                            properties: webAnalyticsFilters,
+                                            breakdownBy: WebStatsBreakdown.InitialPage,
+                                            dateRange,
+                                            includeBounceRate: true,
+                                            sampling,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                            limit: 10,
+                                            useSessionsTable,
+                                        },
+                                        embedded: false,
                                     },
-                                    embedded: false,
+                                    insightProps: createInsightProps(TileId.PATHS, PathTab.INITIAL_PATH),
+                                    canOpenModal: true,
+                                    showPathCleaningControls: true,
                                 },
-                                insightProps: createInsightProps(TileId.PATHS, PathTab.INITIAL_PATH),
-                                canOpenModal: true,
-                                showPathCleaningControls: true,
-                            },
-                        ],
+                                useSessionsTable
+                                    ? {
+                                          id: PathTab.EXIT_PATH,
+                                          title: 'Top exit paths',
+                                          linkText: 'Exit path',
+                                          query: {
+                                              full: true,
+                                              kind: NodeKind.DataTableNode,
+                                              source: {
+                                                  kind: NodeKind.WebStatsTableQuery,
+                                                  properties: webAnalyticsFilters,
+                                                  breakdownBy: WebStatsBreakdown.ExitPage,
+                                                  dateRange,
+                                                  includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                                  sampling,
+                                                  doPathCleaning: isPathCleaningEnabled,
+                                                  limit: 10,
+                                                  useSessionsTable,
+                                              },
+                                              embedded: false,
+                                          },
+                                          insightProps: createInsightProps(TileId.PATHS, PathTab.EXIT_PATH),
+                                          canOpenModal: true,
+                                          showPathCleaningControls: true,
+                                      }
+                                    : undefined,
+                            ] as (TabsTileTab | undefined)[]
+                        ).filter(isNotNil),
                     },
                     {
                         tileId: TileId.SOURCES,
@@ -637,6 +673,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.CHANNEL),
@@ -662,6 +699,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
@@ -682,6 +720,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_SOURCE),
@@ -701,6 +740,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_MEDIUM),
@@ -720,6 +760,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CAMPAIGN),
@@ -739,6 +780,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_CONTENT),
@@ -758,6 +800,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         sampling,
                                         limit: 10,
+                                        useSessionsTable,
                                     },
                                 },
                                 insightProps: createInsightProps(TileId.SOURCES, SourceTab.UTM_TERM),

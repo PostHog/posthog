@@ -295,6 +295,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.stickinessFilter?.showValuesOnSeries
     } else if (isLifecycleQuery(queryCopy)) {
         camelCasedLifecycleProps.show_values_on_series = queryCopy.lifecycleFilter?.showValuesOnSeries
+        camelCasedLifecycleProps.show_legend = queryCopy.lifecycleFilter?.showLegend
+        delete queryCopy.lifecycleFilter?.showLegend
         delete queryCopy.lifecycleFilter?.showValuesOnSeries
     }
     Object.assign(filters, camelCasedTrendsProps)

@@ -43,7 +43,6 @@ EDGE_LIMIT_DEFAULT = 50
 
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
-    query_type = PathsQuery
 
     def __init__(
         self,

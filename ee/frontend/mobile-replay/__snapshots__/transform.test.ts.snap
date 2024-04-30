@@ -939,6 +939,200 @@ exports[`replay/transform transform can ignore unknown wireframe types 1`] = `
 ]
 `;
 
+exports[`replay/transform transform can process screenshot mutation 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "adds": [
+        {
+          "nextId": null,
+          "node": {
+            "attributes": {
+              "data-rrweb-id": 151700670,
+              "height": 914,
+              "src": "data:image/png;base64,mutated-image-content",
+              "style": "background-color: #F3EFF7;width: 411px;height: 914px;position: fixed;left: 0px;top: 0px;",
+              "width": 411,
+            },
+            "childNodes": [],
+            "id": 151700670,
+            "tagName": "img",
+            "type": 2,
+          },
+          "parentId": 5,
+        },
+      ],
+      "attributes": [],
+      "removes": [
+        {
+          "id": 151700670,
+          "parentId": 5,
+        },
+      ],
+      "source": 0,
+      "texts": [],
+    },
+    "seen": 3551987272322930,
+    "timestamp": 1714397336836,
+    "type": 3,
+    "windowId": "5173a13e-abac-4def-b227-2f81dc2808b6",
+  },
+]
+`;
+
+exports[`replay/transform transform can process top level screenshot 1`] = `
+[
+  {
+    "data": {
+      "height": 600,
+      "href": "",
+      "width": 300,
+    },
+    "timestamp": 1,
+    "type": 4,
+  },
+  {
+    "data": {
+      "initialOffset": {
+        "left": 0,
+        "top": 0,
+      },
+      "node": {
+        "childNodes": [
+          {
+            "id": 2,
+            "name": "html",
+            "publicId": "",
+            "systemId": "",
+            "type": 1,
+          },
+          {
+            "attributes": {
+              "data-rrweb-id": 3,
+              "style": "height: 100vh; width: 100vw;",
+            },
+            "childNodes": [
+              {
+                "attributes": {
+                  "data-rrweb-id": 4,
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "type": "text/css",
+                    },
+                    "childNodes": [
+                      {
+                        "id": 101,
+                        "textContent": "
+                    body {
+                      margin: unset;
+                    }
+                    input, button, select, textarea {
+                        font: inherit;
+                        margin: 0;
+                        padding: 0;
+                        border: 0;
+                        outline: 0;
+                        background: transparent;
+                        padding-block: 0 !important;
+                    }
+                    .input:focus {
+                        outline: none;
+                    }
+                    img {
+                      border-style: none;
+                    }
+                ",
+                        "type": 3,
+                      },
+                    ],
+                    "id": 100,
+                    "tagName": "style",
+                    "type": 2,
+                  },
+                ],
+                "id": 4,
+                "tagName": "head",
+                "type": 2,
+              },
+              {
+                "attributes": {
+                  "data-rrweb-id": 5,
+                  "style": "height: 100vh; width: 100vw;",
+                },
+                "childNodes": [
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 151700670,
+                      "height": 914,
+                      "src": "data:image/png;base64,image-content",
+                      "style": "background-color: #F3EFF7;width: 411px;height: 914px;position: fixed;left: 0px;top: 0px;",
+                      "width": 411,
+                    },
+                    "childNodes": [],
+                    "id": 151700670,
+                    "tagName": "img",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-render-reason": "a fixed placeholder to contain the keyboard in the correct stacking position",
+                      "data-rrweb-id": 9,
+                    },
+                    "childNodes": [],
+                    "id": 9,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 7,
+                    },
+                    "childNodes": [],
+                    "id": 7,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                  {
+                    "attributes": {
+                      "data-rrweb-id": 11,
+                    },
+                    "childNodes": [],
+                    "id": 11,
+                    "tagName": "div",
+                    "type": 2,
+                  },
+                ],
+                "id": 5,
+                "tagName": "body",
+                "type": 2,
+              },
+            ],
+            "id": 3,
+            "tagName": "html",
+            "type": 2,
+          },
+        ],
+        "id": 1,
+        "type": 0,
+      },
+    },
+    "timestamp": 1714397321578,
+    "type": 2,
+  },
+]
+`;
+
 exports[`replay/transform transform can process unknown types without error 1`] = `
 [
   {
