@@ -575,7 +575,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 10000}-{timestamp - 5000}",
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 5000}-{timestamp}",
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?")
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
         response_data = response.json()
 
         assert response_data == {
