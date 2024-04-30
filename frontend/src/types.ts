@@ -249,6 +249,7 @@ export interface UserType extends UserBaseType {
     has_password: boolean
     is_staff: boolean
     is_impersonated: boolean
+    is_impersonated_until?: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -2096,6 +2097,7 @@ export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 
     // frontend only
+    show_legend?: boolean
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }

@@ -163,7 +163,6 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
-                        pluginEvent.distinct_id = pluginEvent.distinct_id.replaceAll('\u0000', '')
                         const result = (await retryIfRetriable(async () => {
                             const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)
