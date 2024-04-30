@@ -81,30 +81,46 @@ export function appEditorUrl(
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
+export const checkUrlIsAuthorized = (url: string, authorizedUrls: string[]): boolean => {
+    try {
+        const parsedUrl = new URL(url)
+        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        // Is this domain already in the list of urls?
+        const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
+
+        if (exactMatch) {
+            return true
+        }
+
+        const wildcardMatch = !!authorizedUrls.find((url) => {
+            // Matches something like `https://*.example.com` against the urlWithoutPath
+            const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
+            return urlWithoutPath.match(regex)
+        })
+
+        if (wildcardMatch) {
+            return true
+        }
+    } catch (error) {
+        // Ignore invalid URLs
+    }
+
+    return false
+}
+
 export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]): string[] => {
     const suggestedDomains: string[] = []
 
     urls.forEach((url) => {
-        try {
-            const parsedUrl = new URL(url)
-            const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
-            // Have we already added this domain?
-            if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
-                return
-            }
-            // Is this domain already in the list of urls?
-            const exactMatch = authorizedUrls.filter((url) => url.indexOf(urlWithoutPath) > -1).length > 0
-            const wildcardMatch = !!authorizedUrls.find((url) => {
-                // Matches something like `https://*.example.com` against the urlWithoutPath
-                const regex = new RegExp(url.replace(/\./g, '\\.').replace(/\*/g, '.*'))
-                return urlWithoutPath.match(regex)
-            })
-
-            if (!exactMatch && !wildcardMatch) {
-                suggestedDomains.push(urlWithoutPath)
-            }
-        } catch (error) {
+        const parsedUrl = new URL(url)
+        const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
+        // Have we already added this domain?
+        if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
             return
+        }
+
+        if (!checkUrlIsAuthorized(url, authorizedUrls)) {
+            suggestedDomains.push(urlWithoutPath)
         }
     })
 
@@ -337,6 +353,13 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         ],
         isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
         onlyAllowDomains: [(_, p) => [p.type], (type) => type === AuthorizedUrlListType.RECORDING_DOMAINS],
+
+        checkUrlIsAuthorized: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => (url: string) => {
+                return checkUrlIsAuthorized(url, authorizedUrls)
+            },
+        ],
     }),
     urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {

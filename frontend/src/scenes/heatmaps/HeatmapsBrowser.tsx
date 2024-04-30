@@ -1,6 +1,8 @@
-import { LemonButton, LemonInputSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { DetectiveHog } from 'lib/components/hedgehogs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useRef } from 'react'
 
@@ -10,7 +12,8 @@ export function HeatmapsBrowser(): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     const logic = heatmapsBrowserLogic({ iframeRef })
 
-    const { browserSearchOptions, browserUrl, loading } = useValues(logic)
+    const { browserSearchOptions, browserUrl, loading, isBrowserUrlAuthorized, topUrls, topUrlsLoading } =
+        useValues(logic)
     const { setBrowserSearch, setBrowserUrl, onIframeLoad } = useActions(logic)
 
     return (
@@ -55,28 +58,74 @@ export function HeatmapsBrowser(): JSX.Element {
                     </LemonButton>
                 </div>
 
-                <div className="relative flex flex-1">
+                <div className="relative flex flex-1 bg-accent-3000 overflow-hidden">
                     {browserUrl ? (
                         <>
-                            <iframe
-                                ref={iframeRef}
-                                className="flex-1"
-                                src={appEditorUrl(browserUrl, {
-                                    userIntent: 'heatmaps',
-                                })}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    background: '#FFF',
-                                }}
-                                onLoad={onIframeLoad}
-                            />
+                            {!isBrowserUrlAuthorized ? (
+                                <div className="flex-1 p-4 space-y-4">
+                                    <LemonBanner type="error">
+                                        {browserUrl} is not an authorized URL. Please add it to the list of authorized
+                                        URLs to view heatmaps on this page.
+                                    </LemonBanner>
 
-                            {loading && <SpinnerOverlay />}
+                                    <h2>Authorized Toolbar URLs</h2>
+                                    <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+                                </div>
+                            ) : (
+                                <>
+                                    <iframe
+                                        ref={iframeRef}
+                                        className="flex-1"
+                                        src={appEditorUrl(browserUrl, {
+                                            userIntent: 'heatmaps',
+                                        })}
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            background: '#FFF',
+                                        }}
+                                        onLoad={onIframeLoad}
+                                    />
+
+                                    {loading && <SpinnerOverlay />}
+                                </>
+                            )}
                         </>
                     ) : (
-                        <div className="flex-1 bg-bg-light">
-                            <p className="italic m-2">Select a URL</p>
-                            {/* TODO: Add a bunch of suggested pages */}
+                        <div className="flex-1 flex items-center justify-center overflow-y-auto">
+                            <div className="max-w-[50rem] m-6">
+                                <div className="flex items-center flex-wrap gap-6 my-10">
+                                    <div className="w-50">
+                                        <DetectiveHog className="w-full h-full" />
+                                    </div>
+
+                                    <div className="flex-1">
+                                        <h2>Welcome to Heatmaps</h2>
+                                        <p>
+                                            Heatmaps are powered by the embedded JavaScript SDK and allow you to see a
+                                            range of user interactions directly on your website via the Toolbar.
+                                        </p>
+                                        <p>
+                                            You can also view heatmaps for any page on your website by entering the URL
+                                            above. As long as the page has the PostHog Toolbar installed, and can be
+                                            loaded in an iframe, you can view heatmaps for it.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-px p-2 border bg-bg-light rounded">
+                                    {topUrlsLoading ? (
+                                        <LemonSkeleton className="h-10" repeat={10} />
+                                    ) : (
+                                        <>
+                                            {topUrls?.map(({ url, count }) => (
+                                                <LemonButton key={url} fullWidth onClick={() => setBrowserUrl(url)}>
+                                                    {url}
+                                                </LemonButton>
+                                            ))}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>

@@ -160,6 +160,7 @@ export enum ProductKey {
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
     HISTORY = 'history',
+    HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',

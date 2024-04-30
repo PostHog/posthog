@@ -1,6 +1,7 @@
-import { actions, afterMount, kea, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { RefObject } from 'react'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
@@ -17,6 +18,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
+    connect({
+        values: [
+            authorizedUrlListLogic({ actionId: null, type: AuthorizedUrlListType.TOOLBAR_URLS }),
+            ['urlsKeyed', 'checkUrlIsAuthorized'],
+        ],
+    }),
+
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setBrowserUrl: (url: string) => ({ url }),
@@ -28,6 +36,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             payload,
         }),
         setLoading: (loading: boolean) => ({ loading }),
+        loadTopUrls: true,
+        maybeLoadTopUrls: true,
     }),
 
     loaders({
@@ -49,6 +59,28 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     const res = await api.query(query)
 
                     return res.results?.map((x) => x[0]) as string[]
+                },
+            },
+        ],
+
+        topUrls: [
+            null as { url: string; count: number }[] | null,
+            {
+                loadTopUrls: async () => {
+                    const query: HogQLQuery = {
+                        kind: NodeKind.HogQLQuery,
+                        query: hogql`SELECT properties.$current_url AS url, count(1) as count FROM events
+                                WHERE timestamp >= now() - INTERVAL 7 DAY
+                                AND event in ('$pageview', '$autocapture')
+                                AND timestamp <= now()
+                                GROUP BY properties.$current_url
+                                ORDER BY count DESC
+                                LIMIT 10`,
+                    }
+
+                    const res = await api.query(query)
+
+                    return res.results?.map((x) => ({ url: x[0], count: x[1] })) as { url: string; count: number }[]
                 },
             },
         ],
@@ -79,7 +111,19 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
     }),
 
-    listeners(({ actions, props }) => ({
+    selectors({
+        isBrowserUrlAuthorized: [
+            (s) => [s.browserUrl, s.checkUrlIsAuthorized],
+            (browserUrl, checkUrlIsAuthorized) => {
+                if (!browserUrl) {
+                    return false
+                }
+                return checkUrlIsAuthorized(browserUrl)
+            },
+        ],
+    }),
+
+    listeners(({ actions, props, values }) => ({
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {
@@ -121,11 +165,23 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             // We call init in case the toolbar got there first (unlikely)
             init()
         },
+
+        maybeLoadTopUrls: () => {
+            if (!values.topUrls && !values.topUrlsLoading) {
+                actions.loadTopUrls()
+            }
+        },
+
+        setBrowserUrl: () => {
+            actions.maybeLoadTopUrls()
+        },
     })),
 
     afterMount(({ actions, values }) => {
         if (values.browserUrl) {
             actions.setLoading(true)
+        } else {
+            actions.maybeLoadTopUrls()
         }
     }),
 ])
