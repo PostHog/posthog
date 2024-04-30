@@ -214,6 +214,7 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
 
+    // runProcessEvent handles both `processEvent` and `onEvent` for plugins.
     const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
     const pluginConfigsWithMethods = await Promise.all(
         pluginConfigs.map(async (pluginConfig) => ({
