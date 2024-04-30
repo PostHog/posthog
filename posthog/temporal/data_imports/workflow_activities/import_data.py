@@ -102,7 +102,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
     elif model.pipeline.source_type == ExternalDataSource.Type.POSTGRES:
         from posthog.temporal.data_imports.pipelines.postgres import asyncpg_source, DatabaseCredentials
 
-        credentials = DatabaseCredentials(
+        db_credentials = DatabaseCredentials(
             host=model.pipeline.job_inputs.get("host"),
             port=model.pipeline.job_inputs.get("port"),
             user=model.pipeline.job_inputs.get("user"),
@@ -114,7 +114,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
         pg_schema = model.pipeline.job_inputs.get("schema")
 
         source = asyncpg_source(
-            credentials=credentials,
+            credentials=db_credentials,
             schema=pg_schema,
             table_names=endpoints,
         )
