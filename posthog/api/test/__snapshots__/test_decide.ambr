@@ -71,12 +71,23 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.11
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.12
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -107,7 +118,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.12
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.13
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -130,7 +141,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.13
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.14
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -250,6 +261,17 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
   '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -280,7 +302,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."organization_id",
@@ -289,22 +311,11 @@
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
   '''
   SELECT 1 AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  LIMIT 1
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
@@ -314,7 +325,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
