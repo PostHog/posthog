@@ -76,7 +76,7 @@ class LifecycleQueryRunner(QueryRunner):
                             ORDER BY status, start_of_period
                             UNION ALL
                             SELECT
-                                start_of_period, count(DISTINCT target) AS counts, status
+                                start_of_period, count(DISTINCT actor_id) AS counts, status
                             FROM {events_query}
                             GROUP BY start_of_period, status
                         )
@@ -118,7 +118,7 @@ class LifecycleQueryRunner(QueryRunner):
                 )
 
             return parse_select(
-                "SELECT DISTINCT person_id FROM {events_query} WHERE {where}",
+                "SELECT DISTINCT actor_id FROM {events_query} WHERE {where}",
                 placeholders={
                     "events_query": self.events_query,
                     "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
@@ -329,11 +329,11 @@ class LifecycleQueryRunner(QueryRunner):
                         {target}
                     FROM events
                     WHERE {event_filter}
-                    GROUP BY target
+                    GROUP BY actor_id
                 """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
-                    "target": ast.Alias(alias="target", expr=self.target_field),
+                    "target": ast.Alias(alias="actor_id", expr=self.target_field),
                     "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])
