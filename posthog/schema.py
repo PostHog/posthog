@@ -1029,6 +1029,7 @@ class WebOverviewQueryResponse(BaseModel):
 class WebStatsBreakdown(str, Enum):
     Page = "Page"
     InitialPage = "InitialPage"
+    ExitPage = "ExitPage"
     InitialChannelType = "InitialChannelType"
     InitialReferringDomain = "InitialReferringDomain"
     InitialUTMSource = "InitialUTMSource"

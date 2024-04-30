@@ -98,6 +98,7 @@ MIDDLEWARE = [
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -350,3 +351,13 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
+
+IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+
+# If False, will expire once the session age is greater than IMPERSONATION_TIMEOUT_SECONDS
+# If True, will expire IMPERSONATION_TIMEOUT_SECONDS after the last activity
+IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
+    "IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY", False, type_cast=str_to_bool
+)
+
+IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")

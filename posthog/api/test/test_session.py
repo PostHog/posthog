@@ -34,7 +34,9 @@ class TestSessionsAPI(APIBaseTest):
             "$channel_type",
             "$end_timestamp",
             "$entry_url",
+            "$entry_pathname",
             "$exit_url",
+            "$exit_pathname",
             "$initial_gad_source",
             "$initial_gclid",
             "$initial_referring_domain",
@@ -46,6 +48,7 @@ class TestSessionsAPI(APIBaseTest):
             "$pageview_count",
             "$session_duration",
             "$start_timestamp",
+            "$is_bounce",
         }
         assert actual_properties == expected_properties
 

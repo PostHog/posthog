@@ -168,12 +168,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return result[0][0]
 
     def hogql_definition(self) -> S3Table:
-        if not self.columns:
-            raise Exception("Columns must be fetched and saved to use in HogQL.")
+        columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
         structure = []
-        for column, type in self.columns.items():
+        for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

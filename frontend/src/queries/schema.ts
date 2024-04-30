@@ -1042,7 +1042,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
-    // ExitPage = 'ExitPage'
+    ExitPage = 'ExitPage', // not supported in the legacy version
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
