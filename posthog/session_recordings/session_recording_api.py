@@ -202,6 +202,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
 
 class SessionRecordingSourcesSerializer(serializers.Serializer):
     sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
+    snapshots = serializers.ListField(required=False)
 
 
 def list_recordings_response(
@@ -671,7 +672,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _send_realtime_snapshots_to_client(
         self, recording: SessionRecording, request: request.Request, event_properties: dict
-    ) -> HttpResponse:
+    ) -> HttpResponse | Response:
+        version = request.GET.get("version", "og")
+
         with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
             snapshot_lines = (
                 get_realtime_snapshots(
@@ -689,14 +692,25 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             event_properties,
         )
 
-        response = HttpResponse(
-            # convert list to a jsonl response
-            content=("\n".join(snapshot_lines)),
-            content_type="application/json",
-        )
-        # the browser is not allowed to cache this at all
-        response["Cache-Control"] = "no-store"
-        return response
+        if version == "og":
+            # originally we returned a list of dictionaries
+            # under a snapshot key
+            # we keep doing this here for a little while
+            # so that existing browser sessions, that don't know about the new format
+            # can carry on working until the next refresh
+            serializer = SessionRecordingSourcesSerializer({"snapshots": [json.loads(s) for s in snapshot_lines]})
+            return Response(serializer.data)
+        elif version == "2024-04-30":
+            response = HttpResponse(
+                # convert list to a jsonl response
+                content=("\n".join(snapshot_lines)),
+                content_type="application/json",
+            )
+            # the browser is not allowed to cache this at all
+            response["Cache-Control"] = "no-store"
+            return response
+        else:
+            raise exceptions.ValidationError(f"Invalid version: {version}")
 
 
 def list_recordings(

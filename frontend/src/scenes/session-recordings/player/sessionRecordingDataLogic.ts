@@ -346,16 +346,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSourceResponse | null,
             {
                 loadSnapshotsForSource: async ({ source }, breakpoint) => {
-                    if (source.source === SnapshotSourceType.file) {
-                        throw new Error('Unsupported source')
-                    }
+                    let params: SessionRecordingSnapshotParams
 
-                    const params: SessionRecordingSnapshotParams = {
-                        source: source.source,
-                    }
-
-                    if (params.source === SnapshotSourceType.blob) {
-                        params.blob_key = source.blob_key
+                    if (source.source === SnapshotSourceType.blob) {
+                        params = { blob_key: source.blob_key, source: 'blob' }
+                    } else if (source.source === SnapshotSourceType.realtime) {
+                        params = { source: 'realtime', version: '2024-04-30' }
+                    } else {
+                        throw new Error(`Unsupported source: ${source.source}`)
                     }
 
                     const snapshotLoadingStartTime = performance.now()

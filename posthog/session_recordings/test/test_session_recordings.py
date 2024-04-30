@@ -575,7 +575,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 10000}-{timestamp - 5000}",
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 5000}-{timestamp}",
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?")
         response_data = response.json()
 
         assert response_data == {
@@ -633,7 +633,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         mock_list_objects.side_effect = list_objects_func
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?")
         assert response.status_code == 200
         response_data = response.json()
 
@@ -676,7 +676,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects.return_value = [
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{old_timestamp - 10000}-{old_timestamp}",
         ]
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?")
         response_data = response.json()
 
         assert response_data == {
@@ -707,7 +707,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
         blob_key = f"1682608337071"
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -766,7 +766,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
         blob_key = f"1682608337071"
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -804,7 +804,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
         blob_key = f"../try/to/escape/into/other/directories"
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -829,6 +829,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert mock_get_session_recording.call_count == 1
         assert _mock_exists.call_count == 1
 
+    @parameterized.expand(
+        [
+            (
+                "version=2024-04-30",
+                "version=2024-04-30",
+                b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}',
+            ),
+            (
+                "version=None",
+                None,
+                b'{"snapshots":[{"some":"\xf0\x90\x90\xb7 probably from console logs"},{"some":"more data"}]}',
+            ),
+        ]
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
@@ -838,62 +852,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthog.session_recordings.session_recording_api.stream_from")
     def test_can_get_session_recording_realtime(
         self,
+        _name: str,
+        version: str | None,
+        expected_response: str,
         _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
-        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        """
+        includes regression test to allow utf16 surrogate pairs in realtime snapshots response
+        see: https://posthog.sentry.io/issues/4981128697/
+        """
 
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=realtime"
+        version_param = f"&{version}" if version else ""
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=realtime{version_param}"
 
         # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_realtime_snapshots.return_value = [
-            json.dumps({"some": "data"}),
+            json.dumps({"some": "\ud801\udc37 probably from console logs"}),
             json.dumps({"some": "more data"}),
         ]
 
         response = self.client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.content == b'{"some": "data"}\n{"some": "more data"}'
-
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.get_realtime_snapshots")
-    @patch("posthog.session_recordings.session_recording_api.stream_from")
-    def test_can_get_session_recording_realtime_utf16_data(
-        self,
-        _mock_stream_from,
-        mock_realtime_snapshots,
-        mock_get_session_recording,
-        _mock_exists,
-    ) -> None:
-        session_id = str(uuid.uuid4())
-        """
-        regression test to allow utf16 surrogate pairs in realtime snapshots response
-        see: https://posthog.sentry.io/issues/4981128697/
-        """
-
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=realtime"
-
-        # by default a session recording is deleted, so we have to explicitly mark the mock as not deleted
-        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-
-        annoying_data_from_javascript = "\ud801\udc37 probably from console logs"
-
-        mock_realtime_snapshots.return_value = [
-            json.dumps({"some": annoying_data_from_javascript}),
-        ]
-
-        response = self.client.get(url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"some": "𐐷 probably from console logs"}
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.headers.get("content-type") == "application/json"
+        assert response.content == expected_response
 
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
@@ -903,7 +890,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     ) -> None:
         session_id = str(uuid.uuid4())
         blob_key = f"1682608337071"
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         # by default a session recording is deleted, and _that_ is what we check for to see if it exists
         # so, we have to explicitly mark the mock as deleted
@@ -917,7 +904,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
         session_id = str(uuid.uuid4())
         blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?version=2&source=blob&blob_key={blob_key}"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
         mock_presigned_url.return_value = None
 
@@ -981,7 +968,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&version=2"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1081,6 +1068,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     # that is patched in other tests or freezing time doesn't work
     def test_404_when_no_snapshots(self) -> None:
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/1/snapshots?version=2",
+            f"/api/projects/{self.team.id}/session_recordings/1/snapshots?",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
