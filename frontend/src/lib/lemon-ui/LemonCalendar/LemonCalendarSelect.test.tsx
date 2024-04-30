@@ -133,7 +133,7 @@ describe('LemonCalendarSelect', () => {
                         onChange(value)
                     }}
                     showTime
-                    onlyAllowUpcoming
+                    validPeriod="upcoming"
                 />
             )
         }

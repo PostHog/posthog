@@ -1,5 +1,5 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DatePicker } from 'lib/components/DatePicker'
@@ -38,6 +38,17 @@ export function ExperimentDates(): JSX.Element {
                     Start date
                 </div>
                 <div className="flex">
+                    <LemonCalendarSelectInput
+                        value={dayjs(start_date)}
+                        onChange={(newStartDate) => {
+                            if (newStartDate) {
+                                changeExperimentStartDate(newStartDate.toISOString())
+                            }
+                        }}
+                        showTime
+                        data-attr="experiment-start-date-picker"
+                        clearable={false}
+                    />
                     {isStartDatePickerOpen ? (
                         <DatePicker
                             showTime={true}
