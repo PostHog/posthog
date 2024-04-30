@@ -1,33 +1,22 @@
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
-import { AnyPropertyFilter, DashboardType, FilterType } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { AnyPropertyFilter } from '~/types'
 
 type Dates = { dateFrom?: string | null; dateTo?: string | null }
 
-interface DashboardEditBarProps {
-    dashboard: DashboardType
-    dashboardFilters: FilterType
-    canEditDashboard: boolean
-    setDates: (dateFrom: string | null, dateTo: string | null) => void
-    setProperties: (properties: AnyPropertyFilter[]) => void
-    taxonomicGroupTypes: TaxonomicFilterGroupType[]
-    onPendingChanges?: (stale: boolean) => void
-}
+export function DashboardEditBar(): JSX.Element {
+    const { dashboard, canEditDashboard, filters: dashboardFilters } = useValues(dashboardLogic)
+    const { setDates, setProperties, setStale } = useActions(dashboardLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-export function DashboardEditBar({
-    dashboard,
-    dashboardFilters,
-    canEditDashboard,
-    setDates,
-    setProperties,
-    taxonomicGroupTypes,
-    onPendingChanges,
-}: DashboardEditBarProps): JSX.Element {
     const [editMode, setEditMode] = useState(false)
     const [tempDates, setTempDates] = useState<Dates>({
         dateFrom: dashboardFilters?.date_from,
@@ -42,9 +31,7 @@ export function DashboardEditBar({
             tempDates.dateFrom !== dashboardFilters?.date_from ||
             tempDates.dateTo !== dashboardFilters?.date_to ||
             JSON.stringify(tempProperties) !== JSON.stringify(dashboard?.filters.properties)
-        if (onPendingChanges) {
-            onPendingChanges(hasPendingChanges)
-        }
+        setStale(hasPendingChanges)
     }, [tempDates, tempProperties])
 
     const handleSave: () => void = () => {
@@ -55,9 +42,7 @@ export function DashboardEditBar({
         if (tempProperties) {
             setProperties(tempProperties)
         }
-        if (onPendingChanges) {
-            onPendingChanges(false)
-        }
+        setStale(false)
         setEditMode(false)
     }
 
@@ -68,9 +53,7 @@ export function DashboardEditBar({
         })
         setTempProperties(dashboard?.filters.properties ?? undefined)
         setEditMode(false)
-        if (onPendingChanges) {
-            onPendingChanges(false)
-        }
+        setStale(false)
     }
 
     return (
@@ -93,7 +76,15 @@ export function DashboardEditBar({
                 onChange={setTempProperties}
                 pageKey={'dashboard_' + dashboard?.id}
                 propertyFilters={tempProperties}
-                taxonomicGroupTypes={taxonomicGroupTypes}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ]}
             />
             {canEditDashboard && !editMode ? (
                 <LemonButton type="secondary" size="small" onClick={() => setEditMode(true)}>

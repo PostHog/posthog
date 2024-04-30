@@ -1,7 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
@@ -15,7 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
-import { groupsModel } from '../../models/groupsModel'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -43,19 +41,9 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const {
-        placement,
-        dashboard,
-        canEditDashboard,
-        tiles,
-        itemsLoading,
-        filters: dashboardFilters,
-        dashboardMode,
-        dashboardFailedToLoad,
-    } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery, setStale } =
-        useActions(dashboardLogic)
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
+        useValues(dashboardLogic)
+    const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -116,23 +104,7 @@ function DashboardScene(): JSX.Element {
                         ].includes(placement) &&
                             dashboard && (
                                 <div className="flex space-x-4 items-center">
-                                    <DashboardEditBar
-                                        dashboard={dashboard}
-                                        canEditDashboard={canEditDashboard}
-                                        dashboardFilters={dashboardFilters}
-                                        setDates={setDates}
-                                        setProperties={setProperties}
-                                        taxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            ...groupsTaxonomicTypes,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                            TaxonomicFilterGroupType.HogQLExpression,
-                                        ]}
-                                        onPendingChanges={(stale: boolean) => setStale(stale)}
-                                    />
+                                    <DashboardEditBar />
                                 </div>
                             )}
                         {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
