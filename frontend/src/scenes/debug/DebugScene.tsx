@@ -60,11 +60,11 @@ export function DebugScene(): JSX.Element {
             />
             <div className="flex gap-2">
                 <div className="flex-1 w-1/2">
-                    <DebugSceneQuery query={query1} setQuery={setQuery1} queryKey="hogql-debug-1" />
+                    <DebugSceneQuery query={query1} setQuery={setQuery1} queryKey="new-hogql-debug-1" />
                 </div>
                 {query2 ? (
                     <div className="flex-1 w-1/2">
-                        <DebugSceneQuery query={query2} setQuery={setQuery2} queryKey="hogql-debug-2" />
+                        <DebugSceneQuery query={query2} setQuery={setQuery2} queryKey="new-hogql-debug-2" />
                     </div>
                 ) : null}
             </div>

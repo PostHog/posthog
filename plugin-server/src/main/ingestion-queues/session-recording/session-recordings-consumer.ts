@@ -335,7 +335,7 @@ export class SessionRecordingIngester {
         })
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            logExecutionTime: true,
+            sendTimeoutGuardToSentry: false,
             func: async () => {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
@@ -646,7 +646,6 @@ export class SessionRecordingIngester {
         const startTime = Date.now()
         await runInstrumentedFunction({
             statsKey: `recordingingester.onRevokePartitions.revokeSessions`,
-            logExecutionTime: true,
             timeout: SHUTDOWN_FLUSH_TIMEOUT_MS, // same as the partition lock
             func: async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {

@@ -137,7 +137,9 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        return self._table_names + self._warehouse_table_names
+        all_keys = list(vars(self).keys())
+        table_names = [key for key in all_keys if isinstance(getattr(self, key), Table)]
+        return table_names + self._warehouse_table_names
 
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
