@@ -15,7 +15,8 @@ const MARGIN = 2
 export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger'
 
 export enum PostHogAppToolbarEvent {
-    PH_APP_CONTEXT = 'ph-app-context',
+    PH_TOOLBAR_INIT = 'ph-toolbar-init',
+    PH_APP_INIT = 'ph-app-init',
     PH_HEATMAPS_CONFIG = 'ph-heatmaps-config',
 }
 
@@ -286,6 +287,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
         }
 
+        // Post message up to parent in case we are embedded in an app
         cache.iframeEventListener = (e: MessageEvent): void => {
             // TODO: Probably need to have strict checks here
             const type: PostHogAppToolbarEvent = e?.data?.type
@@ -295,7 +297,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             }
 
             switch (type) {
-                case PostHogAppToolbarEvent.PH_APP_CONTEXT:
+                case PostHogAppToolbarEvent.PH_APP_INIT:
                     return actions.setIsEmbeddedInApp(true)
                 case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
                     actions.enableHeatmap()
@@ -307,6 +309,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         }
         window.addEventListener('mousedown', cache.clickListener)
         window.addEventListener('message', cache.iframeEventListener, false)
+        // Tell the parent window that we are ready
+        window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_INIT }, '*')
     }),
     beforeUnmount(({ cache }) => {
         window.removeEventListener('mousedown', cache.clickListener)

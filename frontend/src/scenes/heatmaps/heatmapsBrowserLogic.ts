@@ -80,12 +80,32 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
-            // NOTE: We setup event listeners and messages here that are picked up by `toolbarLogic.ts`
-            // NOTE: It could happen that the toolbar isn't ready - we might want to have a 2 way sync...
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_CONTEXT)
-            actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
-                enabled: true,
-            })
+            const init = (): void => {
+                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT)
+                actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
+                    enabled: true,
+                })
+            }
+
+            const onIframeMessage = (e: MessageEvent): void => {
+                // TODO: Probably need to have strict checks here
+                const type: PostHogAppToolbarEvent = e?.data?.type
+
+                if (!type || !type.startsWith('ph-')) {
+                    return
+                }
+
+                switch (type) {
+                    case PostHogAppToolbarEvent.PH_TOOLBAR_INIT:
+                        return init()
+                    default:
+                        console.warn(`[PostHog Heatmpas] Received unknown child window message: ${type}`)
+                }
+            }
+
+            window.addEventListener('message', onIframeMessage, false)
+            // We call init in case the toolbar got there first (unlikely)
+            init()
         },
     })),
 ])
