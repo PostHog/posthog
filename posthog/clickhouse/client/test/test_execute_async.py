@@ -7,6 +7,7 @@ from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch, MagicMock
 from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
@@ -21,10 +22,11 @@ def build_query(sql):
 
 class TestExecuteProcessQuery(TestCase):
     def setUp(self):
+        user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.team_id = self.team.pk
-        self.user_id = 1337
+        self.user_id: int = user.id
         self.query_id = "test_query_id"
         self.query_json = {}
         self.limit_context = None
@@ -58,10 +60,11 @@ class TestExecuteProcessQuery(TestCase):
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
+        user = User.objects.create(email="test@posthog.com")
         self.organization: Organization = Organization.objects.create(name="test")
         self.team: Team = Team.objects.create(organization=self.organization)
         self.team_id: int = self.team.pk
-        self.user_id: int = 2137
+        self.user_id: int = user.id
 
     @snapshot_clickhouse_queries
     def test_async_query_client(self):
