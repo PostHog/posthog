@@ -1094,7 +1094,7 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
     if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
-        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$initial_${key.replace(/^\$/, '')}`] = {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$session_${key.replace(/^\$/, '')}`] = {
             ...value,
             label: `Session ${value.label}`,
             description:

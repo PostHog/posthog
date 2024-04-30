@@ -37,14 +37,14 @@ class TestSessionsAPI(APIBaseTest):
             "$entry_pathname",
             "$exit_url",
             "$exit_pathname",
-            "$initial_gad_source",
-            "$initial_gclid",
-            "$initial_referring_domain",
-            "$initial_utm_campaign",
-            "$initial_utm_content",
-            "$initial_utm_medium",
-            "$initial_utm_source",
-            "$initial_utm_term",
+            "$session_gad_source",
+            "$session_gclid",
+            "$session_referring_domain",
+            "$session_utm_campaign",
+            "$session_utm_content",
+            "$session_utm_medium",
+            "$session_utm_source",
+            "$session_utm_term",
             "$pageview_count",
             "$session_duration",
             "$start_timestamp",
@@ -57,11 +57,11 @@ class TestSessionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_properties = {entry["name"] for entry in response.json()["results"]}
         expected_properties = {
-            "$initial_utm_campaign",
-            "$initial_utm_content",
-            "$initial_utm_medium",
-            "$initial_utm_source",
-            "$initial_utm_term",
+            "$session_utm_campaign",
+            "$session_utm_content",
+            "$session_utm_medium",
+            "$session_utm_source",
+            "$session_utm_term",
         }
         assert actual_properties == expected_properties
 
@@ -107,7 +107,7 @@ class TestSessionsAPI(APIBaseTest):
         assert actual_values == expected_values
 
     def test_list_session_property_values(self):
-        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$initial_utm_source")
+        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$session_utm_source")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_values = {entry["name"] for entry in response.json()}
         expected_values = {
@@ -117,7 +117,7 @@ class TestSessionsAPI(APIBaseTest):
         assert actual_values == expected_values
 
     def test_search_session_property_values(self):
-        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$initial_utm_source&value=tub")
+        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/values/?key=$session_utm_source&value=tub")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_values = {entry["name"] for entry in response.json()}
         expected_values = {
@@ -127,14 +127,14 @@ class TestSessionsAPI(APIBaseTest):
 
     def test_search_session_property_no_matching_values(self):
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/sessions/values/?key=$initial_utm_source&value=doesnotexist"
+            f"/api/projects/{self.team.pk}/sessions/values/?key=$session_utm_source&value=doesnotexist"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert len(response.json()) == 0
 
     def test_search_missing_session_property_values(self):
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/sessions/values/?key=$initial_utm_source&value=doesnotexist"
+            f"/api/projects/{self.team.pk}/sessions/values/?key=$session_utm_source&value=doesnotexist"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert len(response.json()) == 0
