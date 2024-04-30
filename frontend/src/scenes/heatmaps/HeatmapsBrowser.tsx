@@ -117,7 +117,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                         <LemonSkeleton className="h-10" repeat={10} />
                                     ) : (
                                         <>
-                                            {topUrls?.map(({ url, count }) => (
+                                            {topUrls?.map(({ url }) => (
                                                 <LemonButton key={url} fullWidth onClick={() => setBrowserUrl(url)}>
                                                     {url}
                                                 </LemonButton>
