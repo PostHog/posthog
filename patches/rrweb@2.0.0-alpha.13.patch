@@ -530,16 +530,16 @@ index 22fee601e786c1d8dfb5c01d2e359c8bcbac7c42..20c3e14adfde860563e8dd902041bd14
              playbackRate = mediaAttributes.rr_mediaPlaybackRate;
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/css.js b/es/rrweb/packages/rrweb-snapshot/es/css.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..9e417600a9cb267ceb071ea9ffdd91cc9ddb779e
+index 0000000000000000000000000000000000000000..0a6c5930c017852afd3d7f0170f6eca821619dd3
 --- /dev/null
 +++ b/es/rrweb/packages/rrweb-snapshot/es/css.js
 @@ -0,0 +1,87 @@
-+import postcss from '../../../../../../postcss/lib/postcss.js'
++import postcss from '../../../../../../../../../postcss/lib/postcss.js'
 +
 +const MEDIA_SELECTOR = /(max|min)-device-(width|height)/
 +const MEDIA_SELECTOR_GLOBAL = new RegExp(MEDIA_SELECTOR.source, 'g')
 +
-+export const parse = (cssText) => {
++export const mutate = (cssText) => {
 +    const ast = postcss([mediaSelectorPlugin, pseudoClassPlugin]).process(cssText)
 +    return ast.css
 +}
@@ -622,11 +622,11 @@ index 0000000000000000000000000000000000000000..9e417600a9cb267ceb071ea9ffdd91cc
 +    },
 +}
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
-index 38a23aaae8d683fa584329eced277dd8de55d1ff..3bee75fa4a64e72b01e388afdf2433e00ae1156a 100644
+index 38a23aaae8d683fa584329eced277dd8de55d1ff..8aeee467a3bab9baeefb1a97f2b131bedbd0fa3c 100644
 --- a/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
 +++ b/es/rrweb/packages/rrweb-snapshot/es/rrweb-snapshot.js
 @@ -1,3 +1,5 @@
-+import {parse} from './css.js';
++import {mutate} from './css.js';
 +
  var NodeType;
  (function (NodeType) {
@@ -694,18 +694,7 @@ index 38a23aaae8d683fa584329eced277dd8de55d1ff..3bee75fa4a64e72b01e388afdf2433e0
      }
      function declaration() {
          const pos = position();
-@@ -1651,67 +1618,11 @@ function getTagName(n) {
-     }
-     return tagName;
- }
--function escapeRegExp(str) {
--    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
--}
--const MEDIA_SELECTOR = /(max|min)-device-(width|height)/;
--const MEDIA_SELECTOR_GLOBAL = new RegExp(MEDIA_SELECTOR.source, 'g');
--const HOVER_SELECTOR = /([^\\]):hover/;
--const HOVER_SELECTOR_GLOBAL = new RegExp(HOVER_SELECTOR.source, 'g');
- function adaptCssForReplay(cssText, cache) {
+@@ -1662,56 +1629,60 @@ function adaptCssForReplay(cssText, cache) {
      const cachedStyle = cache === null || cache === void 0 ? void 0 : cache.stylesWithHoverClass.get(cssText);
      if (cachedStyle)
          return cachedStyle;
@@ -724,14 +713,64 @@ index 38a23aaae8d683fa584329eced277dd8de55d1ff..3bee75fa4a64e72b01e388afdf2433e0
 -                    selectors.push(selector);
 -                }
 -            });
--        }
++    let result = cssText;
++    try {
++        result = mutate(cssText)
++    } catch (error) {
++        const ast = parse(cssText, {
++            silent: true,
++        });
++        if (!ast.stylesheet) {
++            return cssText;
++        }
++        const selectors = [];
++        const medias = [];
++        function getSelectors(rule) {
++            if ('selectors' in rule && rule.selectors) {
++                rule.selectors.forEach((selector) => {
++                    if (HOVER_SELECTOR.test(selector)) {
++                        selectors.push(selector);
++                    }
++                });
++            }
++            if ('media' in rule && rule.media && MEDIA_SELECTOR.test(rule.media)) {
++                medias.push(rule.media);
++            }
++            if ('rules' in rule && rule.rules) {
++                rule.rules.forEach(getSelectors);
++            }
+         }
 -        if ('media' in rule && rule.media && MEDIA_SELECTOR.test(rule.media)) {
 -            medias.push(rule.media);
--        }
++        getSelectors(ast.stylesheet);
++        if (selectors.length > 0) {
++            const selectorMatcher = new RegExp(selectors
++                .filter((selector, index) => selectors.indexOf(selector) === index)
++                .sort((a, b) => b.length - a.length)
++                .map((selector) => {
++                return escapeRegExp(selector);
++            })
++                .join('|'), 'g');
++            result = result.replace(selectorMatcher, (selector) => {
++                const newSelector = selector.replace(HOVER_SELECTOR_GLOBAL, '$1.\\:hover');
++                return `${selector}, ${newSelector}`;
++            });
+         }
 -        if ('rules' in rule && rule.rules) {
 -            rule.rules.forEach(getSelectors);
--        }
--    }
++        if (medias.length > 0) {
++            const mediaMatcher = new RegExp(medias
++                .filter((media, index) => medias.indexOf(media) === index)
++                .sort((a, b) => b.length - a.length)
++                .map((media) => {
++                return escapeRegExp(media);
++            })
++                .join('|'), 'g');
++            result = result.replace(mediaMatcher, (media) => {
++                return media.replace(MEDIA_SELECTOR_GLOBAL, '$1-$2');
++            });
+         }
+     }
 -    getSelectors(ast.stylesheet);
 -    let result = cssText;
 -    if (selectors.length > 0) {
@@ -759,7 +798,6 @@ index 38a23aaae8d683fa584329eced277dd8de55d1ff..3bee75fa4a64e72b01e388afdf2433e0
 -            return media.replace(MEDIA_SELECTOR_GLOBAL, '$1-$2');
 -        });
 -    }
-+    const result = parse(cssText)
      cache === null || cache === void 0 ? void 0 : cache.stylesWithHoverClass.set(cssText, result);
      return result;
  }

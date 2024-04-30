@@ -12,7 +12,7 @@ patchedDependencies:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
   rrweb@2.0.0-alpha.13:
-    hash: ppwwvd5inagbkghbte76s24nnq
+    hash: uwe5jnfmh5leyodhsewupwmalq
     path: patches/rrweb@2.0.0-alpha.13.patch
 
 dependencies:
@@ -333,7 +333,7 @@ dependencies:
     version: 1.5.1
   rrweb:
     specifier: 2.0.0-alpha.13
-    version: 2.0.0-alpha.13(patch_hash=ppwwvd5inagbkghbte76s24nnq)
+    version: 2.0.0-alpha.13(patch_hash=uwe5jnfmh5leyodhsewupwmalq)
   sass:
     specifier: ^1.26.2
     version: 1.56.0
@@ -19277,7 +19277,7 @@ packages:
     resolution: {integrity: sha512-slbhNBCYjxLGCeH95a67ECCy5a22nloXp1F5wF7DCzUNw80FN7tF9Lef1sRGLNo32g3mNqTc2sWLATlKejMxYw==}
     dev: false
 
-  /rrweb@2.0.0-alpha.13(patch_hash=ppwwvd5inagbkghbte76s24nnq):
+  /rrweb@2.0.0-alpha.13(patch_hash=uwe5jnfmh5leyodhsewupwmalq):
     resolution: {integrity: sha512-a8GXOCnzWHNaVZPa7hsrLZtNZ3CGjiL+YrkpLo0TfmxGLhjNZbWY2r7pE06p+FcjFNlgUVTmFrSJbK3kO7yxvw==}
     dependencies:
       '@rrweb/types': 2.0.0-alpha.13
