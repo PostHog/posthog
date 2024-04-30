@@ -1,3 +1,4 @@
+import { LemonInputProps } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -3859,7 +3860,7 @@ export enum SidePanelTab {
 export interface SourceFieldConfig {
     name: string
     label: string
-    type: string
+    type: LemonInputProps['type']
     required: boolean
     placeholder: string
 }
