@@ -204,10 +204,8 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
     pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
 
+    // Here we load the special "LegacyActionWebhook" plugin which is actually run in process
     pluginMethodsToRun = pluginMethodsToRun.concat(await getLegacyActionWebhookPluginsForTeam(hub, event))
-
-    // Inject special plugin!
-    // Here we load the special "LegacyActionWebhook" plugin which is actually run in memory
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
