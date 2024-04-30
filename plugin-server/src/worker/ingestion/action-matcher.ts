@@ -194,9 +194,9 @@ export class ActionMatcher {
      */
     private async checkStep(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         return (
-            this.checkStepElement(event.elementsList, step) &&
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
+            this.checkStepElement(event.elementsList, step) &&
             (await this.checkStepFilters(event, step))
         )
     }

@@ -688,7 +688,7 @@ export interface PreIngestionEvent {
  */
 
 export interface PostIngestionEvent extends PreIngestionEvent {
-    elementsList: Element[]
+    elementsList?: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties

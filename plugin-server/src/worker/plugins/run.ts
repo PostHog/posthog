@@ -1,8 +1,12 @@
-import { PluginEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
-import { convertToPostHogEvent } from '../../utils/event'
+import {
+    convertToPostHogEvent,
+    convertToProcessedPluginEvent,
+    extendPostIngestionEventWithElementsList,
+} from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
@@ -10,23 +14,31 @@ import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
-    event: ProcessedPluginEvent,
+    event: PostIngestionEvent,
     pluginConfig: PluginConfig,
     onEvent: VMMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`)
+        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
+
+    if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
+        extendPostIngestionEventWithElementsList(event)
+    }
+
+    const processedPluginEvent = convertToProcessedPluginEvent(event)
+
     try {
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(event)
+            await onEvent(processedPluginEvent)
+
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
                 .observe(new Date().getTime() - timer.getTime())
             await hub.appMetrics.queueMetric({
-                teamId: event.team_id,
+                teamId: event.teamId,
                 pluginConfigId: pluginConfig.id,
                 category: 'onEvent',
                 successes: 1,
@@ -35,10 +47,10 @@ async function runSingleTeamPluginOnEvent(
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-            await processError(hub, pluginConfig, error, event)
+            await processError(hub, pluginConfig, error, processedPluginEvent)
             await hub.appMetrics.queueError(
                 {
-                    teamId: event.team_id,
+                    teamId: event.teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'onEvent',
                     failures: 1,
@@ -54,9 +66,9 @@ async function runSingleTeamPluginOnEvent(
     }
 }
 
-export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs onEvent for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'onEvent')
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, onEvent]) =>

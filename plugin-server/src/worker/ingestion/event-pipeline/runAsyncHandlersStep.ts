@@ -1,19 +1,16 @@
 import { runInstrumentedFunction } from '../../../main/utils'
 import { Hub, PostIngestionEvent } from '../../../types'
-import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runComposeWebhook, runOnEvent } from '../../plugins/run'
 import { ActionMatcher } from '../action-matcher'
 import { HookCommander, instrumentWebhookStep } from '../hooks'
 
 export async function processOnEventStep(hub: Hub, event: PostIngestionEvent) {
-    const processedPluginEvent = convertToProcessedPluginEvent(event)
-
     await runInstrumentedFunction({
         timeoutContext: () => ({
             team_id: event.teamId,
             event_uuid: event.eventUuid,
         }),
-        func: () => runOnEvent(hub, processedPluginEvent),
+        func: () => runOnEvent(hub, event),
         statsKey: `kafka_queue.single_on_event`,
         timeoutMessage: `After 30 seconds still running onEvent`,
         teamId: event.teamId,
