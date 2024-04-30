@@ -250,7 +250,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </div>
                                             )}
                                             {survey.type !== SurveyType.API ? (
-                                                <div className="mt-6 max-w-80">
+                                                <div className="mt-6 max-w-72">
                                                     <SurveyFormAppearance
                                                         activePreview={selectedQuestion || 0}
                                                         survey={survey}

@@ -70,7 +70,6 @@ from posthog.utils import format_label_date, multisort
 
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
-    query_type = TrendsQuery
     series: list[SeriesWithExtras]
 
     def __init__(

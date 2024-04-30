@@ -5828,6 +5828,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "ExitPage",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",

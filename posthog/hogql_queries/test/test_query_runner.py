@@ -65,7 +65,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        json = runner.toJSON()
+        json = runner.to_json()
         self.assertEqual(json, '{"some_attr":"bla"}')
 
     def test_serializes_to_json_ignores_empty_dict(self):
@@ -84,7 +84,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
 
-        json = runner.toJSON()
+        json = runner.to_json()
         self.assertEqual(json, '{"some_attr":"bla"}')
 
     def test_cache_key(self):
