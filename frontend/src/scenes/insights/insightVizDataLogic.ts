@@ -251,7 +251,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return []
                 }
 
-                return externalTablesMap[(series[0] as DataWarehouseNode).table_name].columns
+                return externalTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.columns ?? []
             },
         ],
 
