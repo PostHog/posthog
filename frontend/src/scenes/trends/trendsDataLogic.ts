@@ -44,6 +44,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
+                'querySource',
                 'insightData',
                 'insightDataLoading',
                 'series',
@@ -148,13 +149,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         labelGroupType: [
-            (s) => [s.series],
-            (series): 'people' | 'none' | number => {
+            (s) => [s.series, s.querySource, s.isLifecycle],
+            (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
-                return series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
-                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
-                    : 'none' // mixed group types
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number
+                if (isLifecycle) {
+                    firstAggregationGroupTypeIndex = querySource.aggregation_group_type_index
+                } else {
+                    firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
+                    if (!series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)) {
+                        return 'none' // mixed group types
+                    }
+                }
+
+                return firstAggregationGroupTypeIndex ?? 'people'
             },
         ],
 
