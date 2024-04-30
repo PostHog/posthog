@@ -85,8 +85,8 @@ export function ActionsLineGraph({
     const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
         display: false,
     }
-    if (isLifecycle) {
-        legend.display = !!showLegend
+    if (isLifecycle && !!showLegend) {
+        legend.display = true
         legend.labels = {
             generateLabels: (chart: Chart) => {
                 const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
