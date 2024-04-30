@@ -80,6 +80,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
 
         onIframeLoad: () => {
+            // TODO: Add a timeout - if we haven't received a message from the iframe in X seconds, show an error
             const init = (): void => {
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_APP_INIT)
                 actions.sendToolbarMessage(PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG, {
