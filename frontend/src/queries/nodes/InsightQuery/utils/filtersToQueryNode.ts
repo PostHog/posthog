@@ -143,13 +143,12 @@ export const legacyEntityToNode = (
             id: entity.id,
             ...shared,
         }) as any
-    } else {
-        return objectCleanWithEmpty({
-            kind: NodeKind.EventsNode,
-            event: entity.id,
-            ...shared,
-        }) as any
     }
+    return objectCleanWithEmpty({
+        kind: NodeKind.EventsNode,
+        event: entity.id,
+        ...shared,
+    }) as any
 }
 
 export const exlusionEntityToNode = (
@@ -219,17 +218,15 @@ const processBool = (value: string | boolean | null | undefined): boolean | unde
         return value
     } else if (typeof value == 'string') {
         return strToBool(value)
-    } else {
-        return false
     }
+    return false
 }
 
 const strToBool = (value: any): boolean | undefined => {
     if (value == null) {
         return undefined
-    } else {
-        return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
     }
+    return ['y', 'yes', 't', 'true', 'on', '1'].includes(String(value).toLowerCase())
 }
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
@@ -436,6 +433,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
 
 export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
+        showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
         showValuesOnSeries: filters.show_values_on_series,
     })

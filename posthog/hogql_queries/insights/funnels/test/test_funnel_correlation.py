@@ -1,4 +1,4 @@
-from typing import Any, Dict, cast
+from typing import Any, cast
 import unittest
 
 from rest_framework.exceptions import ValidationError
@@ -77,7 +77,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate()
         return result, skewed_totals
 
-    def _get_actors_for_event(self, filters: Dict[str, Any], event_name: str, properties=None, success=True):
+    def _get_actors_for_event(self, filters: dict[str, Any], event_name: str, properties=None, success=True):
         serialized_actors = get_actors(
             filters,
             self.team,
@@ -87,7 +87,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         return [str(row[0]) for row in serialized_actors]
 
     def _get_actors_for_property(
-        self, filters: Dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
+        self, filters: dict[str, Any], property_values: list, success=True, funnelCorrelationNames=None
     ):
         funnelCorrelationPropertyValues = [
             (

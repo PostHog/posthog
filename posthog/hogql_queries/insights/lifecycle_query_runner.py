@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, List
+from typing import Optional
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -30,7 +30,6 @@ from posthog.utils import format_label_date
 
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
-    query_type = LifecycleQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:
@@ -225,7 +224,7 @@ class LifecycleQueryRunner(QueryRunner):
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: List[ast.Expr] = []
+        event_filters: list[ast.Expr] = []
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(

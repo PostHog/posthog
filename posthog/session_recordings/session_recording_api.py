@@ -1,9 +1,11 @@
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-
+from prometheus_client import Histogram
 import json
-from typing import Any, List, Type, cast, Dict, Tuple
+from typing import Any, cast
+from collections.abc import Generator
 
 from django.conf import settings
 
@@ -50,9 +52,7 @@ from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
 from ee.session_recordings.ai.similar_recordings import similar_recordings
 from ee.session_recordings.ai.error_clustering import error_clustering
-from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
-    convert_original_version_lts_recording,
-)
+from posthog.session_recordings.snapshots.convert_legacy_snapshots import convert_original_version_lts_recording
 from posthog.storage import object_storage
 from prometheus_client import Counter
 
@@ -61,6 +61,21 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
     labelnames=["source"],
+)
+
+GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
+    "session_snapshots_generate_pre_signed_url_histogram",
+    "Time taken to generate a pre-signed URL for a session snapshot",
+)
+
+GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
+    "session_snapshots_get_realtime_snapshots_from_redis_histogram",
+    "Time taken to get realtime snapshots from Redis",
+)
+
+STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
+    "session_snapshots_stream_response_to_client_histogram",
+    "Time taken to stream a session snapshot to the client",
 )
 
 
@@ -134,6 +149,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "snapshot_source",
         ]
 
         read_only_fields = [
@@ -153,6 +169,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "snapshot_source",
         ]
 
 
@@ -189,7 +206,7 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    filter: SessionRecordingsFilter, request: request.Request, serializer_context: Dict[str, Any]
+    filter: SessionRecordingsFilter, request: request.Request, serializer_context: dict[str, Any]
 ) -> Response:
     (recordings, timings) = list_recordings(filter, request, context=serializer_context)
     response = Response(recordings)
@@ -197,6 +214,39 @@ def list_recordings_response(
         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
     )
     return response
+
+
+def ensure_not_weak(etag: str) -> str:
+    """
+    minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
+    we don't really care about the semantic difference between a strong and a weak etag here,
+    so we can just strip it.
+    """
+    if etag.startswith("W/"):
+        return etag[2:].lstrip('"').rstrip('"')
+    return etag
+
+
+@contextmanager
+def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response, None, None]:
+    """
+    Stream data from a URL using optional headers.
+
+    Tricky: mocking the requests library, so we can control the response here is a bit of a pain.
+    the mocks are complex to write, so tests fail when the code actually works
+    by wrapping this interaction we can mock this method
+    instead of trying to mock the internals of the requests library
+    """
+    if headers is None:
+        headers = {}
+
+    session = requests.Session()
+
+    try:
+        response = session.get(url, headers=headers, stream=True)
+        yield response
+    finally:
+        session.close()
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
@@ -209,19 +259,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
         else:
             return SessionRecordingSerializer
 
-    def get_object(self) -> SessionRecording:
+    def safely_get_object(self, queryset) -> SessionRecording:
         recording = SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
-
-        self.check_object_permissions(self.request, recording)
 
         return recording
 
@@ -250,7 +298,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Must specify at least one event or action filter",
             )
 
-        matching_events: List[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
+        matching_events: list[str] = SessionIdEventsQuery(filter=filter, team=self.team).matching_events()
         return JsonResponse(data={"results": matching_events})
 
     # Returns metadata about the recording
@@ -340,9 +388,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
-            sources: List[dict] = []
+            sources: list[dict] = []
 
-            blob_keys: List[str] | None = None
+            blob_keys: list[str] | None = None
             if recording.object_storage_path:
                 if recording.storage_version == "2023-08-01":
                     blob_prefix = recording.object_storage_path
@@ -405,7 +453,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["sources"] = sources
 
         elif source == "realtime":
-            snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
+            with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
+                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
 
             event_properties["source"] = "realtime"
             event_properties["snapshots_length"] = len(snapshots)
@@ -418,36 +467,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response_data["snapshots"] = snapshots
 
         elif source == "blob":
-            blob_key = request.GET.get("blob_key", "")
-            self._validate_blob_key(blob_key)
-
-            # very short-lived pre-signed URL
-            if recording.object_storage_path:
-                if recording.storage_version == "2023-08-01":
-                    file_key = f"{recording.object_storage_path}/{blob_key}"
-                else:
-                    # this is a legacy recording, we need to load the file from the old path
-                    file_key = convert_original_version_lts_recording(recording)
-            else:
-                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
-            url = object_storage.get_presigned_url(file_key, expiration=60)
-            if not url:
-                raise exceptions.NotFound("Snapshot file not found")
-
-            event_properties["source"] = "blob"
-            event_properties["blob_key"] = blob_key
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "session recording snapshots v2 loaded",
-                event_properties,
-            )
-
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
-                response["Content-Disposition"] = "inline"
-                return response
+            return self._stream_blob_to_client(recording, request, event_properties)
 
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
@@ -599,10 +619,77 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         r = Response(clusters, headers={"Cache-Control": "max-age=15"})
         return r
 
+    def _stream_blob_to_client(
+        self, recording: SessionRecording, request: request.Request, event_properties: dict
+    ) -> HttpResponse:
+        blob_key = request.GET.get("blob_key", "")
+        self._validate_blob_key(blob_key)
+
+        # very short-lived pre-signed URL
+        with GENERATE_PRE_SIGNED_URL_HISTOGRAM.time():
+            if recording.object_storage_path:
+                if recording.storage_version == "2023-08-01":
+                    file_key = f"{recording.object_storage_path}/{blob_key}"
+                else:
+                    # this is a legacy recording, we need to load the file from the old path
+                    file_key = convert_original_version_lts_recording(recording)
+            else:
+                blob_prefix = settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
+                file_key = f"{blob_prefix}/team_id/{self.team.pk}/session_id/{recording.session_id}/data/{blob_key}"
+            url = object_storage.get_presigned_url(file_key, expiration=60)
+            if not url:
+                raise exceptions.NotFound("Snapshot file not found")
+
+        event_properties["source"] = "blob"
+        event_properties["blob_key"] = blob_key
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request),
+            "session recording snapshots v2 loaded",
+            event_properties,
+        )
+
+        with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
+            # streams the file from S3 to the client
+            # will not decompress the possibly large file because of `stream=True`
+            #
+            # we pass some headers through to the client
+            # particularly we should signal the content-encoding
+            # to help the client know it needs to decompress
+            #
+            # if the client provides an e-tag we can use it to check if the file has changed
+            # object store will respect this and send back 304 if the file hasn't changed,
+            # and we don't need to send the large file over the wire
+
+            if_none_match = request.headers.get("If-None-Match")
+            headers = {}
+            if if_none_match:
+                headers["If-None-Match"] = ensure_not_weak(if_none_match)
+
+            with stream_from(url=url, headers=headers) as streaming_response:
+                streaming_response.raise_for_status()
+
+                response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
+
+                etag = streaming_response.headers.get("ETag")
+                if etag:
+                    response["ETag"] = ensure_not_weak(etag)
+
+                # blobs are immutable, _really_ we can cache forever
+                # but let's cache for an hour since people won't re-watch too often
+                # we're setting cache control and ETag which might be considered overkill,
+                # but it helps avoid network latency from the client to PostHog, then to object storage, and back again
+                # when a client has a fresh copy
+                response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
+
+                response["Content-Type"] = "application/json"
+
+                response["Content-Disposition"] = "inline"
+                return response
+
 
 def list_recordings(
-    filter: SessionRecordingsFilter, request: request.Request, context: Dict[str, Any]
-) -> Tuple[Dict, Dict]:
+    filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]
+) -> tuple[dict, dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -615,7 +702,7 @@ def list_recordings(
 
     all_session_ids = filter.session_ids
 
-    recordings: List[SessionRecording] = []
+    recordings: list[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
 
@@ -653,7 +740,7 @@ def list_recordings(
         if all_session_ids:
             recordings = sorted(
                 recordings,
-                key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+                key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
             )
 
     if not request.user.is_authenticated:  # for mypy
@@ -681,7 +768,9 @@ def list_recordings(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
-            recording.person = distinct_id_to_person.get(recording.distinct_id)
+            person = distinct_id_to_person.get(recording.distinct_id)
+            if person:
+                recording.person = person
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data

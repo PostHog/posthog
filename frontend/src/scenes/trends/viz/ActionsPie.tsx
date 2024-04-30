@@ -12,10 +12,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
 
@@ -42,7 +42,7 @@ export function ActionsPie({
         labelGroupType,
         trendsFilter,
         formula,
-        showValueOnSeries,
+        showValuesOnSeries,
         showLabelOnSeries,
         supportsPercentStackView,
         showPercentStackView,
@@ -74,7 +74,8 @@ export function ActionsPie({
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
-                breakdownValues: _data.map((item) => {
+                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
@@ -84,6 +85,7 @@ export function ActionsPie({
                         false
                     )
                 }),
+                compareLabels: _data.map((item) => item.compare_label),
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
@@ -114,10 +116,7 @@ export function ActionsPie({
                   if (isTrendsQueryWithFeatureFlagOn) {
                       openPersonsModal({
                           title: label || '',
-                          query: {
-                              kind: NodeKind.InsightActorsQuery,
-                              source: query.source,
-                          },
+                          query: datasetToActorsQuery({ dataset, query: query.source, index }),
                           additionalSelect: {
                               value_at_data_point: 'event_count',
                               matched_recordings: 'matched_recordings',
@@ -148,7 +147,7 @@ export function ActionsPie({
                             showPersonsModal={showPersonsModal}
                             trendsFilter={trendsFilter}
                             formula={formula}
-                            showValueOnSeries={showValueOnSeries}
+                            showValuesOnSeries={showValuesOnSeries}
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}

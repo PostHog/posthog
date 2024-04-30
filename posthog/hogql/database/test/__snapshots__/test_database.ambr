@@ -224,7 +224,9 @@
                   "$end_timestamp",
                   "$urls",
                   "$entry_url",
+                  "$entry_pathname",
                   "$exit_url",
+                  "$exit_pathname",
                   "$initial_utm_source",
                   "$initial_utm_campaign",
                   "$initial_utm_medium",
@@ -238,7 +240,8 @@
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -619,7 +622,15 @@
               "type": "string"
           },
           {
+              "key": "$entry_pathname",
+              "type": "string"
+          },
+          {
               "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
@@ -673,6 +684,56 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
+          }
+      ],
+      "heatmaps": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "x",
+              "type": "integer"
+          },
+          {
+              "key": "y",
+              "type": "integer"
+          },
+          {
+              "key": "scale_factor",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_width",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_height",
+              "type": "integer"
+          },
+          {
+              "key": "pointer_target_fixed",
+              "type": "boolean"
+          },
+          {
+              "key": "current_url",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "type",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [
@@ -1206,7 +1267,9 @@
                   "$end_timestamp",
                   "$urls",
                   "$entry_url",
+                  "$entry_pathname",
                   "$exit_url",
+                  "$exit_pathname",
                   "$initial_utm_source",
                   "$initial_utm_campaign",
                   "$initial_utm_medium",
@@ -1220,7 +1283,8 @@
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -1601,7 +1665,15 @@
               "type": "string"
           },
           {
+              "key": "$entry_pathname",
+              "type": "string"
+          },
+          {
               "key": "$exit_url",
+              "type": "string"
+          },
+          {
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
@@ -1655,6 +1727,56 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
+          }
+      ],
+      "heatmaps": [
+          {
+              "key": "session_id",
+              "type": "string"
+          },
+          {
+              "key": "distinct_id",
+              "type": "string"
+          },
+          {
+              "key": "x",
+              "type": "integer"
+          },
+          {
+              "key": "y",
+              "type": "integer"
+          },
+          {
+              "key": "scale_factor",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_width",
+              "type": "integer"
+          },
+          {
+              "key": "viewport_height",
+              "type": "integer"
+          },
+          {
+              "key": "pointer_target_fixed",
+              "type": "boolean"
+          },
+          {
+              "key": "current_url",
+              "type": "string"
+          },
+          {
+              "key": "timestamp",
+              "type": "datetime"
+          },
+          {
+              "key": "type",
+              "type": "string"
           }
       ],
       "raw_session_replay_events": [

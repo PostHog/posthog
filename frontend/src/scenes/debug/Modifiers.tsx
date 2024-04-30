@@ -13,10 +13,11 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
     if (query === null) {
         return null
     }
+    const labelClassName = 'flex flex-col gap-1 items-start'
     return (
         <div className="flex gap-2">
-            <LemonLabel>
-                POE:
+            <LemonLabel className={labelClassName}>
+                <div>POE:</div>
                 <LemonSelect
                     options={[
                         { value: 'disabled', label: 'Disabled' },
@@ -42,8 +43,8 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                     value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
                 />
             </LemonLabel>
-            <LemonLabel>
-                Persons ArgMax:
+            <LemonLabel className={labelClassName}>
+                <div>Persons ArgMax:</div>
                 <LemonSelect
                     options={[
                         { value: 'v1', label: 'V1' },
@@ -58,8 +59,8 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                     value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
                 />
             </LemonLabel>
-            <LemonLabel>
-                In Cohort Via:
+            <LemonLabel className={labelClassName}>
+                <div>In Cohort Via:</div>
                 <LemonSelect
                     options={[
                         { value: 'auto', label: 'auto' },
@@ -76,8 +77,8 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                     value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
                 />
             </LemonLabel>
-            <LemonLabel>
-                Materialization Mode:
+            <LemonLabel className={labelClassName}>
+                <div>Materialization Mode:</div>
                 <LemonSelect
                     options={[
                         { value: 'auto', label: 'auto' },

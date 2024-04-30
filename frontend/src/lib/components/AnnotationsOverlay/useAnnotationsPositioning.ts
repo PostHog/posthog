@@ -31,11 +31,10 @@ export function useAnnotationsPositioning(
                 tickIntervalPx: (lastTickLeftPx - firstTickLeftPx) / (tickCount - 1),
                 firstTickLeftPx,
             }
-        } else {
-            return {
-                tickIntervalPx: 0,
-                firstTickLeftPx: 0,
-            }
+        }
+        return {
+            tickIntervalPx: 0,
+            firstTickLeftPx: 0,
         }
     }, [chart, chartWidth, chartHeight])
 }

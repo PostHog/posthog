@@ -19,7 +19,7 @@ export interface TreeRowProps {
 export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element {
     const _onClick = useCallback(() => {
         onClick && onClick(item.table)
-    }, [])
+    }, [onClick, item])
 
     return (
         <li>

@@ -11,6 +11,7 @@ import {
     Hub,
     ISOTimestamp,
     Person,
+    PersonMode,
     PreIngestionEvent,
     RawClickHouseEvent,
     Team,
@@ -239,6 +240,13 @@ export class EventsProcessor {
 
         // TODO: Remove Redis caching for person that's not used anymore
 
+        let personMode: PersonMode = 'full'
+        if (person.force_upgrade) {
+            personMode = 'force_upgrade'
+        } else if (!processPerson) {
+            personMode = 'propertyless'
+        }
+
         const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
@@ -251,7 +259,7 @@ export class EventsProcessor {
             person_id: person.uuid,
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
-            person_mode: processPerson ? 'full' : 'propertyless',
+            person_mode: personMode,
             ...groupsColumns,
         }
 

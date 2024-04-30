@@ -72,9 +72,8 @@ const getValue = (
         return 'All events'
     } else if (filter.type === 'actions') {
         return typeof value === 'string' ? parseInt(value) : value || undefined
-    } else {
-        return value === null ? null : value || undefined
     }
+    return value === null ? null : value || undefined
 }
 
 export interface ActionFilterRowProps {
@@ -390,7 +389,7 @@ export function ActionFilterRow({
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.DataWarehouseProperties,
                                                     TaxonomicFilterGroupType.NumericalEventProperties,
-                                                    TaxonomicFilterGroupType.Sessions,
+                                                    TaxonomicFilterGroupType.SessionProperties,
                                                 ]}
                                                 schemaColumns={
                                                     filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Dict
+from typing import Any
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -35,11 +35,10 @@ DEFAULT_TOTAL_INTERVALS = 11
 
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
-    query_type = RetentionQuery
 
     def __init__(
         self,
-        query: RetentionQuery | Dict[str, Any],
+        query: RetentionQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,

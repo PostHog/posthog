@@ -9,9 +9,8 @@ export const summarizeUsage = (usage: number | null): string => {
         return `${usage}`
     } else if (Math.round(usage / 1000) < 1000) {
         return `${Math.round(usage / 1000)} thousand`
-    } else {
-        return `${Math.round(usage / 1000000)} million`
     }
+    return `${Math.round(usage / 1000000)} million`
 }
 
 export const projectUsage = (

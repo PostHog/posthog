@@ -13,7 +13,6 @@ from posthog.schema import WebTopClicksQuery, WebTopClicksQueryResponse
 
 class WebTopClicksQueryRunner(WebAnalyticsQueryRunner):
     query: WebTopClicksQuery
-    query_type = WebTopClicksQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("top_clicks_query"):

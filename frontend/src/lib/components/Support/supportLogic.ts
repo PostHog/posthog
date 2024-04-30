@@ -79,7 +79,7 @@ export const TARGET_AREA_TO_NAME = [
             {
                 value: 'apps',
                 'data-attr': `support-form-target-area-apps`,
-                label: 'Apps',
+                label: 'Data pipelines',
             },
             {
                 value: 'login',
@@ -166,10 +166,10 @@ export const TARGET_AREA_TO_NAME = [
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
-    critical: 'Product outage / data loss / data breach',
-    high: 'Specific feature not working at all',
-    medium: 'Feature functioning but not as expected',
-    low: 'General question or feature request',
+    critical: 'Outage, data loss, or data breach',
+    high: 'Feature is not working at all',
+    medium: 'Feature not working as expected',
+    low: 'Question or feature request',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -294,7 +294,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind: 'support',
                 severity_level: null,
                 target_area: null,
-                message: SUPPORT_TICKET_TEMPLATES.support,
+                message: '',
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -349,7 +349,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? SUPPORT_TICKET_TEMPLATES[kind],
+                message: message ?? '',
             })
 
             if (values.sidePanelAvailable) {

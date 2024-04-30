@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -7,6 +7,9 @@ from freezegun import freeze_time
 from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import (
+    CacheMissResponse,
+    CachedQueryResponse,
+    ExecutionMode,
     QueryResponse,
     QueryRunner,
 )
@@ -18,7 +21,7 @@ from posthog.test.base import BaseTest
 class TestQuery(BaseModel):
     kind: Literal["TestQuery"] = "TestQuery"
     some_attr: str
-    other_attr: Optional[List[Any]] = []
+    other_attr: Optional[list[Any]] = []
 
 
 class TestQueryRunner(BaseTest):
@@ -62,7 +65,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        json = runner.toJSON()
+        json = runner.to_json()
         self.assertEqual(json, '{"some_attr":"bla"}')
 
     def test_serializes_to_json_ignores_empty_dict(self):
@@ -81,7 +84,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
 
-        json = runner.toJSON()
+        json = runner.to_json()
         self.assertEqual(json, '{"some_attr":"bla"}')
 
     def test_cache_key(self):
@@ -91,7 +94,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner._cache_key()
+        cache_key = runner.get_cache_key()
         self.assertEqual(cache_key, "cache_b6f14c97c218e0b9c9a8258f7460fd5b")
 
     def test_cache_key_runner_subclass(self):
@@ -105,7 +108,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner._cache_key()
+        cache_key = runner.get_cache_key()
         self.assertEqual(cache_key, "cache_ec1c2f9715cf9c424b1284b94b1205e6")
 
     def test_cache_key_different_timezone(self):
@@ -116,7 +119,7 @@ class TestQueryRunner(BaseTest):
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner._cache_key()
+        cache_key = runner.get_cache_key()
         self.assertEqual(cache_key, "cache_a6614c0fb564f9c98b1d7b830928c7a1")
 
     def test_cache_response(self):
@@ -125,23 +128,31 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # in cache-only mode, returns cache miss response if uncached
+            response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            self.assertIsInstance(response, CacheMissResponse)
+
             # returns fresh response if uncached
-            response = runner.run(refresh_requested=False)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            self.assertIsInstance(response, CachedQueryResponse)
             self.assertEqual(response.is_cached, False)
             self.assertEqual(response.last_refresh, "2023-02-04T13:37:42Z")
             self.assertEqual(response.next_allowed_client_refresh, "2023-02-04T13:41:42Z")
 
             # returns cached response afterwards
-            response = runner.run(refresh_requested=False)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            self.assertIsInstance(response, CachedQueryResponse)
             self.assertEqual(response.is_cached, True)
 
             # return fresh response if refresh requested
-            response = runner.run(refresh_requested=True)
+            response = runner.run(execution_mode=ExecutionMode.CALCULATION_ALWAYS)
+            self.assertIsInstance(response, CachedQueryResponse)
             self.assertEqual(response.is_cached, False)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
-            response = runner.run(refresh_requested=False)
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
+            self.assertIsInstance(response, CachedQueryResponse)
             self.assertEqual(response.is_cached, False)
 
     def test_modifier_passthrough(self):

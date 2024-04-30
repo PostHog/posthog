@@ -1200,7 +1200,8 @@
                     "type": "string"
                 },
                 "operator": {
-                    "$ref": "#/definitions/PropertyOperator"
+                    "$ref": "#/definitions/PropertyOperator",
+                    "default": "exact"
                 },
                 "type": {
                     "const": "event",
@@ -2640,6 +2641,7 @@
             "additionalProperties": false,
             "properties": {
                 "explain": {
+                    "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
                 },
                 "filters": {
@@ -2677,6 +2679,9 @@
                         "$ref": "#/definitions/DataWarehouseEventsModifier"
                     },
                     "type": "array"
+                },
+                "debug": {
+                    "type": "boolean"
                 },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
@@ -3174,6 +3179,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -3190,6 +3198,9 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "show_legend": {
+                    "type": "boolean"
+                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },
@@ -5666,6 +5677,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
                 }
             ]
         },
@@ -5814,6 +5828,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "ExitPage",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",

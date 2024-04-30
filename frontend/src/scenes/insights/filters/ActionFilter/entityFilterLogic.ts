@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { uuid } from 'lib/utils'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
@@ -220,18 +221,17 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                                         : distinct_id_field,
                                 table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
                             }
-                        } else {
-                            delete filter.id_field
-                            delete filter.timestamp_field
-                            delete filter.distinct_id_field
-                            delete filter.table_name
-                            return {
-                                ...filter,
-                                id: typeof id === 'undefined' ? filter.id : id,
-                                name: typeof name === 'undefined' ? filter.name : name,
-                                type: typeof type === 'undefined' ? filter.type : type,
-                                custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
-                            }
+                        }
+                        delete filter.id_field
+                        delete filter.timestamp_field
+                        delete filter.distinct_id_field
+                        delete filter.table_name
+                        return {
+                            ...filter,
+                            id: typeof id === 'undefined' ? filter.id : id,
+                            name: typeof name === 'undefined' ? filter.name : name,
+                            type: typeof type === 'undefined' ? filter.type : type,
+                            custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
                         }
                     }
 
@@ -261,8 +261,9 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const newLength = previousLength + 1
             const precedingEntity = values.localFilters[previousLength - 1] as LocalFilter | undefined
             const order = precedingEntity ? precedingEntity.order + 1 : 0
-            const newFilter = {
-                id: null,
+            const newFilter: LocalFilter = {
+                id: getDefaultEventName(),
+                name: getDefaultEventLabel(),
                 uuid: uuid(),
                 type: EntityTypes.EVENTS,
                 order: order,

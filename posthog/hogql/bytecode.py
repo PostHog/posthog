@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedError
@@ -39,13 +39,13 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-def to_bytecode(expr: str) -> List[Any]:
+def to_bytecode(expr: str) -> list[Any]:
     from posthog.hogql.parser import parse_expr
 
     return create_bytecode(parse_expr(expr))
 
 
-def create_bytecode(expr: ast.Expr) -> List[Any]:
+def create_bytecode(expr: ast.Expr) -> list[Any]:
     bytecode = [HOGQL_BYTECODE_IDENTIFIER]
     bytecode.extend(BytecodeBuilder().visit(expr))
     return bytecode

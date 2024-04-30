@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, Optional
+from typing import Optional
 
 from zoneinfo import ZoneInfo
 
@@ -26,7 +26,7 @@ def historical_exports_activity(team_id: int, plugin_config_id: int, job_id: Opt
         **({"detail__trigger__job_id": job_id} if job_id is not None else {}),
     )
 
-    by_category: Dict = {"job_triggered": {}, "export_success": {}, "export_fail": {}}
+    by_category: dict = {"job_triggered": {}, "export_success": {}, "export_fail": {}}
     for entry in entries:
         by_category[entry.activity][entry.detail["trigger"]["job_id"]] = entry
 

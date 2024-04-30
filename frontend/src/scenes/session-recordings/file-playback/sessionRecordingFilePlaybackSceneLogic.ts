@@ -45,9 +45,8 @@ export const parseExportedSessionRecording = (fileData: string): ExportedSession
                     .sort((a, b) => a.timestamp - b.timestamp),
             },
         }
-    } else {
-        throw new Error('File version is not supported')
     }
+    throw new Error('File version is not supported')
 }
 
 /**
@@ -159,6 +158,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
                 person: values.sessionRecording.person || undefined,
                 start_time: dayjs(snapshots[0].timestamp).toISOString(),
                 end_time: dayjs(snapshots[snapshots.length - 1].timestamp).toISOString(),
+                snapshot_source: 'unknown', // TODO: we should be able to detect this from the file
             })
         },
     })),

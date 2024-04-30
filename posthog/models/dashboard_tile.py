@@ -1,5 +1,3 @@
-from typing import List
-
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
@@ -112,7 +110,7 @@ class DashboardTile(models.Model):
                 if "update_fields" in kwargs:
                     kwargs["update_fields"].append("filters_hash")
 
-        super(DashboardTile, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     def copy_to_dashboard(self, dashboard: Dashboard) -> None:
         DashboardTile.objects.create(
@@ -139,7 +137,7 @@ class DashboardTile(models.Model):
         )
 
 
-def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
+def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> list[DashboardTile]:
     tiles = list(
         dashboard.tiles.select_related("insight", "text")
         .exclude(insight__deleted=True)

@@ -687,6 +687,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_s3_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 # S3 parameter validation failed.
                 "ParamValidationError",

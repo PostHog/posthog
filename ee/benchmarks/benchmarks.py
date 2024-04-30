@@ -2,7 +2,6 @@
 # Needs to be first to set up django environment
 from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
-from typing import List, Tuple
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
     get_materialized_columns,
@@ -29,7 +28,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: List[Tuple[TableWithProperties, PropertyName]] = [
+MATERIALIZED_PROPERTIES: list[tuple[TableWithProperties, PropertyName]] = [
     ("events", "$host"),
     ("events", "$current_url"),
     ("events", "$event_type"),

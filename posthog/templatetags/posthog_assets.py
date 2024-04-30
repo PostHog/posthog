@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from django.conf import settings
 from django.template import Library
@@ -26,7 +25,7 @@ def absolute_asset_url(path: str) -> str:
 
 
 @register.simple_tag
-def human_social_providers(providers: List[str]) -> str:
+def human_social_providers(providers: list[str]) -> str:
     """
     Returns a human-friendly name for a social login provider.
     Example:

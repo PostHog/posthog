@@ -4,6 +4,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+// FIXME: Importing a .test.ts file causes all tests within it to be ran again as part of THIS file
 import { boxToString, dashboardResult, insightOnDashboard, tileFromInsight } from 'scenes/dashboard/dashboardLogic.test'
 
 import { useMocks } from '~/mocks/jest'
