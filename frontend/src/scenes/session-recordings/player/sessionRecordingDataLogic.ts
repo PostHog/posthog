@@ -349,6 +349,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let params: SessionRecordingSnapshotParams
 
                     if (source.source === SnapshotSourceType.blob) {
+                        if (!source.blob_key) {
+                            throw new Error('Missing key')
+                        }
                         params = { blob_key: source.blob_key, source: 'blob' }
                     } else if (source.source === SnapshotSourceType.realtime) {
                         params = { source: 'realtime', version: '2024-04-30' }
@@ -363,10 +366,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     await breakpoint(1)
-
-                    if (source.source === SnapshotSourceType.blob && !source.blob_key) {
-                        throw new Error('Missing key')
-                    }
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
                         if (source.source === 'realtime' && e.status === 404) {
