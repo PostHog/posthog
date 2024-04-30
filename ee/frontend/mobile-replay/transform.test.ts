@@ -13,19 +13,6 @@ const unspecifiedBase64ImageURL =
 
 const heartEyesEmojiURL = 'data:image/png;base64,' + unspecifiedBase64ImageURL
 
-const SCREENSHOT_FULL_SNAPSHOT_EQUIVALENT = {
-    base64: 'image-content',
-    height: 914,
-    id: 151700670,
-    style: {
-        backgroundColor: '#F3EFF7',
-    },
-    type: 'screenshpt',
-    width: 411,
-    x: 0,
-    y: 0,
-}
-
 function fakeWireframe(type: string, children?: wireframe[]): wireframe {
     // this is a fake so we can force the type
     return { type, childWireframes: children || [] } as Partial<wireframe> as wireframe
@@ -83,7 +70,20 @@ describe('replay/transform', () => {
                     {
                         windowId: '5173a13e-abac-4def-b227-2f81dc2808b6',
                         data: {
-                            wireframes: [SCREENSHOT_FULL_SNAPSHOT_EQUIVALENT],
+                            wireframes: [
+                                {
+                                    base64: 'image-content',
+                                    height: 914,
+                                    id: 151700670,
+                                    style: {
+                                        backgroundColor: '#F3EFF7',
+                                    },
+                                    type: 'screenshpt',
+                                    width: 411,
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
                         },
                         timestamp: 1714397321578,
                         type: 2,
