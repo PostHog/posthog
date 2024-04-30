@@ -783,7 +783,7 @@ class _Printer(Visitor):
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
-                    args: list[str] = []
+                    args = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
@@ -804,6 +804,9 @@ class _Printer(Visitor):
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
                     args = [self.visit(arg) for arg in node.args]
+
+                if func_meta.suffix_args:
+                    args += [self.visit(arg) for arg in func_meta.suffix_args]
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -855,7 +858,9 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                return (
+                    f"{node.name}({', '.join([self.visit(arg) for arg in node.args + (func_meta.suffix_args or [])])})"
+                )
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
