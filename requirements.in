@@ -8,6 +8,7 @@ aiohttp>=3.9.0
 aioboto3==12.0.0
 aiokafka>=0.8
 antlr4-python3-runtime==4.13.1
+asyncpg==0.29.0
 boto3==1.28.16
 brotli==1.1.0
 celery==5.3.4
@@ -40,6 +41,7 @@ drf-extensions==0.7.0
 drf-spectacular==0.27.1
 geoip2==4.6.0
 google-cloud-bigquery==3.11.4
+greenlet==3.0.3
 gunicorn==20.1.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 kafka-python==2.0.2
@@ -73,7 +75,6 @@ slack_sdk==3.17.1
 snowflake-connector-python==3.6.0
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
-sqlalchemy==2.0.23
 statshog==1.0.6
 structlog==23.2.0
 sqlparse==0.4.4
