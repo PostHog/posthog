@@ -160,7 +160,7 @@ def get_redis_key_type_value_tuple(key: bytes, redis_client):
     elif redis_type == "set":
         value = redis_client.smembers(key)
     else:
-        raise ValueError(f"Key {key} has an unsupported type: {redis_type}")
+        raise ValueError(f"Key {redis_key} has an unsupported type: {redis_type}")
 
     return (redis_key, redis_type, value)
 
