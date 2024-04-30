@@ -33,8 +33,8 @@ describe('ActionMatcher', () => {
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         ;[hub, closeServer] = await createHub()
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         actionCounter = 0
     })
@@ -800,9 +800,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefOuter)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsHrefInner)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefOuter })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefInner })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains', async () => {
@@ -840,11 +844,17 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains, with wildcard', async () => {
@@ -882,11 +892,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href matches regex', async () => {
@@ -924,11 +936,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element text and tag name equals', async () => {
@@ -962,10 +976,12 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefProper)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsHrefWrongTag)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefWrongText)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefWrongLevel)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProper })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongTag })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongText })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongLevel })).toEqual([])
         })
 
         it('returns a match in case of element text contains', async () => {
@@ -988,8 +1004,10 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefBadText)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefGoodText)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefBadText })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefGoodText })).toEqual([
+                actionDefinitionLinkHref,
+            ])
         })
 
         it('returns a match in case of element selector', async () => {
@@ -1030,15 +1048,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefProperNondirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperNondirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectHref,
                 actionDefinitionArraySelectorProp,
             ])
-            expect(await actionMatcher.match(event, elementsHrefWrongClassNondirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongClassNondirect })).toEqual([
                 actionDefinitionDirectHref,
             ])
-            expect(await actionMatcher.match(event, elementsHrefProperDirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperDirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectDescendant,
                 actionDefinitionArraySelectorProp,

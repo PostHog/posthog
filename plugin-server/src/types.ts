@@ -663,20 +663,9 @@ export interface ClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-/** Event in a database-agnostic shape, AKA an ingestion event.
- * This is what should be passed around most of the time in the plugin server.
+/** Event structure before initial ingestion.
+ * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
  */
-interface BaseIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-    elementsList: Element[]
-}
-
-/** Ingestion event before saving, BaseIngestionEvent without elementsList */
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -686,8 +675,12 @@ export interface PreIngestionEvent {
     timestamp: ISOTimestamp
 }
 
-/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+/** Parsed event structure after initial ingestion.
+ * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
+ */
+
+export interface PostIngestionEvent extends PreIngestionEvent {
+    elementsList?: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
