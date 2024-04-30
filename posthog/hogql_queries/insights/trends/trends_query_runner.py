@@ -293,6 +293,7 @@ class TrendsQueryRunner(QueryRunner):
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
         errors: list[Exception] = []
+        debug_errors: list[str] = []
 
         def run(index: int, query: ast.SelectQuery | ast.SelectUnionQuery, is_parallel: bool):
             try:
@@ -309,6 +310,8 @@ class TrendsQueryRunner(QueryRunner):
 
                 timings_matrix[index] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                if response.error:
+                    debug_errors.append(response.error)
             except Exception as e:
                 errors.append(e)
             finally:
@@ -363,7 +366,9 @@ class TrendsQueryRunner(QueryRunner):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers)
+        return TrendsQueryResponse(
+            results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
+        )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:

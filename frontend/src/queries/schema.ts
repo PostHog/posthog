@@ -209,7 +209,7 @@ export interface HogQLQueryResponse {
     clickhouse?: string
     /** Query results */
     results?: any[]
-    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string
     /** Returned columns */
     columns?: any[]
@@ -895,6 +895,8 @@ export interface QueryResponse {
     results: unknown
     timings?: QueryTiming[]
     hogql?: string
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
