@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
@@ -54,6 +54,9 @@ export function Query(props: QueryProps): JSX.Element | null {
 
     const queryContext = props.context || {}
 
+    const uniqueKey =
+        props.uniqueKey ?? (props.context?.insightProps && insightVizDataNodeKey(props.context.insightProps))
+
     if (query === null) {
         return null
     }
@@ -74,7 +77,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                 setQuery={setQuery}
                 context={queryContext}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -83,7 +86,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                 query={query}
                 setQuery={setQuery}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
                 context={queryContext}
             />
         )
@@ -96,7 +99,7 @@ export function Query(props: QueryProps): JSX.Element | null {
                 setQuery={setQuery}
                 context={queryContext}
                 readOnly={readOnly}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
