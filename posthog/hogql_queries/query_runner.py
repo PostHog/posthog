@@ -47,7 +47,7 @@ from posthog.schema import (
     SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -138,12 +138,9 @@ def get_query_runner(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
-    kind = None
-    if isinstance(query, dict):
-        kind = query.get("kind", None)
-    elif hasattr(query, "kind"):
-        kind = query.kind
-    else:
+    try:
+        kind = get_from_dict_or_attr(query, "kind")
+    except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
@@ -276,17 +273,29 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "WebOverviewQuery":
-        from .web_analytics.web_overview import WebOverviewQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.web_overview import WebOverviewQueryRunner
 
-        return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
+
+            return LegacyWebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebStatsTableQuery":
-        from .web_analytics.stats_table import WebStatsTableQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+
+            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 

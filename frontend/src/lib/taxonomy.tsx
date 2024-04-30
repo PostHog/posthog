@@ -1021,9 +1021,19 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
+        $entry_pathname: {
+            label: 'Entry pathname',
+            description: <span>The first pathname visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
         $exit_url: {
             label: 'Exit URL',
             description: <span>The last URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_pathname: {
+            label: 'Exit pathname',
+            description: <span>The last pathname visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $pageview_count: {
@@ -1040,6 +1050,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
             examples: ['Paid Search', 'Organic Video', 'Direct'],
+        },
+        $is_bounce: {
+            label: 'Is bounce',
+            description: <span>Whether the session was a bounce.</span>,
+            examples: ['true', 'false'],
         },
     },
     groups: {
