@@ -60,7 +60,7 @@ class TestExecuteProcessQuery(TestCase):
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
-        user = User.objects.create(email="test@posthog.com")
+        user = User.objects.create(email="test@posthog.com", id=1337)
         self.organization: Organization = Organization.objects.create(name="test")
         self.team: Team = Team.objects.create(organization=self.organization)
         self.team_id: int = self.team.pk
