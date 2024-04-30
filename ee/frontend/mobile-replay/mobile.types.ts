@@ -75,6 +75,7 @@ export type MobileNodeType =
     | 'radio_group'
     | 'status_bar'
     | 'navigation_bar'
+    | 'screenshot'
 
 export type MobileStyles = {
     /**
@@ -258,6 +259,17 @@ export type wireframeImage = wireframeBase & {
     base64?: string
 }
 
+/**
+ * @description a screenshot behaves exactly like an image, but it is expected to be a screenshot of the screen at the time of the event, when sent as a mutation it must always attached to the root of the playback, when sent as an initial snapshot it must be sent as the first or only snapshot so that it attaches to the body of the playback
+ */
+export type wireframeScreenshot = wireframeBase & {
+    type: 'screenshot'
+    /**
+     * @description a screenshot base64 behaves exactly like an image base64
+     */
+    base64?: string
+}
+
 export type wireframeRectangle = wireframeBase & {
     type: 'rectangle'
 }
@@ -304,6 +316,7 @@ export type wireframe =
     | wireframePlaceholder
     | wireframeStatusBar
     | wireframeNavigationBar
+    | wireframeScreenshot
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
