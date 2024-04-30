@@ -257,7 +257,7 @@ class PluginConfig(models.Model):
     # If set, the plugin-server will only trigger this plugin for events that match this action
     match_action = models.ForeignKey(
         "posthog.Action",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         blank=True,
         null=True,
     )
