@@ -11,7 +11,7 @@ argcomplete==2.0.0
     # via datamodel-code-generator
 asgiref==3.7.2
     # via django
-async-timeout==4.0.3
+async-timeout==4.0.2
     # via
     #   aiohttp
     #   redis
