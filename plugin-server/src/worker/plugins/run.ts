@@ -207,24 +207,33 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     // Inject special plugin!
 
     await Promise.all(
-        pluginMethodsToRun
-            .filter(([, method]) => !!method)
-            .map(([pluginConfig, composeWebhook]) =>
-                runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
-            )
+        pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
+            runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
+        )
     )
 }
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
+
+    // runProcessEvent handles both `processEvent` and `onEvent` for plugins.
+    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
+    const pluginConfigsWithMethods = await Promise.all(
+        pluginConfigs.map(async (pluginConfig) => ({
+            pluginConfig,
+            onEvent: await pluginConfig?.vm?.getOnEvent(),
+            processEvent: await pluginConfig?.vm?.getVmMethod('processEvent'),
+        }))
+    )
+
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
     const pluginsFailed = event.properties?.$plugins_failed || []
     const pluginsDeferred = []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
-    for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
+
+    for (const { pluginConfig, onEvent, processEvent } of pluginConfigsWithMethods) {
         if (processEvent) {
             const timer = new Date()
             const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
@@ -274,7 +283,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
             }
         }
 
-        const onEvent = await pluginConfig.vm?.getOnEvent()
         if (onEvent) {
             pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
         }

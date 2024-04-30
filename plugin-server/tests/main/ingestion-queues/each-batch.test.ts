@@ -206,7 +206,7 @@ describe('eachBatchX', () => {
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            const actionManager = new ActionManager(queue.pluginsServer.postgres)
+            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
             const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
@@ -224,15 +224,12 @@ describe('eachBatchX', () => {
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
             // is at the least testing a little bit more than we were before.
-            expect(matchSpy).toHaveBeenCalledWith(
-                {
-                    ...event,
-                    properties: {
-                        $ip: '127.0.0.1',
-                    },
+            expect(matchSpy).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
                 },
-                []
-            )
+            })
         })
 
         it('it batches events properly', () => {
