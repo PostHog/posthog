@@ -78,7 +78,7 @@ describe('replay/transform', () => {
                                     style: {
                                         backgroundColor: '#F3EFF7',
                                     },
-                                    type: 'screenshpt',
+                                    type: 'screenshot',
                                     width: 411,
                                     x: 0,
                                     y: 0,
