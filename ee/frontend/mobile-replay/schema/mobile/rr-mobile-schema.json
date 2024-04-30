@@ -992,7 +992,7 @@
         },
         "wireframeScreenshot": {
             "additionalProperties": false,
-            "description": "a screenshot behaves exactly like an image, but it is expected to be a screenshot of the screen at the time of the event, when sent as a mutation it must always attached to the root of the playback, when sent as an initial snapshot it must be sent as the first or only snapshot so that it attaches to the body of the playback",
+            "description": "a screenshot behaves exactly like an image, but it is expected to be a screenshot of the screen at the time of the event. When sent as a mutation it must always attached to the root of the playback, when sent as an initial snapshot it must be sent as the first or only node so that it attaches to the body of the playback",
             "properties": {
                 "base64": {
                     "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered",
