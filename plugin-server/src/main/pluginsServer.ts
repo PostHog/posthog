@@ -482,27 +482,6 @@ export async function startPluginsServer(
             }
         }
 
-        if (capabilities.sessionRecordingV3Ingestion) {
-            const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
-
-            if (!s3) {
-                throw new Error("Can't start session recording ingestion without object storage")
-            }
-            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngesterV3(serverConfig, postgres, s3)
-            await ingester.start()
-
-            const batchConsumer = ingester.batchConsumer
-
-            if (batchConsumer) {
-                stopSessionRecordingBlobConsumer = () => ingester.stop()
-                shutdownOnConsumerExit(batchConsumer)
-                healthChecks['session-recordings-ingestion'] = () => ingester.isHealthy() ?? false
-            }
-        }
-
         if (capabilities.personOverrides) {
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
