@@ -2641,6 +2641,7 @@
             "additionalProperties": false,
             "properties": {
                 "explain": {
+                    "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
                 },
                 "filters": {
@@ -2678,6 +2679,9 @@
                         "$ref": "#/definitions/DataWarehouseEventsModifier"
                     },
                     "type": "array"
+                },
+                "debug": {
+                    "type": "boolean"
                 },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
@@ -3175,6 +3179,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -3191,6 +3198,9 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "show_legend": {
+                    "type": "boolean"
+                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },

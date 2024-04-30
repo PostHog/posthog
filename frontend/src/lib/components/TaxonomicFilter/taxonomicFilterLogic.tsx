@@ -490,7 +490,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Notebooks',
                     },
                     {
-                        name: 'Session Properties',
+                        name: 'Session properties',
                         searchPlaceholder: 'sessions',
                         type: TaxonomicFilterGroupType.SessionProperties,
                         options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
