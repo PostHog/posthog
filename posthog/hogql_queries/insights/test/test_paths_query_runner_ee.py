@@ -16,12 +16,12 @@ from posthog.constants import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.paths import Paths
+from posthog.schema import CachedQueryResponse
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )

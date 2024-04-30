@@ -5,10 +5,10 @@ from freezegun import freeze_time
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
+    CachedQueryResponse,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,

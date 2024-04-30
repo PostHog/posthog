@@ -7,14 +7,18 @@ from freezegun import freeze_time
 from pydantic import BaseModel
 
 from posthog.hogql_queries.query_runner import (
-    CacheMissResponse,
-    CachedQueryResponse,
     ExecutionMode,
-    QueryResponse,
     QueryRunner,
 )
 from posthog.models.team.team import Team
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, HogQLQuery
+from posthog.schema import (
+    HogQLQueryModifiers,
+    MaterializationMode,
+    HogQLQuery,
+    QueryResponse,
+    CachedQueryResponse,
+    CacheMissResponse,
+)
 from posthog.test.base import BaseTest
 
 
@@ -31,7 +35,7 @@ class TestQueryRunner(BaseTest):
         class TestQueryRunner(QueryRunner):
             query_type: TestQuery = TestQuery  # type: ignore[assignment]
 
-            def calculate(self) -> QueryResponse:
+            def calculate(self):
                 return QueryResponse(results=[])
 
             def _refresh_frequency(self) -> timedelta:
@@ -171,11 +175,15 @@ class TestQueryRunner(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.legacy_null_as_string),
         )
-        assert "events.`mat_$browser" in runner.calculate().clickhouse
+        response = runner.calculate()
+        assert response.clickhouse is not None
+        assert "events.`mat_$browser" in response.clickhouse
 
         runner = HogQLQueryRunner(
             query=HogQLQuery(query="select properties.$browser from events"),
             team=self.team,
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.disabled),
         )
-        assert "events.`mat_$browser" not in runner.calculate().clickhouse
+        response = runner.calculate()
+        assert response.clickhouse is not None
+        assert "events.`mat_$browser" not in response.clickhouse

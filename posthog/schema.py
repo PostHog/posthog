@@ -112,6 +112,13 @@ class BreakdownValueInt(RootModel[int]):
     root: int
 
 
+class CacheMissResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: Optional[str] = None
+
+
 class ChartAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -858,17 +865,23 @@ class StickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[dict[str, Any]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class TimeToSeeDataQuery(BaseModel):
@@ -956,17 +969,23 @@ class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[dict[str, Any]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class ActionsPie(BaseModel):
@@ -1024,18 +1043,23 @@ class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class WebStatsBreakdown(str, Enum):
@@ -1089,11 +1113,14 @@ class WebTopClicksQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
@@ -1145,6 +1172,31 @@ class BreakdownFilter(BaseModel):
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[list[Breakdown]] = None
+
+
+class CachedQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    is_cached: bool
+    last_refresh: str
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
+    next_allowed_client_refresh: str
+    offset: Optional[int] = None
+    results: Any
+    samplingRate: Optional[SamplingRate] = None
+    timezone: str
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class DataNode(BaseModel):
@@ -1276,17 +1328,23 @@ class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class GroupPropertyFilter(BaseModel):
@@ -1393,17 +1451,23 @@ class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[dict[str, Any]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class Node(BaseModel):
@@ -1417,17 +1481,23 @@ class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[dict[str, Any]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -1445,17 +1515,23 @@ class QueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: Any
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative3(BaseModel):
@@ -1541,18 +1617,23 @@ class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[WebOverviewItem]
     samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative11(BaseModel):
@@ -1578,41 +1659,27 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative12(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: Optional[list] = None
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = None
-    is_cached: Optional[bool] = None
-    last_refresh: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-    next_allowed_client_refresh: Optional[str] = None
-    results: list
-    samplingRate: Optional[SamplingRate] = None
-    timings: Optional[list[QueryTiming]] = None
-    types: Optional[list] = None
-
-
 class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[dict[str, Any]]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative17(BaseModel):
@@ -2363,17 +2430,23 @@ class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[RetentionResult]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class QueryResponseAlternative(
@@ -2391,7 +2464,6 @@ class QueryResponseAlternative(
             QueryResponseAlternative9,
             QueryResponseAlternative10,
             QueryResponseAlternative11,
-            QueryResponseAlternative12,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             QueryResponseAlternative17,
@@ -2412,7 +2484,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative9,
         QueryResponseAlternative10,
         QueryResponseAlternative11,
-        QueryResponseAlternative12,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
         QueryResponseAlternative17,
@@ -2424,17 +2495,23 @@ class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     next_allowed_client_refresh: Optional[str] = None
+    offset: Optional[int] = None
     results: list[RetentionResult]
+    samplingRate: Optional[SamplingRate] = None
     timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[str]] = None
 
 
 class SessionsTimelineQuery(BaseModel):

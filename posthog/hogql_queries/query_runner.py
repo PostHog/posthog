@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 from sentry_sdk import capture_exception, push_scope
 import structlog
 
@@ -20,6 +20,8 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    CacheMissResponse,
+    CachedQueryResponse,
     DateRange,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
@@ -37,14 +39,12 @@ from posthog.schema import (
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
-    QueryTiming,
     SessionsTimelineQuery,
     ActorsQuery,
     EventsQuery,
     InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
-    SamplingRate,
     InsightActorsQueryOptions,
 )
 from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
@@ -73,41 +73,6 @@ class ExecutionMode(IntEnum):
     """Use cache, unless the results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
-
-
-class QueryResponse(BaseModel, Generic[DataT]):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: DataT
-    timings: Optional[list[QueryTiming]] = None
-    types: Optional[list[Union[tuple[str, str], str]]] = None
-    columns: Optional[list[str]] = None
-    error: Optional[str] = None
-    hogql: Optional[str] = None
-    hasMore: Optional[bool] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-
-
-class CachedQueryResponse(QueryResponse):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    is_cached: bool
-    last_refresh: str
-    next_allowed_client_refresh: str
-    cache_key: str
-    timezone: str
-
-
-class CacheMissResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: Optional[str]
 
 
 RunnableQueryNode = Union[

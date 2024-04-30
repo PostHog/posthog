@@ -902,6 +902,25 @@ export interface QueryResponse {
     last_refresh?: string
     next_allowed_client_refresh?: string
     modifiers?: HogQLQueryModifiers
+
+    types?: string[]
+    columns?: string[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    samplingRate?: SamplingRate
+}
+
+export interface CachedQueryResponse extends QueryResponse {
+    is_cached: boolean
+    last_refresh: string
+    next_allowed_client_refresh: string
+    cache_key: string
+    timezone: string
+}
+
+export interface CacheMissResponse {
+    cache_key: string | null
 }
 
 export type QueryStatus = {
