@@ -100,7 +100,7 @@ class EventsQueryRunner(QueryRunner):
                             action = Action.objects.get(pk=self.query.actionId, team_id=self.team.pk)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
-                        if action.steps.count() == 0:
+                        if len(action.steps) == 0:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:

@@ -5548,7 +5548,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps.first()
+        step = sign_up_action.steps[0].first()
         if step:
             step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
             step.save()

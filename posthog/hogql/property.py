@@ -376,7 +376,7 @@ def property_to_expr(
 
 
 def action_to_expr(action: Action) -> ast.Expr:
-    steps = action.steps.all()
+    steps = action.steps
 
     if len(steps) == 0:
         return ast.Constant(value=True)
@@ -393,29 +393,29 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                if step.href_matching == ActionStep.REGEX:
+                if step.href_matching == "regex":
                     operator = PropertyOperator.regex
-                elif step.href_matching == ActionStep.CONTAINS:
+                elif step.href_matching == "contains":
                     operator = PropertyOperator.icontains
                 else:
                     operator = PropertyOperator.exact
                 exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                if step.text_matching == ActionStep.REGEX:
+                if step.text_matching == "regex":
                     operator = PropertyOperator.regex
-                elif step.text_matching == ActionStep.CONTAINS:
+                elif step.text_matching == "contains":
                     operator = PropertyOperator.icontains
                 else:
                     operator = PropertyOperator.exact
                 exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
-            if step.url_matching == ActionStep.EXACT:
+            if step.url_matching == "exact":
                 expr = parse_expr(
                     "properties.$current_url = {url}",
                     {"url": ast.Constant(value=step.url)},
                 )
-            elif step.url_matching == ActionStep.REGEX:
+            elif step.url_matching == "regex":
                 expr = parse_expr(
                     "properties.$current_url =~ {regex}",
                     {"regex": ast.Constant(value=step.url)},

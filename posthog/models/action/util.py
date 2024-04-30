@@ -6,6 +6,7 @@ from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS
 from posthog.hogql.hogql import HogQLContext
 from posthog.models import Entity, Filter
 from posthog.models.action import Action
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.action_step import ActionStep
 from posthog.models.property import Property, PropertyIdentifier
 from posthog.models.property.property import OperatorType
@@ -41,7 +42,7 @@ def format_action_filter(
     """Return SQL for filtering events by action."""
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
-    steps = action.steps.all()
+    steps = action.steps
     if len(steps) == 0:
         # If no steps, it shouldn't match this part of the query
         return "1=2", {}
@@ -101,7 +102,8 @@ def format_action_filter(
             prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=team_id,
                 property_group=Filter(data={"properties": step.properties}).property_groups,
-                prepend=f"action_props_{action.pk}_{step.pk}",
+                # TODO: What is this...
+                prepend=f"action_props_{action.pk}_{index}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
                 person_id_joined_alias=person_id_joined_alias,
@@ -117,7 +119,7 @@ def format_action_filter(
 
 
 def filter_event(
-    step: ActionStep, prepend: str = "event", index: int = 0, table_name: str = ""
+    step: ActionStepJSON, prepend: str = "event", index: int = 0, table_name: str = ""
 ) -> tuple[list[str], dict]:
     from posthog.models.property.util import get_property_string_expr
 
@@ -130,10 +132,10 @@ def filter_event(
     if step.url:
         value_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", f"{table_name}properties")
         prop_name = f"{prepend}_prop_val_{index}"
-        if step.url_matching == ActionStep.EXACT:
+        if step.url_matching == "exact":
             conditions.append(f"{value_expr} = %({prop_name})s")
             params.update({prop_name: step.url})
-        elif step.url_matching == ActionStep.REGEX:
+        elif step.url_matching == "regex":
             conditions.append(f"match({value_expr}, %({prop_name})s)")
             params.update({prop_name: step.url})
         else:
