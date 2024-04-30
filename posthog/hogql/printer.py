@@ -858,9 +858,7 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return (
-                    f"{node.name}({', '.join([self.visit(arg) for arg in node.args + (func_meta.suffix_args or [])])})"
-                )
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
