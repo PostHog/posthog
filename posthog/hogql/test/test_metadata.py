@@ -291,7 +291,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         metadata = self._select("select event AS event FROM event_view")
 
-        self.assertEqual(saved_query_response.status_code, 200, saved_query_response.json())
+        self.assertEqual(saved_query_response.status_code, 201, saved_query_response.json())
         self.assertEqual(
             metadata.dict(),
             metadata.dict()

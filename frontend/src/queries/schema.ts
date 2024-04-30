@@ -902,16 +902,10 @@ export interface QueryResponse {
     last_refresh?: string
     next_allowed_client_refresh?: string
     modifiers?: HogQLQueryModifiers
-
-    types?: string[]
-    columns?: string[]
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    samplingRate?: SamplingRate
 }
 
-export interface CachedQueryResponse extends QueryResponse {
+// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+export type CachedQueryResponse = QueryResponseAlternative & {
     is_cached: boolean
     last_refresh: string
     next_allowed_client_refresh: string
