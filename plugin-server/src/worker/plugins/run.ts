@@ -91,7 +91,6 @@ async function runSingleTeamPluginComposeWebhook(
     const event = convertToPostHogEvent(postIngestionEvent)
     let maybeWebhook: Webhook | null = null
     try {
-        // TODO: This was async before but the type is not async - was it supposed to be??
         maybeWebhook = composeWebhook(event)
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
