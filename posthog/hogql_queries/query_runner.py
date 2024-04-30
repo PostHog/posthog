@@ -386,7 +386,8 @@ class QueryRunner(ABC, Generic[Q]):
         fresh_response = CachedQueryResponse(**fresh_response_dict)
 
         # Dont cache debug queries with errors
-        if fresh_response_dict.get("error", None) is None:
+        has_error = fresh_response_dict.get("error", None)
+        if has_error is None or len(has_error) == 0:
             cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
 
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
