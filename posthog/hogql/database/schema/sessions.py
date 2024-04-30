@@ -339,16 +339,16 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
     if key == "$channel_type":
         return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
 
-    expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
-
-    if not expr:
-        return []
-
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
+        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+
+        if not expr:
+            return []
+
         if search_term:
             return insight_sync_execute(
                 SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
@@ -362,5 +362,8 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
             query_type="get_session_property_values",
             team_id=team.pk,
         )
+    if isinstance(field_definition, BooleanDatabaseField):
+        # ideally we'd be able to just send [[True], [False]]
+        return [["1"], ["0"]]
 
     return []
