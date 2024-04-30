@@ -98,6 +98,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     return {
         stop: async () => {
+            await actionManager.stop()
             try {
                 await consumer.stop()
             } catch (e) {
