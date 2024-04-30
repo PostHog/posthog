@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 import posthoganalytics
 
@@ -107,7 +107,7 @@ def report_user_logged_in(
     )
 
 
-def report_user_updated(user: User, updated_attrs: List[str]) -> None:
+def report_user_updated(user: User, updated_attrs: list[str]) -> None:
     """
     Reports a user has been updated. This includes current_team, current_organization & password.
     """
@@ -217,7 +217,9 @@ def report_user_organization_membership_level_changed(
     )
 
 
-def report_user_action(user: User, event: str, properties: Dict = {}, team: Optional[Team] = None):
+def report_user_action(user: User, event: str, properties: Optional[dict] = None, team: Optional[Team] = None):
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(
         user.distinct_id,
         event,
@@ -252,12 +254,14 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
 def report_team_action(
     team: Team,
     event: str,
-    properties: Dict = {},
-    group_properties: Optional[Dict] = None,
+    properties: Optional[dict] = None,
+    group_properties: Optional[dict] = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
     """
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))
 
     if group_properties:
@@ -267,12 +271,14 @@ def report_team_action(
 def report_organization_action(
     organization: Organization,
     event: str,
-    properties: Dict = {},
-    group_properties: Optional[Dict] = None,
+    properties: Optional[dict] = None,
+    group_properties: Optional[dict] = None,
 ):
     """
     For capturing events where it is unclear which user was the core actor we can use the organization instead
     """
+    if properties is None:
+        properties = {}
     posthoganalytics.capture(
         str(organization.id),
         event,

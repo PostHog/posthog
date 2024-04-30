@@ -3,7 +3,6 @@ import './InsightCard.scss'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import React, { useState } from 'react'
@@ -215,13 +214,13 @@ export function FilterBasedCardContent({
                 {tooFewFunnelSteps ? (
                     <FunnelSingleStepState actionable={false} />
                 ) : validationError ? (
-                    <InsightValidationError detail={validationError} />
+                    <InsightValidationError query={query} detail={validationError} />
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
                     <InsightTimeoutState isLoading={false} insightProps={{ dashboardItemId: undefined }} />
                 ) : apiErrored && !loading ? (
-                    <InsightErrorState excludeDetail />
+                    <InsightErrorState query={query} excludeDetail />
                 ) : (
                     !apiErrored && <VizComponent inCardView={true} showPersonsModal={false} context={context} />
                 )}
@@ -289,12 +288,6 @@ function InsightCardInternal(
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
 
-    const canMakeQueryAPICalls =
-        placement === 'SavedInsightGrid' ||
-        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage, DashboardPlacement.FeatureFlag].includes(
-            placement
-        )
-
     return (
         <div
             className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
@@ -325,13 +318,7 @@ function InsightCardInternal(
                 />
                 {insight.query ? (
                     <div className="InsightCard__viz">
-                        {insight.result ? (
-                            <Query query={insight.query} cachedResults={insight.result} readOnly />
-                        ) : canMakeQueryAPICalls ? (
-                            <Query query={insight.query} readOnly />
-                        ) : (
-                            <QueriesUnsupportedHere />
-                        )}
+                        <Query query={insight.query} cachedResults={insight.result} readOnly />
                     </div>
                 ) : insight.filters?.insight ? (
                     <FilterBasedCardContent
@@ -348,6 +335,7 @@ function InsightCardInternal(
                 ) : (
                     <div className="flex justify-between items-center h-full">
                         <InsightErrorState
+                            query={insight.query}
                             excludeDetail
                             title="Missing 'filters.insight' property, can't display insight"
                         />

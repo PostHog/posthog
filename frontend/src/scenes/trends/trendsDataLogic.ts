@@ -52,7 +52,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'compare',
                 'interval',
                 'breakdownFilter',
-                'showValueOnSeries',
+                'showValuesOnSeries',
                 'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
@@ -65,6 +65,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'showLegend',
                 'vizSpecificOptions',
             ],
         ],
@@ -91,9 +92,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (insightData: TrendAPIResponse | null): TrendResult[] => {
                 if (insightData?.result && Array.isArray(insightData.result)) {
                     return insightData.result
-                } else {
-                    return []
                 }
+                return []
             },
         ],
 
@@ -175,9 +175,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                 if (startIndex !== undefined && startIndex !== -1) {
                     return startIndex - results[0].days.length
-                } else {
-                    return 0
                 }
+                return 0
             },
         ],
 

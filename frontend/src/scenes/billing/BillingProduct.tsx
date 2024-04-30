@@ -42,8 +42,10 @@ export const getTierDescription = (
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
-    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
+        billingProductLogic({ product: addon })
+    )
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
         billingProductLogic({ product: addon })
     )
     const { featureFlags } = useValues(featureFlagLogic)
@@ -168,6 +170,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     currentAndUpgradePlans?.upgradePlan?.plan_key
                                 }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                 disableClientSideRouting
+                                loading={billingProductLoading === addon.type}
+                                onClick={() => {
+                                    setBillingProductLoading(addon.type)
+                                }}
                             >
                                 Add
                             </LemonButton>
@@ -201,6 +207,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
         surveyID,
+        billingProductLoading,
     } = useValues(billingProductLogic({ product }))
     const {
         setIsEditingBillingLimit,
@@ -209,6 +216,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
         setSurveyResponse,
+        setBillingProductLoading,
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
@@ -707,8 +715,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 type="primary"
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
+                                                loading={billingProductLoading === product.type}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
+                                                    setBillingProductLoading(product.type)
                                                 }}
                                                 className="grow"
                                                 center

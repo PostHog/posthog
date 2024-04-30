@@ -5,7 +5,8 @@ from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from random import Random, choice
 from time import time
-from typing import Any, Callable, Dict, Iterator, Optional, Set, Type, TypeVar
+from typing import Any, Optional, TypeVar
+from collections.abc import Callable, Iterator
 
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
@@ -40,7 +41,7 @@ class UUIDT(uuid.UUID):
     (https://blog.twitter.com/engineering/en_us/a/2010/announcing-snowflake.html).
     """
 
-    current_series_per_ms: Dict[int, int] = defaultdict(int)
+    current_series_per_ms: dict[int, int] = defaultdict(int)
 
     def __init__(
         self,
@@ -122,7 +123,7 @@ class UUIDClassicModel(models.Model):
 
 def sane_repr(*attrs: str, include_id=True) -> Callable[[object], str]:
     if "id" not in attrs and "pk" not in attrs and include_id:
-        attrs = ("id",) + attrs
+        attrs = ("id", *attrs)
 
     def _repr(self):
         pairs = (f"{attr}={repr(getattr(self, attr))}" for attr in attrs)
@@ -205,10 +206,10 @@ def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *arg
 
 
 def get_deferred_field_set_for_model(
-    model: Type[models.Model],
-    fields_not_deferred: Set[str] = set(),
+    model: type[models.Model],
+    fields_not_deferred: Optional[set[str]] = None,
     field_prefix: str = "",
-) -> Set[str]:
+) -> set[str]:
     """Return a set of field names to be deferred for a given model. Used with `.defer()` after `select_related`
 
     Why? `select_related` fetches the entire related objects - not allowing you to specify which fields
@@ -225,6 +226,8 @@ def get_deferred_field_set_for_model(
         fields_not_deferred: the models fields to exclude from the deferred field set
         field_prefix: a prefix to add to the field names e.g. ("team__organization__") to work in the query set
     """
+    if fields_not_deferred is None:
+        fields_not_deferred = set()
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
 
 

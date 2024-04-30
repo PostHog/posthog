@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Callable, cast
+from typing import Optional, cast
+from collections.abc import Callable
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
@@ -26,7 +27,7 @@ class HogQLQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
             self.timings = HogQLTimings()
-        values = (
+        values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
@@ -60,7 +61,6 @@ class HogQLQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
-            explain=bool(self.query.explain),
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

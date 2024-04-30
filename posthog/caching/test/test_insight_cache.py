@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Callable, Optional
+from typing import Optional
+from collections.abc import Callable
 from unittest.mock import call, patch
 
 import pytest
@@ -165,16 +166,15 @@ def test_update_cache_updates_identical_cache_keys(team: Team, user: User, cache
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
 @patch("posthog.caching.insight_cache.update_cache_task")
-@patch("posthog.caching.insight_cache.calculate_result_by_insight")
+@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight", side_effect=Exception())
 def test_update_cache_when_calculation_fails(
-    spy_calculate_result_by_insight,
+    spy_calculate_for_filter_based_insight,
     spy_update_cache_task,
     team: Team,
     user: User,
     cache,
 ):
     caching_state = create_insight_caching_state(team, user, refresh_attempt=1)
-    spy_calculate_result_by_insight.side_effect = Exception()
 
     update_cache(caching_state.pk)
 
@@ -190,8 +190,8 @@ def test_update_cache_when_calculation_fails(
 
 @pytest.mark.django_db
 @freeze_time("2020-01-04T13:01:01Z")
-@patch("posthog.caching.insight_cache.calculate_result_by_insight")
-def test_update_cache_when_recently_refreshed(spy_calculate_result_by_insight, team: Team, user: User):
+@patch("posthog.caching.insight_cache.calculate_for_filter_based_insight")
+def test_update_cache_when_recently_refreshed(spy_calculate_for_filter_based_insight, team: Team, user: User):
     caching_state = create_insight_caching_state(
         team, user, last_refresh=timedelta(hours=1), target_cache_age=timedelta(days=1)
     )
@@ -200,7 +200,7 @@ def test_update_cache_when_recently_refreshed(spy_calculate_result_by_insight, t
 
     updated_caching_state = InsightCachingState.objects.get(team=team)
 
-    assert spy_calculate_result_by_insight.call_count == 0
+    assert spy_calculate_for_filter_based_insight.call_count == 0
     assert updated_caching_state.last_refresh == caching_state.last_refresh
 
 

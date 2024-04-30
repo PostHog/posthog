@@ -993,7 +993,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
     person_properties: {}, // Currently person properties are the same as event properties, see assignment below
-    sessions: {
+    session_properties: {
         $session_duration: {
             label: 'Session duration',
             description: (
@@ -1006,13 +1006,13 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             ),
             examples: ['01:04:12'],
         },
-        $min_timestamp: {
-            label: 'First timestamp',
+        $start_timestamp: {
+            label: 'Start timestamp',
             description: <span>The timestamp of the first event from this session.</span>,
             examples: [new Date().toISOString()],
         },
-        $max_timestamp: {
-            label: 'Last timestamp',
+        $end_timestamp: {
+            label: 'End timestamp',
             description: <span>The timestamp of the last event from this session</span>,
             examples: [new Date().toISOString()],
         },
@@ -1022,7 +1022,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_url: {
-            label: 'Entry URL',
+            label: 'Exit URL',
             description: <span>The last URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
@@ -1036,7 +1036,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The number of autocapture events in this session</span>,
             examples: ['123'],
         },
-        $initial_channel_type: {
+        $channel_type: {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
             examples: ['Paid Search', 'Organic Video', 'Direct'],
@@ -1079,20 +1079,21 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
     if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
-        CORE_FILTER_DEFINITIONS_BY_GROUP.sessions[`$initial_${key.replace(/^\$/, '')}`] = {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$initial_${key.replace(/^\$/, '')}`] = {
             ...value,
             label: `Initial ${value.label}`,
             description:
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
                     : 'Data from the first event in this session.',
+            examples: 'examples' in value ? value.examples : undefined,
         }
     }
 }
 
 // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
 CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
-    CORE_FILTER_DEFINITIONS_BY_GROUP.sessions.$session_duration
+    CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties.$session_duration
 
 export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
 

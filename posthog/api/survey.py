@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from typing import Type
 
 from django.http import JsonResponse
 
@@ -58,6 +57,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -89,6 +89,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -271,7 +272,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
         else:

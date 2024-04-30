@@ -14,8 +14,10 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    count_failed_batch_export_runs,
     create_batch_export_backfill,
     create_batch_export_run,
+    pause_batch_export,
     update_batch_export_backfill_status,
     update_batch_export_run,
 )
@@ -24,6 +26,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_started_metric,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
+from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 SELECT_QUERY_TEMPLATE = Template(
@@ -48,7 +51,7 @@ TIMESTAMP_PREDICATES = """
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
 -- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 2 DAY
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 4 DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
 """
 
@@ -185,14 +188,14 @@ def iter_records(
         timestamp_predicates = ""
 
     if fields is None:
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
     else:
         if "_inserted_at" not in [field["alias"] for field in fields]:
             control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
         else:
             control_fields = []
 
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields + control_fields))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=query_fields,
@@ -216,8 +219,7 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    for record_batch in client.stream_query_as_arrow(query, query_parameters=query_parameters):
-        yield record_batch
+    yield from client.stream_query_as_arrow(query, query_parameters=query_parameters)
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -370,33 +372,47 @@ class FinishBatchExportRunInputs:
 
     Attributes:
         id: The id of the batch export run. This should be a valid UUID string.
+        batch_export_id: The id of the batch export this run belongs to.
         team_id: The team id of the batch export.
         status: The status this batch export is finishing with.
         latest_error: The latest error message captured, if any.
         records_completed: Number of records successfully exported.
         records_total_count: Total count of records this run noted.
+        failure_threshold: Used when determining to pause a batch export that has failed.
+            See the docstring in 'pause_batch_export_if_over_failure_threshold'.
+        failure_check_window: Used when determining to pause a batch export that has failed.
+            See the docstring in 'pause_batch_export_if_over_failure_threshold'.
     """
 
     id: str
+    batch_export_id: str
     team_id: int
     status: str
     latest_error: str | None = None
     records_completed: int | None = None
     records_total_count: int | None = None
+    failure_threshold: int = 10
+    failure_check_window: int = 50
 
 
 @activity.defn
 async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
-    """Activity that finishes a BatchExportRun.
+    """Activity that finishes a 'BatchExportRun'.
 
-    Finishing means a final update to the status of the BatchExportRun model.
+    Finishing means setting and handling the status of a 'BatchExportRun' model, as well
+    as setting any additional supported model attributes.
+
+    The only status that requires handling is 'FAILED' as we also check if the number of failures in
+    'failure_check_window' exceeds 'failure_threshold' and attempt to pause the batch export if
+    that's the case. Also, a notification is sent to users on every failure.
     """
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
+    not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
     update_params = {
         key: value
         for key, value in dataclasses.asdict(inputs).items()
-        if key not in ("id", "team_id") and value is not None
+        if key not in not_model_params and value is not None
     }
     batch_export_run = await sync_to_async(update_batch_export_run)(
         run_id=uuid.UUID(inputs.id),
@@ -404,11 +420,41 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         **update_params,
     )
 
-    if batch_export_run.status in (BatchExportRun.Status.FAILED, BatchExportRun.Status.FAILED_RETRYABLE):
-        logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
+    if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
+        logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
+
+    elif batch_export_run.status == BatchExportRun.Status.FAILED:
+        logger.error("Batch export failed with non-retryable error: %s", batch_export_run.latest_error)
+
+        from posthog.tasks.email import send_batch_export_run_failure
+
+        try:
+            await send_batch_export_run_failure(inputs.id)
+        except Exception:
+            logger.exception("Failure email notification could not be sent")
+
+        try:
+            was_paused = await pause_batch_export_if_over_failure_threshold(
+                inputs.batch_export_id,
+                check_window=inputs.failure_check_window,
+                failure_threshold=inputs.failure_threshold,
+            )
+        except Exception:
+            # Pausing could error if the underlying schedule is deleted.
+            # Our application logic should prevent that, but I want to log it in case it ever happens
+            # as that would indicate a bug.
+            logger.exception("Batch export could not be automatically paused")
+            was_paused = False
+
+        if was_paused:
+            logger.warning(
+                "Batch export was automatically paused due to exceeding failure threshold and exhausting "
+                "all automated retries."
+                "The batch export can be manually unpaused after addressing any errors."
+            )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
-        logger.warning("BatchExport was cancelled.")
+        logger.warning("Batch export was cancelled")
 
     else:
         logger.info(
@@ -416,6 +462,59 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             batch_export_run.data_interval_start,
             batch_export_run.data_interval_end,
         )
+
+
+async def pause_batch_export_if_over_failure_threshold(
+    batch_export_id: str, check_window: int, failure_threshold: int = 10
+) -> bool:
+    """Pause a batch export if it exceeds failure threshold.
+
+    A 'check_window' was added to account for batch exports that have a history of failures but have some
+    occassional successes in the middle. This is relevant particularly for low-volume exports:
+    A batch export without rows to export always succeeds, even if it's not properly configured. So, the failures
+    could be scattered between these successes.
+
+    Keep in mind that if 'check_window' is less than 'failure_threshold', there is no point in even counting,
+    so we raise an exception.
+
+    We check if the count of failed runs in the last 'check_window' runs exceeds 'failure_threshold'. This means
+    that 'pause_batch_export_if_over_failure_threshold' should only be called when handling a failed run,
+    otherwise we could be pausing a batch export that is just now recovering (as old failed runs in 'check_window'
+    contribute to exceeding 'failure_threshold').
+
+    Arguments:
+        batch_export_id: The ID of the batch export to check and pause.
+        check_window: The window of runs to consider for computing a count of failures.
+        failure_threshold: The number of runs that must have failed for a batch export to be paused.
+
+    Returns:
+        A bool indicating if the batch export is paused.
+
+    Raises:
+        ValueError: If 'check_window' is smaller than 'failure_threshold' as that check would be redundant and,
+            likely, a bug.
+    """
+    if check_window < failure_threshold:
+        raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
+
+    count = await sync_to_async(count_failed_batch_export_runs)(uuid.UUID(batch_export_id), last_n=check_window)
+
+    if count < failure_threshold:
+        return False
+
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    await sync_to_async(pause_batch_export)(
+        client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
+    )
+    return True
 
 
 @dataclasses.dataclass
@@ -493,10 +592,10 @@ async def execute_batch_export_insert_activity(
     inputs,
     non_retryable_error_types: list[str],
     finish_inputs: FinishBatchExportRunInputs,
-    start_to_close_timeout_seconds: int = 3600,
+    interval: str,
     heartbeat_timeout_seconds: int | None = 120,
-    maximum_attempts: int = 10,
-    initial_retry_interval_seconds: int = 10,
+    maximum_attempts: int = 15,
+    initial_retry_interval_seconds: int = 30,
     maximum_retry_interval_seconds: int = 120,
 ) -> None:
     """Execute the main insert activity of a batch export handling any errors.
@@ -510,7 +609,7 @@ async def execute_batch_export_insert_activity(
         inputs: The inputs to the activity.
         non_retryable_error_types: A list of errors to not retry on when executing the activity.
         finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
-        start_to_close_timeout: A timeout for the 'insert_into_*' activity function.
+        interval: The interval of the batch export used to set the start to close timeout.
         maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
             Assuming the error that triggered the retry is not in non_retryable_error_types.
         initial_retry_interval_seconds: When retrying, seconds until the first retry.
@@ -524,11 +623,23 @@ async def execute_batch_export_insert_activity(
         non_retryable_error_types=non_retryable_error_types,
     )
 
+    if interval == "hour":
+        start_to_close_timeout = dt.timedelta(hours=1)
+    elif interval == "day":
+        start_to_close_timeout = dt.timedelta(days=1)
+    elif interval.startswith("every"):
+        _, value, unit = interval.split(" ")
+        kwargs = {unit: int(value)}
+        # TODO: Consider removing this 10 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
+        start_to_close_timeout = max(dt.timedelta(minutes=10), dt.timedelta(**kwargs))
+    else:
+        raise ValueError(f"Unsupported interval: '{interval}'")
+
     try:
         records_completed = await workflow.execute_activity(
             activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(seconds=start_to_close_timeout_seconds),
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
             retry_policy=retry_policy,
         )

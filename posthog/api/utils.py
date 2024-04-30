@@ -4,7 +4,7 @@ import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
-from typing import List, Literal, Optional, Union, Tuple
+from typing import Literal, Optional, Union
 from uuid import UUID
 
 import structlog
@@ -64,7 +64,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValidationError("An entity must be provided for target entity to be determined")
 
 
-def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+def entity_from_order(order: Optional[str], entities: list[Entity]) -> Optional[Entity]:
     if not order:
         return None
 
@@ -78,8 +78,8 @@ def retrieve_entity_from(
     entity_id: Optional[str],
     entity_type: Optional[str],
     entity_math: MathType,
-    events: List[Entity],
-    actions: List[Entity],
+    events: list[Entity],
+    actions: list[Entity],
 ) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
@@ -251,8 +251,10 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_expressions: List[Tuple[str, Literal["ASC", "DESC"]]] = [],
+    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
 ) -> str:
+    if order_expressions is None:
+        order_expressions = []
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
 
@@ -303,7 +305,7 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
-def parse_bool(value: Union[str, List[str]]) -> bool:
+def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
     return False

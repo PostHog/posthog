@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
+    SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -66,7 +67,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
@@ -175,15 +175,22 @@ export type AnyResponseType =
 export interface DataNode extends Node {
     /** Cached query response */
     response?: Record<string, any>
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
 }
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled' | 'v3_enabled'
+    personsOnEventsMode?:
+        | 'disabled'
+        | 'person_id_no_override_properties_on_events'
+        | 'person_id_override_properties_on_events'
+        | 'person_id_override_properties_joined'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+    debug?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -234,9 +241,9 @@ export interface HogQLQuery extends DataNode {
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    modifiers?: HogQLQueryModifiers
-    explain?: boolean
     response?: HogQLQueryResponse
+    /** @deprecated use modifiers.debug instead */
+    explain?: boolean
 }
 
 export interface HogQLNotice {
@@ -412,6 +419,7 @@ export interface EventsQueryResponse {
     timings?: QueryTiming[]
     limit?: integer
     offset?: integer
+    modifiers?: HogQLQueryModifiers
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -624,6 +632,8 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -850,6 +860,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
 export interface QueryRequest {
@@ -888,6 +899,7 @@ export interface QueryResponse {
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
+    modifiers?: HogQLQueryModifiers
 }
 
 export type QueryStatus = {
@@ -936,6 +948,7 @@ export interface ActorsQueryResponse {
     limit: integer
     offset: integer
     missing_actors_count?: integer
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface ActorsQuery extends DataNode {
@@ -976,7 +989,7 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
@@ -987,6 +1000,7 @@ export interface WebAnalyticsQueryBase {
         forceSamplingRate?: SamplingRate
     }
     useSessionsTable?: boolean
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -1096,6 +1110,7 @@ export type Day = integer
 export interface InsightActorsQueryBase {
     includeRecordings?: boolean
     response?: ActorsQueryResponse
+    modifiers?: HogQLQueryModifiers
 }
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
@@ -1161,6 +1176,7 @@ export interface FunnelCorrelationResponse {
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    modifiers?: HogQLQueryModifiers
 }
 
 export enum FunnelCorrelationResultsType {

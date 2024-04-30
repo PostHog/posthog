@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportDestination,
+    BatchExportService,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigTypeNew,
@@ -31,7 +31,7 @@ import {
     Destination,
     ImportApp,
     PipelineBackend,
-    PluginBasedStepBase,
+    PluginBasedNode,
     SiteApp,
     Transformation,
     WebhookDestination,
@@ -150,7 +150,7 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['type'] }): JSX.Element {
+export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
     const icon = {
         BigQuery: BigQueryIcon,
         Postgres: PostgresIcon,
@@ -275,7 +275,7 @@ export function appColumn<T extends { plugin: Transformation['plugin'] }>(): Lem
     }
 }
 
-function pluginMenuItems(node: PluginBasedStepBase): LemonMenuItem[] {
+function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     if (node.plugin?.url) {
         return [
             {
@@ -298,6 +298,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
+            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {
@@ -320,26 +321,21 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
 
     return [
-        ...(!inOverview
-            ? [
-                  {
-                      label: node.enabled ? 'Disable app' : 'Enable app',
-                      onClick: () =>
-                          toggleEnabled({
-                              enabled: !node.enabled,
-                              id: node.id,
-                          }),
-                      disabledReason: canConfigurePlugins
-                          ? undefined
-                          : 'You do not have permission to enable/disable apps.',
-                  },
-              ]
-            : []),
+        {
+            label: node.enabled ? 'Disable app' : 'Enable app',
+            onClick: () =>
+                toggleEnabled({
+                    enabled: !node.enabled,
+                    id: node.id,
+                }),
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
+        },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {
                       label: 'Delete app',
+                      status: 'danger' as const, // for typechecker happiness
                       onClick: () => {
                           void deleteWithUndo({
                               endpoint: `plugin_config`,
@@ -350,7 +346,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                               callback: loadPluginConfigs,
                           })
                       },
-                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete apps.',
+                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
                   },
               ]
             : []),

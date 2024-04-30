@@ -10,6 +10,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -123,8 +124,8 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
-        if (event.properties && '$process_person' in event.properties) {
-            const propValue = event.properties.$process_person
+        if (event.properties && '$process_person_profile' in event.properties) {
+            const propValue = event.properties.$process_person_profile
             if (propValue === true) {
                 // This is the default, and `true` is one of the two valid values.
             } else if (propValue === false) {
@@ -136,7 +137,7 @@ export class EventPipelineRunner {
                         captureIngestionWarning(
                             this.hub.db.kafkaProducer,
                             event.team_id,
-                            'invalid_event_when_process_person_is_false',
+                            'invalid_event_when_process_person_profile_is_false',
                             {
                                 eventUuid: event.uuid,
                                 event: event.event,
@@ -159,13 +160,13 @@ export class EventPipelineRunner {
                     captureIngestionWarning(
                         this.hub.db.kafkaProducer,
                         event.team_id,
-                        'invalid_process_person',
+                        'invalid_process_person_profile',
                         {
                             eventUuid: event.uuid,
                             event: event.event,
                             distinctId: event.distinct_id,
-                            $process_person: propValue,
-                            message: 'Only a boolean value is valid for the $process_person property',
+                            $process_person_profile: propValue,
+                            message: 'Only a boolean value is valid for the $process_person_profile property',
                         },
                         { alwaysSend: false }
                     )
@@ -192,14 +193,7 @@ export class EventPipelineRunner {
             return this.registerLastStep('clientIngestionWarning', [event], kafkaAcks)
         }
 
-        // Some expensive, deprecated plugins are skipped when `$process_person=false`
-        const runDeprecatedPlugins = processPerson
-        const processedEvent = await this.runStep(
-            pluginsProcessEventStep,
-            [this, event, runDeprecatedPlugins],
-            event.team_id
-        )
-
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
@@ -223,9 +217,19 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        const [preparedEventWithoutHeatmaps, heatmapKafkaAcks] = await this.runStep(
+            extractHeatmapDataStep,
+            [this, preparedEvent],
+            event.team_id
+        )
+
+        if (heatmapKafkaAcks.length > 0) {
+            kafkaAcks.push(...heatmapKafkaAcks)
+        }
+
         const [rawClickhouseEvent, eventAck] = await this.runStep(
             createEventStep,
-            [this, preparedEvent, person, processPerson],
+            [this, preparedEventWithoutHeatmaps, person, processPerson],
             event.team_id
         )
 

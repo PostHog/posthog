@@ -3,47 +3,12 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { HogQLDebug } from 'scenes/debug/HogQLDebug'
+import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { stringifiedExamples } from '~/queries/examples'
-import { Query } from '~/queries/Query/Query'
-import { HogQLQuery } from '~/queries/schema'
 
 import { debugSceneLogic } from './debugSceneLogic'
-
-interface QueryDebugProps {
-    queryKey: string
-    query: string
-    setQuery: (query: string) => void
-}
-function QueryDebug({ query, setQuery, queryKey }: QueryDebugProps): JSX.Element {
-    let parsed: Record<string, any> | undefined
-    try {
-        parsed = JSON.parse(query)
-    } catch (e) {
-        // do nothing
-    }
-    return (
-        <>
-            {parsed && parsed?.kind === 'HogQLQuery' ? (
-                <HogQLDebug
-                    queryKey={queryKey}
-                    query={parsed as HogQLQuery}
-                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
-                />
-            ) : (
-                <Query
-                    query={query}
-                    setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
-                    context={{
-                        showQueryEditor: true,
-                    }}
-                />
-            )}
-        </>
-    )
-}
 
 export function DebugScene(): JSX.Element {
     const { query1, query2 } = useValues(debugSceneLogic)
@@ -95,11 +60,11 @@ export function DebugScene(): JSX.Element {
             />
             <div className="flex gap-2">
                 <div className="flex-1 w-1/2">
-                    <QueryDebug query={query1} setQuery={setQuery1} queryKey="hogql-debug-1" />
+                    <DebugSceneQuery query={query1} setQuery={setQuery1} queryKey="hogql-debug-1" />
                 </div>
                 {query2 ? (
                     <div className="flex-1 w-1/2">
-                        <QueryDebug query={query2} setQuery={setQuery2} queryKey="hogql-debug-2" />
+                        <DebugSceneQuery query={query2} setQuery={setQuery2} queryKey="hogql-debug-2" />
                     </div>
                 ) : null}
             </div>

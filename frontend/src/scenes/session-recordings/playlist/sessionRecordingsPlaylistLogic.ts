@@ -10,7 +10,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
 import {
-    AnyPropertyFilter,
     DurationType,
     PropertyFilterType,
     PropertyOperator,
@@ -92,59 +91,6 @@ export const getDefaultFilters = (personUUID?: PersonUUID): RecordingFilters => 
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
-export const defaultPageviewPropertyEntityFilter = (
-    filters: RecordingFilters,
-    property: string,
-    value?: string
-): Partial<RecordingFilters> => {
-    const existingPageview = filters.events?.find(({ name }) => name === '$pageview')
-    const eventEntityFilters = filters.events ?? []
-    const propToAdd = value
-        ? {
-              key: property,
-              value: [value],
-              operator: PropertyOperator.Exact,
-              type: 'event',
-          }
-        : {
-              key: property,
-              value: PropertyOperator.IsNotSet,
-              operator: PropertyOperator.IsNotSet,
-              type: 'event',
-          }
-
-    // If pageview exists, add property to the first pageview event
-    if (existingPageview) {
-        return {
-            events: eventEntityFilters.map((eventFilter) =>
-                eventFilter.order === existingPageview.order
-                    ? {
-                          ...eventFilter,
-                          properties: [
-                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
-                                  []),
-                              propToAdd,
-                          ],
-                      }
-                    : eventFilter
-            ),
-        }
-    } else {
-        return {
-            events: [
-                ...eventEntityFilters,
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: eventEntityFilters.length,
-                    properties: [propToAdd],
-                },
-            ],
-        }
-    }
-}
-
 const capturePartialFilters = (filters: Partial<RecordingFilters>): void => {
     // capture only the partial filters applied (not the full filters object)
     // take each key from the filter and change it to `partial_filter_chosen_${key}`
@@ -215,6 +161,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        toggleRecordingsListCollapsed: (override?: boolean) => ({ override }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         if (!objectsEqual(props.advancedFilters, oldProps.advancedFilters)) {
@@ -442,9 +389,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ...s,
                                 viewed: true,
                             }
-                        } else {
-                            return { ...s }
                         }
+                        return { ...s }
                     }),
 
                 summarizeSessionSuccess: (state, { sessionSummary }) => {
@@ -455,9 +401,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                       ...s,
                                       summary: sessionSummary.content,
                                   }
-                              } else {
-                                  return s
                               }
+                              return s
                           })
                         : state
                 },
@@ -478,6 +423,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSimpleFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        isRecordingsListCollapsed: [
+            false,
+            { persist: true },
+            {
+                toggleRecordingsListCollapsed: (state, { override }) => override ?? !state,
             },
         ],
     })),
@@ -560,22 +512,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
-                } else {
-                    if (!hasEvents) {
-                        return { matchType: 'none' }
-                    }
+                }
+                if (!hasEvents) {
+                    return { matchType: 'none' }
+                }
 
-                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
-                        return {
-                            matchType: 'name',
-                            eventNames: simpleEventsFilters,
-                        }
-                    } else {
-                        return {
-                            matchType: 'backend',
-                            filters,
-                        }
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                    return {
+                        matchType: 'name',
+                        eventNames: simpleEventsFilters,
                     }
+                }
+                return {
+                    matchType: 'backend',
+                    filters,
                 }
             },
         ],

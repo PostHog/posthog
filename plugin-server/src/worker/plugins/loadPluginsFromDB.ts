@@ -25,17 +25,6 @@ const loadPluginsTotalMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-// These are plugins that do I/O (fetch, cache, storage) that we want to deprecate. For now, we
-// want to at least ensure they don't run for "personless" ($process_person=false) events.
-const personlessPluginSkipList = [
-    'https://github.com/posthog/currency-normalization-plugin',
-    'https://github.com/posthog/event-sequence-timer-plugin',
-    'https://github.com/posthog/first-event-today',
-    'https://github.com/posthog/first-time-event-tracker',
-    'https://github.com/posthog/flatten-properties-plugin',
-    'https://github.com/posthog/mailboxlayer-plugin',
-]
-
 export async function loadPluginsFromDB(
     hub: Hub
 ): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
@@ -44,9 +33,6 @@ export async function loadPluginsFromDB(
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {
-        if (row.url && personlessPluginSkipList.includes(row.url.toLowerCase())) {
-            row.skipped_for_personless = true
-        }
         plugins.set(row.id, row)
     }
     loadPluginsMsSummary.observe(new Date().getTime() - startTimer.getTime())

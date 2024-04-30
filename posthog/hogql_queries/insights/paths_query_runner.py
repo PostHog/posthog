@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Dict, Literal, cast
+from typing import Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -47,7 +47,7 @@ class PathsQueryRunner(QueryRunner):
 
     def __init__(
         self,
-        query: PathsQuery | Dict[str, Any],
+        query: PathsQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -869,7 +869,7 @@ class PathsQueryRunner(QueryRunner):
             for source, target, value, avg_conversion_time in response.results
         )
 
-        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     @property
     def extra_event_fields_and_properties(self) -> list[str]:

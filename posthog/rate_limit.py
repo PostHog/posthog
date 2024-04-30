@@ -2,7 +2,7 @@ import hashlib
 import re
 import time
 from functools import lru_cache
-from typing import List, Optional
+from typing import Optional
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
@@ -36,7 +36,7 @@ DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
 
 
 @lru_cache(maxsize=1)
-def get_team_allow_list(_ttl: int) -> List[str]:
+def get_team_allow_list(_ttl: int) -> list[str]:
     """
     The "allow list" will change way less frequently than it will be called
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay

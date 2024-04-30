@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import List, Optional, Dict, Tuple, Type
+from typing import Optional
 from posthog.hogql import ast
 from posthog.hogql.base import ConstantType
 from posthog.hogql.errors import QueryError
 
 
 def validate_function_args(
-    args: List[ast.Expr],
+    args: list[ast.Expr],
     min_args: int,
     max_args: Optional[int],
     function_name: str,
@@ -31,7 +31,7 @@ def validate_function_args(
         )
 
 
-Overload = Tuple[Tuple[Type[ConstantType], ...] | Type[ConstantType], str]
+Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
 
 
 @dataclass()
@@ -42,7 +42,7 @@ class HogQLFunctionMeta:
     min_params: int = 0
     max_params: Optional[int] = 0
     aggregate: bool = False
-    overloads: Optional[List[Overload]] = None
+    overloads: Optional[list[Overload]] = None
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
@@ -50,7 +50,7 @@ class HogQLFunctionMeta:
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
 
 
-HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
+HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
     "equals": ast.CompareOperationOp.Eq,
     "notEquals": ast.CompareOperationOp.NotEq,
     "less": ast.CompareOperationOp.Lt,
@@ -65,7 +65,7 @@ HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
     "notIn": ast.CompareOperationOp.NotIn,
 }
 
-HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
+HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # arithmetic
     "plus": HogQLFunctionMeta("plus", 2, 2),
     "minus": HogQLFunctionMeta("minus", 2, 2),
@@ -575,19 +575,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
 }
 # Permitted HogQL aggregations
-HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
+HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
-    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True),
-    "COUNT": HogQLFunctionMeta("count", 0, 1, aggregate=True),
+    "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
-    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True),
+    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
-    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True),
+    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
-    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True),
+    "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
-    "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True),
+    "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
     "any": HogQLFunctionMeta("any", 1, 1, aggregate=True),
     "anyIf": HogQLFunctionMeta("anyIf", 2, 2, aggregate=True),
@@ -599,10 +598,10 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "varPopIf": HogQLFunctionMeta("varPopIf", 2, 2, aggregate=True),
     "varSamp": HogQLFunctionMeta("varSamp", 1, 1, aggregate=True),
     "varSampIf": HogQLFunctionMeta("varSampIf", 2, 2, aggregate=True),
-    "covarPop": HogQLFunctionMeta("covarPop", 1, 1, aggregate=True),
-    "covarPopIf": HogQLFunctionMeta("covarPopIf", 2, 2, aggregate=True),
-    "covarSamp": HogQLFunctionMeta("covarSamp", 1, 1, aggregate=True),
-    "covarSampIf": HogQLFunctionMeta("covarSampIf", 2, 2, aggregate=True),
+    "covarPop": HogQLFunctionMeta("covarPop", 2, 2, aggregate=True),
+    "covarPopIf": HogQLFunctionMeta("covarPopIf", 3, 3, aggregate=True),
+    "covarSamp": HogQLFunctionMeta("covarSamp", 2, 2, aggregate=True),
+    "covarSampIf": HogQLFunctionMeta("covarSampIf", 3, 3, aggregate=True),
     # ClickHouse-specific aggregate functions
     "anyHeavy": HogQLFunctionMeta("anyHeavy", 1, 1, aggregate=True),
     "anyHeavyIf": HogQLFunctionMeta("anyHeavyIf", 2, 2, aggregate=True),
@@ -748,7 +747,8 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
     "maxIntersectionsPosition": HogQLFunctionMeta("maxIntersectionsPosition", 2, 2, aggregate=True),
     "maxIntersectionsPositionIf": HogQLFunctionMeta("maxIntersectionsPositionIf", 3, 3, aggregate=True),
 }
-HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
+HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
+    "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
     "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
     "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
@@ -781,12 +781,12 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
 )
 
 
-def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
-    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name)
+def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
+    func = functions.get(name)
     if func is not None:
         return func
 
-    func = HOGQL_CLICKHOUSE_FUNCTIONS.get(name.lower())
+    func = functions.get(name.lower())
     if func is None:
         return None
     # If we haven't found a function with the case preserved, but we have found it in lowercase,
@@ -795,3 +795,15 @@ def find_clickhouse_function(name: str) -> Optional[HogQLFunctionMeta]:
         return None
 
     return func
+
+
+def find_hogql_aggregation(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_AGGREGATIONS)
+
+
+def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_CLICKHOUSE_FUNCTIONS)
+
+
+def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
+    return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)

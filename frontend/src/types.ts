@@ -148,6 +148,7 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
+    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -442,6 +443,7 @@ export interface TeamType extends TeamBasicType {
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
+    heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -596,7 +598,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
-    FilePlayback = 'file-playback',
     Errors = 'errors',
 }
 
@@ -616,7 +617,6 @@ export enum PipelineTab {
 }
 
 export enum PipelineStage {
-    Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',
@@ -666,6 +666,7 @@ interface BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
+    /** @default 'exact' */
     operator: PropertyOperator
 }
 
@@ -694,7 +695,6 @@ export interface ElementPropertyFilter extends BasePropertyFilter {
 
 export interface SessionPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Session
-    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -804,6 +804,7 @@ export type EncodedRecordingSnapshot = {
 export const SnapshotSourceType = {
     blob: 'blob',
     realtime: 'realtime',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -813,7 +814,12 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
-    loaded: boolean
+}
+
+export interface SessionRecordingSnapshotSourceResponse {
+    source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
+    snapshots?: RecordingSnapshot[]
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionRecordingSnapshotResponse {
@@ -1078,6 +1084,7 @@ export interface CohortCriteriaType {
     operator_value?: PropertyFilterValue
     time_value?: number | string | null
     time_interval?: TimeUnitType | null
+    explicit_datetime?: string | null
     total_periods?: number | null
     min_periods?: number | null
     seq_event_type?: TaxonomicFilterGroupType | null
@@ -1086,6 +1093,7 @@ export interface CohortCriteriaType {
     seq_time_interval?: TimeUnitType | null
     negation?: boolean
     value_property?: string | null // Transformed into 'value' for api calls
+    event_filters?: AnyPropertyFilter[] | null
 }
 
 export type EmptyCohortGroupType = Partial<CohortGroupType>
@@ -1115,6 +1123,7 @@ export interface CohortType {
     filters: {
         properties: CohortCriteriaGroupFilter
     }
+    experiment_set?: number[]
 }
 
 export interface InsightHistory {
@@ -1241,6 +1250,7 @@ export interface SessionRecordingType {
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
+    snapshot_source: 'web' | 'mobile' | 'unknown'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2085,6 +2095,7 @@ export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 
     // frontend only
+    show_legend?: boolean
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }
@@ -2424,6 +2435,7 @@ export interface Survey {
     end_date: string | null
     archived: boolean
     remove_targeting_flag?: boolean
+    responses_limit: number | null
 }
 
 export enum SurveyUrlMatchType {
@@ -2546,7 +2558,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
-    experiment_set: string[] | null
+    experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     rollback_conditions: FeatureFlagRollbackConditions[]
@@ -2804,6 +2816,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     Person = 'person',
     Group = 'group',
+    Session = 'session',
 }
 
 export interface PropertyDefinition {
@@ -2865,6 +2878,7 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    exposure_cohort?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
@@ -3104,11 +3118,13 @@ export type GraphDataset = ChartDataset<ChartType> &
         id: number
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownValues?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+        breakdownLabels?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         compareLabels?: (CompareLabelType | undefined)[]
-        /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
+        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
@@ -3589,6 +3605,8 @@ export interface ExternalDataSourceSyncSchema {
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    incremental?: boolean
+    status?: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -3598,7 +3616,7 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportDestinationS3 = {
+export type BatchExportServiceS3 = {
     type: 'S3'
     config: {
         bucket_name: string
@@ -3616,7 +3634,7 @@ export type BatchExportDestinationS3 = {
     }
 }
 
-export type BatchExportDestinationPostgres = {
+export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
         user: string
@@ -3632,7 +3650,7 @@ export type BatchExportDestinationPostgres = {
     }
 }
 
-export type BatchExportDestinationSnowflake = {
+export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
     config: {
         account: string
@@ -3648,7 +3666,7 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
-export type BatchExportDestinationBigQuery = {
+export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     config: {
         project_id: string
@@ -3664,7 +3682,7 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
-export type BatchExportDestinationHTTP = {
+export type BatchExportServiceHTTP = {
     type: 'HTTP'
     config: {
         url: string
@@ -3674,7 +3692,7 @@ export type BatchExportDestinationHTTP = {
     }
 }
 
-export type BatchExportDestinationRedshift = {
+export type BatchExportServiceRedshift = {
     type: 'Redshift'
     config: {
         user: string
@@ -3693,13 +3711,13 @@ export type BatchExportDestinationRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-export type BatchExportDestination =
-    | BatchExportDestinationS3
-    | BatchExportDestinationSnowflake
-    | BatchExportDestinationPostgres
-    | BatchExportDestinationBigQuery
-    | BatchExportDestinationRedshift
-    | BatchExportDestinationHTTP
+export type BatchExportService =
+    | BatchExportServiceS3
+    | BatchExportServiceSnowflake
+    | BatchExportServicePostgres
+    | BatchExportServiceBigQuery
+    | BatchExportServiceRedshift
+    | BatchExportServiceHTTP
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3707,7 +3725,7 @@ export type BatchExportConfiguration = {
     id: string
     team_id: number
     name: string
-    destination: BatchExportDestination
+    destination: BatchExportService
     interval: 'hour' | 'day' | 'every 5 minutes'
     created_at: string
     start_at: string | null

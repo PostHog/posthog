@@ -27,7 +27,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.1
@@ -53,10 +53,18 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.10
+  '''
+  SELECT (true) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  WHERE "posthog_person"."team_id" = 2
+  LIMIT 10
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.11
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -76,10 +84,10 @@
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.11
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.12
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -107,6 +115,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -136,10 +145,10 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.12
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.13
   '''
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
@@ -147,10 +156,10 @@
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.13
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -173,10 +182,10 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.15
   '''
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
@@ -184,10 +193,10 @@
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.15
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.16
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -215,6 +224,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -237,10 +247,10 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.16
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.17
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -272,10 +282,10 @@
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.17
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.18
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -303,6 +313,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -332,18 +343,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.18
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.19
@@ -352,9 +352,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
@@ -363,7 +363,7 @@
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.20
@@ -372,9 +372,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.21
@@ -383,9 +383,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.22
@@ -394,9 +394,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.23
@@ -405,9 +405,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.24
@@ -416,9 +416,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.25
@@ -427,9 +427,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.26
@@ -438,9 +438,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.27
@@ -449,9 +449,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.28
@@ -460,9 +460,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.29
@@ -471,9 +471,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.3
@@ -484,10 +484,21 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.30
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -515,6 +526,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -537,10 +549,10 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.31
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.32
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -555,10 +567,10 @@
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.32
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.33
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -590,10 +602,10 @@
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.33
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.34
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -613,10 +625,10 @@
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
   WHERE "posthog_dashboard"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.34
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.35
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -644,6 +656,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -673,18 +686,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.35
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.36
@@ -693,9 +695,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.37
@@ -704,9 +706,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.38
@@ -715,9 +717,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.39
@@ -726,9 +728,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.4
@@ -751,7 +753,7 @@
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."key" = 'copied-flag-key'
          AND "posthog_featureflag"."team_id" = 2)
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.40
@@ -760,12 +762,23 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.41
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.42
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -793,6 +806,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -815,10 +829,10 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.42
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.43
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -850,10 +864,10 @@
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.43
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.44
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -881,6 +895,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -910,18 +925,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.44
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.45
@@ -930,9 +934,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.46
@@ -941,9 +945,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.47
@@ -952,9 +956,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.48
@@ -963,9 +967,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.49
@@ -974,9 +978,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.5
@@ -1002,7 +1006,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.50
@@ -1011,9 +1015,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.51
@@ -1022,9 +1026,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.52
@@ -1033,9 +1037,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.53
@@ -1044,9 +1048,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.54
@@ -1055,9 +1059,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.55
@@ -1066,12 +1070,23 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.56
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.57
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1099,6 +1114,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1121,10 +1137,10 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.57
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.58
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -1139,10 +1155,10 @@
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.58
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.59
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -1174,30 +1190,7 @@
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.59
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.6
@@ -1228,6 +1221,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1250,10 +1244,33 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.60
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE "posthog_dashboard"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.61
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1281,6 +1298,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1310,18 +1328,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.61
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.62
@@ -1330,9 +1337,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.63
@@ -1341,9 +1348,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.64
@@ -1352,9 +1359,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.65
@@ -1363,9 +1370,9 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.66
@@ -1374,12 +1381,23 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.67
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.68
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -1399,10 +1417,10 @@
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.68
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.69
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1430,6 +1448,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1459,27 +1478,7 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.69
-  '''
-  SELECT "posthog_experiment"."id",
-         "posthog_experiment"."name",
-         "posthog_experiment"."description",
-         "posthog_experiment"."team_id",
-         "posthog_experiment"."filters",
-         "posthog_experiment"."parameters",
-         "posthog_experiment"."secondary_metrics",
-         "posthog_experiment"."created_by_id",
-         "posthog_experiment"."feature_flag_id",
-         "posthog_experiment"."start_date",
-         "posthog_experiment"."end_date",
-         "posthog_experiment"."created_at",
-         "posthog_experiment"."updated_at",
-         "posthog_experiment"."archived"
-  FROM "posthog_experiment"
-  WHERE "posthog_experiment"."feature_flag_id" = 2 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.7
@@ -1504,10 +1503,31 @@
          AND "posthog_featureflag"."key" = 'copied-flag-key'
          AND "posthog_featureflag"."team_id" = 2)
   ORDER BY "posthog_featureflag"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.70
+  '''
+  SELECT "posthog_experiment"."id",
+         "posthog_experiment"."name",
+         "posthog_experiment"."description",
+         "posthog_experiment"."team_id",
+         "posthog_experiment"."filters",
+         "posthog_experiment"."parameters",
+         "posthog_experiment"."secondary_metrics",
+         "posthog_experiment"."created_by_id",
+         "posthog_experiment"."feature_flag_id",
+         "posthog_experiment"."exposure_cohort_id",
+         "posthog_experiment"."start_date",
+         "posthog_experiment"."end_date",
+         "posthog_experiment"."created_at",
+         "posthog_experiment"."updated_at",
+         "posthog_experiment"."archived"
+  FROM "posthog_experiment"
+  WHERE "posthog_experiment"."feature_flag_id" = 2
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.71
   '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
@@ -1524,12 +1544,13 @@
          "posthog_survey"."start_date",
          "posthog_survey"."end_date",
          "posthog_survey"."updated_at",
-         "posthog_survey"."archived"
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit"
   FROM "posthog_survey"
-  WHERE "posthog_survey"."linked_flag_id" = 2 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  WHERE "posthog_survey"."linked_flag_id" = 2
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.71
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.72
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -1540,10 +1561,10 @@
          "posthog_earlyaccessfeature"."documentation_url",
          "posthog_earlyaccessfeature"."created_at"
   FROM "posthog_earlyaccessfeature"
-  WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 2 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 2
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.72
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.73
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1564,7 +1585,7 @@
   FROM "posthog_dashboard"
   INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_featureflagdashboards"."feature_flag_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_featureflagdashboards"."feature_flag_id" = 2)
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.8
@@ -1574,7 +1595,7 @@
   WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
          AND "posthog_featureflag"."team_id" = 2)
-  LIMIT 1 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.9
@@ -1597,7 +1618,7 @@
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."deleted"
          AND "posthog_featureflag"."key" = 'copied-flag-key'
-         AND "posthog_featureflag"."team_id" = 2) /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
+         AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success
@@ -1628,7 +1649,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.1
@@ -1654,7 +1675,7 @@
          "posthog_organization"."available_features"
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.2
@@ -1663,7 +1684,7 @@
   FROM "posthog_organizationmembership"
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.3
@@ -1674,7 +1695,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.4
@@ -1705,6 +1726,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1726,7 +1748,7 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
-  WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.5
@@ -1753,7 +1775,7 @@
                                                  2,
                                                  3,
                                                  4,
-                                                 5 /* ... */)) /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+                                                 5 /* ... */))
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.6
@@ -1785,7 +1807,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '''
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.7
@@ -1817,6 +1839,6 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '''
 # ---

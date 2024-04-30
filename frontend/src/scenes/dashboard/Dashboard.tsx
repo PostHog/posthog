@@ -53,7 +53,7 @@ function DashboardScene(): JSX.Element {
         itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
-        receivedErrorsFromAPI,
+        dashboardFailedToLoad,
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
@@ -96,7 +96,7 @@ function DashboardScene(): JSX.Element {
         [setDashboardMode, dashboardMode, placement]
     )
 
-    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
+    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
         return <NotFound object="dashboard" />
     }
 
@@ -104,7 +104,7 @@ function DashboardScene(): JSX.Element {
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
 
-            {receivedErrorsFromAPI ? (
+            {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />

@@ -4,8 +4,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SourceConfig } from '~/types'
 
-import { SOURCE_DETAILS } from '../../new/sourceWizardLogic'
-import { sourceFormLogic } from './sourceFormLogic'
+import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
 
 interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -13,13 +12,7 @@ interface SourceFormProps {
 
 export default function SourceForm({ sourceConfig }: SourceFormProps): JSX.Element {
     return (
-        <Form
-            logic={sourceFormLogic}
-            props={{ sourceConfig }}
-            formKey="sourceConnectionDetails"
-            className="space-y-4"
-            enableFormOnSubmit
-        >
+        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" className="space-y-4" enableFormOnSubmit>
             {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => (
                 <LemonField key={field.name} name={['payload', field.name]} label={field.label}>
                     <LemonInput className="ph-ignore-input" data-attr={field.name} />

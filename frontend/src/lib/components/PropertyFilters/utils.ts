@@ -97,7 +97,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Omit<
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
     [PropertyFilterType.DataWarehouse]: TaxonomicFilterGroupType.DataWarehouse,
@@ -183,10 +183,14 @@ export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is 
 export function isPersonPropertyFilter(filter?: AnyFilterLike | null): filter is PersonPropertyFilter {
     return filter?.type === PropertyFilterType.Person
 }
-export function isEventPropertyOrPersonPropertyFilter(
+export function isEventPersonOrSessionPropertyFilter(
     filter?: AnyFilterLike | null
-): filter is EventPropertyFilter | PersonPropertyFilter {
-    return filter?.type === PropertyFilterType.Event || filter?.type === PropertyFilterType.Person
+): filter is EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter {
+    return (
+        filter?.type === PropertyFilterType.Event ||
+        filter?.type === PropertyFilterType.Person ||
+        filter?.type === PropertyFilterType.Session
+    )
 }
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
@@ -264,7 +268,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
-    [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
@@ -308,6 +312,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Person
         : filterType === PropertyFilterType.Group
         ? PropertyDefinitionType.Group
+        : filterType === PropertyFilterType.Session
+        ? PropertyDefinitionType.Session
         : PropertyDefinitionType.Event
 }
 
@@ -340,4 +346,12 @@ export function taxonomicFilterTypeToPropertyFilterType(
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+export function isEmptyProperty(property: AnyPropertyFilter): boolean {
+    return (
+        property.value === null ||
+        property.value === undefined ||
+        (Array.isArray(property.value) && property.value.length === 0)
+    )
 }
