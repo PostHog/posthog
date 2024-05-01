@@ -23,7 +23,7 @@ describe('Billing Upgrade CTA', () => {
         cy.intercept('/api/billing-v2/', { fixture: 'api/billing-v2/billing-v2.json' })
         cy.reload()
 
-        cy.get('[data-attr=session_replay-upgrade-cta] .LemonButton__content').should('have.text', 'Add paid plan')
+        cy.get('[data-attr=session_replay-upgrade-cta] .LemonButton__content').should('have.text', 'Subscribe')
         cy.intercept('POST', '**/e/?compression=gzip-js*').as('capture3')
         cy.window().then((win) => {
             const events = (win as any)._cypress_posthog_captures
