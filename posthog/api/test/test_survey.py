@@ -1314,8 +1314,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
 
-        earliest_survey = Survey(team_id=self.team.id, created_at=datetime.now() - timedelta(days=101))
-        earliest_survey.save()
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
         earliest_survey.created_at = datetime.now() - timedelta(days=101)
         earliest_survey.save()
 
@@ -1347,8 +1346,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
         }
 
-        earliest_survey = Survey(team_id=self.team.id, created_at=datetime.now() - timedelta(days=101))
-        earliest_survey.save()
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
         earliest_survey.created_at = datetime.now() - timedelta(days=6)
         earliest_survey.save()
 
