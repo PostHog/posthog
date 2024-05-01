@@ -85,7 +85,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     def base_time(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_basic_query(self):
         user = "test_basic_query-user"
@@ -177,7 +176,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert more_recordings_available is False
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_basic_query_active_sessions(
         self,
@@ -391,7 +389,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert more_recordings_available is False
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_basic_query_with_ordering(self):
         user = "test_basic_query_with_ordering-user"
@@ -589,7 +586,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             key=lambda x: x["session_id"],  # type: ignore
         )
 
-    @skip("TODO: Not implemented in HogQL")
     def test_recordings_dont_leak_data_between_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         user = "test_recordings_dont_leak_data_between_teams-user"
@@ -726,7 +722,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_ttl_days(self):
         assert ttl_days(self.team) == 21
@@ -1178,7 +1173,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_duration_filter(self):
         user = "test_duration_filter-user"
@@ -1212,7 +1206,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r["session_id"] for r in session_recordings] == [session_id_one]
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_date_from_filter(self):
         user = "test_date_from_filter-user"
@@ -1242,7 +1235,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == "two days before base time"
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_date_from_filter_cannot_search_before_ttl(self):
         with freeze_time(self.base_time):
@@ -1283,7 +1275,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_date_to_filter(self):
         user = "test_date_to_filter-user"
@@ -1315,7 +1306,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == "three days before base time"
 
-    @skip("TODO: Not implemented in HogQL")
     def test_recording_that_spans_time_bounds(self):
         user = "test_recording_that_spans_time_bounds-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})

@@ -90,7 +90,7 @@ class SessionRecordingListFromFilters:
         query = parse_select(
             self.SAMPLE_QUERY,
             {
-                "order_by": Constant(value=self._filter.target_entity_order),
+                "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates(),
             },
@@ -103,6 +103,10 @@ class SessionRecordingListFromFilters:
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
+
+    def _order_by_clause(self) -> Constant:
+        order = self._filter.target_entity_order or "start_time"
+        return ast.Field(chain=[order])
 
     def _where_predicates(self) -> ast.And:
         exprs: list[ast.Expr] = [
@@ -132,7 +136,7 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _having_predicates(self) -> ast.And:
+    def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
 
         if self._filter.recording_duration_filter:
@@ -149,4 +153,4 @@ class SessionRecordingListFromFilters:
                 ),
             )
 
-        return ast.And(exprs=exprs)
+        return ast.And(exprs=exprs) if exprs else Constant(value=True)
