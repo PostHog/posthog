@@ -584,7 +584,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             properties: webAnalyticsFilters,
                                             breakdownBy: WebStatsBreakdown.Page,
                                             dateRange,
-                                            includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                            includeScrollDepth:
+                                                statusCheck?.isSendingPageLeavesScroll && !useSessionsTable,
                                             includeBounceRate: true,
                                             sampling,
                                             doPathCleaning: isPathCleaningEnabled,
@@ -634,7 +635,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   properties: webAnalyticsFilters,
                                                   breakdownBy: WebStatsBreakdown.ExitPage,
                                                   dateRange,
-                                                  includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
+                                                  includeScrollDepth: false,
                                                   sampling,
                                                   doPathCleaning: isPathCleaningEnabled,
                                                   limit: 10,
