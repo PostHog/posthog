@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -48,8 +47,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
         billingProductLogic({ product: addon })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { setProductSpecificAlert } = useActions(billingLogic)
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -60,41 +57,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
-    const isOGPipelineAddon =
-        addon.type === 'data_pipelines' &&
-        addon.subscribed &&
-        addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
-
-    if (isOGPipelineAddon && featureFlags['data-pipelines-notice']) {
-        setProductSpecificAlert({
-            status: 'info',
-            title: 'Welcome to the data pipelines addon!',
-            message: `We've moved data export features (and cost) here to better reflect user needs. Your overall
-                    price hasn't changed.`,
-            action: {
-                onClick: () => {
-                    posthog.capture('data pipelines notice clicked')
-                    // if they don't dismiss it now, we won't show it next time they come back
-                    posthog.capture('data pipelines notice dismissed', {
-                        $set: {
-                            dismissedDataPipelinesNotice: true,
-                        },
-                    })
-                },
-                children: 'Learn more',
-                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
-                targetBlank: true,
-            },
-            dismissKey: 'data-pipelines-notice',
-            onClose: () => {
-                posthog.capture('data pipelines notice dismissed', {
-                    $set: {
-                        dismissedDataPipelinesNotice: true,
-                    },
-                })
-            },
-        })
-    }
     return (
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
@@ -112,17 +74,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
-                        {isOGPipelineAddon && (
-                            <div className="mt-2">
-                                <Link
-                                    targetBlankIcon
-                                    target="_blank"
-                                    to="https://posthog.com/changelog/2024#data-pipeline-add-on-launched"
-                                >
-                                    <span className="text-xs italic">Why am I subscribed to this?</span>
-                                </Link>
-                            </div>
-                        )}
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
