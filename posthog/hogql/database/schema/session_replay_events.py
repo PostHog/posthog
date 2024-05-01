@@ -21,7 +21,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 def join_with_console_logs_log_entries_table(
     from_table: str,
     to_table: str,
-    requested_fields: dict[str, list[str]],
+    requested_fields: dict[str, list[str | int]],
     context: HogQLContext,
     node: SelectQuery,
 ):

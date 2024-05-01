@@ -38,7 +38,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
     def test_select_by_console_log_text(self):
         response = execute_hogql_query(
             parse_select(
-                "select session_id from raw_session_replay_events where console_logs.message = {log_message} order by session_id asc",
+                "select distinct session_id from raw_session_replay_events where console_logs.message = {log_message} order by session_id asc",
                 placeholders={"log_message": ast.Constant(value="This is a generic message")},
             ),
             self.team,
@@ -49,7 +49,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
     def test_select_by_console_log_text_and_level(self):
         response = execute_hogql_query(
             parse_select(
-                "select session_id from raw_session_replay_events where console_logs.message = {log_message} and level = {log_level} order by session_id asc",
+                "select distinct session_id from raw_session_replay_events where console_logs.message = {log_message} and console_logs.level = {log_level} order by session_id asc",
                 placeholders={
                     "log_message": ast.Constant(value="This is a generic message"),
                     "log_level": ast.Constant(value="error"),
