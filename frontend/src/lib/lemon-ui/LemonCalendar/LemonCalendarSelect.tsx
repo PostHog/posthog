@@ -189,6 +189,7 @@ export function LemonCalendarSelect({
 
 export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
     onChange: (date: dayjs.Dayjs | null) => void
+    onClickOutside?: () => void
     buttonProps?: LemonButtonWithSideActionProps
     placeholder?: string
     clearable?: boolean
@@ -206,7 +207,10 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
     return (
         <Popover
             actionable
-            onClickOutside={() => setUncontrolledVisible(false)}
+            onClickOutside={() => {
+                setUncontrolledVisible(false)
+                props.onClickOutside?.()
+            }}
             visible={visible}
             overlay={
                 <LemonCalendarSelect

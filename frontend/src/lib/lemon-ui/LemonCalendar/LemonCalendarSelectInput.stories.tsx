@@ -15,7 +15,7 @@ const meta: Meta<typeof LemonCalendarSelectInput> = {
 export default meta
 
 const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCalendarSelectInputProps) => {
-    const [value, setValue] = useState<dayjs.Dayjs | null>(dayjs().subtract(10, 'day'))
+    const [value, setValue] = useState<dayjs.Dayjs | null>(dayjs())
 
     return (
         <div className="w-64">
@@ -36,3 +36,9 @@ Default.args = {}
 
 export const Controlled: Story = BasicTemplate.bind({})
 Controlled.args = { visible: true }
+
+export const Upcoming: Story = BasicTemplate.bind({})
+Upcoming.args = { visible: true, validPeriod: 'upcoming' }
+
+export const Past: Story = BasicTemplate.bind({})
+Past.args = { visible: true, validPeriod: 'upcoming' }
