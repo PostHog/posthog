@@ -1,0 +1,8 @@
+frontend/src/scenes/settings/project/SurveySettings.tsx
+frontend/src/scenes/surveys/ @team-feature-success
+posthog/admin/admins/survey_admin.py
+posthog/api/survey.py @team-feature-success
+posthog/api/test/test_survey.py @team-feature-success
+posthog/models/feedback/survey.py @team-feature-success
+posthog/tasks/stop_surveys_reached_target.py @team-feature-success
+posthog/tasks/test/test_stop_surveys_reached_target.py @team-feature-success
