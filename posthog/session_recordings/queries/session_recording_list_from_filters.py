@@ -1,10 +1,14 @@
-from posthog.models import Team
 from typing import Any, NamedTuple
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_select
-from posthog.hogql.ast import Constant
+from datetime import datetime, timedelta
+
 from posthog.hogql import ast
+from posthog.hogql.ast import Constant
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -15,7 +19,7 @@ class SessionRecordingQueryResult(NamedTuple):
 class SessionRecordingListFromFilters:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
-    team: Team
+    _team: Team
     _filter: SessionRecordingsFilter
 
     SAMPLE_QUERY: str = """
@@ -75,8 +79,12 @@ class SessionRecordingListFromFilters:
         filter: SessionRecordingsFilter,
         **_,
     ):
-        self.team = team
+        self._team = team
         self._filter = filter
+
+    @property
+    def ttl_days(self):
+        return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
         query = parse_select(
@@ -90,14 +98,20 @@ class SessionRecordingListFromFilters:
 
         response = execute_hogql_query(
             query=query,
-            team=self.team,
+            team=self._team,
         )
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
 
     def _where_predicates(self) -> ast.And:
-        exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["s", "min_first_timestamp"]),
+                right=ast.Constant(value=datetime.now() - timedelta(days=self.ttl_days)),
+            )
+        ]
 
         if self._filter.date_from:
             exprs.append(
