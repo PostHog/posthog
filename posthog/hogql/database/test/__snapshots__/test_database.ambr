@@ -227,14 +227,14 @@
                   "$entry_pathname",
                   "$exit_url",
                   "$exit_pathname",
-                  "$initial_utm_source",
-                  "$initial_utm_campaign",
-                  "$initial_utm_medium",
-                  "$initial_utm_term",
-                  "$initial_utm_content",
-                  "$initial_referring_domain",
-                  "$initial_gclid",
-                  "$initial_gad_source",
+                  "$session_utm_source",
+                  "$session_utm_campaign",
+                  "$session_utm_medium",
+                  "$session_utm_term",
+                  "$session_utm_content",
+                  "$session_referring_domain",
+                  "$session_gclid",
+                  "$session_gad_source",
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
@@ -440,6 +440,20 @@
               ]
           },
           {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -634,35 +648,35 @@
               "type": "string"
           },
           {
-              "key": "$initial_utm_source",
+              "key": "$session_utm_source",
               "type": "string"
           },
           {
-              "key": "$initial_utm_campaign",
+              "key": "$session_utm_campaign",
               "type": "string"
           },
           {
-              "key": "$initial_utm_medium",
+              "key": "$session_utm_medium",
               "type": "string"
           },
           {
-              "key": "$initial_utm_term",
+              "key": "$session_utm_term",
               "type": "string"
           },
           {
-              "key": "$initial_utm_content",
+              "key": "$session_utm_content",
               "type": "string"
           },
           {
-              "key": "$initial_referring_domain",
+              "key": "$session_referring_domain",
               "type": "string"
           },
           {
-              "key": "$initial_gclid",
+              "key": "$session_gclid",
               "type": "string"
           },
           {
-              "key": "$initial_gad_source",
+              "key": "$session_gad_source",
               "type": "string"
           },
           {
@@ -802,6 +816,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
@@ -1270,14 +1298,14 @@
                   "$entry_pathname",
                   "$exit_url",
                   "$exit_pathname",
-                  "$initial_utm_source",
-                  "$initial_utm_campaign",
-                  "$initial_utm_medium",
-                  "$initial_utm_term",
-                  "$initial_utm_content",
-                  "$initial_referring_domain",
-                  "$initial_gclid",
-                  "$initial_gad_source",
+                  "$session_utm_source",
+                  "$session_utm_campaign",
+                  "$session_utm_medium",
+                  "$session_utm_term",
+                  "$session_utm_content",
+                  "$session_referring_domain",
+                  "$session_gclid",
+                  "$session_gad_source",
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
@@ -1483,6 +1511,20 @@
               ]
           },
           {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -1677,35 +1719,35 @@
               "type": "string"
           },
           {
-              "key": "$initial_utm_source",
+              "key": "$session_utm_source",
               "type": "string"
           },
           {
-              "key": "$initial_utm_campaign",
+              "key": "$session_utm_campaign",
               "type": "string"
           },
           {
-              "key": "$initial_utm_medium",
+              "key": "$session_utm_medium",
               "type": "string"
           },
           {
-              "key": "$initial_utm_term",
+              "key": "$session_utm_term",
               "type": "string"
           },
           {
-              "key": "$initial_utm_content",
+              "key": "$session_utm_content",
               "type": "string"
           },
           {
-              "key": "$initial_referring_domain",
+              "key": "$session_referring_domain",
               "type": "string"
           },
           {
-              "key": "$initial_gclid",
+              "key": "$session_gclid",
               "type": "string"
           },
           {
-              "key": "$initial_gad_source",
+              "key": "$session_gad_source",
               "type": "string"
           },
           {
@@ -1845,6 +1887,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
