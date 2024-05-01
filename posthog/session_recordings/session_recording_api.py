@@ -40,6 +40,7 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
+from posthog.session_recordings.queries.session_recording_list_from_filters import SessionRecordingListFromFilters
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
@@ -725,11 +726,19 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
         if (all_session_ids and filter.session_ids) or not all_session_ids:
-            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-            (
-                ch_session_recordings,
-                more_recordings_available,
-            ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+            has_hogql_filtering = request.GET.get("hogql_filtering")
+
+            if has_hogql_filtering:
+                (
+                    ch_session_recordings,
+                    more_recordings_available,
+                ) = SessionRecordingListFromFilters(filter=filter, team=team).run()
+            else:
+                # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+                (
+                    ch_session_recordings,
+                    more_recordings_available,
+                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
