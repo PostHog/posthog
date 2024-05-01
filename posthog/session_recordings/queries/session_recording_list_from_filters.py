@@ -1,5 +1,6 @@
 from posthog.models import Team
 from typing import NamedTuple
+from posthog.hogql.query import execute_hogql_query
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -10,17 +11,26 @@ class SessionRecordingQueryResult(NamedTuple):
 class SessionRecordingListFromFilters:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
+    SAMPLE_QUERY: str = """
+        SELECT s.session_id
+        FROM session_replay_events s
+        LIMIT 10
+        """
+
     def __init__(
         self,
         team=Team,
         **kwargs,
     ):
-        person_on_events_mode = team.person_on_events_mode
         super().__init__(
             **kwargs,
             team=team,
-            person_on_events_mode=person_on_events_mode,
         )
 
     def run(self) -> SessionRecordingQueryResult:
-        return SessionRecordingQueryResult([], False)
+        query_results = execute_hogql_query(
+            query=self.SAMPLE_QUERY,
+            team=self.team,
+        )
+
+        return SessionRecordingQueryResult(query_results, False)
