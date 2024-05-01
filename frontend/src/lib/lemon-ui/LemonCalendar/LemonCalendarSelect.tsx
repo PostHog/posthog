@@ -240,7 +240,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 }
                 {...props.buttonProps}
             >
-                {props.value?.format(`MMMM D, YYYY${props.showTime && ' h:mm A'}`) ?? placeholder ?? 'Select date'}
+                {props.value?.format(`MMMM D, YYYY${props.showTime ? ' h:mm A' : ''}`) ?? placeholder ?? 'Select date'}
             </LemonButton>
         </Popover>
     )
