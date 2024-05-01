@@ -9,7 +9,6 @@ import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
@@ -65,22 +64,32 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
-                            {addon.subscribed && (
-                                <div>
-                                    <LemonTag type="primary" icon={<IconCheckCircle />}>
-                                        Subscribed
-                                    </LemonTag>
+                            {addon.inclusion_only ? (
+                                <div className="flex gap-x-2">
+                                    <Tooltip title="Automatically included with your plan. Used based on your posthog-js config options.">
+                                        <LemonTag type="muted">Config option</LemonTag>
+                                    </Tooltip>
                                 </div>
+                            ) : (
+                                addon.subscribed && (
+                                    <div>
+                                        <LemonTag type="primary" icon={<IconCheckCircle />}>
+                                            Subscribed
+                                        </LemonTag>
+                                    </div>
+                                )
                             )}
                         </div>
-                        <p className="ml-0 mb-0">{addon.description}</p>
+                        <div>
+                            <p className="ml-0 mb-0">{addon.description}</p>
+                        </div>
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
                     )}
-                    {addon.subscribed ? (
+                    {addon.subscribed && !addon.inclusion_only ? (
                         <>
                             <More
                                 overlay={
@@ -113,21 +122,23 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             >
                                 View pricing
                             </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                size="small"
-                                to={`/api/billing-v2/activation?products=${addon.type}:${
-                                    currentAndUpgradePlans?.upgradePlan?.plan_key
-                                }${redirectPath && `&redirect_path=${redirectPath}`}`}
-                                disableClientSideRouting
-                                loading={billingProductLoading === addon.type}
-                                onClick={() => {
-                                    setBillingProductLoading(addon.type)
-                                }}
-                            >
-                                Add
-                            </LemonButton>
+                            {!addon.inclusion_only && (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    size="small"
+                                    to={`/api/billing-v2/activation?products=${addon.type}:${
+                                        currentAndUpgradePlans?.upgradePlan?.plan_key
+                                    }${redirectPath && `&redirect_path=${redirectPath}`}`}
+                                    disableClientSideRouting
+                                    loading={billingProductLoading === addon.type}
+                                    onClick={() => {
+                                        setBillingProductLoading(addon.type)
+                                    }}
+                                >
+                                    Add
+                                </LemonButton>
+                            )}
                         </>
                     )}
                 </div>
@@ -544,11 +555,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons
-                                    .filter((addon) => !addon.inclusion_only)
-                                    .map((addon, i) => {
-                                        return <BillingProductAddon key={i} addon={addon} />
-                                    })}
+                                {product.addons.map((addon, i) => {
+                                    return <BillingProductAddon key={i} addon={addon} />
+                                })}
                             </div>
                         </div>
                     )}
