@@ -1,4 +1,7 @@
+import { ChartType, defaults, LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import { useValues } from 'kea'
+import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -37,7 +40,7 @@ export function ActionsLineGraph({
         compare,
         display,
         interval,
-        showValueOnSeries,
+        showValuesOnSeries,
         showPercentStackView,
         supportsPercentStackView,
         trendsFilter,
@@ -45,6 +48,7 @@ export function ActionsLineGraph({
         isStickiness,
         isTrends,
         isDataWarehouseSeries,
+        showLegend,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -75,6 +79,24 @@ export function ActionsLineGraph({
         isInsightVizNode(query) &&
         isTrendsQuery(query.source)
 
+    const shortenLifecycleLabels = (s: string | undefined): string =>
+        capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
+
+    const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
+        display: !!showLegend,
+    }
+    if (isLifecycle) {
+        legend.labels = {
+            generateLabels: (chart: Chart) => {
+                const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
+                labelElements.forEach((elt) => {
+                    elt.text = shortenLifecycleLabels(elt.text)
+                })
+                return labelElements
+            },
+        }
+    }
+
     if (
         !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
     ) {
@@ -93,7 +115,7 @@ export function ActionsLineGraph({
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
-            showValueOnSeries={showValueOnSeries}
+            showValuesOnSeries={showValuesOnSeries}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             tooltip={
@@ -104,7 +126,7 @@ export function ActionsLineGraph({
                               return date
                           },
                           renderSeries: (_, datum) => {
-                              return capitalizeFirstLetter(datum.label?.split(' - ')?.[1] ?? datum.label ?? 'None')
+                              return shortenLifecycleLabels(datum.label)
                           },
                       }
                     : undefined
@@ -113,6 +135,7 @@ export function ActionsLineGraph({
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
+            legend={legend}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined

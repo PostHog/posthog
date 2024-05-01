@@ -1,9 +1,11 @@
 import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from prometheus_client import Histogram
 import json
 from typing import Any, cast
+from collections.abc import Generator
 
 from django.conf import settings
 
@@ -212,6 +214,39 @@ def list_recordings_response(
         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
     )
     return response
+
+
+def ensure_not_weak(etag: str) -> str:
+    """
+    minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
+    we don't really care about the semantic difference between a strong and a weak etag here,
+    so we can just strip it.
+    """
+    if etag.startswith("W/"):
+        return etag[2:].lstrip('"').rstrip('"')
+    return etag
+
+
+@contextmanager
+def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Response, None, None]:
+    """
+    Stream data from a URL using optional headers.
+
+    Tricky: mocking the requests library, so we can control the response here is a bit of a pain.
+    the mocks are complex to write, so tests fail when the code actually works
+    by wrapping this interaction we can mock this method
+    instead of trying to mock the internals of the requests library
+    """
+    if headers is None:
+        headers = {}
+
+    session = requests.Session()
+
+    try:
+        response = session.get(url, headers=headers, stream=True)
+        yield response
+    finally:
+        session.close()
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
@@ -614,9 +649,40 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.time():
-            with requests.get(url=url, stream=True) as r:
-                r.raise_for_status()
-                response = HttpResponse(content=r.raw, content_type="application/json")
+            # streams the file from S3 to the client
+            # will not decompress the possibly large file because of `stream=True`
+            #
+            # we pass some headers through to the client
+            # particularly we should signal the content-encoding
+            # to help the client know it needs to decompress
+            #
+            # if the client provides an e-tag we can use it to check if the file has changed
+            # object store will respect this and send back 304 if the file hasn't changed,
+            # and we don't need to send the large file over the wire
+
+            if_none_match = request.headers.get("If-None-Match")
+            headers = {}
+            if if_none_match:
+                headers["If-None-Match"] = ensure_not_weak(if_none_match)
+
+            with stream_from(url=url, headers=headers) as streaming_response:
+                streaming_response.raise_for_status()
+
+                response = HttpResponse(content=streaming_response.raw, status=streaming_response.status_code)
+
+                etag = streaming_response.headers.get("ETag")
+                if etag:
+                    response["ETag"] = ensure_not_weak(etag)
+
+                # blobs are immutable, _really_ we can cache forever
+                # but let's cache for an hour since people won't re-watch too often
+                # we're setting cache control and ETag which might be considered overkill,
+                # but it helps avoid network latency from the client to PostHog, then to object storage, and back again
+                # when a client has a fresh copy
+                response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
+
+                response["Content-Type"] = "application/json"
+
                 response["Content-Disposition"] = "inline"
                 return response
 

@@ -1,5 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
+import { LegendOptions } from 'chart.js'
+import { _DeepPartialObject } from 'chart.js/types/utils'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
@@ -229,12 +231,13 @@ export interface LineGraphProps {
     trendsFilter?: TrendsFilter | null
     formula?: string | null
     compare?: boolean | null
-    showValueOnSeries?: boolean | null
+    showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
+    legend?: _DeepPartialObject<LegendOptions<ChartType>>
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -262,12 +265,13 @@ export function LineGraph_({
     labelGroupType,
     trendsFilter,
     formula,
-    showValueOnSeries,
+    showValuesOnSeries,
     showPercentStackView,
     supportsPercentStackView,
     hideAnnotations,
     hideXAxis,
     hideYAxis,
+    legend = { display: false },
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -421,10 +425,10 @@ export function LineGraph_({
                     },
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
-                        if (showValueOnSeries && inSurveyView) {
+                        if (showValuesOnSeries && inSurveyView) {
                             return true
                         }
-                        return showValueOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
+                        return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
                         const data = context.chart.data as ExtendedChartData
@@ -436,9 +440,7 @@ export function LineGraph_({
                     borderRadius: 4,
                     borderColor: 'white',
                 },
-                legend: {
-                    display: false,
-                },
+                legend: legend,
                 tooltip: {
                     ...tooltipOptions,
                     external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
@@ -738,7 +740,7 @@ export function LineGraph_({
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValueOnSeries, showPercentStackView])
+    }, [datasets, hiddenLegendKeys, isDarkModeOn, trendsFilter, formula, showValuesOnSeries, showPercentStackView])
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
