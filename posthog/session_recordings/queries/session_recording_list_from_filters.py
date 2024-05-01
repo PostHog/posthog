@@ -78,7 +78,13 @@ class SessionRecordingListFromFilters:
         self._filter = filter
 
     def run(self) -> SessionRecordingQueryResult:
-        query = parse_select(self.SAMPLE_QUERY, {"order_by": Constant(value=self._filter.target_entity_order)})
+        query = parse_select(
+            self.SAMPLE_QUERY,
+            {
+                "order_by": Constant(value=self._filter.target_entity_order),
+                "where_predicates": ast.And(exprs=self._where_predicates()),
+            },
+        )
 
         response = execute_hogql_query(
             query=query,
