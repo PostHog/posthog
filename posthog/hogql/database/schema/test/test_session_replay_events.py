@@ -59,3 +59,16 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [("session_with_info_and_error_messages",)]
+
+    def test_select_log_text(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select distinct console_logs.message from raw_session_replay_events where console_logs.level = {log_level} order by session_id asc",
+                placeholders={
+                    "log_level": ast.Constant(value="info"),
+                },
+            ),
+            self.team,
+        )
+
+        assert response.results == [("This is an info message",), ("This is a generic message",)]
