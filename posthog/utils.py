@@ -203,7 +203,16 @@ def relative_date_parse_with_delta_mapping(
     if not match:
         return parsed_dt, delta_mapping, None
     if match.group("type") == "h":
-        delta_mapping["hours"] = int(match.group("number"))
+        if match.group("number"):
+            delta_mapping["hours"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
@@ -243,7 +252,7 @@ def relative_date_parse_with_delta_mapping(
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
-        if "hours" in delta_mapping:
+        if "hours" in delta_mapping or match.group("type") == "h":
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)

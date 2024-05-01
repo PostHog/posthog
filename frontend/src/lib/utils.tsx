@@ -740,6 +740,18 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
+        key: 'Last Hour',
+        values: ['hStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('hour').format(DATE_FORMAT),
+        defaultInterval: 'minute',
+    },
+    {
+        key: 'Last Three Hours',
+        values: ['-3h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(3, 'h'), date.endOf('hour')),
+        defaultInterval: 'minute',
+    },
+    {
         key: 'Today',
         values: ['dStart'],
         getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
@@ -1065,7 +1077,7 @@ export const areDatesValidForInterval = (
 }
 
 const defaultDatesForInterval = {
-    minute: { dateFrom: '-24h', dateTo: null },
+    minute: { dateFrom: '-3h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },

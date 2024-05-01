@@ -58,7 +58,7 @@ class QueryDateRange:
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
-            if not self.interval_name == "hour":
+            if not (self.interval_name == "hour" or self.interval_name == "minute"):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
                 date_to = date_to.replace(minute=59, second=59, microsecond=999999)
