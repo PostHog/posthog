@@ -1,7 +1,7 @@
 from posthog.models import Team
 from typing import Any, NamedTuple
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.ast import Constant
 from posthog.hogql import ast
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -101,13 +101,19 @@ class SessionRecordingListFromFilters:
 
         if self._filter.date_from:
             exprs.append(
-                parse_expr(
-                    "s.min_first_timestamp >= {start_time}", {"start_time": Constant(value=self._filter.date_from)}
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
+                    right=ast.Constant(value=self._filter.date_from),
                 )
             )
         if self._filter.date_to:
             exprs.append(
-                parse_expr("s.max_last_timestamp <= {end_time}", {"end_time": Constant(value=self._filter.date_to)})
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["s", "max_last_timestamp"]),
+                    right=ast.Constant(value=self._filter.date_to),
+                )
             )
 
         return ast.And(exprs=exprs)
