@@ -3,7 +3,7 @@ import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@po
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +12,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -49,8 +48,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
         billingProductLogic({ product: addon })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { setProductSpecificAlert } = useActions(billingLogic)
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -59,42 +56,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     if (billing?.has_active_subscription) {
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
-    }
-
-    const isOGPipelineAddon =
-        addon.type === 'data_pipelines' &&
-        addon.subscribed &&
-        addon.plans?.[0]?.plan_key === 'addon-20240111-og-customers'
-
-    if (isOGPipelineAddon && featureFlags['data-pipelines-notice']) {
-        setProductSpecificAlert({
-            status: 'info',
-            title: 'Welcome to the data pipelines addon!',
-            message: `We've moved data export features (and cost) here to better reflect user needs. Your overall
-                    price hasn't changed.`,
-            action: {
-                onClick: () => {
-                    posthog.capture('data pipelines notice clicked')
-                    // if they don't dismiss it now, we won't show it next time they come back
-                    posthog.capture('data pipelines notice dismissed', {
-                        $set: {
-                            dismissedDataPipelinesNotice: true,
-                        },
-                    })
-                },
-                children: 'Learn more',
-                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
-                targetBlank: true,
-            },
-            dismissKey: 'data-pipelines-notice',
-            onClose: () => {
-                posthog.capture('data pipelines notice dismissed', {
-                    $set: {
-                        dismissedDataPipelinesNotice: true,
-                    },
-                })
-            },
-        })
     }
 
     return (
@@ -114,17 +75,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
-                        {isOGPipelineAddon && (
-                            <div className="mt-2">
-                                <Link
-                                    targetBlankIcon
-                                    target="_blank"
-                                    to="https://posthog.com/changelog/2024#data-pipeline-add-on-launched"
-                                >
-                                    <span className="text-xs italic">Why am I subscribed to this?</span>
-                                </Link>
-                            </div>
-                        )}
                         {addon.features?.length > 1 && (
                             <div className="mt-3">
                                 <p className="ml-0 mb-2 max-w-200">Features included:</p>
@@ -249,7 +199,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const currentPlan = currentAndUpgradePlans?.currentPlan
     const downgradePlan = currentAndUpgradePlans?.downgradePlan
@@ -650,20 +599,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             )}
                             {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
                                 <>
-                                    <p className="ml-0 max-w-200">
-                                        {!upgradePlan && product.subscribed
-                                            ? 'You now'
-                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                                            ? 'Subscribe to'
-                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                              !billing?.has_active_subscription
-                                            ? 'Add a credit card to'
-                                            : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                              billing?.has_active_subscription
-                                            ? 'Add paid plan'
-                                            : 'Upgrade to'}{' '}
-                                        get sweet features such as:
-                                    </p>
+                                    <p className="ml-0 max-w-200">Subscribe to get sweet features such as:</p>
                                     <div>
                                         {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
                                             return (
@@ -753,15 +689,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 className="grow"
                                                 center
                                             >
-                                                {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                                                    ? 'Subscribe'
-                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
-                                                          'credit_card' && !billing?.has_active_subscription
-                                                    ? 'Add credit card'
-                                                    : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] ===
-                                                          'credit_card' && billing?.has_active_subscription
-                                                    ? 'Add paid plan'
-                                                    : 'Upgrade'}
+                                                Subscribe
                                             </BillingUpgradeCTA>
                                         )
                                     )}
