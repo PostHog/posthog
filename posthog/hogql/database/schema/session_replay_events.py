@@ -25,32 +25,6 @@ def join_with_console_logs_log_entries_table(
     context: HogQLContext,
     node: SelectQuery,
 ):
-    """
-    We currently string template generate SQL like
-
-    select *
-    from session_replay_events
-    where session_id in (
-        select log_source_id
-        from console_logs_log_entries
-        where message = 'oh no!'
-        and level = 'error'
-    )
-
-    in HogQL I'm expecting ending up with something like
-
-    select *
-    from session_replay_events
-    where console_logs.level = 'error'
-    and console_logs.message = 'oh no!'
-
-    or even be able to
-
-    select groupArray(console.logs.message) as messages
-    from session_replay_events
-    where console_logs.level = 'error'
-    """
-
     from posthog.hogql import ast
 
     if "log_source_id" not in requested_fields:
