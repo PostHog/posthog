@@ -149,7 +149,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdownFilter))
     }
 
-    if (!isLifecycleQuery(query) && !isStickinessQuery(query)) {
+    if (!isStickinessQuery(query)) {
         Object.assign(
             filters,
             objectClean({
