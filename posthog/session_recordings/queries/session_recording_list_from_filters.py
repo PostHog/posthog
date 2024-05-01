@@ -37,6 +37,7 @@ class SessionRecordingListFromFilters:
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
+        HAVING {having_predicates}
         ORDER BY {order_by} DESC
         LIMIT 10
         """
@@ -82,7 +83,8 @@ class SessionRecordingListFromFilters:
             self.SAMPLE_QUERY,
             {
                 "order_by": Constant(value=self._filter.target_entity_order),
-                "where_predicates": ast.And(exprs=self._where_predicates()),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
             },
         )
 
@@ -94,7 +96,7 @@ class SessionRecordingListFromFilters:
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
 
-    def _where_predicates(self) -> list[ast.Expr]:
+    def _where_predicates(self) -> ast.And:
         exprs: list[ast.Expr] = []
 
         if self._filter.date_from:
@@ -108,4 +110,23 @@ class SessionRecordingListFromFilters:
                 parse_expr("s.max_last_timestamp <= {end_time}", {"end_time": Constant(value=self._filter.date_to)})
             )
 
-        return exprs
+        return ast.And(exprs=exprs)
+
+    def _having_predicates(self) -> ast.And:
+        exprs: list[ast.Expr] = []
+
+        if self._filter.recording_duration_filter:
+            op = (
+                ast.CompareOperationOp.GtEq
+                if self._filter.recording_duration_filter.operator == "gt"
+                else ast.CompareOperationOp.LtEq
+            )
+            exprs.append(
+                ast.CompareOperation(
+                    op=op,
+                    left=ast.Field(chain=[self._filter.duration_type_filter]),
+                    right=ast.Constant(value=self._filter.recording_duration_filter.value),
+                ),
+            )
+
+        return ast.And(exprs=exprs)
