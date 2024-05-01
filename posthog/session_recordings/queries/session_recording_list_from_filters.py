@@ -134,6 +134,15 @@ class SessionRecordingListFromFilters:
                 )
             )
 
+        if self._filter.session_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["session_id"]),
+                    right=ast.Constant(value=self._filter.session_ids),
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:

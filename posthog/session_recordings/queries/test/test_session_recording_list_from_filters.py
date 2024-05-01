@@ -741,6 +741,80 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             with freeze_time("2023-09-05T12:00:01Z"):
                 assert ttl_days(self.team) == 35
 
+    @snapshot_clickhouse_queries
+    def test_filter_on_session_ids(self):
+        user = "test_session_ids-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        first_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
+        second_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
+        third_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
+
+        produce_replay_summary(
+            session_id=first_session_id,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=(self.base_time + relativedelta(minutes=5)),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=59000,
+        )
+
+        produce_replay_summary(
+            session_id=second_session_id,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=(self.base_time + relativedelta(minutes=1)),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=2,
+            keypress_count=2,
+            mouse_activity_count=2,
+            active_milliseconds=61000,
+        )
+
+        produce_replay_summary(
+            session_id=third_session_id,
+            team_id=self.team.pk,
+            first_timestamp=self.base_time,
+            last_timestamp=(self.base_time + relativedelta(minutes=10)),
+            distinct_id=user,
+            first_url="https://example.io/home",
+            click_count=0,
+            keypress_count=0,
+            mouse_activity_count=0,
+            active_milliseconds=0,
+        )
+
+        (
+            session_recordings,
+            _,
+        ) = self._filter_recordings_by(
+            {
+                "session_ids": [first_session_id],
+            }
+        )
+
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == first_session_id
+
+        (
+            session_recordings,
+            _,
+        ) = self._filter_recordings_by(
+            {
+                "session_ids": [first_session_id, second_session_id],
+            }
+        )
+
+        assert sorted(
+            [s["session_id"] for s in session_recordings],
+            key=lambda x: x[0],
+        ) == sorted([second_session_id, first_session_id])
+
     @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
