@@ -214,7 +214,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
     const showUpgradeCard =
-        upgradePlan?.product_key !== 'platform_and_support' &&
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
         (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
 
     const { ref, size } = useResizeBreakpoints({
