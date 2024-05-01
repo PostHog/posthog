@@ -52,13 +52,10 @@ describe('pluginsProcessEventStep()', () => {
 
         const response = await pluginsProcessEventStep(runner, {
             ...pluginEvent,
-            properties: { $heatmap_data: 'data', x: 'y', $groups: 'abc' },
+            properties: { $heatmap_data: 'data', x: 'y' },
         })
 
-        expect(runProcessEvent).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.objectContaining({ properties: { x: 'y' } })
-        )
-        expect(response).toEqual({ ...processedEvent, properties: { $heatmap_data: 'data', $groups: 'abc' } })
+        expect(runProcessEvent).toHaveBeenCalledWith(undefined, expect.objectContaining({ properties: { x: 'y' } }))
+        expect(response).toEqual({ ...processedEvent, properties: { $heatmap_data: 'data' } })
     })
 })

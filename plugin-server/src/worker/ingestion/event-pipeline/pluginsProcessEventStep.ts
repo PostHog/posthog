@@ -9,9 +9,6 @@ import { EventPipelineRunner } from './runner'
 // We don't want these to be passed to the processEvent plugins
 const hiddenProperties = [
     '$heatmap_data', // Is processed and removed at a later pipeline step
-    '$elements', // This is deprecated
-    '$groups', // To avoid dependencies if we want to change how we use this property
-    '$active_feature_flags', // To avoid dependencies if we want to change how we use this property
 ]
 
 export async function pluginsProcessEventStep(
