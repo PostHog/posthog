@@ -3,7 +3,13 @@ from typing import Union
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.property import property_to_expr, get_property_operator, get_property_value, get_property_type
+from posthog.hogql.property import (
+    property_to_expr,
+    get_property_operator,
+    get_property_value,
+    get_property_type,
+    get_property_key,
+)
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -366,7 +372,7 @@ ORDER BY "context.columns.visitors" DESC,
 
     def _event_properties_for_scroll(self) -> ast.Expr:
         def map_scroll_property(property: Union[EventPropertyFilter, PersonPropertyFilter]):
-            if get_property_type(property) == "event" and property.key == "$pathname":
+            if get_property_type(property) == "event" and get_property_key(property) == "$pathname":
                 return EventPropertyFilter(
                     key="$prev_pageview_pathname",
                     operator=get_property_operator(property),
