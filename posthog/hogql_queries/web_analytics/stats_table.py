@@ -456,17 +456,17 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.ExitPage:
                 return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_pathname"]))
             case WebStatsBreakdown.InitialReferringDomain:
-                return ast.Field(chain=["sessions", "$session_referring_domain"])
+                return ast.Field(chain=["sessions", "$entry_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return ast.Field(chain=["sessions", "$session_utm_source"])
+                return ast.Field(chain=["sessions", "$entry_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return ast.Field(chain=["sessions", "$session_utm_campaign"])
+                return ast.Field(chain=["sessions", "$entry_utm_campaign"])
             case WebStatsBreakdown.InitialUTMMedium:
-                return ast.Field(chain=["sessions", "$session_utm_medium"])
+                return ast.Field(chain=["sessions", "$entry_utm_medium"])
             case WebStatsBreakdown.InitialUTMTerm:
-                return ast.Field(chain=["sessions", "$session_utm_term"])
+                return ast.Field(chain=["sessions", "$entry_utm_term"])
             case WebStatsBreakdown.InitialUTMContent:
-                return ast.Field(chain=["sessions", "$session_utm_content"])
+                return ast.Field(chain=["sessions", "$entry_utm_content"])
             case WebStatsBreakdown.InitialChannelType:
                 return ast.Field(chain=["sessions", "$channel_type"])
             case WebStatsBreakdown.Browser:

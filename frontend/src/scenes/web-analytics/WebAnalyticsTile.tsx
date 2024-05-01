@@ -173,17 +173,17 @@ export const webStatsBreakdownToPropertyName = (
             case WebStatsBreakdown.InitialChannelType:
                 return { key: '$channel_type', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialReferringDomain:
-                return { key: '$session_referring_domain', type: PropertyFilterType.Session }
+                return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialUTMSource:
-                return { key: '$session_utm_source', type: PropertyFilterType.Session }
+                return { key: '$entry_utm_source', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialUTMCampaign:
-                return { key: '$session_utm_campaign', type: PropertyFilterType.Session }
+                return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialUTMMedium:
-                return { key: '$session_utm_medium', type: PropertyFilterType.Session }
+                return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialUTMContent:
-                return { key: '$session_utm_content', type: PropertyFilterType.Session }
+                return { key: '$entry_utm_content', type: PropertyFilterType.Session }
             case WebStatsBreakdown.InitialUTMTerm:
-                return { key: '$session_utm_term', type: PropertyFilterType.Session }
+                return { key: '$entry_utm_term', type: PropertyFilterType.Session }
             case WebStatsBreakdown.Browser:
                 return { key: '$browser', type: PropertyFilterType.Event }
             case WebStatsBreakdown.OS:

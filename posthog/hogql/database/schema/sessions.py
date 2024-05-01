@@ -61,18 +61,18 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
-    "$entry_url": StringDatabaseField(name="$entry_url"),
+    "entry_current_url": StringDatabaseField(name="entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
-    "$exit_url": StringDatabaseField(name="$exit_url"),
+    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
     "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
-    "$session_utm_source": StringDatabaseField(name="$session_utm_source"),
-    "$session_utm_campaign": StringDatabaseField(name="$session_utm_campaign"),
-    "$session_utm_medium": StringDatabaseField(name="$session_utm_medium"),
-    "$session_utm_term": StringDatabaseField(name="$session_utm_term"),
-    "$session_utm_content": StringDatabaseField(name="$session_utm_content"),
-    "$session_referring_domain": StringDatabaseField(name="$session_referring_domain"),
-    "$session_gclid": StringDatabaseField(name="$session_gclid"),
-    "$session_gad_source": StringDatabaseField(name="$session_gad_source"),
+    "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
+    "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
+    "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
+    "$entry_utm_term": StringDatabaseField(name="$entry_utm_term"),
+    "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
+    "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
+    "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
@@ -134,31 +134,29 @@ def select_from_sessions_table(
                 )
             ],
         ),
-        "$entry_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
+        "entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
         "$entry_pathname": ast.Call(
             name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
         ),
-        "$exit_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+        "$exit_current_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
         "$exit_pathname": ast.Call(
             name="path",
             args=[
                 ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
             ],
         ),
-        "$session_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-        "$session_utm_campaign": ast.Call(
+        "$entry_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
+        "$entry_utm_campaign": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]
         ),
-        "$session_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-        "$session_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
-        "$session_utm_content": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]
-        ),
-        "$session_referring_domain": ast.Call(
+        "$entry_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
+        "$entry_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
+        "$entry_utm_content": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]),
+        "$entry_referring_domain": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
         ),
-        "$session_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-        "$session_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+        "$entry_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
+        "$entry_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
@@ -203,12 +201,12 @@ def select_from_sessions_table(
         ],
     )
     aggregate_fields["$channel_type"] = create_channel_type_expr(
-        campaign=aggregate_fields["$session_utm_campaign"],
-        medium=aggregate_fields["$session_utm_medium"],
-        source=aggregate_fields["$session_utm_source"],
-        referring_domain=aggregate_fields["$session_referring_domain"],
-        gclid=aggregate_fields["$session_gclid"],
-        gad_source=aggregate_fields["$session_gad_source"],
+        campaign=aggregate_fields["$entry_utm_campaign"],
+        medium=aggregate_fields["$entry_utm_medium"],
+        source=aggregate_fields["$entry_utm_source"],
+        referring_domain=aggregate_fields["$entry_referring_domain"],
+        gclid=aggregate_fields["$entry_gclid"],
+        gad_source=aggregate_fields["$entry_gad_source"],
     )
 
     select_fields: list[ast.Expr] = []
@@ -309,27 +307,27 @@ def get_lazy_session_table_properties(search: Optional[str]):
 
 
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
-    "$session_referring_domain": "finalizeAggregation(initial_referring_domain)",
-    "$session_utm_source": "finalizeAggregation(initial_utm_source)",
-    "$session_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
-    "$session_utm_medium": "finalizeAggregation(initial_utm_medium)",
-    "$session_utm_term": "finalizeAggregation(initial_utm_term)",
-    "$session_utm_content": "finalizeAggregation(initial_utm_content)",
-    "$session_gclid": "finalizeAggregation(initial_gclid)",
-    "$session_gad_source": "finalizeAggregation(initial_gad_source)",
-    "$session_gclsrc": "finalizeAggregation(initial_gclsrc)",
-    "$session_dclid": "finalizeAggregation(initial_dclid)",
-    "$session_gbraid": "finalizeAggregation(initial_gbraid)",
-    "$session_wbraid": "finalizeAggregation(initial_wbraid)",
-    "$session_fbclid": "finalizeAggregation(initial_fbclid)",
-    "$session_msclkid": "finalizeAggregation(initial_msclkid)",
-    "$session_twclid": "finalizeAggregation(initial_twclid)",
-    "$session_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
-    "$session_mc_cid": "finalizeAggregation(initial_mc_cid)",
-    "$session_igshid": "finalizeAggregation(initial_igshid)",
-    "$session_ttclid": "finalizeAggregation(initial_ttclid)",
-    "$entry_url": "finalizeAggregation(entry_url)",
-    "$exit_url": "finalizeAggregation(exit_url)",
+    "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
+    "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
+    "$entry_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
+    "$entry_utm_medium": "finalizeAggregation(initial_utm_medium)",
+    "$entry_utm_term": "finalizeAggregation(initial_utm_term)",
+    "$entry_utm_content": "finalizeAggregation(initial_utm_content)",
+    "$entry_gclid": "finalizeAggregation(initial_gclid)",
+    "$entry_gad_source": "finalizeAggregation(initial_gad_source)",
+    "$entry_gclsrc": "finalizeAggregation(initial_gclsrc)",
+    "$entry_dclid": "finalizeAggregation(initial_dclid)",
+    "$entry_gbraid": "finalizeAggregation(initial_gbraid)",
+    "$entry_wbraid": "finalizeAggregation(initial_wbraid)",
+    "$entry_fbclid": "finalizeAggregation(initial_fbclid)",
+    "$entry_msclkid": "finalizeAggregation(initial_msclkid)",
+    "$entry_twclid": "finalizeAggregation(initial_twclid)",
+    "$entry_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
+    "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
+    "$entry_igshid": "finalizeAggregation(initial_igshid)",
+    "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
+    "entry_current_url": "finalizeAggregation(entry_url)",
+    "$exit_current_url": "finalizeAggregation(exit_url)",
 }
 
 

@@ -223,9 +223,9 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "$entry_url",
+                  "entry_current_url",
                   "$entry_pathname",
-                  "$exit_url",
+                  "$exit_current_url",
                   "$exit_pathname",
                   "$session_utm_source",
                   "$session_utm_campaign",
@@ -618,7 +618,7 @@
               "type": "array"
           },
           {
-              "key": "$entry_url",
+              "key": "entry_current_url",
               "type": "string"
           },
           {
@@ -626,7 +626,7 @@
               "type": "string"
           },
           {
-              "key": "$exit_url",
+              "key": "$exit_current_url",
               "type": "string"
           },
           {
@@ -1266,9 +1266,9 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "$entry_url",
+                  "entry_current_url",
                   "$entry_pathname",
-                  "$exit_url",
+                  "$exit_current_url",
                   "$exit_pathname",
                   "$session_utm_source",
                   "$session_utm_campaign",
@@ -1661,7 +1661,7 @@
               "type": "array"
           },
           {
-              "key": "$entry_url",
+              "key": "entry_current_url",
               "type": "string"
           },
           {
@@ -1669,7 +1669,7 @@
               "type": "string"
           },
           {
-              "key": "$exit_url",
+              "key": "$exit_current_url",
               "type": "string"
           },
           {
