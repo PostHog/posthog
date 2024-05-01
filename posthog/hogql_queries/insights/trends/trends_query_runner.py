@@ -16,6 +16,7 @@ from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+    REAL_TIME_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.caching.utils import is_stale
 
@@ -99,12 +100,14 @@ class TrendsQueryRunner(QueryRunner):
             delta = date_to - date_from
             delta_days = ceil(delta.total_seconds() / timedelta(days=1).total_seconds())
 
-        refresh_frequency = BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
+        if interval == "minute":
+            return REAL_TIME_INSIGHT_REFRESH_INTERVAL
+
         if interval == "hour" or (delta_days is not None and delta_days <= 7):
             # The interval is shorter for short-term insights
-            refresh_frequency = REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+            return REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
-        return refresh_frequency
+        return BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL
 
     def to_query(self) -> ast.SelectUnionQuery:
         queries = []
@@ -402,7 +405,10 @@ class TrendsQueryRunner(QueryRunner):
                         [
                             item.strftime(
                                 "%Y-%m-%d{}".format(
-                                    " %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""
+                                    " %H:%M:%S"
+                                    if self.query_date_range.interval_name == "hour"
+                                    or self.query_date_range.interval_name == "minute"
+                                    else ""
                                 )
                             )
                             for item in get_value("date", val)

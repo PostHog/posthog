@@ -1055,11 +1055,17 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
         )
+    } else if (interval === 'minute') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 24 * 2 // 2 days
+        )
     }
     throw new UnexpectedNeverError(interval)
 }
 
 const defaultDatesForInterval = {
+    minute: { dateFrom: '-24h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
