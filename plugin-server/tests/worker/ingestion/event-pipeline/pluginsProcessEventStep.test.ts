@@ -45,4 +45,20 @@ describe('pluginsProcessEventStep()', () => {
         expect(response).toEqual(null)
         expect(droppedEventCounterSpy).toHaveBeenCalledTimes(1)
     })
+
+    it('hidden properties can not be seen nor overridden by plugins', async () => {
+        const processedEvent = { ...pluginEvent, event: 'processed', properties: { $heatmap_data: 'new data' } }
+        jest.mocked(runProcessEvent).mockResolvedValue(processedEvent)
+
+        const response = await pluginsProcessEventStep(runner, {
+            ...pluginEvent,
+            properties: { $heatmap_data: 'data', x: 'y', $groups: 'abc' },
+        })
+
+        expect(runProcessEvent).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ properties: { x: 'y' } })
+        )
+        expect(response).toEqual({ ...processedEvent, properties: { $heatmap_data: 'data', $groups: 'abc' } })
+    })
 })
