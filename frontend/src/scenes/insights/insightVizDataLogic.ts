@@ -9,7 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { allDateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -498,7 +498,7 @@ const handleQuerySourceUpdateSideEffects = (
         } else {
             // get a defaultInterval for dateOptions that have a default value
             let newDefaultInterval: IntervalType = 'day'
-            for (const { key, values, defaultInterval } of dateMapping) {
+            for (const { key, values, defaultInterval } of allDateMapping) {
                 if (
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&

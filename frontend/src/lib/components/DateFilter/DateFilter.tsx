@@ -14,7 +14,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
+import { dateFilterToText, nonRealTimeDateMapping, uuid } from 'lib/utils'
 import { useRef } from 'react'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
@@ -54,7 +54,7 @@ export function DateFilter({
     onChange,
     dateFrom,
     dateTo,
-    dateOptions = dateMapping,
+    dateOptions = nonRealTimeDateMapping,
     isDateFormatted = true,
     size,
     dropdownPlacement = 'bottom-start',

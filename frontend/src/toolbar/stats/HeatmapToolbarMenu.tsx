@@ -10,7 +10,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, dateMapping } from 'lib/utils'
+import { dateFilterToText, nonRealTimeDateMapping } from 'lib/utils'
 import React, { useState } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -155,7 +155,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
 
-    const dateItems = dateMapping
+    const dateItems = nonRealTimeDateMapping
         .filter((dm) => dm.key !== CUSTOM_OPTION_KEY)
         .map((dateOption) => ({
             label: dateOption.key,

@@ -2,6 +2,7 @@ import { IconCalendar, IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { allDateMapping, nonRealTimeDateMapping } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -11,7 +12,7 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { dateRange } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 
     return (
@@ -22,6 +23,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             onChange={(date_from, date_to) => {
                 updateDateRange({ date_from, date_to })
             }}
+            dateOptions={isTrends ? allDateMapping : nonRealTimeDateMapping}
             makeLabel={(key) => (
                 <>
                     <IconCalendar /> {key}

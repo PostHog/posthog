@@ -738,8 +738,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
 }
 
-export const dateMapping: DateMappingOption[] = [
-    { key: CUSTOM_OPTION_KEY, values: [] },
+export const realTimeDateMapping: DateMappingOption[] = [
     {
         key: 'Last Hour',
         values: ['-1h'],
@@ -754,6 +753,9 @@ export const dateMapping: DateMappingOption[] = [
             formatDateRange(date.subtract(3, 'h'), date, DATE_FORMAT_WITH_TIME),
         defaultInterval: 'minute',
     },
+]
+export const nonRealTimeDateMapping: DateMappingOption[] = [
+    { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Today',
         values: ['dStart'],
@@ -836,6 +838,8 @@ export const dateMapping: DateMappingOption[] = [
     },
 ]
 
+export const allDateMapping = realTimeDateMapping.concat(nonRealTimeDateMapping)
+
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
@@ -855,7 +859,7 @@ export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string | null,
-    dateOptions: DateMappingOption[] = dateMapping,
+    dateOptions: DateMappingOption[] = nonRealTimeDateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT,
     startOfRange: boolean = false
@@ -993,7 +997,7 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
     // use the default mapping if we can
-    for (const mapping of dateMapping) {
+    for (const mapping of nonRealTimeDateMapping) {
         const mappingFrom = mapping.values[0] ?? null
         const mappingTo = mapping.values[1] ?? null
         if (mappingFrom === dateFrom && mappingTo === dateTo && mapping.defaultInterval) {
