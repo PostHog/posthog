@@ -721,6 +721,7 @@ export function determineDifferenceType(
     return 'minute'
 }
 
+const DATE_FORMAT_WITH_TIME = 'MMMM D, YYYY HH:mm'
 const DATE_FORMAT = 'MMMM D, YYYY'
 const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
@@ -742,13 +743,15 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'Last Hour',
         values: ['-1h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'h').format(DATE_FORMAT),
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'h'), date, DATE_FORMAT_WITH_TIME),
         defaultInterval: 'minute',
     },
     {
         key: 'Last Three Hours',
         values: ['-3h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(3, 'h').format(DATE_FORMAT),
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(3, 'h'), date, DATE_FORMAT_WITH_TIME),
         defaultInterval: 'minute',
     },
     {
@@ -809,7 +812,7 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
