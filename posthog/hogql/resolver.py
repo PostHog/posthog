@@ -101,14 +101,18 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        node = cast(ast.SelectUnionQuery, clone_expr(node))
+        if len(node.select_queries) == 0:
+            raise ImpossibleASTError("UNION ALL should have at least one select query")
 
-        # All parts of UNION ALL which don't have CTEs can use CTEs from the first statement
-        for select_query in node.select_queries[1:]:
-            select_query.ctes = select_query.ctes or node.select_queries[0].ctes
+        # all expressions combined by UNION ALL can use ctes from the first expression
+        select_with_ctes = ast.SelectQueryType(ctes=node.select_queries[0].ctes)
+        self.scopes.append(select_with_ctes)
 
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+
+        self.scopes.pop()
+
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
