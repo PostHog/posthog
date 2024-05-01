@@ -13,7 +13,7 @@ class SessionRecordingListFromFilters:
 
     SAMPLE_QUERY: str = """
         SELECT s.session_id
-        FROM session_replay_events s
+        FROM raw_session_replay_events s
         LIMIT 10
         """
 
