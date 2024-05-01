@@ -3,6 +3,7 @@ from typing import Any, NamedTuple
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.ast import Constant
+from posthog.hogql import ast
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
 
@@ -34,6 +35,7 @@ class SessionRecordingListFromFilters:
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count
         FROM raw_session_replay_events s
+        WHERE {where_predicates}
         GROUP BY session_id
         ORDER BY {order_by} DESC
         LIMIT 10
@@ -76,15 +78,34 @@ class SessionRecordingListFromFilters:
         self._filter = filter
 
     def run(self) -> SessionRecordingQueryResult:
-
-        print("HELLO")
-        print(self._filter.target_entity_order)
-
-        query = parse_select(self.SAMPLE_QUERY, {"order_by": Constant(value=self._filter.target_entity_order)})
+        query = parse_select(
+            self.SAMPLE_QUERY,
+            {
+                "order_by": Constant(value=self._filter.target_entity_order),
+                "where_predicates": ast.And(exprs=self._where_predicates()),
+            },
+        )
 
         response = execute_hogql_query(
             query=query,
             team=self.team,
         )
+
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
+
+    def _where_predicates(self) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
+
+        if self._filter.date_from:
+            exprs.append(
+                parse_expr(
+                    "s.min_first_timestamp >= {start_time}", {"start_time": Constant(value=self._filter.date_from)}
+                )
+            )
+        if self._filter.date_to:
+            exprs.append(
+                parse_expr("s.max_last_timestamp <= {end_time}", {"end_time": Constant(value=self._filter.date_to)})
+            )
+
+        return exprs
