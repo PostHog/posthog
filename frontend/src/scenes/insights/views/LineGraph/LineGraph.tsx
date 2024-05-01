@@ -474,8 +474,6 @@ export function LineGraph_({
                                 )
                             })
 
-                            console.log("dataset", dataset, tooltip.dataPoints, dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex)
-
                             tooltipRoot.render(
                                 <InsightTooltip
                                     date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
