@@ -187,15 +187,15 @@ export function LemonCalendarSelect({
     )
 }
 
-export function LemonCalendarSelectInput(
-    props: LemonCalendarSelectProps & {
-        onChange: (date: dayjs.Dayjs | null) => void
-        buttonProps?: LemonButtonWithSideActionProps
-        placeholder?: string
-        clearable?: boolean
-        visible?: boolean
-    }
-): JSX.Element {
+export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
+    onChange: (date: dayjs.Dayjs | null) => void
+    buttonProps?: LemonButtonWithSideActionProps
+    placeholder?: string
+    clearable?: boolean
+    visible?: boolean
+}
+
+export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): JSX.Element {
     const { buttonProps, placeholder, clearable, visible: controlledVisible, ...calendarProps } = props
     const [uncontrolledVisible, setUncontrolledVisible] = useState(false)
 
