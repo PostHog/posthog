@@ -52,7 +52,7 @@ export interface LemonCalendarSelectProps {
     months?: number
     onClose?: () => void
     showTime?: boolean
-    validPeriod?: 'past' | 'upcoming' | 'all'
+    selectionPeriod?: 'past' | 'upcoming'
 }
 
 export function LemonCalendarSelect({
@@ -61,7 +61,7 @@ export function LemonCalendarSelect({
     months,
     onClose,
     showTime,
-    validPeriod = 'all',
+    selectionPeriod,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
@@ -121,19 +121,19 @@ export function LemonCalendarSelect({
                 getLemonButtonProps={({ date, props }) => {
                     const modifiedProps: LemonButtonProps = { ...props }
 
-                    if (validPeriod !== 'all') {
+                    if (selectionPeriod) {
                         const isToday = date.isSame(today, 'date')
 
-                        if (validPeriod === 'upcoming' && date.isBefore(today)) {
+                        if (selectionPeriod === 'upcoming' && date.isBefore(today)) {
                             modifiedProps.disabledReason = 'Cannot select dates in the past'
-                        } else if (validPeriod === 'past' && date.isAfter(today)) {
+                        } else if (selectionPeriod === 'past' && date.isAfter(today)) {
                             modifiedProps.disabledReason = 'Cannot select dates in the future'
                         } else if (selectValue && isToday) {
                             const selectedTimeOnDate = cloneTimeToDate(date, selectValue)
 
-                            if (validPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {
+                            if (selectionPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {
                                 modifiedProps.disabledReason = 'Pick a time in the future first'
-                            } else if (validPeriod === 'past' && selectedTimeOnDate.isAfter(now)) {
+                            } else if (selectionPeriod === 'past' && selectedTimeOnDate.isAfter(now)) {
                                 modifiedProps.disabledReason = 'Pick a time in the past first'
                             }
                         }
@@ -149,9 +149,9 @@ export function LemonCalendarSelect({
                     const newDate = proposedDate(selectValue, props)
 
                     const periodValidityDisabledReason =
-                        validPeriod === 'upcoming' && newDate.isBefore(now)
+                        selectionPeriod === 'upcoming' && newDate.isBefore(now)
                             ? 'Cannot choose a time in the past'
-                            : validPeriod === 'past' && newDate.isAfter(now)
+                            : selectionPeriod === 'past' && newDate.isAfter(now)
                             ? 'Cannot choose a time in the future'
                             : undefined
                     const disabledReason = selectValue ? periodValidityDisabledReason : 'Choose a date first'

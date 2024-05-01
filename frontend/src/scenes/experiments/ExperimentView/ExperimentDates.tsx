@@ -50,7 +50,7 @@ export function ExperimentDates(): JSX.Element {
                             onClose={() => setIsStartDatePickerOpen(false)}
                             data-attr="experiment-start-date-picker"
                             clearable={false}
-                            validPeriod="past"
+                            selectionPeriod="past"
                         />
                     ) : (
                         <>

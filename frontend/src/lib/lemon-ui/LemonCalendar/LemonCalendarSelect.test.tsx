@@ -114,7 +114,7 @@ describe('LemonCalendarSelect', () => {
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
     })
 
-    test('onlyAllowUpcoming', async () => {
+    test('only allow upcoming selection', async () => {
         const onClose = jest.fn()
         const onChange = jest.fn()
         window.HTMLElement.prototype.scrollIntoView = jest.fn()
@@ -133,7 +133,7 @@ describe('LemonCalendarSelect', () => {
                         onChange(value)
                     }}
                     showTime
-                    validPeriod="upcoming"
+                    selectionPeriod="upcoming"
                 />
             )
         }

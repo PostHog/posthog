@@ -38,7 +38,7 @@ export const Controlled: Story = BasicTemplate.bind({})
 Controlled.args = { visible: true }
 
 export const Upcoming: Story = BasicTemplate.bind({})
-Upcoming.args = { visible: true, validPeriod: 'upcoming' }
+Upcoming.args = { visible: true, selectionPeriod: 'upcoming' }
 
 export const Past: Story = BasicTemplate.bind({})
-Past.args = { visible: true, validPeriod: 'past' }
+Past.args = { visible: true, selectionPeriod: 'past' }
