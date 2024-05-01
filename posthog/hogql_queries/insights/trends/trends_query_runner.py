@@ -447,7 +447,12 @@ class TrendsQueryRunner(QueryRunner):
                     ],
                     "days": [
                         item.strftime(
-                            "%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else "")
+                            "%Y-%m-%d{}".format(
+                                " %H:%M:%S"
+                                if self.query_date_range.interval_name == "hour"
+                                or self.query_date_range.interval_name == "minute"
+                                else ""
+                            )
                         )
                         for item in get_value("date", val)
                     ],
