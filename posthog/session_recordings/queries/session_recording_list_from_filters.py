@@ -1,7 +1,7 @@
 from posthog.models import Team
 from typing import Any, NamedTuple
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.ast import Constant
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
@@ -68,18 +68,14 @@ class SessionRecordingListFromFilters:
 
     def __init__(
         self,
-        team=Team,
-        filter=SessionRecordingsFilter,
+        team: Team,
+        filter: SessionRecordingsFilter,
         **_,
     ):
         self.team = team
         self._filter = filter
 
     def run(self) -> SessionRecordingQueryResult:
-
-        print("HELLO")
-        print(self._filter.target_entity_order)
-
         query = parse_select(self.SAMPLE_QUERY, {"order_by": Constant(value=self._filter.target_entity_order)})
 
         response = execute_hogql_query(
