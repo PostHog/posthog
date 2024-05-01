@@ -8,7 +8,7 @@ const meta: Meta<typeof LemonCalendarSelectInput> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
     component: LemonCalendarSelectInput,
     parameters: {
-        mockDate: '2023-01-26',
+        mockDate: '2023-01-26 16:30:00',
     },
     tags: ['autodocs'],
 }
@@ -41,4 +41,4 @@ export const Upcoming: Story = BasicTemplate.bind({})
 Upcoming.args = { visible: true, validPeriod: 'upcoming' }
 
 export const Past: Story = BasicTemplate.bind({})
-Past.args = { visible: true, validPeriod: 'upcoming' }
+Past.args = { visible: true, validPeriod: 'past' }
