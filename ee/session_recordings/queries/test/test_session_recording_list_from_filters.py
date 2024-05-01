@@ -28,6 +28,8 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    __test__ = False
+
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 

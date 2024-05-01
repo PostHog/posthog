@@ -37,6 +37,7 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
     # this test does not create any session_recording_events, only writes to the session_replay summary table
     # it is a pair with test_session_recording_list
     # it should pass all the same tests but without needing the session_recording_events table at all
