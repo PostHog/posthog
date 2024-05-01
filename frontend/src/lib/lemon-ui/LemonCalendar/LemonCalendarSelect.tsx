@@ -1,6 +1,6 @@
 import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonProps, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { GetLemonButtonTimePropsOpts, LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -190,7 +190,7 @@ export function LemonCalendarSelect({
 export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
     onChange: (date: dayjs.Dayjs | null) => void
     onClickOutside?: () => void
-    buttonProps?: LemonButtonProps
+    buttonProps?: Omit<LemonButtonWithSideActionProps, 'sideAction'> & { sideAction?: SideAction }
     placeholder?: string
     clearable?: boolean
     visible?: boolean
