@@ -1,6 +1,9 @@
 from posthog.models import Team
 from typing import Any, NamedTuple
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.ast import Constant
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -12,6 +15,8 @@ class SessionRecordingListFromFilters:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
 
     team: Team
+    _filter: SessionRecordingsFilter
+
     SAMPLE_QUERY: str = """
         SELECT s.session_id,
             any(s.team_id),
@@ -30,6 +35,7 @@ class SessionRecordingListFromFilters:
             sum(s.console_error_count) as console_error_count
         FROM raw_session_replay_events s
         GROUP BY session_id
+        ORDER BY {order_by} DESC
         LIMIT 10
         """
 
@@ -63,13 +69,21 @@ class SessionRecordingListFromFilters:
     def __init__(
         self,
         team=Team,
+        filter=SessionRecordingsFilter,
         **_,
     ):
         self.team = team
+        self._filter = filter
 
     def run(self) -> SessionRecordingQueryResult:
+
+        print("HELLO")
+        print(self._filter.target_entity_order)
+
+        query = parse_select(self.SAMPLE_QUERY, {"order_by": Constant(value=self._filter.target_entity_order)})
+
         response = execute_hogql_query(
-            query=self.SAMPLE_QUERY,
+            query=query,
             team=self.team,
         )
         session_recordings = self._data_to_return(response.results)
