@@ -752,9 +752,9 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
         if (all_session_ids and filter.session_ids) or not all_session_ids:
-            has_hogql_filtering = request.GET.get("hogql_filtering", False)
+            has_hog_ql_filtering = request.GET.get("hog_ql_filtering", False)
 
-            if has_hogql_filtering:
+            if has_hog_ql_filtering:
                 (
                     ch_session_recordings,
                     more_recordings_available,
