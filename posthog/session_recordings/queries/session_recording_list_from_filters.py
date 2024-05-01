@@ -9,18 +9,14 @@ class SessionRecordingQueryResult(NamedTuple):
 
 class SessionRecordingListFromFilters:
     SESSION_RECORDINGS_DEFAULT_LIMIT = 50
+    team: Team
 
     def __init__(
         self,
         team=Team,
-        **kwargs,
+        **_,
     ):
-        person_on_events_mode = team.person_on_events_mode
-        super().__init__(
-            **kwargs,
-            team=team,
-            person_on_events_mode=person_on_events_mode,
-        )
+        self.team = team
 
     def run(self) -> SessionRecordingQueryResult:
         return SessionRecordingQueryResult([], False)
