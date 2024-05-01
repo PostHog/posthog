@@ -6,6 +6,7 @@ import pytest
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
 
@@ -1307,6 +1308,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
@@ -1334,6 +1336,8 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         data = response.json()
         self.assertEqual(data, survey_counts)
 
+    @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_only_after_first_survey_created(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
