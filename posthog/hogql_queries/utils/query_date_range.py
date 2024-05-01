@@ -61,7 +61,10 @@ class QueryDateRange:
             if not (self.interval_name == "hour" or self.interval_name == "minute"):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
-                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                if self.interval_name == "hour":
+                    date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                else:
+                    date_to = date_to.replace(second=59, microsecond=999999)
 
         return date_to
 
@@ -78,7 +81,8 @@ class QueryDateRange:
                 self._team.timezone_info,
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
-                always_truncate=True,
+                # when we look at graphs by minute (last hour or last three hours), don't truncate
+                always_truncate=self.interval_name != "minute",
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(

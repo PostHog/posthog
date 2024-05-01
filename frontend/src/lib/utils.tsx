@@ -741,14 +741,14 @@ export const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
         key: 'Last Hour',
-        values: ['hStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('hour').format(DATE_FORMAT),
+        values: ['-1h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'h').format(DATE_FORMAT),
         defaultInterval: 'minute',
     },
     {
         key: 'Last Three Hours',
         values: ['-3h'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(3, 'h'), date.endOf('hour')),
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(3, 'h').format(DATE_FORMAT),
         defaultInterval: 'minute',
     },
     {
@@ -809,14 +809,14 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
         key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+            formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         inactive: true,
         defaultInterval: 'day',
     },

@@ -196,13 +196,13 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    if match.group("type") == "h":
+    elif match.group("type") == "h":
         if match.group("number"):
             delta_mapping["hours"] = int(match.group("number"))
         if match.group("position") == "Start":
@@ -252,7 +252,8 @@ def relative_date_parse_with_delta_mapping(
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
-        if "hours" in delta_mapping or match.group("type") == "h":
+        if "hours" in delta_mapping:
+            # want to not pass always truncate if it is minutes
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
