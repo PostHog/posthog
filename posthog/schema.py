@@ -858,6 +858,10 @@ class StickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -952,6 +956,10 @@ class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1016,6 +1024,10 @@ class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1050,6 +1062,10 @@ class WebStatsTableQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -1069,6 +1085,10 @@ class WebTopClicksQueryResponse(BaseModel):
         extra="forbid",
     )
     columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1256,6 +1276,10 @@ class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1318,7 +1342,8 @@ class HogQLQueryResponse(BaseModel):
     clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
     columns: Optional[list] = Field(default=None, description="Returned columns")
     error: Optional[str] = Field(
-        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     explain: Optional[list[str]] = Field(default=None, description="Query explanation output")
     hasMore: Optional[bool] = None
@@ -1368,6 +1393,10 @@ class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1387,6 +1416,10 @@ class Node(BaseModel):
 class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -1411,6 +1444,10 @@ class PersonPropertyFilter(BaseModel):
 class QueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -1469,7 +1506,8 @@ class QueryResponseAlternative7(BaseModel):
     clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
     columns: Optional[list] = Field(default=None, description="Returned columns")
     error: Optional[str] = Field(
-        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     explain: Optional[list[str]] = Field(default=None, description="Query explanation output")
     hasMore: Optional[bool] = None
@@ -1503,6 +1541,10 @@ class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1518,6 +1560,10 @@ class QueryResponseAlternative11(BaseModel):
         extra="forbid",
     )
     columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hasMore: Optional[bool] = None
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -1537,6 +1583,10 @@ class QueryResponseAlternative12(BaseModel):
         extra="forbid",
     )
     columns: Optional[list] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -1551,6 +1601,10 @@ class QueryResponseAlternative12(BaseModel):
 class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -2309,6 +2363,10 @@ class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
     last_refresh: Optional[str] = None
@@ -2365,6 +2423,10 @@ class QueryResponseAlternative(
 class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
     hogql: Optional[str] = None
     is_cached: Optional[bool] = None
@@ -2786,6 +2848,7 @@ class LifecycleQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
