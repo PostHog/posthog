@@ -67,7 +67,7 @@ export const UnsubscribeSurveyModal = ({
                 ) : (
                     <LemonBanner type="warning">
                         <p>
-                            We will attempt to pay any open invoices associated with your account when you unsubscribe.{' '}
+                            Your invoice will be billed immediately.{' '}
                             <Link to={billing?.stripe_portal_url} target="_blank">
                                 View invoices
                             </Link>
