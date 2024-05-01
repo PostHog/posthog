@@ -1314,6 +1314,11 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
 
+        earliest_survey = Survey(team_id=self.team.id, created_at=datetime.now() - timedelta(days=101))
+        earliest_survey.save()
+        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.save()
+
         for survey_id, count in survey_counts.items():
             for _ in range(count):
                 _create_event(
