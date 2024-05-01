@@ -35,21 +35,22 @@ def join_with_events_table(
         op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=["events", "timestamp"]),
         right=ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Add,
+            op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
             # TODO be more clever about this date clamping
             right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
         ),
     )
 
+    select_fields = [ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()]
     select_query = SelectQuery(
-        select=[ast.Field(chain=chain) for chain in requested_fields.values()],
+        select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         prewhere=clamp_to_ttl,
     )
 
     join_expr = ast.JoinExpr(table=select_query)
-    join_expr.join_type = "LEFT JOIN"
+    join_expr.join_type = "JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(

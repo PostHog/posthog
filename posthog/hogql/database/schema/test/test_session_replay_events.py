@@ -5,7 +5,82 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_event,
 )
+
+
+class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_example_com_pageview",
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": "session_with_example_com_pageview"},
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_different_com_pageview",
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://different.com", "$session_id": "session_with_different_com_pageview"},
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_events", log_messages=None
+        )
+
+    def test_select_by_event(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select distinct session_id from raw_session_replay_events where events.event = {event_name} order by session_id asc",
+                placeholders={"event_name": ast.Constant(value="$pageview")},
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_different_com_pageview",),
+            ("session_with_example_com_pageview",),
+        ]
+
+    def test_select_by_event_property(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select distinct session_id from raw_session_replay_events where events.properties.$current_url like {url} order by session_id asc",
+                placeholders={"url": ast.Constant(value="%example.com%")},
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_example_com_pageview",),
+        ]
+
+    def test_select_event_property(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select session_id, any(events.properties.$current_url) from raw_session_replay_events where events.properties.$current_url group by session_id order by session_id asc",
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_example_com_pageview",),
+        ]
 
 
 class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
