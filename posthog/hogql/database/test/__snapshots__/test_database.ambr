@@ -440,6 +440,20 @@
               ]
           },
           {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -802,6 +816,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
@@ -1483,6 +1511,20 @@
               ]
           },
           {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
+              ]
+          },
+          {
               "key": "person",
               "type": "field_traverser",
               "chain": [
@@ -1845,6 +1887,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
