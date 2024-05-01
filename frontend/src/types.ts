@@ -1448,7 +1448,6 @@ export interface BillingProductV2AddonType {
     contact_support: boolean | null
     unit: string | null
     unit_amount_usd: string | null
-    flat_rate?: boolean
     current_amount_usd: string | null
     current_usage: number
     projected_usage: number | null
@@ -1497,6 +1496,7 @@ export interface BillingV2PlanType {
     docs_url: string | null
     note: string | null
     unit: string | null
+    flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
