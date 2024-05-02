@@ -1,4 +1,5 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -396,7 +397,12 @@ async function filterPluginMethodsForActionMatches<T>(
                 const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
 
                 if (!relatedAction) {
-                    // TODO: Is this what we want to do here?
+                    captureException(new Error('Could not find action for PluginConfig!'), {
+                        extra: {
+                            pluginConfigId: pluginConfig.id,
+                            teamId: event.teamId,
+                        },
+                    })
                     status.error('🔴', 'Could not find action for PluginConfig!', {
                         pluginConfigId: pluginConfig.id,
                         teamId: event.teamId,
