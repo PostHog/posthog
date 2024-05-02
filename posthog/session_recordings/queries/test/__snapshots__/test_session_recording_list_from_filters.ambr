@@ -1462,7 +1462,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-008b-6e41-54b727ceb9e5'), 0))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-008b-caa6-90a2b17f26c0'), 0))
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
