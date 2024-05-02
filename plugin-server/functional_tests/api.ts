@@ -406,14 +406,8 @@ export const createTeam = async (
     return id
 }
 
-export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
+export const createAction = async (action: Omit<RawAction, 'id'>) => {
     const actionRow = await insertRow(postgres, 'posthog_action', action)
-    for (const step of steps) {
-        await insertRow(postgres, 'posthog_actionstep', {
-            ...step,
-            action_id: actionRow.id,
-        })
-    }
     return actionRow
 }
 
