@@ -1460,7 +1460,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings[0]["session_id"] == session_id
         assert session_recordings[0]["duration"] == 6 * 60 * 60
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]
@@ -1605,7 +1604,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["email"])
-    @skip("TODO: Not implemented in HogQL")
     def test_event_filter_with_person_properties(self):
         user_one = "test_event_filter_with_person_properties-user"
         user_two = "test_event_filter_with_person_properties-user2"
@@ -2234,6 +2232,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
             key=lambda x: x[0],
         )
+
         assert actual == [
             (with_logs_session_id, 4),
         ]
