@@ -104,7 +104,8 @@ class Resolver(CloningVisitor):
         if len(node.select_queries) == 0:
             raise ImpossibleASTError("UNION ALL should have at least one select query")
 
-        # all expressions combined by UNION ALL can use ctes from the first expression
+        # all expressions combined by UNION ALL can use CTEs from the first expression
+        # so we put these CTEs to the scope
         select_with_ctes = ast.SelectQueryType(ctes=node.select_queries[0].ctes)
         self.scopes.append(select_with_ctes)
 
