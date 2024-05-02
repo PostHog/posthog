@@ -6,7 +6,7 @@ from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 import structlog
 
@@ -28,6 +28,8 @@ from posthog.schema import (
     FunnelsActorsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryTiming,
+    SamplingRate,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -61,8 +63,6 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     "Whether we could fetch the query from the cache or not.",
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
-
-DataT = TypeVar("DataT")
 
 
 class ExecutionMode(IntEnum):
@@ -459,3 +459,45 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
 
         raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")
+
+
+### START OF BACKWARDS COMPATIBILITY CODE
+
+# In May 2024 we've switched from a single shared `CachedQueryResponse` to a `Cached*QueryResponse` being defined
+# for each runnable query kind, so we won't be creating new `CachedQueryResponse`s. Unfortunately, as of May 2024,
+# we're pickling cached query responses instead of e.g. serializing to JSON, so we have to unpickle them later.
+# Because of that, we need `CachedQueryResponse` to still be defined here till the end of May 2024 - otherwise
+# we wouldn't be able to use cached results from before this change was merged.
+
+DataT = TypeVar("DataT")
+
+
+class QueryResponse(BaseModel, Generic[DataT]):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: DataT
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[Union[tuple[str, str], str]]] = None
+    columns: Optional[list[str]] = None
+    error: Optional[str] = None
+    hogql: Optional[str] = None
+    hasMore: Optional[bool] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
+
+
+class CachedQueryResponse(QueryResponse):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    is_cached: bool
+    last_refresh: str
+    next_allowed_client_refresh: str
+    cache_key: str
+    timezone: str
+
+
+### END OF BACKWARDS COMPATIBILITY CODE

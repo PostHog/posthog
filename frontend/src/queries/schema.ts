@@ -892,7 +892,6 @@ interface QueryResponseBase<T> {
     modifiers?: HogQLQueryModifiers
 }
 
-// TODO: Make sure the old `CachedQueryResponse` is still defined here, so that we can deserialize already-pickled cache
 interface CachedQueryResponseMixin {
     is_cached: boolean
     last_refresh: string
