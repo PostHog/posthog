@@ -1,6 +1,5 @@
 import { LemonCalendarSelectInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { DatePicker } from 'lib/components/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -17,19 +16,6 @@ export function RetentionDatePicker(): JSX.Element {
 
     return (
         <span className="flex inline-flex items-center pl-2">
-            <DatePicker
-                showTime={period === 'Hour'}
-                use12Hours
-                format={period === 'Hour' ? `MMM D${yearSuffix}, h a` : `MMM D${yearSuffix}`}
-                value={date_to ? dayjs(date_to) : undefined}
-                onChange={(date_to) => {
-                    updateDateRange({ date_to: date_to && dayjs(date_to).toISOString() })
-                }}
-                allowClear
-                placeholder="Today"
-                className="retention-date-picker"
-            />
-
             <LemonCalendarSelectInput
                 value={date_to ? dayjs(date_to) : undefined}
                 onChange={(date_to) => {
@@ -39,8 +25,7 @@ export function RetentionDatePicker(): JSX.Element {
                 placeholder="Today"
                 clearable
                 buttonProps={{ tooltip: 'Cohorts up to this end date', children: 'Always say this', type: 'tertiary' }}
-                // use12Hours
-                // format={period === 'Hour' ? `MMM D${yearSuffix}, h a` : `MMM D${yearSuffix}`}
+                format={period === 'Hour' ? `MMM D${yearSuffix}, h a` : `MMM D${yearSuffix}`}
             />
         </span>
     )

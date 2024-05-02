@@ -201,6 +201,7 @@ export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
     placeholder?: string
     clearable?: boolean
     visible?: boolean
+    format?: string
 }
 
 export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): JSX.Element {
@@ -248,9 +249,10 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 {...props.buttonProps}
             >
                 {props.value?.format(
-                    `MMMM D, YYYY${
-                        props.granularity === 'minute' ? ' h:mm A' : props.granularity === 'hour' ? ' h A' : ''
-                    }`
+                    props.format ??
+                        `MMMM D, YYYY${
+                            props.granularity === 'minute' ? ' h:mm A' : props.granularity === 'hour' ? ' h A' : ''
+                        }`
                 ) ??
                     placeholder ??
                     'Select date'}
