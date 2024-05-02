@@ -467,7 +467,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 # for each runnable query kind, so we won't be creating new `CachedQueryResponse`s. Unfortunately, as of May 2024,
 # we're pickling cached query responses instead of e.g. serializing to JSON, so we have to unpickle them later.
 # Because of that, we need `CachedQueryResponse` to still be defined here till the end of May 2024 - otherwise
-# we wouldn't be able to use cached results from before this change was merged.
+# we wouldn't be able to unpickle and therefore use cached results from before this change was merged.
 
 DataT = TypeVar("DataT")
 
