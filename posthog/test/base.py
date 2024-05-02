@@ -617,6 +617,14 @@ class QueryMatchingTest:
             query,
         )
 
+        # hoqgl date replacement
+        # example toDateTime64('2024-05-02 13:19:37.394315', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d\d\d\d\d\d', \d, 'UTC'\)",
+            "toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')",
+            query,
+        )
+
         # replace Savepoint numbers
         query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
 
