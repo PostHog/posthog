@@ -24,13 +24,6 @@ ADD PROJECTION `inserted_at_batch_exports_projection` (
 )
 """.format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
 
-EVENTS_TABLE_INSERTED_AT_PROJECTION_MATERIALIZE_SQL = """
-ALTER TABLE {table_name} ON CLUSTER {cluster}
-MATERIALIZE PROJECTION `inserted_at_batch_exports_projection`
-IN PARTITION '202404'
-""".format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
-
 operations = [
     run_sql_with_exceptions(EVENTS_TABLE_INSERTED_AT_PROJECTION_SQL),
-    run_sql_with_exceptions(EVENTS_TABLE_INSERTED_AT_PROJECTION_MATERIALIZE_SQL),
 ]
