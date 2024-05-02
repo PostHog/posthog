@@ -96,17 +96,6 @@ class SessionRecordingListFromFilters:
             },
         )
 
-        # query = parse_select(
-        #     """
-        #     SELECT
-        #     events.properties.$browser
-        #     FROM
-        #     raw_session_replay_events
-        #     WHERE
-        #     events.properties.$browser = 'Chrome'
-        #     """
-        # )
-
         response = execute_hogql_query(
             query=query,
             team=self._team,

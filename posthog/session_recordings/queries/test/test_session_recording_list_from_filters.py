@@ -940,6 +940,16 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
                 "$window_id": str(uuid4()),
             },
         )
+        self.create_event(
+            user,
+            self.base_time,
+            event_name="a_different_event",
+            properties={
+                "$browser": "Safari",
+                "$session_id": session_id_one,
+                "$window_id": str(uuid4()),
+            },
+        )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
@@ -991,6 +1001,51 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
         assert session_recordings == []
+
+        (session_recordings, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "a_different_event",
+                        "type": "events",
+                        "order": 0,
+                        "name": "a_different_event",
+                        "properties": [
+                            {
+                                "key": "$browser",
+                                "value": ["Chrome"],
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        assert len(session_recordings) == 0
+
+        (session_recordings, _) = self._filter_recordings_by(
+            {
+                "events": [
+                    {
+                        "id": "a_different_event",
+                        "type": "events",
+                        "order": 0,
+                        "name": "a_different_event",
+                        "properties": [
+                            {
+                                "key": "$browser",
+                                "value": ["Safari"],
+                                "operator": "exact",
+                                "type": "event",
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+        assert len(session_recordings) == 1
+        assert session_recordings[0]["session_id"] == session_id_one
 
     @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
