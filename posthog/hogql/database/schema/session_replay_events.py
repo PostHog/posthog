@@ -18,6 +18,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from datetime import datetime
+from django.conf import settings
 
 
 def join_with_events_table(
@@ -32,14 +33,12 @@ def join_with_events_table(
     if "$session_id" not in requested_fields:
         requested_fields = {**requested_fields, "$session_id": ["$session_id"]}
 
-    now = datetime.now()
-
     clamp_to_ttl = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=["events", "timestamp"]),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
-            left=ast.Constant(value=now),
+            left=relative_now(),
             # TODO be more clever about this date clamping
             right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
         ),
@@ -64,6 +63,12 @@ def join_with_events_table(
     )
 
     return join_expr
+
+
+def relative_now():
+    from posthog.hogql import ast
+
+    return ast.Constant(value=datetime.now()) if settings.TEST else ast.Call(name="now", args=[])
 
 
 def join_with_console_logs_log_entries_table(
