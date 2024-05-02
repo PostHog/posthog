@@ -2,11 +2,12 @@ from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DateTimeDatabaseField
+from posthog.hogql.database.models import DateTimeDatabaseField, BooleanDatabaseField
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema import PersonsOnEventsMode
+from posthog.hogql.database.s3_table import S3Table
 
 
 def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -148,6 +149,20 @@ class PropertySwapper(CloningVisitor):
                     ),
                 )
 
+            if isinstance(node.type.table_type, ast.LazyJoinType) and isinstance(
+                node.type.table_type.lazy_join.join_table, S3Table
+            ):
+                field = node.chain[-1]
+                field_type = node.type.table_type.lazy_join.join_table.fields.get(field, None)
+                prop_type = "String"
+
+                if isinstance(field_type, DateTimeDatabaseField):
+                    prop_type = "DateTime"
+                if isinstance(field_type, BooleanDatabaseField):
+                    prop_type = "Boolean"
+
+                return self._field_type_to_property_call(node, prop_type)
+
         type = node.type
         if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
@@ -200,6 +215,9 @@ class PropertySwapper(CloningVisitor):
         field_type = "Float" if posthog_field_type == "Numeric" else posthog_field_type or "String"
         self._add_property_notice(node, property_type, field_type)
 
+        return self._field_type_to_property_call(node, field_type)
+
+    def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
             return ast.Call(name="toDateTime", args=[node])
         if field_type == "Float":
