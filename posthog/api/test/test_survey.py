@@ -6,6 +6,7 @@ import pytest
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
+from freezegun.api import freeze_time
 from posthog.api.survey import nh3_clean_with_allow_list
 from posthog.models.cohort.cohort import Cohort
 
@@ -1307,12 +1308,17 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
     def test_responses_count(self):
         survey_counts = {
             "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
             "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
             "daed7689-d498-49fe-936f-e85554351b6c": 100,
         }
+
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
+        earliest_survey.created_at = datetime.now() - timedelta(days=101)
+        earliest_survey.save()
 
         for survey_id, count in survey_counts.items():
             for _ in range(count):
@@ -1329,6 +1335,40 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         self.assertEqual(data, survey_counts)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_only_after_first_survey_created(self):
+        survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+            "daed7689-d498-49fe-936f-e85554351b6c": 100,
+        }
+
+        expected_survey_counts = {
+            "d63bb580-01af-4819-aae5-edcf7ef2044f": 3,
+            "fe7c4b62-8fc9-401e-b483-e4ff98fd13d5": 6,
+        }
+
+        earliest_survey = Survey.objects.create(team_id=self.team.id)
+        earliest_survey.created_at = datetime.now() - timedelta(days=6)
+        earliest_survey.save()
+
+        for survey_id, count in survey_counts.items():
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=count),
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data, expected_survey_counts)
 
     def test_responses_count_zero_responses(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
