@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import fetch, { FetchError } from 'node-fetch'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
-import { UUIDT } from '../../../src/utils/utils'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import {
     determineWebhookType,
