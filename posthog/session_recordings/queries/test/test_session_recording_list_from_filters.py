@@ -627,7 +627,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             {"session": session_id_two, "user": user}
         ]
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter(self):
         user = "test_event_filter-user"
@@ -681,8 +680,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
+    @skip("TODO: This should work!")
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -820,7 +819,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_event_filter_with_active_sessions(
         self,
@@ -1047,7 +1045,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
 
-    @skip("TODO: Not implemented in HogQL")
+    @skip("TODO: This should work!")
     @snapshot_clickhouse_queries
     def test_multiple_event_filters(self):
         session_id = f"test_multiple_event_filters-{str(uuid4())}"
@@ -1123,7 +1121,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
     @freeze_time("2023-01-04")
-    @skip("TODO: Not implemented in HogQL")
+    @skip("TODO: This should work!")
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1246,7 +1244,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
 
-    @skip("TODO: Not implemented in HogQL")
     def test_all_sessions_recording_object_keys_with_entity_filter(self):
         user = "test_all_sessions_recording_object_keys_with_entity_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1572,7 +1569,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         # TODO this test has no assertion🫠
 
-    @skip("TODO: Not implemented in HogQL")
     def test_teams_dont_leak_event_filter(self):
         user = "test_teams_dont_leak_event_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1861,7 +1857,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$current_url"])
-    @skip("TODO: Not implemented in HogQL")
     def test_event_filter_with_matching_on_session_id(self):
         user_distinct_id = "test_event_filter_with_matching_on_session_id-user"
         Person.objects.create(team=self.team, distinct_ids=[user_distinct_id], properties={"email": "bla"})
@@ -1924,7 +1919,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == []
 
     @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
-    @skip("TODO: Not implemented in HogQL")
+    @skip("TODO: This should work!")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
@@ -2239,13 +2234,11 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
             key=lambda x: x[0],
         )
-        breakpoint()
         assert actual == [
             (with_logs_session_id, 4),
         ]
 
         (session_recordings, _) = self._filter_recordings_by({"console_logs": ["warn"]})
-
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
