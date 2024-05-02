@@ -465,7 +465,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['test_filter_on_session_ids-20099adc-5eab-4ead-a0e3-0d62bb554b1c']))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['test_filter_on_session_ids-fe257706-1ce3-40cb-b8c7-72e22fdd78e7']))
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
@@ -493,7 +493,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['test_filter_on_session_ids-20099adc-5eab-4ead-a0e3-0d62bb554b1c', 'test_filter_on_session_ids-ab213bb9-6b13-4c0c-a6a2-e3da6a5674d4']))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id, ['test_filter_on_session_ids-5f95a10a-fc50-470b-8675-a5a87f8fc787', 'test_filter_on_session_ids-fe257706-1ce3-40cb-b8c7-72e22fdd78e7']))
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
