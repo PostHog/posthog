@@ -42,8 +42,8 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     # it is a pair with test_session_recording_list
     # it should pass all the same tests but without needing the session_recording_events table at all
 
-    @classmethod
-    def teardown_class(cls):
+    def setUp(self):
+        super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
         sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
@@ -2217,7 +2217,15 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_log_count=4,
+            log_messages={
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
         )
+
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
@@ -2227,10 +2235,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         (session_recordings, _) = self._filter_recordings_by({"console_logs": ["info"]})
 
-        assert sorted(
+        actual = sorted(
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
             key=lambda x: x[0],
-        ) == [
+        )
+        breakpoint()
+        assert actual == [
             (with_logs_session_id, 4),
         ]
 
@@ -2252,6 +2262,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_warn_count=4,
+            log_messages={
+                "warn": [
+                    "warn",
+                    "warn",
+                    "warn",
+                    "warn",
+                ],
+            },
         )
         produce_replay_summary(
             distinct_id="user",
@@ -2287,6 +2305,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_error_count=4,
+            log_messages={
+                "error": [
+                    "error",
+                    "error",
+                    "error",
+                    "error",
+                ],
+            },
         )
         produce_replay_summary(
             distinct_id="user",
@@ -2325,6 +2351,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_log_count=4,
+            log_messages={
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
         )
         produce_replay_summary(
             distinct_id="user",
@@ -2332,6 +2366,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_warn_count=4,
+            log_messages={
+                "warn": [
+                    "warn",
+                    "warn",
+                    "warn",
+                    "warn",
+                ],
+            },
         )
         produce_replay_summary(
             distinct_id="user",
@@ -2347,6 +2389,19 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
             console_error_count=4,
             console_log_count=3,
+            log_messages={
+                "error": [
+                    "error",
+                    "error",
+                    "error",
+                    "error",
+                ],
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
         )
 
         (session_recordings, _) = self._filter_recordings_by({"console_logs": ["warn", "error"]})

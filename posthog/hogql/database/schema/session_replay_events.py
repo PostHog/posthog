@@ -18,7 +18,6 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     join_with_person_distinct_ids_table,
 )
 from datetime import datetime
-from django.conf import settings
 
 
 def join_with_events_table(
@@ -33,18 +32,11 @@ def join_with_events_table(
     if "$session_id" not in requested_fields:
         requested_fields = {**requested_fields, "$session_id": ["$session_id"]}
 
-    clamp_to_ttl = ast.CompareOperation(
-        op=ast.CompareOperationOp.GtEq,
-        left=ast.Field(chain=["events", "timestamp"]),
-        right=ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Sub,
-            left=relative_now(),
-            # TODO be more clever about this date clamping
-            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
-        ),
-    )
+    clamp_to_ttl = _clamp_to_ttl(["events", "timestamp"])
 
-    select_fields = [ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()]
+    select_fields: list[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()
+    ]
     select_query = SelectQuery(
         select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -65,10 +57,24 @@ def join_with_events_table(
     return join_expr
 
 
-def relative_now():
+def _clamp_to_ttl(chain: list[str | int]):
     from posthog.hogql import ast
 
-    return ast.Constant(value=datetime.now()) if settings.TEST else ast.Call(name="now", args=[])
+    # TRICKY: tests can freeze time, if we use `now()` in the ClickHouse queries then the tests will fail
+    # because the time in the query will be different from the time in the test
+    # so we generate now in Python and pass it in
+    now = datetime.now()
+    clamp_to_ttl = ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(chain=chain),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Constant(value=now),
+            # TODO be more clever about this date clamping
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
+        ),
+    )
+    return clamp_to_ttl
 
 
 def join_with_console_logs_log_entries_table(
@@ -86,6 +92,7 @@ def join_with_console_logs_log_entries_table(
     select_query = SelectQuery(
         select=[ast.Field(chain=chain) for chain in requested_fields.values()],
         select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+        where=_clamp_to_ttl(["timestamp"]),
     )
 
     join_expr = ast.JoinExpr(table=select_query)
