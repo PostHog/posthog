@@ -1000,7 +1000,7 @@ def snapshot_clickhouse_queries(fn):
             fn(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query and 'FROM "posthog_instancesetting"' not in query:
+            if "FROM system.columns" not in query:
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
@@ -1017,7 +1017,7 @@ def snapshot_clickhouse_alter_queries(fn):
             fn(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query and 'FROM "posthog_instancesetting"' not in query:
+            if "FROM system.columns" not in query:
                 self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
@@ -1034,7 +1034,7 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
             fn(self, *args, **kwargs)
 
         for query in queries:
-            if "FROM system.columns" not in query and 'FROM "posthog_instancesetting"' not in query:
+            if "FROM system.columns" not in query:
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
