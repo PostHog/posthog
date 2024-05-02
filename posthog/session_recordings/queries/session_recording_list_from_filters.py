@@ -105,6 +105,7 @@ class SessionRecordingListFromFilters:
         # print("results:")
         # print(response.results)
         # print(response.hogql)
+        # print(response.clickhouse)
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
@@ -162,29 +163,48 @@ class SessionRecordingListFromFilters:
         # we need to combine search by console message and log level
         # since if someone filters for text = "foo bar" and level = "info"
         # it doesn't make sense to return all "info" logs and all logs with "foo bar"
-        log_level_condition: ast.Expr = ast.Constant(value=True)
+
+        # so we want to do a query like
+        # AND session_id in (SELECT session_id FROM console_logs WHERE level in ['info'] AND positionCaseInsensitive(message, 'foo bar') > 0)
+
+        console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:
-            log_level_condition = ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["console_logs", "level"]),
-                right=ast.Constant(value=self._filter.console_logs_filter),
+            console_logs_predicates.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["level"]),
+                    right=ast.Constant(value=self._filter.console_logs_filter),
+                )
             )
 
-        log_message_condition: ast.Expr = ast.Constant(value=True)
         if self._filter.console_search_query:
-            log_message_condition = ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Call(
-                    name="positionCaseInsensitive",
-                    args=[
-                        ast.Field(chain=["console_logs", "message"]),
-                        ast.Constant(value=self._filter.console_search_query),
-                    ],
-                ),
-                right=ast.Constant(value=0),
+            console_logs_predicates.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(
+                        name="positionCaseInsensitive",
+                        args=[
+                            ast.Field(chain=["message"]),
+                            ast.Constant(value=self._filter.console_search_query),
+                        ],
+                    ),
+                    right=ast.Constant(value=0),
+                )
             )
 
-        exprs.append(ast.And(exprs=[log_level_condition, log_message_condition]))
+        console_logs_subquery = ast.SelectQuery(
+            select=[ast.Field(chain=["log_source_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+            where=ast.And(exprs=console_logs_predicates) if console_logs_predicates else Constant(value=True),
+        )
+
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["session_id"]),
+                right=console_logs_subquery,
+            )
+        )
 
         return ast.And(exprs=exprs)
 
