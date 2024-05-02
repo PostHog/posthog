@@ -2,7 +2,12 @@ from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DateTimeDatabaseField, BooleanDatabaseField
+from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
+    BooleanDatabaseField,
+    IntegerDatabaseField,
+    FloatDatabaseField,
+)
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.models.property import PropertyName, TableColumn
@@ -56,15 +61,6 @@ def resolve_property_types(node: ast.Expr, context: HogQLContext) -> ast.Expr:
         group_properties.update(
             {f"{group_id}_{name}": property_type for name, property_type in group_property_values if property_type}
         )
-
-    # swap them out
-    if (
-        len(event_properties) == 0
-        and len(person_properties) == 0
-        and len(group_properties) == 0
-        and not property_finder.found_timestamps
-    ):
-        return node
 
     timezone = context.database.get_timezone() if context and context.database else "UTC"
     property_swapper = PropertySwapper(
@@ -156,6 +152,8 @@ class PropertySwapper(CloningVisitor):
                 field_type = node.type.table_type.lazy_join.join_table.fields.get(field, None)
                 prop_type = "String"
 
+                if isinstance(field_type, IntegerDatabaseField) or isinstance(field_type, FloatDatabaseField):
+                    prop_type = "Float"
                 if isinstance(field_type, DateTimeDatabaseField):
                     prop_type = "DateTime"
                 if isinstance(field_type, BooleanDatabaseField):
