@@ -146,12 +146,9 @@ class SessionRecordingListFromFilters:
         if self._filter.entities:
             exprs.append(self._event_where_predicates())
 
-        # we need to combine search by console message and log level
-        # since if someone filters for text = "foo bar" and level = "info"
-        # it doesn't make sense to return all "info" logs and all logs with "foo bar"
-
-        # so we want to do a query like
-        # AND session_id in (SELECT session_id FROM console_logs WHERE level in ['info'] AND positionCaseInsensitive(message, 'foo bar') > 0)
+        if self._filter.property_groups:
+            # technically this would work with scope event
+            exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
 
         console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:

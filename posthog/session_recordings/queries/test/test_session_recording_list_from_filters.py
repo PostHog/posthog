@@ -1609,7 +1609,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["email"])
-    @skip("TODO: Not implemented in HogQL")
     def test_event_filter_with_person_properties(self):
         user_one = "test_event_filter_with_person_properties-user"
         user_two = "test_event_filter_with_person_properties-user2"
@@ -2239,7 +2238,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             [(sr["session_id"], sr["console_log_count"]) for sr in session_recordings],
             key=lambda x: x[0],
         )
-        breakpoint()
+
         assert actual == [
             (with_logs_session_id, 4),
         ]
