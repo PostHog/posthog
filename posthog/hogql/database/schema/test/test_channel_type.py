@@ -94,7 +94,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        return person_response.results[0][0]
+        return (person_response.results or [])[0][0]
 
     def _get_session_channel_type(self, properties=None):
         person_id = str(uuid.uuid4())
@@ -115,7 +115,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
             self.team,
         )
-        return session_response.results[0][0]
+        return (session_response.results or [])[0][0]
 
     def test_direct(self):
         self.assertEqual(
