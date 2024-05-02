@@ -35,7 +35,7 @@ export function RetentionDatePicker(): JSX.Element {
                 onChange={(date_to) => {
                     updateDateRange({ date_to: date_to && dayjs(date_to).toISOString() })
                 }}
-                showTime={period === 'Hour'}
+                granularity={period === 'Hour' ? 'hour' : 'day'}
                 placeholder="Today"
                 clearable
                 buttonProps={{ tooltip: 'Cohorts up to this end date', children: 'Always say this', type: 'tertiary' }}

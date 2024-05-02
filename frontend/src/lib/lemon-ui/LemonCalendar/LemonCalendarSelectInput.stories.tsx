@@ -25,14 +25,13 @@ const BasicTemplate: StoryFn<typeof LemonCalendarSelectInput> = (props: LemonCal
                 onChange={(value) => {
                     setValue(value)
                 }}
-                showTime
             />
         </div>
     )
 }
 
 export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+Default.args = { granularity: 'minute' }
 
 export const Controlled: Story = BasicTemplate.bind({})
 Controlled.args = { visible: true }
