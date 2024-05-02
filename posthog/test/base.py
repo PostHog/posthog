@@ -577,6 +577,14 @@ class QueryMatchingTest:
             flags=re.IGNORECASE,
         )
 
+        # HogQL person id in session recording queries
+        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        query = re.sub(
+            r"ifNull\(equals\(([^.]+\.)?person_id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            query,
+        )
+
         query = re.sub(
             "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
             r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
