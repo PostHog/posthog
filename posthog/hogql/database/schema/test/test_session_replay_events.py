@@ -10,6 +10,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -49,6 +50,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_events", log_messages=None
         )
 
+    @snapshot_clickhouse_queries
     def test_select_by_event(self):
         response = execute_hogql_query(
             parse_select(
@@ -63,6 +65,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
             ("session_with_example_com_pageview",),
         ]
 
+    @snapshot_clickhouse_queries
     def test_select_by_event_property(self):
         response = execute_hogql_query(
             parse_select(
@@ -76,6 +79,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
             ("session_with_example_com_pageview",),
         ]
 
+    @snapshot_clickhouse_queries
     def test_select_event_property(self):
         response = execute_hogql_query(
             parse_select(
@@ -137,6 +141,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
+    @snapshot_clickhouse_queries
     def test_select_by_replay_person(self):
         response = execute_hogql_query(
             parse_select(
@@ -150,6 +155,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
             ("session_for_person_p1",),
         ]
 
+    @snapshot_clickhouse_queries
     def test_select_by_person_distinct_id(self):
         response = execute_hogql_query(
             parse_select(
@@ -163,6 +169,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
             ("session_for_person_p1",),
         ]
 
+    @snapshot_clickhouse_queries
     def test_select_by_event_person(self):
         response = execute_hogql_query(
             parse_select(
@@ -176,6 +183,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
             ("session_with_person_with_person_property",),
         ]
 
+    @snapshot_clickhouse_queries
     def test_select_person_property(self):
         response = execute_hogql_query(
             parse_select(
@@ -220,6 +228,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_log_messages", log_messages=None
         )
 
+    @snapshot_clickhouse_queries
     def test_select_by_console_log_text(self):
         response = execute_hogql_query(
             parse_select(
@@ -231,6 +240,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [("session_with_info_and_error_messages",), ("session_with_only_info_messages",)]
 
+    @snapshot_clickhouse_queries
     def test_select_by_console_log_text_and_level(self):
         response = execute_hogql_query(
             parse_select(
@@ -245,6 +255,7 @@ class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [("session_with_info_and_error_messages",)]
 
+    @snapshot_clickhouse_queries
     def test_select_log_text(self):
         response = execute_hogql_query(
             parse_select(
