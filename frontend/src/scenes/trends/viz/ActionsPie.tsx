@@ -64,18 +64,17 @@ export function ActionsPie({
         isTrendsQuery(query.source)
 
     function updateData(): void {
-        const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = _data.length > 0 ? _data[0].days : []
-        const colorList = _data.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
+        const days = indexedResults.length > 0 ? indexedResults[0].days : []
+        const colorList = indexedResults.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
 
         setData([
             {
                 id: 0,
-                labels: _data.map((item) => item.label),
-                data: _data.map((item) => item.aggregated_value),
-                actions: _data.map((item) => item.action),
-                breakdownValues: _data.map((item) => item.breakdown_value),
-                breakdownLabels: _data.map((item) => {
+                labels: indexedResults.map((item) => item.label),
+                data: indexedResults.map((item) => item.aggregated_value),
+                actions: indexedResults.map((item) => item.action),
+                breakdownValues: indexedResults.map((item) => item.breakdown_value),
+                breakdownLabels: indexedResults.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
@@ -85,14 +84,16 @@ export function ActionsPie({
                         false
                     )
                 }),
-                compareLabels: _data.map((item) => item.compare_label),
-                personsValues: _data.map((item) => item.persons),
+                compareLabels: indexedResults.map((item) => item.compare_label),
+                personsValues: indexedResults.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
                 borderColor: colorList, // For colors to display in the tooltip
             },
         ])
-        setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
+        setTotal(
+            indexedResults.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0)
+        )
     }
 
     useEffect(() => {

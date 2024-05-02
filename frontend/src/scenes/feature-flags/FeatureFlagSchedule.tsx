@@ -98,9 +98,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         return { type: 'danger', text: 'Error' }
                     } else if (executed_at) {
                         return { type: 'completion', text: 'Complete' }
-                    } else {
-                        return { type: 'default', text: 'Scheduled' }
                     }
+                    return { type: 'default', text: 'Scheduled' }
                 }
                 const { type, text } = getStatus()
                 return (

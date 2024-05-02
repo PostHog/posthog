@@ -3,7 +3,13 @@ from typing import Union
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.property import property_to_expr, get_property_operator, get_property_value, get_property_type
+from posthog.hogql.property import (
+    property_to_expr,
+    get_property_operator,
+    get_property_value,
+    get_property_type,
+    get_property_key,
+)
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -240,12 +246,12 @@ LEFT JOIN (
         SELECT
             {scroll_breakdown_value} AS breakdown_value, -- use $prev_pageview_pathname to find the scroll depth when leaving this pathname
             avgState(CASE
-                WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) IS NULL THEN NULL
-                WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 1
+                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) IS NULL THEN NULL
+                WHEN toFloat(events.properties.`$prev_pageview_max_content_percentage`) > 0.8 THEN 1
                 ELSE 0
                 END
             ) AS scroll_gt80_percentage_state,
-            avgState(toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_scroll_percentage'))) as average_scroll_percentage_state
+            avgState(toFloat(events.properties.`$prev_pageview_max_scroll_percentage`)) as average_scroll_percentage_state
         FROM events
         JOIN sessions
         ON events.`$session_id` = sessions.session_id
@@ -366,7 +372,7 @@ ORDER BY "context.columns.visitors" DESC,
 
     def _event_properties_for_scroll(self) -> ast.Expr:
         def map_scroll_property(property: Union[EventPropertyFilter, PersonPropertyFilter]):
-            if get_property_type(property) == "event" and property.key == "$pathname":
+            if get_property_type(property) == "event" and get_property_key(property) == "$pathname":
                 return EventPropertyFilter(
                     key="$prev_pageview_pathname",
                     operator=get_property_operator(property),
@@ -450,17 +456,17 @@ ORDER BY "context.columns.visitors" DESC,
             case WebStatsBreakdown.ExitPage:
                 return self._apply_path_cleaning(ast.Field(chain=["sessions", "$exit_pathname"]))
             case WebStatsBreakdown.InitialReferringDomain:
-                return ast.Field(chain=["sessions", "$initial_referring_domain"])
+                return ast.Field(chain=["sessions", "$entry_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return ast.Field(chain=["sessions", "$initial_utm_source"])
+                return ast.Field(chain=["sessions", "$entry_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return ast.Field(chain=["sessions", "$initial_utm_campaign"])
+                return ast.Field(chain=["sessions", "$entry_utm_campaign"])
             case WebStatsBreakdown.InitialUTMMedium:
-                return ast.Field(chain=["sessions", "$initial_utm_medium"])
+                return ast.Field(chain=["sessions", "$entry_utm_medium"])
             case WebStatsBreakdown.InitialUTMTerm:
-                return ast.Field(chain=["sessions", "$initial_utm_term"])
+                return ast.Field(chain=["sessions", "$entry_utm_term"])
             case WebStatsBreakdown.InitialUTMContent:
-                return ast.Field(chain=["sessions", "$initial_utm_content"])
+                return ast.Field(chain=["sessions", "$entry_utm_content"])
             case WebStatsBreakdown.InitialChannelType:
                 return ast.Field(chain=["sessions", "$channel_type"])
             case WebStatsBreakdown.Browser:

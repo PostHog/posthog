@@ -818,6 +818,18 @@ export interface SessionRecordingSnapshotSource {
     blob_key?: string
 }
 
+export type SessionRecordingSnapshotParams =
+    | {
+          source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'realtime'
+          // originally realtime snapshots were returned in a different format than blob snapshots
+          // since version 2024-04-30 they are returned in the same format
+          version: '2024-04-30'
+      }
+
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
     snapshots?: RecordingSnapshot[]
@@ -1498,6 +1510,7 @@ export interface BillingV2PlanType {
     docs_url: string | null
     note: string | null
     unit: string | null
+    flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
