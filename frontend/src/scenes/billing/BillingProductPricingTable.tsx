@@ -1,40 +1,19 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { IconArrowRightDown, IconInfo } from '@posthog/icons'
+import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2Type, BillingTableTierRow, ProductPricingTierSubrows } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { getTierDescription } from './BillingProduct'
 
-export interface ProductPricingTierSubrows {
-    columns: {
-        title: string
-        dataIndex: string
-    }[]
-    rows: TableTierSubrow[]
-}
-
-type TableTierSubrow = {
-    productName: string
-    price: string
-    usage: string
-    total: string
-    projectedTotal: string
-}
-
-type TableTierDatum = {
-    volume: string
-    basePrice: string
-    usage: string
-    total: string
-    projectedTotal: string
-    subrows: ProductPricingTierSubrows
-}
-
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
-    return <LemonTable dataSource={props.rows} columns={props.columns} embedded showHeader={false} />
+    return (
+        <div className="px-2 pt-4 pb-6">
+            <LemonTable dataSource={props.rows} columns={props.columns} embedded showHeader={true} />
+        </div>
+    )
 }
 
 export const BillingProductPricingTable = ({
@@ -45,27 +24,29 @@ export const BillingProductPricingTable = ({
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
 
-    const tableColumns = [
+    const tableColumns: LemonTableColumns<BillingTableTierRow> = [
         {
             title: `Priced per ${product.unit}`,
             dataIndex: 'volume',
-            render: (_, item: TableTierDatum) => <h4 className="font-bold mb-0">{item.volume}</h4>,
+            render: (_, item: BillingTableTierRow) => <h4 className="font-bold mb-0">{item.volume}</h4>,
         },
         { title: 'Price', dataIndex: 'basePrice' },
         { title: 'Current Usage', dataIndex: 'usage' },
         {
             title: 'Total',
             dataIndex: 'total',
-            render: (_, item: TableTierDatum) => <span className="font-bold mb-0 text-default">{item.total}</span>,
+            render: (_, item: BillingTableTierRow) => <span className="font-bold mb-0 text-default">{item.total}</span>,
         },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
-    const subscribedAddons = product.addons?.filter((addon) => addon.subscribed || addon.inclusion_only)
+    const subscribedAddons = product.addons?.filter(
+        (addon) => addon.tiers && addon.tiers?.length > 0 && (addon.subscribed || addon.inclusion_only)
+    )
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
-    const tableTierData: TableTierDatum[] | undefined =
+    const tableTierData: BillingTableTierRow[] | undefined =
         product.tiers && product.tiers.length > 0
             ? product.tiers
                   ?.map((tier, i) => {
@@ -90,6 +71,13 @@ export const BillingProductPricingTable = ({
                                     ]
                                   : [],
                           columns: [
+                              {
+                                  title: '',
+                                  dataIndex: 'icon',
+                                  render: () => (
+                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-muted" />
+                                  ),
+                              },
                               { title: `Product name`, dataIndex: 'productName' },
                               {
                                   title: 'Price',
