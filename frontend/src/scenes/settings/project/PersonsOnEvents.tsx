@@ -12,7 +12,7 @@ type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 const poeOptions: LemonRadioOption<PoEMode>[] = [
     {
         value: 'person_id_no_override_properties_on_events',
-        label: 'Deprecated old PoE setting. You probably want to choose one of the other options.',
+        label: 'Deprecated old PoE setting. May incorrectly aggregate users. You probably want one of the other options.',
     },
     {
         value: 'person_id_override_properties_on_events',
