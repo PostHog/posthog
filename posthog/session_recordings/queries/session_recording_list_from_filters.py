@@ -172,7 +172,8 @@ class SessionRecordingListFromFilters:
             exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self._filter.property_groups:
-            # technically this would work with scope event
+            # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
+            # TODO: need to check multiple property types from replay queries
             exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
 
         if self._filter.person_uuid:
