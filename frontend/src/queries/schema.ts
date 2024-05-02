@@ -1006,7 +1006,7 @@ export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryRes
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
-export interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
+interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     sampling?: {

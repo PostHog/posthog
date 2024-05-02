@@ -1042,14 +1042,6 @@ class VizSpecificOptions(BaseModel):
     RETENTION: Optional[RETENTION] = None
 
 
-class Sampling(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    enabled: Optional[bool] = None
-    forceSamplingRate: Optional[SamplingRate] = None
-
-
 class Kind2(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
@@ -1066,6 +1058,14 @@ class WebOverviewItem(BaseModel):
     kind: Kind2
     previous: Optional[float] = None
     value: Optional[float] = None
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -2438,51 +2438,6 @@ class TimeToSeeDataSessionsQuery(BaseModel):
     )
     response: Optional[TimeToSeeDataSessionsQueryResponse] = None
     teamId: Optional[int] = Field(default=None, description="Project to filter on. Defaults to current project")
-
-
-class WebAnalyticsQueryBaseWebOverviewQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[WebOverviewQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    useSessionsTable: Optional[bool] = None
-
-
-class WebAnalyticsQueryBaseWebStatsTableQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[WebStatsTableQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    useSessionsTable: Optional[bool] = None
-
-
-class WebAnalyticsQueryBaseWebTopClicksQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[WebTopClicksQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    useSessionsTable: Optional[bool] = None
 
 
 class WebOverviewQuery(BaseModel):
