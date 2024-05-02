@@ -1,3 +1,5 @@
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+
 import { AvailableFeature } from '~/types'
 
 import { Invites } from './organization/Invites'
@@ -118,6 +120,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Persons on Events',
+                component: <PersonsOnEvents />,
             },
             {
                 id: 'correlation-analysis',

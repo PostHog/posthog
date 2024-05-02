@@ -165,6 +165,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "modifiers",
+            "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
@@ -179,6 +181,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
         )
