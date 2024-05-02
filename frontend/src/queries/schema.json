@@ -2994,7 +2994,7 @@
                     "$ref": "#/definitions/FunnelsActorsQuery"
                 }
             },
-            "required": ["kind", "source", "funnelCorrelationType"],
+            "required": ["funnelCorrelationType", "kind", "source"],
             "type": "object"
         },
         "FunnelCorrelationResponse": {

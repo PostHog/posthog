@@ -163,6 +163,7 @@ export type QueryResponseAlternative = QueryAllResponses['response']
  */
 export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
+    /** @internal Don't use this property at runtime, it's here for typing. */
     response?: R
 }
 
@@ -1193,7 +1194,7 @@ export enum FunnelCorrelationResultsType {
     EventWithProperties = 'event_with_properties',
 }
 
-export interface FunnelCorrelationQuery {
+export interface FunnelCorrelationQuery extends Node<FunnelCorrelationResponse> {
     kind: NodeKind.FunnelCorrelationQuery
     source: FunnelsActorsQuery
     funnelCorrelationType: FunnelCorrelationResultsType
@@ -1208,8 +1209,6 @@ export interface FunnelCorrelationQuery {
     /* Properties */
     funnelCorrelationNames?: string[]
     funnelCorrelationExcludeNames?: string[]
-
-    response?: FunnelCorrelationResponse
 }
 
 /**  @format date-time */
@@ -1243,10 +1242,9 @@ export interface InsightActorsQueryOptionsResponse {
 }
 export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
 
-export interface InsightActorsQueryOptions {
+export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
     source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
-    response?: InsightActorsQueryOptionsResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
