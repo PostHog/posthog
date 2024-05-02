@@ -37,15 +37,12 @@ describe('ActionManager', () => {
             is_calculating: false,
             steps: [
                 {
-                    id: ACTION_STEP_ID,
-                    action_id: ACTION_ID,
                     tag_name: null,
                     text: null,
                     href: null,
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },
@@ -110,15 +107,12 @@ describe('ActionManager', () => {
             is_calculating: false,
             steps: [
                 {
-                    id: ACTION_STEP_ID,
-                    action_id: ACTION_ID,
                     tag_name: null,
                     text: null,
                     href: null,
                     selector: null,
                     url: null,
                     url_matching: null,
-                    name: null,
                     event: null,
                     properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
                 },

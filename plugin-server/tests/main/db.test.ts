@@ -79,7 +79,6 @@ describe('DB', () => {
         })
 
         it('returns actions with `post_to_slack', async () => {
-            await insertAction()
             const result = await db.fetchAllActionsGroupedByTeam()
 
             expect(result).toMatchObject({
