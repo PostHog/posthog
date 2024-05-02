@@ -1016,7 +1016,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The timestamp of the last event from this session</span>,
             examples: [new Date().toISOString()],
         },
-        $entry_url: {
+        entry_current_url: {
             label: 'Entry URL',
             description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
@@ -1026,7 +1026,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The first pathname visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
-        $exit_url: {
+        $exit_current_url: {
             label: 'Exit URL',
             description: <span>The last URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
@@ -1094,9 +1094,9 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
     if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
-        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$initial_${key.replace(/^\$/, '')}`] = {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$entry_${key.replace(/^\$/, '')}`] = {
             ...value,
-            label: `Initial ${value.label}`,
+            label: `Entry ${value.label}`,
             description:
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`
