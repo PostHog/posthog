@@ -156,10 +156,13 @@ async def validate_schema_and_update_table(
         if not table_created:
             table_created = await acreate_datawarehousetable(external_data_source_id=job.pipeline.id, **data)
 
+        assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
         for schema in table_schema.values():
             if schema.get("resource") == _schema_name:
                 schema_columns = schema.get("columns") or {}
-                db_columns: dict[str, str] = await sync_to_async(table_created.get_columns)()
+                raw_db_columns: dict[str, dict[str, str]] = await sync_to_async(table_created.get_columns)()
+                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
                 columns = {}
                 for column_name, db_column_type in db_columns.items():
