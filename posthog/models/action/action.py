@@ -1,9 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import json
-from typing import Any, Literal
+from typing import Any, Literal, Optional, get_args
 
 from django.db import models
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
@@ -13,20 +13,21 @@ from posthog.redis import get_client
 
 
 ActionStepMatching = Literal["contains", "regex", "exact"]
+ACTION_STEP_MATCHING_OPTIONS: tuple[ActionStepMatching, ...] = get_args(ActionStepMatching)
 
 
 @dataclass
 class ActionStepJSON:
-    tag_name: str
-    text: str
-    text_matching: ActionStepMatching  # STRING MATCHING
-    href: str
-    href_matching: ActionStepMatching  # STRING MATCHING
-    selector: str
-    url: str
-    url_matching: ActionStepMatching  # STRING MATCHING, default CONTAINS
-    event: str
-    properties: list[dict]
+    tag_name: Optional[str] = None
+    text: Optional[str] = None
+    text_matching: Optional[ActionStepMatching] = None
+    href: Optional[str] = None
+    href_matching: Optional[ActionStepMatching] = None
+    selector: Optional[str] = None
+    url: Optional[str] = None
+    url_matching: Optional[ActionStepMatching] = "contains"
+    event: Optional[str] = None
+    properties: Optional[list[dict]] = None
 
 
 class Action(models.Model):
@@ -92,8 +93,13 @@ class Action(models.Model):
 
         return [ActionStepJSON(**step) for step in self.steps_json]
 
+    @steps.setter
+    def steps(self, value: list[dict]):
+        self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
+
     def get_step_events(self) -> list[str]:
-        return [action_step.event for action_step in self.steps]
+        # NOTE: This used to return empty strings sometimes - was that on purpose...
+        return [action_step.event for action_step in self.steps if action_step.event]
 
     def generate_bytecode(self) -> list[Any]:
         from posthog.hogql.property import action_to_expr
@@ -113,11 +119,6 @@ class Action(models.Model):
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)
-
-
-@receiver(pre_save, sender=Action)
-def action_presave(sender, instance: Action, created, **kwargs):
-    instance.refresh_bytecode()
 
 
 @receiver(post_save, sender=Action)

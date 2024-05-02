@@ -7,7 +7,6 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.models import Entity, Filter
 from posthog.models.action import Action
 from posthog.models.action.action import ActionStepJSON
-from posthog.models.action_step import ActionStep
 from posthog.models.property import Property, PropertyIdentifier
 from posthog.models.property.property import OperatorType
 from posthog.queries.util import PersonPropertiesMode
