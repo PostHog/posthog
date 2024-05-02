@@ -1,3 +1,5 @@
+from freezegun import freeze_time
+
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -14,6 +16,7 @@ from posthog.test.base import (
 )
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -100,6 +103,7 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
         ]
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -199,6 +203,7 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
         ]
 
 
+@freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByConsoleLogs(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
