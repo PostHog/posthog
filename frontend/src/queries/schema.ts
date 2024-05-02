@@ -157,8 +157,9 @@ type QueryResponseType<T> = T extends { response?: infer R } ? { response: R } :
 type QueryAllResponses = QueryResponseType<QuerySchema>
 export type QueryResponseAlternative = QueryAllResponses['response']
 
-/** Node base class, everything else inherits from here.
- * @internal
+/**
+ * Node base class, everything else inherits from here.
+ * @internal - no need to emit to schema.json.
  */
 export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
@@ -175,6 +176,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
 
+/** @internal - no need to emit to schema.json. */
 export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
@@ -889,7 +891,10 @@ export interface QueryRequest {
     query: QuerySchema
 }
 
-/** All analytics query responses must inherit from this. */
+/**
+ * All analytics query responses must inherit from this.
+ * @internal - no need to emit to schema.json.
+ */
 export interface AnalyticsQueryResponseBase<T> {
     results: T
     /** Measured timings for different parts of the query generation process */
