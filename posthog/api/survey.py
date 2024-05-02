@@ -253,7 +253,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 return existing_flag_serializer.save()
             elif name and filters:
                 random_id = generate("1234567890abcdef", 10)
-                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{name}")
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}")
                 feature_flag_serializer = FeatureFlagSerializer(
                     data={
                         "key": feature_flag_key,
