@@ -488,7 +488,7 @@ describe('hooks', () => {
         })
 
         test('person = undefined', async () => {
-            await hookCommander.postWebhook({ event: 'foo' } as any, action, team, hook)
+            await hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, hook)
 
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
@@ -558,7 +558,7 @@ describe('hooks', () => {
             process.env.NODE_ENV = 'production'
 
             await expect(
-                hookCommander.postWebhook({ event: 'foo' } as any, action, team, {
+                hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
                     ...hook,
                     target: 'http://127.0.0.1',
                 })

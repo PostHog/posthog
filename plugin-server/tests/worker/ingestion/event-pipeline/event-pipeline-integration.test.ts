@@ -228,6 +228,7 @@ describe('Event Pipeline integration test', () => {
                     },
                     uuid: expect.any(String),
                 },
+                elementsList: [],
             },
         }
 
