@@ -8,7 +8,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import entity_to_expr, property_to_expr
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.session_recordings.queries.session_replay_events import ttl_days
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -86,6 +88,28 @@ class SessionRecordingListFromFilters:
     def ttl_days(self):
         return ttl_days(self._team)
 
+    @cached_property
+    def _event_predicates(self):
+        event_exprs: list[ast.Expr] = []
+        event_names = set()
+
+        for entity in self._filter.entities:
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                event_names.update([ae for ae in action.get_step_events() if ae not in event_names])
+            else:
+                if entity.id and entity.id not in event_names:
+                    event_names.add(entity.id)
+
+            entity_exprs = [entity_to_expr(entity=entity)]
+
+            if entity.property_groups:
+                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="session"))
+
+            event_exprs.append(ast.And(exprs=entity_exprs))
+
+        return event_exprs, list(event_names)
+
     def run(self) -> SessionRecordingQueryResult:
         query = parse_select(
             self.BASE_QUERY,
@@ -143,8 +167,9 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        if self._filter.entities:
-            exprs.append(self._event_where_predicates())
+        (event_where_exprs, _) = self._event_predicates
+        if event_where_exprs:
+            exprs.append(ast.Or(exprs=event_where_exprs))
 
         if self._filter.property_groups:
             # technically this would work with scope event
@@ -201,19 +226,6 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _event_where_predicates(self) -> ast.Or:
-        exprs: list[ast.Expr] = []
-
-        for entity in self._filter.entities:
-            entity_exprs = [entity_to_expr(entity=entity)]
-
-            if entity.property_groups:
-                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="session"))
-
-            exprs.append(ast.And(exprs=entity_exprs))
-
-        return ast.Or(exprs=exprs)
-
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
 
@@ -229,6 +241,18 @@ class SessionRecordingListFromFilters:
                     left=ast.Field(chain=[self._filter.duration_type_filter]),
                     right=ast.Constant(value=self._filter.recording_duration_filter.value),
                 ),
+            )
+
+        (_, event_names) = self._event_predicates
+        if event_names:
+            exprs.append(
+                ast.Call(
+                    name="hasAll",
+                    args=[
+                        ast.Call(name="groupUniqArray", args=[ast.Field(chain=["events", "event"])]),
+                        ast.Constant(value=event_names),
+                    ],
+                )
             )
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)

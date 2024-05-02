@@ -1045,7 +1045,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == session_id_one
 
-    @skip("TODO: This should work!")
     @snapshot_clickhouse_queries
     def test_multiple_event_filters(self):
         session_id = f"test_multiple_event_filters-{str(uuid4())}"
