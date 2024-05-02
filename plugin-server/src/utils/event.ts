@@ -14,7 +14,7 @@ interface RawElement extends Element {
     $el_text?: string
 }
 
-const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+export const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
     return elements.map((element) => ({
         ...element,
         attr_class: element.attributes?.attr__class ?? element.attr_class,
@@ -108,7 +108,7 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
  * Elements parsing can be really slow so it is only done when required by the caller.
  * It mutates the event which is not ideal but the performance gains of lazy loading it were deemed worth it.
  */
-export function extendPostIngestionEventWithElementsList(event: PostIngestionEvent): void {
+export function mutatePostIngestionEventWithElementsList(event: PostIngestionEvent): void {
     if (event.elementsList) {
         // Don't set if already done before
         return

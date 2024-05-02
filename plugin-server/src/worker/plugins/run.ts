@@ -5,7 +5,7 @@ import { processError } from '../../utils/db/error'
 import {
     convertToPostHogEvent,
     convertToProcessedPluginEvent,
-    extendPostIngestionEventWithElementsList,
+    mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
@@ -24,7 +24,7 @@ async function runSingleTeamPluginOnEvent(
 
     if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
         // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
-        extendPostIngestionEventWithElementsList(event)
+        mutatePostIngestionEventWithElementsList(event)
     }
 
     const processedPluginEvent = convertToProcessedPluginEvent(event)

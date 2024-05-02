@@ -21,7 +21,7 @@ import {
 } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
-import { extendPostIngestionEventWithElementsList } from '../../utils/event'
+import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -187,7 +187,7 @@ export class ActionMatcher {
      * Helper method to build the elementsList if not already present and return it.
      */
     private getElementsList(event: PostIngestionEvent): Element[] {
-        extendPostIngestionEventWithElementsList(event)
+        mutatePostIngestionEventWithElementsList(event)
 
         return event.elementsList ?? []
     }
