@@ -1396,7 +1396,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-0086-9e14-2e991032ba5b'), 0))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-0086-6545-f38968705b93'), 0))
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
