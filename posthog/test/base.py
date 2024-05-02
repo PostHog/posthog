@@ -85,7 +85,7 @@ from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 
 persons_cache_tests: list[dict[str, Any]] = []
@@ -210,11 +210,11 @@ class PostHogTestCase(SimpleTestCase):
     CLASS_DATA_LEVEL_SETUP = True
 
     # Test data definition stubs
-    organization: Organization = None  # type: ignore
-    project: Project = None  # type: ignore
-    team: Team = None  # type: ignore
-    user: User = None  # type: ignore
-    organization_membership: OrganizationMembership = None  # type: ignore
+    organization: Organization = None
+    project: Project = None
+    team: Team = None
+    user: User = None
+    organization_membership: OrganizationMembership = None
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
@@ -302,12 +302,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
@@ -458,7 +458,7 @@ def also_test_with_materialized_columns(
                 materialize(
                     "events",
                     prop,
-                    table_column=f"group{group_type_index}_properties",  # type: ignore
+                    table_column=f"group{group_type_index}_properties",
                 )
 
             try:
@@ -472,7 +472,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+        frame_locals: Any = inspect.currentframe().f_back.f_locals
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -704,7 +704,7 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
+        return apps.get_containing_app_config(type(self).__module__).name
 
     migrate_from: str
     migrate_to: str
@@ -721,7 +721,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(migrate_from)  # type: ignore
+        executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
 
@@ -732,7 +732,7 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(migrate_to)  # type: ignore
+            executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
 
@@ -1057,7 +1057,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1070,7 +1070,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
