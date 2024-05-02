@@ -8,6 +8,35 @@ import { BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 import { getTierDescription } from './BillingProduct'
 
+export interface ProductPricingTierSubrows {
+    columns: {
+        title: string
+        dataIndex: string
+    }[]
+    rows: TableTierSubrows[]
+}
+
+type TableTierSubrows = {
+    productName: string
+    price: string
+    usage: string
+    total: string
+    projectedTotal: string
+}
+
+type TableTierDatum = {
+    volume: string
+    basePrice: string
+    usage: string
+    total: string
+    projectedTotal: string
+    subrows: ProductPricingTierSubrows
+}
+
+function Subrows(props: ProductPricingTierSubrows): JSX.Element {
+    return <LemonTable dataSource={props.rows} columns={props.columns} embedded showHeader={false} />
+}
+
 export const BillingProductPricingTable = ({
     product,
 }: {
@@ -15,31 +44,16 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
-    const addonPriceColumns = product.addons
-        // only get addons that are subscribed or were subscribed and have a projected amount
-        ?.filter((addon) => addon.subscribed || parseFloat(addon.projected_amount_usd || ''))
-        .map((addon) => ({
-            title: `${addon.name} price`,
-            dataIndex: `${addon.type}-price`,
-        }))
 
     const tableColumns = [
         { title: `Priced per ${product.unit}`, dataIndex: 'volume' },
-        { title: addonPriceColumns?.length > 0 ? 'Base price' : 'Price', dataIndex: 'basePrice' },
-        ...(addonPriceColumns || []),
+        { title: 'Price', dataIndex: 'basePrice' },
         { title: 'Current Usage', dataIndex: 'usage' },
         { title: 'Total', dataIndex: 'total' },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
-    type TableTierDatum = {
-        volume: string
-        basePrice: string
-        [addonPrice: string]: string
-        usage: string
-        total: string
-        projectedTotal: string
-    }
+    const subscribedAddons = product.addons?.filter((addon) => addon.subscribed || addon.inclusion_only)
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
@@ -47,13 +61,34 @@ export const BillingProductPricingTable = ({
         product.tiers && product.tiers.length > 0
             ? product.tiers
                   ?.map((tier, i) => {
-                      const addonPricesForTier = product.addons?.map((addon) => ({
-                          [`${addon.type}-price`]: `${
-                              addon.tiers?.[i]?.unit_amount_usd !== '0'
-                                  ? '$' + addon.tiers?.[i]?.unit_amount_usd
-                                  : 'Free'
-                          }`,
-                      }))
+                      const subrows: ProductPricingTierSubrows = {
+                          rows:
+                              subscribedAddons?.length > 0
+                                  ? [
+                                        {
+                                            productName: 'Base price',
+                                            usage: compactNumber(tier.current_usage),
+                                            price: `$${tier.unit_amount_usd}`,
+                                            total: `$${tier.current_amount_usd || '0.00'}`,
+                                            projectedTotal: `$${tier.projected_amount_usd || '0.00'}`,
+                                        },
+                                        ...(subscribedAddons?.map((addon) => ({
+                                            productName: addon.name,
+                                            usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
+                                            price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
+                                            total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
+                                            projectedTotal: `$${addon.tiers?.[i]?.projected_amount_usd || '0.00'}`,
+                                        })) ?? []),
+                                    ]
+                                  : [],
+                          columns: [
+                              { title: `Product name`, dataIndex: 'productName' },
+                              { title: 'Price', dataIndex: 'price' },
+                              { title: 'Current Usage', dataIndex: 'usage' },
+                              { title: 'Total', dataIndex: 'total' },
+                              { title: 'Projected Total', dataIndex: 'projectedTotal' },
+                          ],
+                      }
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
                       const totalForTier =
                           parseFloat(tier.current_amount_usd || '') +
@@ -73,25 +108,28 @@ export const BillingProductPricingTable = ({
                           volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
                               ? getTierDescription(product.tiers, i, product, billing?.billing_period?.interval || '')
                               : '',
-                          basePrice: tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free',
+                          basePrice:
+                              tier.unit_amount_usd !== '0'
+                                  ? `$${tier.unit_amount_usd}${subscribedAddons?.length > 0 ? ' + addons' : ''}`
+                                  : 'Free',
                           usage: compactNumber(tier.current_usage),
                           total: `$${totalForTier.toFixed(2) || '0.00'}`,
                           projectedTotal: `$${projectedTotalForTier.toFixed(2) || '0.00'}`,
+                          subrows: subrows,
                       }
-                      // if there are any addon prices we need to include, put them in the table
-                      addonPricesForTier?.map((addonPrice) => {
-                          Object.assign(tierData, addonPrice)
-                      })
                       return tierData
                   })
                   // Add a row at the end for the total
-                  .concat({
-                      volume: 'Total',
-                      basePrice: '',
-                      usage: '',
-                      total: `$${product.current_amount_usd || '0.00'}`,
-                      projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
-                  })
+                  .concat([
+                      {
+                          volume: 'Total',
+                          basePrice: '',
+                          usage: '',
+                          total: `$${product.current_amount_usd || '0.00'}`,
+                          projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
+                          subrows: { rows: [], columns: [] },
+                      },
+                  ])
             : undefined
 
     if (billing?.discount_percent && parseFloat(product.projected_amount_usd || '')) {
@@ -110,6 +148,7 @@ export const BillingProductPricingTable = ({
                     parseInt(product.projected_amount_usd || '0') * (billing?.discount_percent / 100)
                 ).toFixed(2) || '0.00'
             }`,
+            subrows: { rows: [], columns: [] },
         })
     }
 
@@ -124,6 +163,12 @@ export const BillingProductPricingTable = ({
                         uppercaseHeader={false}
                         columns={tableColumns}
                         dataSource={tableTierData}
+                        expandable={{
+                            expandedRowRender: function renderExpand(row) {
+                                return row.subrows?.rows?.length ? <Subrows {...row.subrows} /> : null
+                            },
+                            rowExpandable: (row) => !!row.subrows?.rows?.length,
+                        }}
                     />
                     {product.type === 'feature_flags' && (
                         <p className="mt-4 ml-0 text-sm text-muted italic">
