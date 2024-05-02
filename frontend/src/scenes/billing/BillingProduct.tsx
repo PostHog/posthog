@@ -79,6 +79,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
+    const showUpgradeCard =
+        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
+        (upgradePlan || (!upgradePlan && !product.current_amount_usd) || (isOnboarding && !product.contact_support))
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -303,9 +306,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
                     )}
                 </div>
-                {(upgradePlan ||
-                    (!upgradePlan && !product.current_amount_usd) ||
-                    (isOnboarding && !product.contact_support)) && (
+                {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
                         className={`border-t border-border p-8 flex justify-between ${
