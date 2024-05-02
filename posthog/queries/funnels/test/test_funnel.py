@@ -116,22 +116,22 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
                 name="paid",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="button",
-                        text="Pay $10",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
                 ],
             )
             action_play_movie = Action.objects.create(
                 team=self.team,
                 name="watched movie",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="a",
-                        href="/movie",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
                 ],
             )
 
@@ -295,11 +295,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
                 name="watched movie",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="a",
-                        href="/movie",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
                 ],
             )
 
@@ -387,11 +387,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
                 name="watched movie",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="a",
-                        href="/movie",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
                 ],
             )
 
@@ -480,22 +480,22 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team_id=self.team.pk,
                 name="paid",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="button",
-                        text="Pay $10",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "button",
+                        "text": "Pay $10",
+                    }
                 ],
             )
             action_play_movie = Action.objects.create(
                 team_id=self.team.pk,
                 name="watched movie",
                 steps_json=[
-                    dict(
-                        event="$autocapture",
-                        tag_name="a",
-                        href="/movie",
-                    )
+                    {
+                        "event": "$autocapture",
+                        "tag_name": "a",
+                        "href": "/movie",
+                    }
                 ],
             )
             filters = {

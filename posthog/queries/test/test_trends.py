@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import uuid
 from datetime import datetime
@@ -5507,11 +5508,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
         step = sign_up_action.steps[0]
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
 
-            signup_action.steps
-            sign_up_action.save()
+        # TODO: Dataclasses are not great here...
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
 
         with freeze_time("2020-01-04T14:01:01Z"):
             action_response = Trends().run(
