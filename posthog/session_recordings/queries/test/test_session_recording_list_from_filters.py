@@ -1463,7 +1463,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings[0]["session_id"] == session_id
         assert session_recordings[0]["duration"] == 6 * 60 * 60
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
         three_user_ids = [str(uuid4()) for _ in range(3)]

@@ -150,6 +150,15 @@ class SessionRecordingListFromFilters:
             # technically this would work with scope event
             exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
 
+        if self._filter.person_uuid:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self._filter.person_uuid),
+                )
+            )
+
         console_logs_predicates: list[ast.Expr] = []
         if self._filter.console_logs_filter:
             console_logs_predicates.append(
