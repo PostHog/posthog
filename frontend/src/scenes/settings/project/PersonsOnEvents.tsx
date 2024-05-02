@@ -11,20 +11,12 @@ type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 
 const poeOptions: LemonRadioOption<PoEMode>[] = [
     {
-        value: 'person_id_no_override_properties_on_events',
-        label: 'Fastest (v1): Properties: on events, Person ID: on events',
-    },
-    {
         value: 'person_id_override_properties_on_events',
-        label: 'Best (v2): Properties: on events, Person ID: via overrides table',
+        label: 'Use ingestion-time person properties from the events table (faster)',
     },
     {
         value: 'person_id_override_properties_joined',
-        label: 'Good (v3): Properties: on person table, Person ID: via overrides table',
-    },
-    {
-        value: 'disabled',
-        label: 'Slowest (v0): Properties: on person table, Person ID: via distinct_id table',
+        label: 'Use current person properties from the persons table (slower)',
     },
 ]
 
@@ -55,12 +47,6 @@ export function PersonsOnEvents(): JSX.Element {
             <p>
                 Querying for person properties as they are now on the persons table takes more compute and memory, as we
                 need to merge two large datasets.
-            </p>
-            <p>
-                The "person ID" option affects how we count unique users. If your users can make both anonymous
-                (pre-login) and identified (post-login) events, choose "overrides" to link the anonymous events with the
-                user. If you only have fully identified users or fully anonymous users, choose "events" for the best
-                performance.
             </p>
             <LemonRadio value={poeMode} onChange={setPoeMode} options={poeOptions} />
             <div className="mt-4">
