@@ -73,7 +73,6 @@ class Action(models.Model):
     @property
     def steps(self) -> list[ActionStepJSON]:
         if self.steps_json is None:
-            # TODO: This probably doesn't work...
             db_steps = self.action_steps.all()
             return [
                 ActionStepJSON(
