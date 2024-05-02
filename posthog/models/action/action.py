@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import enum
 import json
 from typing import Any, Literal
 
@@ -79,12 +78,12 @@ class Action(models.Model):
                 ActionStepJSON(
                     tag_name=step.tag_name,
                     text=step.text,
-                    text_matching=ActionStepMaching(step.text_matching),
+                    text_matching=step.text_matching,
                     href=step.href,
-                    href_matching=ActionStepMaching(step.href_matching),
+                    href_matching=step.href_matching,
                     selector=step.selector,
                     url=step.url,
-                    url_matching=ActionStepMaching(step.url_matching),
+                    url_matching=step.url_matching,
                     event=step.event,
                     properties=step.properties,
                 )
