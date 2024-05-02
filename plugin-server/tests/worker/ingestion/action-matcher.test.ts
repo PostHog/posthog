@@ -1162,6 +1162,13 @@ describe('ActionMatcher', () => {
     })
 
     describe('#checkElementsAgainstSelector()', () => {
+        const checkElementsAgainstSelector = (elements: Element[], selector: string): boolean => {
+            return actionMatcher.checkElementsAgainstSelector(
+                { elementsList: elements } as PostIngestionEvent,
+                selector
+            )
+        }
+
         it('handles selector with attribute', () => {
             const elements: Element[] = [
                 { tag_name: 'h1', attr_class: ['headline'], attributes: { 'attr__data-attr': 'xyz' } },
@@ -1170,16 +1177,16 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "h1[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, ".headline[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "main [data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "h1[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, ".headline[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "main [data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
         })
 
         it('handles any descendant selector', () => {
@@ -1189,16 +1196,16 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main .headline')).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.top main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, '.top main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main .top')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main .top')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector', () => {
@@ -1208,18 +1215,18 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .headline')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .headline')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .top > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .top > h1')).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.top > main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, '.top > main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .top')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .top')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 1', () => {
@@ -1230,20 +1237,20 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .inner')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .inner')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer > .inner > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .inner > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer > .inner > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .inner > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer > h1')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'outer > main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'outer > main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.inner > .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, '.inner > .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 2', () => {
@@ -1257,21 +1264,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'section' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'aside div > span')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'aside div > span')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 3', () => {
             const elements: Element[] = [{ tag_name: 'span', nth_child: 2, nth_of_type: 1 }, { tag_name: 'section' }]
 
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')
-            ).toBeTruthy()
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')
-            ).toBeFalsy()
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
-            ).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')).toBeFalsy()
         })
     })
 

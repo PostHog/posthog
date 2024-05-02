@@ -1,6 +1,6 @@
 import './Spinner.scss'
 
-import { IconClock } from '@posthog/icons'
+import { IconPencil } from '@posthog/icons'
 import { twJoin, twMerge } from 'tailwind-merge'
 
 export interface SpinnerProps {
@@ -38,12 +38,12 @@ export function SpinnerOverlay({
     /** @default true */
     visible?: boolean
     /** @default "spinning" */
-    mode?: 'spinning' | 'waiting'
+    mode?: 'spinning' | 'editing'
 }): JSX.Element {
     return (
         <div className={twJoin('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
-            {mode === 'waiting' ? (
-                <IconClock className="text-5xl text-primary z-10 animate-pulse drop-shadow-xl" />
+            {mode === 'editing' ? (
+                <IconPencil className="text-5xl text-primary z-10 drop-shadow-xl" />
             ) : (
                 <Spinner className={twMerge('text-5xl', className)} {...spinnerProps} />
             )}

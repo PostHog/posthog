@@ -1,5 +1,4 @@
 import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
-import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import {
     processOnEventStep,
     processWebhooksStep,
@@ -58,6 +57,6 @@ describe('runAsyncHandlersStep()', () => {
     it('calls onEvent plugin methods', async () => {
         await processOnEventStep(runner.hub, ingestionEvent)
 
-        expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
+        expect(runOnEvent).toHaveBeenCalledWith(runner.hub, ingestionEvent)
     })
 })
