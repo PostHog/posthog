@@ -18,7 +18,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Property,
     Team,

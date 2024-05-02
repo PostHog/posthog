@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, ActionStep, Element
+from posthog.models import Action, Element
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting

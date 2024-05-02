@@ -8,7 +8,6 @@ from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQ
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
 from posthog.queries.funnels.funnel_unordered_persons import (

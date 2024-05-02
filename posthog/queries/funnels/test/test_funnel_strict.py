@@ -2,7 +2,6 @@ from datetime import datetime
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_strict import ClickhouseFunnelStrict

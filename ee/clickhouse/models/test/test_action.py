@@ -4,7 +4,6 @@ from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
-from posthog.models.action_step import ActionStep
 from posthog.models.test.test_event_model import filter_by_actions_factory
 from posthog.test.base import (
     BaseTest,

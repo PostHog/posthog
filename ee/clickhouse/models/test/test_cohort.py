@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id

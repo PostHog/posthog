@@ -10,7 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Element, Organization, Person, User
+from posthog.models import Action, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.base import (

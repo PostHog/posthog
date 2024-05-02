@@ -26,7 +26,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,

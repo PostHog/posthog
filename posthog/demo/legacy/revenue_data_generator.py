@@ -6,7 +6,6 @@ from django.utils.timezone import now
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
     Action,
-    ActionStep,
     Dashboard,
     DashboardTile,
     EventDefinition,

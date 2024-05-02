@@ -1,5 +1,5 @@
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.utils import UUIDT
 from posthog.test.base import (
     BaseTest,

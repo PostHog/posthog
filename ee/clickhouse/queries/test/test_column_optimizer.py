@@ -1,7 +1,6 @@
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from posthog.models import Action, ActionStep
-from posthog.models.action.action import ActionStepJSON
+from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
 from posthog.test.base import (
     APIBaseTest,

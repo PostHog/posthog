@@ -13,7 +13,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.filters import RetentionFilter
 from posthog.models.instance_setting import override_instance_config
 from posthog.queries.retention.retention import Retention

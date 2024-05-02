@@ -18,7 +18,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person

@@ -16,7 +16,6 @@ from posthog.hogql.property import (
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Property,
     PropertyDefinition,

@@ -23,7 +23,6 @@ from posthog.constants import (
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,

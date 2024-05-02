@@ -20,7 +20,7 @@ from posthog.queries.session_recordings.session_recording_list import (
 )
 from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
-from posthog.models import Action, ActionStep, Cohort, Team, Organization
+from posthog.models import Action, Cohort, Team, Organization
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
