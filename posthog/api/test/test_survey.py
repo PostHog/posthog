@@ -92,9 +92,11 @@ class TestSurvey(APIBaseTest):
         )
 
         response_data = response.json()
+
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["linked_flag"]["id"] == notebooks_flag.id
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+        self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
                 {
