@@ -8,7 +8,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
-    CachedQueryResponse,
+    CachedEventsQueryResponse,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
@@ -86,8 +86,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
-            assert isinstance(response, CachedQueryResponse)
-            results = response.root.results
+            assert isinstance(response, CachedEventsQueryResponse)
+            results = response.results
             return results
 
     def test_is_not_set_boolean(self):

@@ -14,6 +14,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     HogQLQuery,
     HogQLQueryResponse,
+    CachedEventsQueryResponse,
     DashboardFilter,
     HogQLFilters,
     DateRange,
@@ -22,6 +23,8 @@ from posthog.schema import (
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
+    response: HogQLQueryResponse
+    cached_response: CachedEventsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:

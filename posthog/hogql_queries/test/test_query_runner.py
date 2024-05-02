@@ -12,12 +12,12 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.models.team.team import Team
 from posthog.schema import (
+    CachedQueryResponseBase,
     HogQLQueryModifiers,
     MaterializationMode,
     HogQLQuery,
-    QueryResponse,
-    CachedQueryResponse,
     CacheMissResponse,
+    QueryResponseBase,
 )
 from posthog.test.base import BaseTest
 
@@ -33,10 +33,12 @@ class TestQueryRunner(BaseTest):
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
-            query_type: TestQuery = TestQuery  # type: ignore[assignment]
+            query: TestQuery
+            response: QueryResponseBase
+            cached_response: CachedQueryResponseBase
 
             def calculate(self):
-                return QueryResponse(results=[])
+                return QueryResponseBase(results=[])
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
@@ -138,25 +140,25 @@ class TestQueryRunner(BaseTest):
 
             # returns fresh response if uncached
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
-            self.assertIsInstance(response, CachedQueryResponse)
+            self.assertIsInstance(response, CachedQueryResponseBase)
             self.assertEqual(response.is_cached, False)
             self.assertEqual(response.last_refresh, "2023-02-04T13:37:42Z")
             self.assertEqual(response.next_allowed_client_refresh, "2023-02-04T13:41:42Z")
 
             # returns cached response afterwards
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
-            self.assertIsInstance(response, CachedQueryResponse)
+            self.assertIsInstance(response, CachedQueryResponseBase)
             self.assertEqual(response.is_cached, True)
 
             # return fresh response if refresh requested
             response = runner.run(execution_mode=ExecutionMode.CALCULATION_ALWAYS)
-            self.assertIsInstance(response, CachedQueryResponse)
+            self.assertIsInstance(response, CachedQueryResponseBase)
             self.assertEqual(response.is_cached, False)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
             # returns fresh response if stale
             response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE)
-            self.assertIsInstance(response, CachedQueryResponse)
+            self.assertIsInstance(response, CachedQueryResponseBase)
             self.assertEqual(response.is_cached, False)
 
     def test_modifier_passthrough(self):

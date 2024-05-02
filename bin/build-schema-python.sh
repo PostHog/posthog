@@ -5,7 +5,7 @@ set -e
 # Generate schema.py from schema.json
 datamodel-codegen \
     --class-name='SchemaRoot' --collapse-root-models --target-python-version 3.10 --disable-timestamp \
-    --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum \
+    --use-one-literal-as-default --use-default --use-default-kwarg --use-subclass-enum --use-title-as-name \
     --input frontend/src/queries/schema.json --input-file-type jsonschema \
     --output posthog/schema.py --output-model-type pydantic_v2.BaseModel
 

@@ -6,7 +6,7 @@ from freezegun import freeze_time
 
 from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
 from posthog.models import Team
-from posthog.schema import CachedQueryResponse
+from posthog.schema import CachedPathsQueryResponse
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -153,8 +153,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 },
                 team=self.team,
             ).run()
-            assert isinstance(result, CachedQueryResponse)
-            response = result.root.results
+            assert isinstance(result, CachedPathsQueryResponse)
+            response = result.results
 
         self.assertEqual(response[0]["source"], "1_/", response)
         self.assertEqual(response[0]["target"], "2_/pricing")
@@ -185,8 +185,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 4)
+            assert hasattr(result, "results")
+            self.assertEqual(len(result.results), 4)
 
             date_to = now()
             result = PathsQueryRunner(
@@ -200,8 +200,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 4)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 4)
 
             date_from = now() + relativedelta(days=7)
             result = PathsQueryRunner(
@@ -215,8 +215,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 0)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 0)
 
             date_to = now() - relativedelta(days=7)
             result = PathsQueryRunner(
@@ -230,8 +230,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 0)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 0)
 
             date_from = now() - relativedelta(days=7)
             date_to = now() + relativedelta(days=7)
@@ -247,8 +247,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 },
                 team=self.team,
             ).run()
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 4)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 4)
 
             # Test account filter
             result = PathsQueryRunner(
@@ -264,8 +264,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 3)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 3)
 
             date_from = now() + relativedelta(days=7)
             date_to = now() - relativedelta(days=7)
@@ -281,8 +281,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
             ).run()
 
-            assert isinstance(result, CachedQueryResponse)
-            self.assertEqual(len(result.root.results), 0)
+            assert isinstance(result, CachedPathsQueryResponse)
+            self.assertEqual(len(result.results), 0)
 
     def test_custom_event_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
@@ -380,7 +380,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         ).run()
-        assert isinstance(r, CachedQueryResponse)
+        assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
         self.assertEqual(response[0]["source"], "1_custom_event_1", response)
@@ -496,7 +496,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         ).run()
-        assert isinstance(r, CachedQueryResponse)
+        assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
         self.assertEqual(response[0]["source"], "1_custom_event_1!", response)
@@ -603,7 +603,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         ).run()
-        assert isinstance(r, CachedQueryResponse)
+        assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
         self.assertEqual(response[0]["source"], "1_/", response)
@@ -724,7 +724,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         ).run()
-        assert isinstance(r, CachedQueryResponse)
+        assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
         self.assertEqual(response[0]["source"], "1_/")
@@ -868,7 +868,7 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         ).run()
-        assert isinstance(r, CachedQueryResponse)
+        assert isinstance(r, CachedPathsQueryResponse)
         response = r.results
 
         self.assertEqual(len(response), 5)
@@ -890,8 +890,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
 
-        assert isinstance(result, CachedQueryResponse)
-        response = result.root.results
+        assert isinstance(result, CachedPathsQueryResponse)
+        response = result.results
 
         self.assertEqual(len(response), 5)
 
@@ -911,8 +911,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
 
-        assert isinstance(result, CachedQueryResponse)
-        response = result.root.results
+        assert isinstance(result, CachedPathsQueryResponse)
+        response = result.results
 
         self.assertEqual(len(response), 3)
 
@@ -972,8 +972,8 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).run()
 
-        assert isinstance(result, CachedQueryResponse)
-        response = result.root.results
+        assert isinstance(result, CachedPathsQueryResponse)
+        response = result.results
 
         self.assertEqual(response[0]["source"], "1_/")
         self.assertEqual(response[0]["target"], "2_/about")

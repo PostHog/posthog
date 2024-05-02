@@ -153,9 +153,9 @@ export type QuerySchema =
 export type QuerySchemaRoot = QuerySchema
 
 // Dynamically make a union type out of all the types in all `response` fields in QuerySchema
-type QueryResponseType<T> = T extends { response: infer R } ? { response: R } : never
+type QueryResponseType<T> = T extends { response?: infer R } ? { response: R } : never
 type QueryAllResponses = QueryResponseType<QuerySchema>
-export type QueryResponseAlternative = QueryAllResponses[keyof QueryAllResponses]
+export type QueryResponseAlternative = QueryAllResponses['response']
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -173,8 +173,6 @@ export type AnyResponseType =
     | EventsQueryResponse
 
 export interface DataNode extends Node {
-    /** Cached query response */
-    response?: Record<string, any>
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
@@ -200,33 +198,24 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse {
+export interface HogQLQueryResponse extends QueryResponseBase<any[]> {
     /** Input query string */
     query?: string
-    /** Generated HogQL query */
-    hogql?: string
     /** Executed ClickHouse query */
     clickhouse?: string
-    /** Query results */
-    results?: any[]
-    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-    error?: string
     /** Returned columns */
     columns?: any[]
     /** Types of returned columns */
     types?: any[]
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTiming[]
     /** Query explanation output */
     explain?: string[]
     /** Query metadata output */
     metadata?: HogQLMetadataResponse
-    /** Modifiers used when performing the query */
-    modifiers?: HogQLQueryModifiers
     hasMore?: boolean
     limit?: integer
     offset?: integer
 }
+export type CachedHogQLQueryResponse = HogQLQueryResponse & CachedQueryResponseMixin
 
 /** Filters object that will be converted to a HogQL {filters} placeholder */
 export interface HogQLFilters {
@@ -410,17 +399,16 @@ export interface QueryTiming {
     /** Time in seconds. Shortened to 't' to save on data. */
     t: number
 }
-export interface EventsQueryResponse {
+export interface EventsQueryResponse extends QueryResponseBase<any[][]> {
     columns: any[]
     types: string[]
-    results: any[][]
     hogql: string
     hasMore?: boolean
-    timings?: QueryTiming[]
     limit?: integer
     offset?: integer
-    modifiers?: HogQLQueryModifiers
 }
+export type CachedEventsQueryResponse = EventsQueryResponse & CachedQueryResponseMixin
+
 export interface EventsQueryPersonColumn {
     uuid: string
     created_at: string
@@ -660,9 +648,8 @@ export type TrendsFilter = {
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
-export interface TrendsQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
-}
+export type TrendsQueryResponse = QueryResponseBase<Record<string, any>[]>
+export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryResponseMixin
 
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
@@ -739,9 +726,10 @@ export type FunnelTimeToConvertResults = {
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
-export interface FunnelsQueryResponse extends QueryResponse {
-    results: FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
-}
+export type FunnelsQueryResponse = QueryResponseBase<
+    FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+>
+export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryResponseMixin
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
@@ -766,9 +754,9 @@ export interface RetentionResult {
     date: string
 }
 
-export interface RetentionQueryResponse extends QueryResponse {
-    results: RetentionResult[]
-}
+export type RetentionQueryResponse = QueryResponseBase<RetentionResult[]>
+export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryResponseMixin
+
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
     response?: RetentionQueryResponse
@@ -776,9 +764,9 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
-}
+export type PathsQueryResponse = QueryResponseBase<Record<string, any>[]>
+export type CachedPathsQueryResponse = PathsQueryResponse & CachedQueryResponseMixin
+
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type PathsFilterLegacy = Omit<
     PathsFilterType,
@@ -837,9 +825,8 @@ export type StickinessFilter = {
     hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
-export interface StickinessQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
-}
+export type StickinessQueryResponse = QueryResponseBase<Record<string, any>[]>
+export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQueryResponseMixin
 
 export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
@@ -892,26 +879,32 @@ export interface QueryRequest {
     query: QuerySchema
 }
 
-export interface QueryResponse {
-    results: unknown
+/** All query responses must inherit from this. */
+interface QueryResponseBase<T> {
+    results: T
+    /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
+    /** Generated HogQL query. */
     hogql?: string
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string
-    is_cached?: boolean
-    last_refresh?: string
-    next_allowed_client_refresh?: string
+    /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-export type CachedQueryResponse = QueryResponseAlternative & {
+// TODO: Make sure the old `CachedQueryResponse` is still defined here, so that we can deserialize already-pickled cache
+interface CachedQueryResponseMixin {
     is_cached: boolean
     last_refresh: string
     next_allowed_client_refresh: string
     cache_key: string
     timezone: string
 }
+
+/** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
+export type TestBasicQueryResponse = QueryResponseBase<any[]>
+/** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
+export type CachedTestBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
 
 export interface CacheMissResponse {
     cache_key: string | null
@@ -938,9 +931,8 @@ export type QueryStatus = {
     task_id?: string
 }
 
-export interface LifecycleQueryResponse extends QueryResponse {
-    results: Record<string, any>[]
-}
+export type LifecycleQueryResponse = QueryResponseBase<Record<string, any>[]>
+export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryResponseMixin
 
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
@@ -953,18 +945,16 @@ export interface LifecycleQuery extends InsightsQueryBase {
     response?: LifecycleQueryResponse
 }
 
-export interface ActorsQueryResponse {
-    results: any[][]
+export interface ActorsQueryResponse extends QueryResponseBase<any[][]> {
     columns: any[]
     types: string[]
     hogql: string
-    timings?: QueryTiming[]
     hasMore?: boolean
     limit: integer
     offset: integer
     missing_actors_count?: integer
-    modifiers?: HogQLQueryModifiers
 }
+export type CachedActorsQueryResponse = ActorsQueryResponse & CachedQueryResponseMixin
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
@@ -987,12 +977,10 @@ export interface TimelineEntry {
     recording_duration_s?: number
 }
 
-export interface SessionsTimelineQueryResponse {
-    results: TimelineEntry[]
+export interface SessionsTimelineQueryResponse extends QueryResponseBase<TimelineEntry[]> {
     hasMore?: boolean
-    timings?: QueryTiming[]
-    hogql?: string
 }
+export type CachedSessionsTimelineQueryResponse = SessionsTimelineQueryResponse & CachedQueryResponseMixin
 
 export interface SessionsTimelineQuery extends DataNode {
     kind: NodeKind.SessionsTimelineQuery
@@ -1038,21 +1026,21 @@ export interface SamplingRate {
     denominator?: number
 }
 
-export interface WebOverviewQueryResponse extends QueryResponse {
-    results: WebOverviewItem[]
+export interface WebOverviewQueryResponse extends QueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
 }
+export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
 export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebTopClicksQuery
     response?: WebTopClicksQueryResponse
 }
-export interface WebTopClicksQueryResponse extends QueryResponse {
-    results: unknown[]
+export interface WebTopClicksQueryResponse extends QueryResponseBase<unknown[]> {
     types?: unknown[]
     columns?: unknown[]
     samplingRate?: SamplingRate
 }
+export type CachedWebTopClicksQueryResponse = WebTopClicksQueryResponse & CachedQueryResponseMixin
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -1081,8 +1069,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     doPathCleaning?: boolean
     limit?: integer
 }
-export interface WebStatsTableQueryResponse extends QueryResponse {
-    results: unknown[]
+export interface WebStatsTableQueryResponse extends QueryResponseBase<unknown[]> {
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1091,6 +1078,7 @@ export interface WebStatsTableQueryResponse extends QueryResponse {
     limit?: integer
     offset?: integer
 }
+export type CachedWebStatsTableQueryResponse = WebStatsTableQueryResponse & CachedQueryResponseMixin
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -1182,17 +1170,14 @@ export interface FunnelCorrelationResult {
     skewed: boolean
 }
 
-export interface FunnelCorrelationResponse {
-    results: FunnelCorrelationResult
+export interface FunnelCorrelationResponse extends QueryResponseBase<FunnelCorrelationResult> {
     columns?: any[]
     types?: any[]
-    hogql?: string
-    timings?: QueryTiming[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
-    modifiers?: HogQLQueryModifiers
 }
+export type CachedFunnelCorrelationResponse = FunnelCorrelationResponse & CachedRetentionQueryResponse
 
 export enum FunnelCorrelationResultsType {
     Events = 'events',
@@ -1248,6 +1233,7 @@ export interface InsightActorsQueryOptionsResponse {
         value: string
     }[]
 }
+export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
