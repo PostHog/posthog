@@ -2914,7 +2914,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(event_properties=["is_internal_user"])
     @freeze_time("2021-01-21T20:00:00.000Z")
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_top_level_hogql_event_property_test_account_filter(self):
         """

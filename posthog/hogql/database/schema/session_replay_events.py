@@ -133,6 +133,8 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
         join_table=EventsTable(),
         join_function=join_with_events_table,
     ),
+    # this is so that HogQL properties e.g. on test account filters can find the correct column
+    "properties": FieldTraverser(chain=["events", "properties"]),
     "pdi": LazyJoin(
         from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),
