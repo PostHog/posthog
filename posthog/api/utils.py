@@ -334,10 +334,10 @@ def raise_if_user_provided_url_unsafe(url: str):
 
 
 def raise_if_connected_to_private_ip(conn):
+    """Raise if the HTTPConnection / HTTPSConnection we are given points to a private IP."""
     if not getattr(conn, "sock", None):  # Force the connection open to check the remote IP
         conn.connect()
     addr = ip_address(conn.sock.getpeername()[0])
-    logger.warning("resolved IP", peer=conn.sock.getpeername(), addr=addr)
     if addr.is_private:
         raise ValueError("Internal hostname")
 

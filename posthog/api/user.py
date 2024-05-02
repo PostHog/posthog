@@ -561,6 +561,5 @@ def test_slack_webhook(request):
             return JsonResponse({"success": True})
         else:
             return JsonResponse({"error": response.text})
-    except Exception as e:
-        logger.warning("invalid url", err=e)
+    except:
         return JsonResponse({"error": "invalid webhook URL"})
