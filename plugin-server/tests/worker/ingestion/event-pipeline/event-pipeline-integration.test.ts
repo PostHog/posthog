@@ -221,7 +221,6 @@ describe('Event Pipeline integration test', () => {
                 timestamp,
                 teamId: 2,
                 distinctId: 'abc',
-                elementsList: [],
                 person: {
                     created_at: expect.any(String),
                     properties: {
