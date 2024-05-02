@@ -627,7 +627,8 @@ class FOSSCohortQuery(EventQuery):
     def _add_action(self, action_id: int) -> None:
         action = Action.objects.get(id=action_id)
         for step in action.steps:
-            self._events.append(step.event)
+            if step.event:
+                self._events.append(step.event)
 
     def _add_event(self, event_id: str) -> None:
         self._events.append(event_id)

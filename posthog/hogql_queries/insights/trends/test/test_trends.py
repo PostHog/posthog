@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Union
 from unittest.mock import patch
+import dataclasses
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
@@ -5554,10 +5555,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps[0].first()
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-            step.save()
+
+        step = sign_up_action.steps[0]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+
+        # TODO: Dataclasses are not great here...
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
 
         cohort.calculate_people_ch(pending_version=0)
 
