@@ -8,7 +8,6 @@ import { DependencyUnavailableError } from '../../../utils/db/error'
 import {
     convertDatabaseElementsToRawElements,
     convertToPostIngestionEvent,
-    convertToProcessedPluginEvent,
     mutatePostIngestionEventWithElementsList,
 } from '../../../utils/event'
 import { status } from '../../../utils/status'

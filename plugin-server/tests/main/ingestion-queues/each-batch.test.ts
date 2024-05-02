@@ -1,4 +1,4 @@
-import { buildIntegerMatcher, buildStringMatcher } from '../../../src/config/config'
+import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -15,7 +15,6 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
