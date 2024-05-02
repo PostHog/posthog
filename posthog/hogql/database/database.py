@@ -95,18 +95,19 @@ class Database(BaseModel):
     # system tables
     numbers: NumbersTable = NumbersTable()
 
-    # clunky: keep table names in sync with above
+    # These are the tables exposed via SQL editor autocomplete and data management
     _table_names: ClassVar[list[str]] = [
         "events",
         "groups",
         "persons",
-        "person_distinct_id2",
+        "person_distinct_ids",
         "person_overrides",
         "session_replay_events",
-        "cohortpeople",
-        "person_static_cohort",
+        "cohort_people",
+        "static_cohort_people",
         "log_entries",
         "sessions",
+        "heatmaps",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -137,9 +138,10 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        all_keys = list(vars(self).keys())
-        table_names = [key for key in all_keys if isinstance(getattr(self, key), Table)]
-        return table_names + self._warehouse_table_names
+        return self._table_names + self._warehouse_table_names
+
+    def get_posthog_tables(self) -> list[str]:
+        return self._table_names
 
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
@@ -375,7 +377,8 @@ def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
 
-    for table_key in context.database.model_fields.keys():
+    table_names = context.database.get_posthog_tables()
+    for table_key in table_names:
         field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
