@@ -17,6 +17,7 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
+from datetime import datetime
 
 
 def join_with_events_table(
@@ -31,12 +32,14 @@ def join_with_events_table(
     if "$session_id" not in requested_fields:
         requested_fields = {**requested_fields, "$session_id": ["$session_id"]}
 
+    now = datetime.now()
+
     clamp_to_ttl = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
         left=ast.Field(chain=["events", "timestamp"]),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
-            left=ast.Call(name="now", args=[]),
+            left=ast.Constant(value=now),
             # TODO be more clever about this date clamping
             right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
         ),

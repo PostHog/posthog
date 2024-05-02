@@ -90,22 +90,17 @@ class SessionRecordingListFromFilters:
         return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
-        query = parse_select(
-            self.SAMPLE_QUERY,
-            {
-                "order_by": self._order_by_clause(),
-                "where_predicates": self._where_predicates(),
-                "having_predicates": self._having_predicates(),
-            },
-        )
+        # query = parse_select(
+        #     self.SAMPLE_QUERY,
+        #     {
+        #         "order_by": self._order_by_clause(),
+        #         "where_predicates": self._where_predicates(),
+        #         "having_predicates": self._having_predicates(),
+        #     },
+        # )
 
         query = parse_select(
-            """
-            SELECT
-                events.properties.$browser
-            FROM
-                raw_session_replay_events
-                    """
+            "select session_id, any(events.properties.$browser) from raw_session_replay_events group by session_id order by session_id asc"
         )
 
         response = execute_hogql_query(
