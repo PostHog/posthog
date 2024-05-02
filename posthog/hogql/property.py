@@ -142,7 +142,7 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
     ):
-        if (scope == "person" and property.type != "person") or (scope == "session" and property.type == "person"):
+        if (scope == "person" and property.type != "person") or (scope == "session" and property.type == "session"):
             raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value

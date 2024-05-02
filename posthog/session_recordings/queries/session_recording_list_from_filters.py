@@ -105,7 +105,7 @@ class SessionRecordingListFromFilters:
             entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
 
             if entity.property_groups:
-                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="session"))
+                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="replay"))
 
             event_exprs.append(ast.And(exprs=entity_exprs))
 
