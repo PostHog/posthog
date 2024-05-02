@@ -1532,7 +1532,7 @@
      WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event'), 0), true)), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['new-event', '$pageview'])
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event'])
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1565,7 +1565,7 @@
      WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
   WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event2'), 0), true)), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['new-event2', '$pageview'])
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event2'])
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1598,7 +1598,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-2ab2-35b152d1bf55'), 0))
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-6d3d-1f7e3c9962c3'), 0))
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
