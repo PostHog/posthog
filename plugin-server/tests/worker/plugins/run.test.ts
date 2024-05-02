@@ -114,7 +114,7 @@ describe('runPluginTask()', () => {
 })
 
 describe('runOnEvent', () => {
-    let mockHub: any, exec: any, onEvent: jest.Mock
+    let mockHub: any, onEvent: jest.Mock
 
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
