@@ -3,6 +3,7 @@ import { LemonButton, LemonSelectOptions, LemonTag, Tooltip } from '@posthog/lem
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
@@ -13,9 +14,10 @@ import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
+    const productRef = useRef<HTMLDivElement | null>(null)
     const { billing, redirectPath } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
-        billingProductLogic({ product: addon })
+        billingProductLogic({ product: addon, productRef })
     )
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
         billingProductLogic({ product: addon })
@@ -31,7 +33,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     return (
-        <div className="bg-side rounded p-6 flex flex-col">
+        <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
             <div className="flex justify-between gap-x-4">
                 <div className="flex gap-x-4">
                     <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
@@ -54,12 +56,30 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 )
                             )}
                         </div>
-                        <div>
-                            <p className="ml-0 mb-0">{addon.description}</p>
-                        </div>
+                        <p className="ml-0 mb-0">{addon.description}</p>
+                        {addon.features?.length > 1 && (
+                            <div className="mt-3">
+                                <p className="ml-0 mb-2 max-w-200">Features included:</p>
+                                {addon.features?.map((feature, i) => {
+                                    return (
+                                        i < 6 && (
+                                            <div
+                                                className="flex gap-x-2 items-center mb-2"
+                                                key={'addon-features-' + addon.type + i}
+                                            >
+                                                <IconCheckCircle className="text-success" />
+                                                <Tooltip key={feature.key} title={feature.description}>
+                                                    <b>{feature.name} </b>
+                                                </Tooltip>
+                                            </div>
+                                        )
+                                    )
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
+                <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
                     {addon.docs_url && (
                         <LemonButton icon={<IconDocument />} size="small" to={addon.docs_url} tooltip="Read the docs" />
                     )}
@@ -87,15 +107,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         </LemonTag>
                     ) : (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                disableClientSideRouting
-                                onClick={() => {
-                                    toggleIsPricingModalOpen()
-                                }}
-                            >
-                                View pricing
-                            </LemonButton>
+                            {currentAndUpgradePlans?.upgradePlan?.flat_rate ? (
+                                <h4 className="leading-5 font-bold mb-0 space-x-0.5">
+                                    <span>${Number(currentAndUpgradePlans?.upgradePlan?.unit_amount_usd)}</span>
+                                    <span>/</span>
+                                    <span>{currentAndUpgradePlans?.upgradePlan?.unit}</span>
+                                </h4>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        toggleIsPricingModalOpen()
+                                    }}
+                                >
+                                    View pricing
+                                </LemonButton>
+                            )}
                             {!addon.inclusion_only && (
                                 <LemonButton
                                     type="primary"
