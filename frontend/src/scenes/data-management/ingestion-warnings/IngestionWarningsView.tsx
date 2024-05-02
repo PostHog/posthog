@@ -306,6 +306,9 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
             ]}
             embedded
             showHeader={false}
+            pagination={{
+                pageSize: 20,
+            }}
         />
     )
 }
