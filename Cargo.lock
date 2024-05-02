@@ -267,7 +267,7 @@ dependencies = [
 [[package]]
 name = "axum-test-helper"
 version = "0.4.0"
-source = "git+https://github.com/orphan-rs/axum-test-helper.git#8ca0aedaad5a6bdf351c34d5b80593ae1b7d2f3f"
+source = "git+https://github.com/posthog/axum-test-helper.git#002d45d8bbbac04e6a474e9a850b7f023a87d32f"
 dependencies = [
  "axum 0.7.5",
  "bytes",

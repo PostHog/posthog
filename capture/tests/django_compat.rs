@@ -201,6 +201,11 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             if let Some(object) = expected.as_object_mut() {
                 // site_url is unused in the pipeline now, let's drop it
                 object.remove("site_url");
+
+                // Remove sent_at field if empty: Rust will skip marshalling it
+                if let Some(None) = object.get("sent_at").map(|v| v.as_str()) {
+                    object.remove("sent_at");
+                }
             }
 
             let match_config = assert_json_diff::Config::new(assert_json_diff::CompareMode::Strict);
@@ -209,7 +214,9 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             {
                 println!(
                     "record mismatch at line {}, event {}: {}",
-                    line_number, event_number, e
+                    line_number + 1,
+                    event_number,
+                    e
                 );
                 mismatches += 1;
             }
