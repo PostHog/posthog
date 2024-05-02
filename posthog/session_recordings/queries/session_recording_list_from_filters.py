@@ -6,9 +6,7 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import entity_to_expr
-from posthog.queries.util import PersonPropertiesMode
 from posthog.models import Entity, Team
-from posthog.models.team import PersonsOnEventsMode
 from posthog.models.action.util import format_entity_filter
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
@@ -101,10 +99,23 @@ class SessionRecordingListFromFilters:
             },
         )
 
+        query = parse_select(
+            """
+            SELECT
+                events.properties.$browser
+            FROM
+                raw_session_replay_events
+                    """
+        )
+
         response = execute_hogql_query(
             query=query,
             team=self._team,
         )
+
+        print("results:")
+        print(response.results)
+        print(response.hogql)
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
@@ -149,18 +160,33 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.entities:
-            exprs.append(self._event_where_predicates(self._filter.entities))
+            (event_names, event_exprs) = self._event_where_predicates(self._filter.entities)
+            exprs.append(ast.Or(exprs=event_exprs))
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value=event_names),
+                )
+            )
 
         return ast.And(exprs=exprs)
 
     def _event_where_predicates(self, entities: list[Entity]) -> ast.Or:
-        print(self._filter.entities)
+        event_names: list[Union[int, str]] = []
         event_exprs: list[ast.Expr] = []
 
-        for entity in enumerate(entities):
+        for entity in entities:
             event_exprs.append(entity_to_expr(entity=entity))
 
-        return ast.Or(exprs=event_exprs)
+            if entity.type == TREND_FILTER_TYPE_ACTIONS:
+                action = entity.get_action()
+                event_names.extend([ae for ae in action.get_step_events() if ae not in event_names])
+            else:
+                if entity.id and entity.id not in event_names:
+                    event_names.append(entity.id)
+
+        return event_names, event_exprs
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
@@ -177,25 +203,6 @@ class SessionRecordingListFromFilters:
                     left=ast.Field(chain=[self._filter.duration_type_filter]),
                     right=ast.Constant(value=self._filter.recording_duration_filter.value),
                 ),
-            )
-
-        if self._filter.entities:
-            event_names_to_filter = []
-            for entity in enumerate(self._filter.entities):
-                if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                    action = entity.get_action()
-                    event_names_to_filter.extend(
-                        [ae for ae in action.get_step_events() if ae not in event_names_to_filter]
-                    )
-                else:
-                    if entity.id and entity.id not in event_names_to_filter:
-                        event_names_to_filter.append(entity.id)
-
-            exprs.append(
-                limit=ast.Call(
-                    name="hasAll",
-                    args=[ast.Field(chain=["event_names"]), ast.Constant(value=event_names_to_filter)],
-                )
             )
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
