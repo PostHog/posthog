@@ -3,12 +3,10 @@ from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import entity_to_expr
 from posthog.models import Entity, Team
-from posthog.models.action.util import format_entity_filter
-from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.session_recordings.queries.session_replay_events import ttl_days
@@ -50,7 +48,7 @@ class SessionRecordingListFromFilters:
         """
 
     @staticmethod
-    def _data_to_return(results: list[Any]) -> list[dict[str, Any]]:
+    def _data_to_return(results: list[Any] | None) -> list[dict[str, Any]]:
         default_columns = [
             "session_id",
             "team_id",
@@ -73,7 +71,7 @@ class SessionRecordingListFromFilters:
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),
             }
-            for row in results
+            for row in results or []
         ]
 
     def __init__(
@@ -90,17 +88,13 @@ class SessionRecordingListFromFilters:
         return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
-        # query = parse_select(
-        #     self.SAMPLE_QUERY,
-        #     {
-        #         "order_by": self._order_by_clause(),
-        #         "where_predicates": self._where_predicates(),
-        #         "having_predicates": self._having_predicates(),
-        #     },
-        # )
-
         query = parse_select(
-            "select session_id, any(events.properties.$browser) from raw_session_replay_events group by session_id order by session_id asc"
+            self.SAMPLE_QUERY,
+            {
+                "order_by": self._order_by_clause(),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
+            },
         )
 
         response = execute_hogql_query(
@@ -108,14 +102,14 @@ class SessionRecordingListFromFilters:
             team=self._team,
         )
 
-        print("results:")
-        print(response.results)
-        print(response.hogql)
+        # print("results:")
+        # print(response.results)
+        # print(response.hogql)
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
 
-    def _order_by_clause(self) -> Constant:
+    def _order_by_clause(self) -> ast.Field:
         order = self._filter.target_entity_order or "start_time"
         return ast.Field(chain=[order])
 
@@ -168,7 +162,7 @@ class SessionRecordingListFromFilters:
         # we need to combine search by console message and log level
         # since if someone filters for text = "foo bar" and level = "info"
         # it doesn't make sense to return all "info" logs and all logs with "foo bar"
-        log_level_condition = ast.Constant(value=True)
+        log_level_condition: ast.Expr = ast.Constant(value=True)
         if self._filter.console_logs_filter:
             log_level_condition = ast.CompareOperation(
                 op=ast.CompareOperationOp.In,
@@ -176,7 +170,7 @@ class SessionRecordingListFromFilters:
                 right=ast.Constant(value=self._filter.console_logs_filter),
             )
 
-        log_message_condition = ast.Constant(value=True)
+        log_message_condition: ast.Expr = ast.Constant(value=True)
         if self._filter.console_search_query:
             log_message_condition = ast.CompareOperation(
                 op=ast.CompareOperationOp.Gt,
@@ -194,7 +188,7 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _event_where_predicates(self, entities: list[Entity]) -> ast.Or:
+    def _event_where_predicates(self, entities: list[Entity]) -> tuple[list[Union[int, str]], list[ast.Expr]]:
         event_names: list[Union[int, str]] = []
         event_exprs: list[ast.Expr] = []
 

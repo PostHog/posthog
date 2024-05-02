@@ -32,20 +32,11 @@ def join_with_events_table(
     if "$session_id" not in requested_fields:
         requested_fields = {**requested_fields, "$session_id": ["$session_id"]}
 
-    now = datetime.now()
+    clamp_to_ttl = _clamp_to_ttl(["events", "timestamp"])
 
-    clamp_to_ttl = ast.CompareOperation(
-        op=ast.CompareOperationOp.GtEq,
-        left=ast.Field(chain=["events", "timestamp"]),
-        right=ast.ArithmeticOperation(
-            op=ast.ArithmeticOperationOp.Sub,
-            left=ast.Constant(value=now),
-            # TODO be more clever about this date clamping
-            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
-        ),
-    )
-
-    select_fields = [ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()]
+    select_fields: list[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=chain)) for name, chain in requested_fields.items()
+    ]
     select_query = SelectQuery(
         select=select_fields,
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -66,6 +57,23 @@ def join_with_events_table(
     return join_expr
 
 
+def _clamp_to_ttl(chain: list[str | int]):
+    from posthog.hogql import ast
+
+    now = datetime.now()
+    clamp_to_ttl = ast.CompareOperation(
+        op=ast.CompareOperationOp.GtEq,
+        left=ast.Field(chain=chain),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Constant(value=now),
+            # TODO be more clever about this date clamping
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=90)]),
+        ),
+    )
+    return clamp_to_ttl
+
+
 def join_with_console_logs_log_entries_table(
     from_table: str,
     to_table: str,
@@ -81,6 +89,7 @@ def join_with_console_logs_log_entries_table(
     select_query = SelectQuery(
         select=[ast.Field(chain=chain) for chain in requested_fields.values()],
         select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+        where=_clamp_to_ttl(["timestamp"]),
     )
 
     join_expr = ast.JoinExpr(table=select_query)
