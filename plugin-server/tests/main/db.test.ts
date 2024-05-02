@@ -3,7 +3,6 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
 import {
-    Action,
     ClickHouseTimestamp,
     Hub,
     Person,
