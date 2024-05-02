@@ -11,6 +11,10 @@ type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 
 const poeOptions: LemonRadioOption<PoEMode>[] = [
     {
+        value: 'person_id_no_override_properties_on_events',
+        label: 'Deprecated old PoE setting. You probably want to choose one of the other options.',
+    },
+    {
         value: 'person_id_override_properties_on_events',
         label: 'Use ingestion-time person properties from the events table (faster)',
     },
@@ -20,6 +24,8 @@ const poeOptions: LemonRadioOption<PoEMode>[] = [
     },
 ]
 
+const deprecatedOption: PoEMode = 'person_id_no_override_properties_on_events'
+
 export function PersonsOnEvents(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportPoEModeUpdated } = useActions(eventUsageLogic)
@@ -27,6 +33,11 @@ export function PersonsOnEvents(): JSX.Element {
     const savedPoEMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
     const [poeMode, setPoeMode] = useState<PoEMode>(savedPoEMode)
+
+    const visibleOptions =
+        savedPoEMode === deprecatedOption
+            ? poeOptions
+            : poeOptions.filter((option) => option.value !== deprecatedOption)
 
     const handleChange = (mode: PoEMode): void => {
         updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
@@ -48,7 +59,7 @@ export function PersonsOnEvents(): JSX.Element {
                 Querying for person properties as they are now on the persons table takes more compute and memory, as we
                 need to merge two large datasets.
             </p>
-            <LemonRadio value={poeMode} onChange={setPoeMode} options={poeOptions} />
+            <LemonRadio value={poeMode} onChange={setPoeMode} options={visibleOptions} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"
