@@ -295,6 +295,7 @@ multidict==6.0.2
     #   yarl
 mypy-extensions==1.0.0
     # via black
+nanoid==2.0.0
 natsort==8.4.0
 nh3==0.2.14
 numpy==1.23.3
