@@ -126,9 +126,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
                     indexedResults.sort((a, b) =>
-                        a.label === BREAKDOWN_OTHER_STRING_LABEL
+                        a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                             ? BREAKDOWN_OTHER_NUMERIC_LABEL
-                            : a.label === BREAKDOWN_NULL_STRING_LABEL
+                            : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
                             ? BREAKDOWN_NULL_NUMERIC_LABEL
                             : b.aggregated_value - a.aggregated_value
                     )
