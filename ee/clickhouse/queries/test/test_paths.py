@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import Tuple
 from unittest.mock import MagicMock
 from uuid import UUID
 
@@ -2905,7 +2904,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_properties_queried_using_path_filter(self):
-        def should_query_list(filter) -> Tuple[bool, bool]:
+        def should_query_list(filter) -> tuple[bool, bool]:
             path_query = PathEventQuery(filter, self.team)
             return (path_query._should_query_url(), path_query._should_query_screen())
 

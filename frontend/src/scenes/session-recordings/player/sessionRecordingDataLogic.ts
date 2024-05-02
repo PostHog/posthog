@@ -38,6 +38,7 @@ import {
     RecordingSnapshot,
     SessionPlayerData,
     SessionRecordingId,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
     SessionRecordingType,
@@ -162,10 +163,9 @@ export const deduplicateSnapshots = (snapshots: RecordingSnapshot[] | null): Rec
 
             if (seenHashes.has(key)) {
                 return false
-            } else {
-                seenHashes.add(key)
-                return true
             }
+            seenHashes.add(key)
+            return true
         })
         .sort((a, b) => a.timestamp - b.timestamp)
 }
@@ -337,7 +337,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSource[] | null,
             {
                 loadSnapshotSources: async () => {
-                    const response = await api.recordings.listSnapshots(props.sessionRecordingId)
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
                     return response.sources ?? []
                 },
             },
@@ -346,9 +346,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingSnapshotSourceResponse | null,
             {
                 loadSnapshotsForSource: async ({ source }, breakpoint) => {
-                    const params = {
-                        source: source.source,
-                        blob_key: source.blob_key,
+                    let params: SessionRecordingSnapshotParams
+
+                    if (source.source === SnapshotSourceType.blob) {
+                        if (!source.blob_key) {
+                            throw new Error('Missing key')
+                        }
+                        params = { blob_key: source.blob_key, source: 'blob' }
+                    } else if (source.source === SnapshotSourceType.realtime) {
+                        params = { source: 'realtime', version: '2024-04-30' }
+                    } else {
+                        throw new Error(`Unsupported source: ${source.source}`)
                     }
 
                     const snapshotLoadingStartTime = performance.now()
@@ -359,21 +367,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     await breakpoint(1)
 
-                    if (source.source === SnapshotSourceType.blob && !source.blob_key) {
-                        throw new Error('Missing key')
-                    }
-
-                    const blobResponseType = source.source === SnapshotSourceType.blob
-
-                    const response = blobResponseType
-                        ? await api.recordings.getBlobSnapshots(props.sessionRecordingId, params).catch((e) => {
-                              if (source.source === 'realtime' && e.status === 404) {
-                                  // Realtime source is not always available so a 404 is expected
-                                  return []
-                              }
-                              throw e
-                          })
-                        : (await api.recordings.listSnapshots(props.sessionRecordingId, params)).snapshots ?? []
+                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params).catch((e) => {
+                        if (source.source === 'realtime' && e.status === 404) {
+                            // Realtime source is not always available so a 404 is expected
+                            return []
+                        }
+                        throw e
+                    })
 
                     const { transformed, untransformed } = await processEncodedResponse(
                         response,
@@ -616,6 +616,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     values.sessionPlayerData,
                     generateRecordingReportDurations(cache),
                     SessionRecordingUsageType.LOADED,
+                    values.sessionPlayerMetaData,
                     0
                 )
                 // Reset cache now that final usage report has been sent
@@ -630,6 +631,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.VIEWED,
+                values.sessionPlayerMetaData,
                 0
             )
             await breakpoint(IS_TEST_MODE ? 1 : 10000)
@@ -637,6 +639,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 values.sessionPlayerData,
                 durations,
                 SessionRecordingUsageType.ANALYZED,
+                values.sessionPlayerMetaData,
                 10
             )
         },

@@ -7,6 +7,19 @@
   FROM events
   WHERE event = 'survey sent'
     AND team_id = 2
+    AND timestamp >= '2024-01-21 14:40:09'
+  GROUP BY survey_id
+  '''
+# ---
+# name: TestResponsesCount.test_responses_count_only_after_first_survey_created
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT JSONExtractString(properties, '$survey_id') as survey_id,
+         count()
+  FROM events
+  WHERE event = 'survey sent'
+    AND team_id = 2
+    AND timestamp >= '2024-04-25 14:40:09'
   GROUP BY survey_id
   '''
 # ---
@@ -137,6 +150,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -180,6 +194,7 @@
          "posthog_survey"."end_date",
          "posthog_survey"."updated_at",
          "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",

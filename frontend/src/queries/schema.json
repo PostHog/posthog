@@ -2336,6 +2336,10 @@
         "FunnelsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -2641,6 +2645,7 @@
             "additionalProperties": false,
             "properties": {
                 "explain": {
+                    "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
                 },
                 "filters": {
@@ -2679,6 +2684,9 @@
                     },
                     "type": "array"
                 },
+                "debug": {
+                    "type": "boolean"
+                },
                 "inCohortVia": {
                     "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
@@ -2716,7 +2724,7 @@
                     "type": "array"
                 },
                 "error": {
-                    "description": "Query error. Returned only if 'explain' is true. Throws an error otherwise.",
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
                 "explain": {
@@ -3175,6 +3183,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -3191,6 +3202,9 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "show_legend": {
+                    "type": "boolean"
+                },
                 "show_values_on_series": {
                     "type": "boolean"
                 },
@@ -3206,6 +3220,10 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -3265,6 +3283,10 @@
         "LifecycleQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -3564,6 +3586,10 @@
         "PathsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -3798,6 +3824,10 @@
         "QueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -4109,7 +4139,7 @@
                             "type": "array"
                         },
                         "error": {
-                            "description": "Query error. Returned only if 'explain' is true. Throws an error otherwise.",
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
                         "explain": {
@@ -4228,6 +4258,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4268,6 +4302,10 @@
                         "columns": {
                             "items": {},
                             "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -4321,6 +4359,10 @@
                             "items": {},
                             "type": "array"
                         },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4360,6 +4402,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4394,6 +4440,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4428,6 +4478,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4462,6 +4516,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "type": "string"
                         },
@@ -4861,6 +4919,10 @@
         "RetentionQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -5258,6 +5320,10 @@
         "StickinessQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -5595,6 +5661,10 @@
         "TrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -5667,6 +5737,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/SessionPropertyFilter"
                 }
             ]
         },
@@ -5777,6 +5850,10 @@
         "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
                 "hogql": {
                     "type": "string"
                 },
@@ -5815,6 +5892,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "ExitPage",
                 "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
@@ -5890,6 +5968,10 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -5980,6 +6062,10 @@
                 "columns": {
                     "items": {},
                     "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
                 },
                 "hogql": {
                     "type": "string"

@@ -1,4 +1,5 @@
-from typing import Sequence, cast
+from typing import cast
+from collections.abc import Sequence
 
 from posthog.models.organization import Organization
 

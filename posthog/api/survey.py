@@ -1,6 +1,6 @@
 from contextlib import contextmanager
-from typing import Type
 
+from django.db.models import Min
 from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
@@ -58,6 +58,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -89,6 +90,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -271,7 +273,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
         else:
@@ -287,14 +289,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
+        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
+            "created_at__min"
+        ]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id},
+            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
         )
 
         counts = {}

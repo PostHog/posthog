@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any, Literal
+from typing import Union, cast, Optional, Any, Literal
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -46,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Optional[Dict[str, Any]] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -416,7 +416,7 @@ class TestProperty(BaseTest):
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=cast(
-                        Union[List[Property], List[PropertyGroup]],
+                        Union[list[Property], list[PropertyGroup]],
                         [
                             Property(type="person", key="a", value="b", operator="exact"),
                             PropertyGroup(

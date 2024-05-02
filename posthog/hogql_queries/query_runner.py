@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import IntEnum
-from typing import Any, Generic, List, Optional, Type, Dict, TypeVar, Union, Tuple, cast, TypeGuard
+from typing import Any, Generic, Optional, TypeVar, Union, cast, TypeGuard
 
 from django.conf import settings
 from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -25,6 +26,7 @@ from posthog.schema import (
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -45,7 +47,9 @@ from posthog.schema import (
     SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
+
+logger = structlog.get_logger(__name__)
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
     "posthog_query_cache_write_total",
@@ -76,9 +80,10 @@ class QueryResponse(BaseModel, Generic[DataT]):
         extra="forbid",
     )
     results: DataT
-    timings: Optional[List[QueryTiming]] = None
-    types: Optional[List[Union[Tuple[str, str], str]]] = None
-    columns: Optional[List[str]] = None
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[Union[tuple[str, str], str]]] = None
+    columns: Optional[list[str]] = None
+    error: Optional[str] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
     limit: Optional[int] = None
@@ -102,7 +107,7 @@ class CacheMissResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cache_key: str
+    cache_key: Optional[str]
 
 
 RunnableQueryNode = Union[
@@ -128,25 +133,22 @@ RunnableQueryNode = Union[
 
 
 def get_query_runner(
-    query: Dict[str, Any] | RunnableQueryNode | BaseModel,
+    query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
-    kind = None
-    if isinstance(query, dict):
-        kind = query.get("kind", None)
-    elif hasattr(query, "kind"):
-        kind = query.kind
-    else:
+    try:
+        kind = get_from_dict_or_attr(query, "kind")
+    except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
-            query=cast(TrendsQuery | Dict[str, Any], query),
+            query=cast(TrendsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -156,7 +158,7 @@ def get_query_runner(
         from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
-            query=cast(FunnelsQuery | Dict[str, Any], query),
+            query=cast(FunnelsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -166,7 +168,7 @@ def get_query_runner(
         from .insights.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
-            query=cast(RetentionQuery | Dict[str, Any], query),
+            query=cast(RetentionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -176,7 +178,7 @@ def get_query_runner(
         from .insights.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
-            query=cast(PathsQuery | Dict[str, Any], query),
+            query=cast(PathsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -186,7 +188,7 @@ def get_query_runner(
         from .insights.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
-            query=cast(StickinessQuery | Dict[str, Any], query),
+            query=cast(StickinessQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -196,7 +198,7 @@ def get_query_runner(
         from .insights.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
-            query=cast(LifecycleQuery | Dict[str, Any], query),
+            query=cast(LifecycleQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -206,7 +208,7 @@ def get_query_runner(
         from .events_query_runner import EventsQueryRunner
 
         return EventsQueryRunner(
-            query=cast(EventsQuery | Dict[str, Any], query),
+            query=cast(EventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -216,7 +218,7 @@ def get_query_runner(
         from .actors_query_runner import ActorsQueryRunner
 
         return ActorsQueryRunner(
-            query=cast(ActorsQuery | Dict[str, Any], query),
+            query=cast(ActorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -226,7 +228,7 @@ def get_query_runner(
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
-            query=cast(InsightActorsQuery | Dict[str, Any], query),
+            query=cast(InsightActorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -236,7 +238,7 @@ def get_query_runner(
         from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
 
         return InsightActorsQueryOptionsRunner(
-            query=cast(InsightActorsQueryOptions | Dict[str, Any], query),
+            query=cast(InsightActorsQueryOptions | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -246,7 +248,7 @@ def get_query_runner(
         from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
-            query=cast(FunnelCorrelationQuery | Dict[str, Any], query),
+            query=cast(FunnelCorrelationQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -256,7 +258,7 @@ def get_query_runner(
         from .hogql_query_runner import HogQLQueryRunner
 
         return HogQLQueryRunner(
-            query=cast(HogQLQuery | Dict[str, Any], query),
+            query=cast(HogQLQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -266,33 +268,48 @@ def get_query_runner(
         from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
 
         return SessionsTimelineQueryRunner(
-            query=cast(SessionsTimelineQuery | Dict[str, Any], query),
+            query=cast(SessionsTimelineQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,
         )
     if kind == "WebOverviewQuery":
-        from .web_analytics.web_overview import WebOverviewQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.web_overview import WebOverviewQueryRunner
 
-        return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
+
+            return LegacyWebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebStatsTableQuery":
-        from .web_analytics.stats_table import WebStatsTableQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+
+            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
+# R (for Response) should have a structure similar to QueryResponse.
+# Due to the way schema.py is generated, we don't have a good inheritance story here.
+R = TypeVar("R", bound=BaseModel)
 
 
-class QueryRunner(ABC, Generic[Q]):
+class QueryRunner(ABC, Generic[Q, R]):
     query: Q
-    query_type: Type[Q]
+
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -300,7 +317,7 @@ class QueryRunner(ABC, Generic[Q]):
 
     def __init__(
         self,
-        query: Q | BaseModel | Dict[str, Any],
+        query: Q | BaseModel | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -317,19 +334,22 @@ class QueryRunner(ABC, Generic[Q]):
         assert isinstance(query, self.query_type)
         self.query = query
 
+    @property
+    def query_type(self) -> type[Q]:
+        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
     @abstractmethod
-    def calculate(self) -> BaseModel:
-        # The returned model should have a structure similar to QueryResponse.
-        # Due to the way schema.py is generated, we don't have a good inheritance story here.
+    def calculate(self) -> R:
         raise NotImplementedError()
 
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CachedQueryResponse | CacheMissResponse:
-        cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
+        # TODO: `self.limit_context` should probably just be in get_cache_key()
+        cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
@@ -369,7 +389,7 @@ class QueryRunner(ABC, Generic[Q]):
                 if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                     return cached_response
 
-        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
+        fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
@@ -378,7 +398,12 @@ class QueryRunner(ABC, Generic[Q]):
         fresh_response_dict["cache_key"] = cache_key
         fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedQueryResponse(**fresh_response_dict)
-        cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+
+        # Dont cache debug queries with errors
+        has_error = fresh_response_dict.get("error", None)
+        if has_error is None or len(has_error) == 0:
+            cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
@@ -403,13 +428,13 @@ class QueryRunner(ABC, Generic[Q]):
                 "hogql",
             )
 
-    def toJSON(self) -> str:
+    def to_json(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
-    def _cache_key(self) -> str:
+    def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
+            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod
@@ -424,12 +449,25 @@ class QueryRunner(ABC, Generic[Q]):
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
-            query_update: Dict[str, Any] = {}
+            query_update: dict[str, Any] = {}
             if dashboard_filter.properties:
                 if self.query.properties:
-                    query_update["properties"] = PropertyGroupFilter(
-                        type=FilterLogicalOperator.AND, values=[self.query.properties, dashboard_filter.properties]
-                    )
+                    try:
+                        query_update["properties"] = PropertyGroupFilter(
+                            type=FilterLogicalOperator.AND,
+                            values=[
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
+                                if isinstance(self.query.properties, list)
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump()),
+                                PropertyGroupFilterValue(
+                                    type=FilterLogicalOperator.AND, values=dashboard_filter.properties
+                                ),
+                            ],
+                        )
+                    except Exception:
+                        # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
+                        capture_exception()
+                        logger.exception("Failed to apply dashboard property filters")
                 else:
                     query_update["properties"] = dashboard_filter.properties
             if dashboard_filter.date_from or dashboard_filter.date_to:

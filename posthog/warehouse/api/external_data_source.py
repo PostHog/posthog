@@ -1,15 +1,14 @@
 import uuid
-from typing import Any, List, Tuple, Dict
+from typing import Any
 
+from psycopg2 import OperationalError
 import structlog
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import User
 from posthog.warehouse.data_load.service import (
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
@@ -36,6 +35,14 @@ from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
+
+GenericPostgresError = "Could not fetch Postgres schemas. Please check all connection details are valid."
+PostgresErrors = {
+    "password authentication failed for user": "Invalid user or password",
+    "could not translate host name": "Could not connect to the host",
+    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    'database "': "Database does not exist",
+}
 
 
 class ExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -71,7 +78,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return latest_completed_run.created_at if latest_completed_run else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: List[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
+        active_schemas: list[ExternalDataSchema] = list(instance.schemas.filter(should_sync=True).all())
         any_failures = any(schema.status == ExternalDataSchema.Status.ERROR for schema in active_schemas)
         any_cancelled = any(schema.status == ExternalDataSchema.Status.CANCELLED for schema in active_schemas)
         any_paused = any(schema.status == ExternalDataSchema.Status.PAUSED for schema in active_schemas)
@@ -122,25 +129,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["source_id"]
     ordering = "-created_at"
 
-    def get_serializer_context(self) -> Dict[str, Any]:
+    def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .prefetch_related("created_by", "schemas")
-                .order_by(self.ordering)
-            )
-
-        return (
-            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
-        )
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by", "schemas").order_by(self.ordering)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
@@ -193,7 +188,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         disabled_schemas = [schema for schema in default_schemas if schema not in enabled_schemas]
 
-        active_schemas: List[ExternalDataSchema] = []
+        active_schemas: list[ExternalDataSchema] = []
 
         for schema in enabled_schemas:
             active_schemas.append(
@@ -289,7 +284,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_postgres_source(
         self, request: Request, *args: Any, **kwargs: Any
-    ) -> Tuple[ExternalDataSource, List[Any]]:
+    ) -> tuple[ExternalDataSource, list[Any]]:
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
@@ -435,16 +430,27 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             try:
                 result = get_postgres_schemas(host, port, database, user, password, schema)
-            except Exception as e:
-                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+                if len(result) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "Postgres schema doesn't exist"},
+                    )
+            except OperationalError as e:
+                exposed_error = self._expose_postgres_error(e)
+
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={
-                        "message": "Could not fetch Postgres schemas. Please check all connection details are valid."
-                    },
+                    data={"message": exposed_error or GenericPostgresError},
+                )
+            except Exception as e:
+                logger.exception("Could not fetch Postgres schemas", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": GenericPostgresError},
                 )
 
-            result_mapped_to_options = [{"table": row, "should_sync": False} for row in result]
+            result_mapped_to_options = [{"table": row, "should_sync": True} for row in result]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
 
         # Return the possible endpoints for all other source types
@@ -455,7 +461,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Invalid parameter: source_type"},
             )
 
-        options = [{"table": row, "should_sync": False} for row in schemas]
+        options = [{"table": row, "should_sync": True} for row in schemas]
         return Response(status=status.HTTP_200_OK, data=options)
 
     @action(methods=["POST"], detail=False)
@@ -473,6 +479,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
         return Response(status=status.HTTP_200_OK)
+
+    def _expose_postgres_error(self, error: OperationalError) -> str | None:
+        error_msg = " ".join(str(n) for n in error.args)
+
+        for key, value in PostgresErrors.items():
+            if key in error_msg:
+                return value
+        return None
 
     def _validate_postgres_host(self, host: str, team_id: int) -> bool:
         if host.startswith("172") or host.startswith("10") or host.startswith("localhost"):

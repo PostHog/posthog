@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 from unittest.mock import patch
 
 import pytest
@@ -42,7 +42,7 @@ def create_insight(
     is_shared=True,
     filters=filter_dict,
     deleted=False,
-    query: Optional[Dict] = None,
+    query: Optional[dict] = None,
 ) -> Insight:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
@@ -77,7 +77,7 @@ def create_tile(
     dashboard_tile_deleted=False,
     is_dashboard_shared=True,
     text_tile=False,
-    query: Optional[Dict] = None,
+    query: Optional[dict] = None,
 ) -> DashboardTile:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
@@ -295,7 +295,7 @@ def test_calculate_target_age(
     team: Team,
     user: User,
     create_item,
-    create_item_kw: Dict,
+    create_item_kw: dict,
     expected_target_age: TargetCacheAge,
 ):
     item = cast(

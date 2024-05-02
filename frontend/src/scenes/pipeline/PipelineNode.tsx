@@ -64,11 +64,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         return <Spinner />
     }
 
-    if (id === 'new') {
-        // If it's new we don't want to show any tabs
-        return <PipelineNodeConfiguration />
-    }
-
     if (!node) {
         return <NotFound object={stage} />
     }

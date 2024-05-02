@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from unittest import mock
 from unittest.mock import MagicMock, Mock, patch, ANY
 
@@ -97,7 +97,7 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
             yield patched_request
 
-    def _create_asset(self, extra_context: Optional[Dict] = None) -> ExportedAsset:
+    def _create_asset(self, extra_context: Optional[dict] = None) -> ExportedAsset:
         if extra_context is None:
             extra_context = {}
 
@@ -588,7 +588,7 @@ class TestCSVExporter(APIBaseTest):
                 self.assertEqual(lines[0], "error")
                 self.assertEqual(lines[1], "No data available or unable to format for export.")
 
-    def _split_to_dict(self, url: str) -> Dict[str, Any]:
+    def _split_to_dict(self, url: str) -> dict[str, Any]:
         first_split_parts = url.split("?")
         assert len(first_split_parts) == 2
         return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}

@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 
 import jwt
 import requests
 import structlog
 from django.utils import timezone
+from requests import JSONDecodeError  # type: ignore[attr-defined]
 from rest_framework.exceptions import NotAuthenticated
 from sentry_sdk import capture_exception
 
@@ -44,7 +45,11 @@ def build_billing_token(license: License, organization: Organization):
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
-        raise Exception(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
+        try:
+            response = res.json()
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+        except JSONDecodeError:
+            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
 
 
 class BillingManager:
@@ -53,7 +58,7 @@ class BillingManager:
     def __init__(self, license):
         self.license = license or get_cached_instance_license()
 
-    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
+    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
             billing_service_response = self._get_billing(organization)
 
@@ -63,7 +68,7 @@ class BillingManager:
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: Dict[str, Any] = {"available_features": []}
+            response: dict[str, Any] = {"available_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -102,7 +107,7 @@ class BillingManager:
 
         return response
 
-    def update_billing(self, organization: Organization, data: Dict[str, Any]) -> None:
+    def update_billing(self, organization: Organization, data: dict[str, Any]) -> None:
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization),

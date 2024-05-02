@@ -1,6 +1,6 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
-import { MutableRefObject, useCallback, useEffect, useRef } from 'react'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
@@ -49,9 +49,30 @@ function HeatmapMouseInfo({
 }
 
 export function Heatmap(): JSX.Element | null {
-    const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight } = useValues(heatmapLogic)
+    const { heatmapJsData, heatmapEnabled, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
+        useValues(heatmapLogic)
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
+
+    const heatmapJSColorGradient = useMemo((): Record<string, string> => {
+        switch (heatmapColorPalette) {
+            case 'blue':
+                return { '.0': 'rgba(0, 0, 255, 0)', '.100': 'rgba(0, 0, 255, 1)' }
+            case 'green':
+                return { '.0': 'rgba(0, 255, 0, 0)', '.100': 'rgba(0, 255, 0, 1)' }
+            case 'red':
+                return { '.0': 'rgba(255, 0, 0, 0)', '.100': 'rgba(255, 0, 0, 1)' }
+
+            default:
+                // Defaults taken from heatmap.js
+                return { '.25': 'rgb(0,0,255)', '0.55': 'rgb(0,255,0)', '0.85': 'yellow', '1.0': 'rgb(255,0,0)' }
+        }
+    }, [heatmapColorPalette])
+
+    const heatmapConfig = {
+        minOpacity: 0,
+        maxOpacity: 0.8,
+    }
 
     const updateHeatmapData = useCallback((): void => {
         try {
@@ -68,7 +89,9 @@ export function Heatmap(): JSX.Element | null {
         }
 
         heatmapsJsRef.current = heatmapsJs.create({
+            ...heatmapConfig,
             container,
+            gradient: heatmapJSColorGradient,
         })
 
         updateHeatmapData()
@@ -77,6 +100,18 @@ export function Heatmap(): JSX.Element | null {
     useEffect(() => {
         updateHeatmapData()
     }, [heatmapJsData])
+
+    useEffect(() => {
+        if (!heatmapsJsContainerRef.current) {
+            return
+        }
+
+        heatmapsJsRef.current?.configure({
+            ...heatmapConfig,
+            container: heatmapsJsContainerRef.current,
+            gradient: heatmapJSColorGradient,
+        })
+    }, [heatmapJSColorGradient])
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null

@@ -10,8 +10,8 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { lastRefreshed } = useValues(dashboardLogic)
-    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
+    const { newestRefreshed } = useValues(dashboardLogic)
+    return <span>Last updated {newestRefreshed ? dayjs(newestRefreshed).fromNow() : 'a while ago'}</span>
 }
 
 const refreshIntervalSeconds = [1800, 3600]

@@ -2,7 +2,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce, TruncDay
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
@@ -82,13 +82,14 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         ```
         select
             date_trunc('day', last_updated_at) as dates,
-            sum(coalesce(records_completed, 0)) as successes,
-            sum(coalesce(records_total_count, 0)) - sum(coalesce(records_completed, 0)) as failures
+            sum(case when status = 'Completed' then coalesce(records_total_count, 0) else 0) as successes,
+            sum(case when status != 'Completed' then coalesce(records_total_count, 0) else 0) as failures
         from
             posthog_batchexportrun
         where
             batch_export_id = :batch_export_id
             and last_updated_at between :date_from and :date_to
+            and status != 'Running'
         group by
             date_trunc('day', last_updated_at)
         order by
@@ -117,8 +118,12 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             .annotate(dates=TruncDay("last_updated_at"))
             .values("dates")
             .annotate(
-                successes=Sum(Coalesce("records_completed", 0)),
-                failures=Sum(Coalesce("records_total_count", 0)) - Sum(Coalesce("records_completed", 0)),
+                successes=Sum(
+                    Coalesce("records_total_count", 0), filter=Q(status=BatchExportRun.Status.COMPLETED), default=0
+                ),
+                failures=Sum(
+                    Coalesce("records_total_count", 0), filter=~Q(status=BatchExportRun.Status.COMPLETED), default=0
+                ),
             )
             .order_by("dates")
             .all()
@@ -137,7 +142,7 @@ class HistoricalExportsAppMetricsViewSet(
         return response.Response(
             {
                 "results": historical_exports_activity(
-                    team_id=self.parents_query_dict["team_id"],
+                    team_id=self.team_id,
                     plugin_config_id=self.parents_query_dict["plugin_config_id"],
                 )
             }

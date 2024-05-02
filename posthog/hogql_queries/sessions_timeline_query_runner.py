@@ -1,6 +1,6 @@
 from datetime import timedelta
 import json
-from typing import Dict, cast
+from typing import cast
 from posthog.api.element import ElementSerializer
 
 
@@ -34,7 +34,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    query_type = SessionsTimelineQuery
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
@@ -138,7 +137,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
         assert query_result.results is not None
-        timeline_entries_map: Dict[str, TimelineEntry] = {}
+        timeline_entries_map: dict[str, TimelineEntry] = {}
         for (
             uuid,
             timestamp_parsed,

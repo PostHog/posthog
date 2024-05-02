@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List
 from unittest.mock import MagicMock, call, patch
 
 from zoneinfo import ZoneInfo
@@ -25,10 +24,10 @@ from posthog.test.base import APIBaseTest
 @patch("ee.tasks.subscriptions.generate_assets")
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestSubscriptionsTasks(APIBaseTest):
-    subscriptions: List[Subscription] = None  # type: ignore
+    subscriptions: list[Subscription] = None  # type: ignore
     dashboard: Dashboard
     insight: Insight
-    tiles: List[DashboardTile] = None  # type: ignore
+    tiles: list[DashboardTile] = None  # type: ignore
     asset: ExportedAsset
 
     def setUp(self) -> None:
@@ -70,10 +69,9 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         schedule_all_subscriptions()
 
-        assert mock_deliver_task.delay.mock_calls == [
-            call(subscriptions[0].id),
-            call(subscriptions[1].id),
-        ]
+        self.assertCountEqual(
+            mock_deliver_task.delay.call_args_list, [call(subscriptions[0].id), call(subscriptions[1].id)]
+        )
 
     @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(

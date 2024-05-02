@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Union, cast, Literal
+from typing import Optional, Union, cast, Literal
 
 from pydantic import BaseModel
 
@@ -36,6 +36,7 @@ from posthog.schema import (
     RetentionEntity,
     EmptyPropertyFilter,
 )
+from posthog.utils import get_from_dict_or_attr
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -382,7 +383,7 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     or_queries = []
     for step in steps:
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
         if step.event:
             exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=step.event)}))
 
@@ -502,3 +503,19 @@ def selector_to_expr(selector: str):
     regex = build_selector_regex(Selector(selector, escape_slashes=False))
     expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
     return expr
+
+
+def get_property_type(property):
+    return get_from_dict_or_attr(property, "type")
+
+
+def get_property_key(property):
+    return get_from_dict_or_attr(property, "key")
+
+
+def get_property_value(property):
+    return get_from_dict_or_attr(property, "value")
+
+
+def get_property_operator(property):
+    return get_from_dict_or_attr(property, "operator")

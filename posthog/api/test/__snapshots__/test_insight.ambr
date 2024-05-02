@@ -23,7 +23,7 @@
     AND event IN ['user did things', 'user signed up']
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-    AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
+    AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -107,7 +107,7 @@
                       AND event IN ['user did things', 'user signed up']
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                      AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
+                      AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
@@ -182,7 +182,7 @@
                    AND event IN ['user did things', 'user signed up']
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                   AND ((and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
+                   AND ((and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                         AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
                    AND (step_0 = 1
                         OR step_1 = 1) ))
@@ -227,11 +227,11 @@
                         pdi.person_id as person_id,
                         person.person_props as person_props,
                         if(event = 'user signed up'
-                           AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
+                           AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                                 AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things'
-                           AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
+                           AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                                 AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
@@ -271,7 +271,7 @@
 # name: TestInsight.test_insight_trend_hogql_breakdown
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') AS value,
+  SELECT if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -313,7 +313,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -332,7 +332,7 @@
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
   '''
   /* user_id:0 request:_snapshot_ */
-  SELECT if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') AS value,
+  SELECT if(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more') AS value,
          count(*) as count
   FROM events e
   WHERE team_id = 2
@@ -374,7 +374,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -458,7 +458,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(ifNull(greater(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
+          AND ((and(ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1))
                AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
@@ -533,7 +533,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(ifNull(greater(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1))
+          AND ((and(ifNull(greater(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1))
                AND (ifNull(like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
@@ -582,7 +582,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
+          AND (and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)
                AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start
@@ -631,7 +631,7 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1)
+          AND (and(ifNull(less(accurateCastOrNull(nullIf(nullIf(events.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1)
                AND ifNull(like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start
@@ -697,6 +697,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -750,6 +751,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -879,6 +881,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1118,6 +1121,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1206,9 +1210,9 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."team_id" = 2
          AND NOT ("posthog_dashboarditem"."filters" = '{}'::jsonb
-                  AND "posthog_dashboarditem"."query" IS NOT NULL))
+                  AND "posthog_dashboarditem"."query" IS NOT NULL)
+         AND "posthog_dashboarditem"."team_id" = 2)
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.26
@@ -1267,6 +1271,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1349,9 +1354,9 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T4 ON ("posthog_dashboarditem"."last_modified_by_id" = T4."id")
   WHERE (NOT ("posthog_dashboarditem"."deleted")
-         AND "posthog_dashboarditem"."team_id" = 2
          AND NOT ("posthog_dashboarditem"."filters" = '{}'::jsonb
-                  AND "posthog_dashboarditem"."query" IS NOT NULL))
+                  AND "posthog_dashboarditem"."query" IS NOT NULL)
+         AND "posthog_dashboarditem"."team_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100
   '''
@@ -1401,6 +1406,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1514,6 +1520,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1644,6 +1651,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1732,6 +1740,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1819,6 +1828,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1879,6 +1889,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
