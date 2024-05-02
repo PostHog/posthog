@@ -91,7 +91,7 @@ class SessionRecordingListFromFilters:
     @cached_property
     def _event_predicates(self):
         event_exprs: list[ast.Expr] = []
-        event_names = set()
+        event_names: set[int | str] = set()
 
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -101,7 +101,8 @@ class SessionRecordingListFromFilters:
                 if entity.id and entity.id not in event_names:
                     event_names.add(entity.id)
 
-            entity_exprs = [entity_to_expr(entity=entity)]
+            # TODO: we're not passing the "right" type in here - should we change the signature or do something else?
+            entity_exprs = [entity_to_expr(entity=entity)]  # type: ignore
 
             if entity.property_groups:
                 entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="session"))
