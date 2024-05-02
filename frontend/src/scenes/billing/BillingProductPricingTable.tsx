@@ -13,10 +13,10 @@ export interface ProductPricingTierSubrows {
         title: string
         dataIndex: string
     }[]
-    rows: TableTierSubrows[]
+    rows: TableTierSubrow[]
 }
 
-type TableTierSubrows = {
+type TableTierSubrow = {
     productName: string
     price: string
     usage: string
@@ -46,10 +46,18 @@ export const BillingProductPricingTable = ({
     const { billing } = useValues(billingLogic)
 
     const tableColumns = [
-        { title: `Priced per ${product.unit}`, dataIndex: 'volume' },
+        {
+            title: `Priced per ${product.unit}`,
+            dataIndex: 'volume',
+            render: (_, item: TableTierDatum) => <h4 className="font-bold mb-0">{item.volume}</h4>,
+        },
         { title: 'Price', dataIndex: 'basePrice' },
         { title: 'Current Usage', dataIndex: 'usage' },
-        { title: 'Total', dataIndex: 'total' },
+        {
+            title: 'Total',
+            dataIndex: 'total',
+            render: (_, item: TableTierDatum) => <span className="font-bold mb-0 text-default">{item.total}</span>,
+        },
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
@@ -83,7 +91,10 @@ export const BillingProductPricingTable = ({
                                   : [],
                           columns: [
                               { title: `Product name`, dataIndex: 'productName' },
-                              { title: 'Price', dataIndex: 'price' },
+                              {
+                                  title: 'Price',
+                                  dataIndex: 'price',
+                              },
                               { title: 'Current Usage', dataIndex: 'usage' },
                               { title: 'Total', dataIndex: 'total' },
                               { title: 'Projected Total', dataIndex: 'projectedTotal' },
