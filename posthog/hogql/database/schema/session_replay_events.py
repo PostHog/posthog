@@ -60,6 +60,9 @@ def join_with_events_table(
 def _clamp_to_ttl(chain: list[str | int]):
     from posthog.hogql import ast
 
+    # TRICKY: tests can freeze time, if we use `now()` in the ClickHouse queries then the tests will fail
+    # because the time in the query will be different from the time in the test
+    # so we generate now in Python and pass it in
     now = datetime.now()
     clamp_to_ttl = ast.CompareOperation(
         op=ast.CompareOperationOp.GtEq,
