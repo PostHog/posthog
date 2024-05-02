@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+import structlog
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
@@ -34,7 +35,7 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import raise_if_user_provided_url_unsafe
+from posthog.api.utils import raise_if_user_provided_url_unsafe, PublicIPOnlyHttpAdapter
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import (
@@ -53,6 +54,8 @@ from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 from posthog.constants import PERMITTED_FORUM_DOMAINS
+
+logger = structlog.get_logger(__name__)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -545,13 +548,19 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
+        session = requests.Session()
+
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)
-        response = requests.post(webhook, verify=False, json=message)
+            session.mount("https://", PublicIPOnlyHttpAdapter())
+            session.mount("http://", PublicIPOnlyHttpAdapter())
+
+        response = session.post(webhook, verify=False, json=message)
 
         if response.ok:
             return JsonResponse({"success": True})
         else:
             return JsonResponse({"error": response.text})
-    except:
+    except Exception as e:
+        logger.warning("invalid url", err=e)
         return JsonResponse({"error": "invalid webhook URL"})
