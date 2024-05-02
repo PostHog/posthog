@@ -266,7 +266,12 @@ export function Billing(): JSX.Element {
             <LemonDivider className="mt-2 mb-8" />
 
             {products
-                ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
+                ?.filter(
+                    (product) =>
+                        !product.inclusion_only ||
+                        product.plans.some((plan) => !plan.included_if) ||
+                        product.addons.length > 0
+                )
                 ?.map((x) => (
                     <div key={x.type}>
                         <BillingProduct product={x} />
