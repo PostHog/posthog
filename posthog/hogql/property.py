@@ -148,7 +148,7 @@ def property_to_expr(
         value = property.value
         if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
-        elif property.type == "event" and scope != "event":
+        elif property.type == "event" and scope == "replay":
             chain = ["events", "properties"]
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.value, str):
