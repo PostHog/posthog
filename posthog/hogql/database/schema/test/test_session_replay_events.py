@@ -73,13 +73,20 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
     def test_select_event_property(self):
         response = execute_hogql_query(
             parse_select(
-                "select session_id, any(events.properties.$current_url) from raw_session_replay_events where events.properties.$current_url group by session_id order by session_id asc",
+                "select session_id, any(events.properties.$current_url) from raw_session_replay_events group by session_id order by session_id asc",
             ),
             self.team,
         )
 
         assert response.results == [
-            ("session_with_example_com_pageview",),
+            (
+                "session_with_different_com_pageview",
+                "https://different.com",
+            ),
+            (
+                "session_with_example_com_pageview",
+                "https://example.com",
+            ),
         ]
 
 
