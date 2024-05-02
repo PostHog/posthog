@@ -22,24 +22,24 @@ insight_cache_read_counter = Counter(
 @dataclass(frozen=True)
 class InsightResult:
     result: Optional[Any]
-    columns: Optional[list]
     last_refresh: Optional[datetime]
     cache_key: Optional[str]
     is_cached: bool
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
     timings: Optional[list[QueryTiming]] = None
+    columns: Optional[list] = None
 
 
 @dataclass(frozen=True)
 class NothingInCacheResult(InsightResult):
     result: Optional[Any] = None
-    columns: Optional[list] = None
     last_refresh: Optional[datetime] = None
     cache_key: Optional[str] = None
     is_cached: bool = False
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
+    columns: Optional[list] = None
 
 
 def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_frequency: timedelta) -> InsightResult:
