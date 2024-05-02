@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 
+from django.db.models import Min
 from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
@@ -290,14 +291,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
+        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
+            "created_at__min"
+        ]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id},
+            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
         )
 
         counts = {}
