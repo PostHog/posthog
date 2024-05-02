@@ -178,19 +178,20 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        console_logs_subquery = ast.SelectQuery(
-            select=[ast.Field(chain=["log_source_id"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-            where=ast.And(exprs=console_logs_predicates) if console_logs_predicates else Constant(value=True),
-        )
-
-        exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["session_id"]),
-                right=console_logs_subquery,
+        if console_logs_predicates:
+            console_logs_subquery = ast.SelectQuery(
+                select=[ast.Field(chain=["log_source_id"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+                where=ast.And(exprs=console_logs_predicates),
             )
-        )
+
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["session_id"]),
+                    right=console_logs_subquery,
+                )
+            )
 
         return ast.And(exprs=exprs)
 

@@ -92,7 +92,7 @@ def join_with_console_logs_log_entries_table(
     select_query = SelectQuery(
         select=[ast.Field(chain=chain) for chain in requested_fields.values()],
         select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-        where=_clamp_to_ttl(["timestamp"]),
+        # no need to clamp this table to a ttl, it only holds 12 weeks of logs anyway
     )
 
     join_expr = ast.JoinExpr(table=select_query)
