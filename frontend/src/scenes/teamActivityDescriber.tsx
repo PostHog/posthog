@@ -218,6 +218,7 @@ const teamActionsMapping: Record<
         }
         return { description: descriptions }
     },
+    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,
