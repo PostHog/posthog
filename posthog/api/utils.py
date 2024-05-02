@@ -339,7 +339,7 @@ def raise_if_connected_to_private_ip(conn):
         conn.connect()
     addr = ip_address(conn.sock.getpeername()[0])
     if addr.is_private:
-        raise ValueError("Internal hostname")
+        raise ValueError("Internal IP")
 
 
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
