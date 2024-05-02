@@ -149,7 +149,7 @@ class PropertySwapper(CloningVisitor):
                 node.type.table_type.lazy_join.join_table, S3Table
             ):
                 field = node.chain[-1]
-                field_type = node.type.table_type.lazy_join.join_table.fields.get(field, None)
+                field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
                 prop_type = "String"
 
                 if isinstance(field_type, IntegerDatabaseField) or isinstance(field_type, FloatDatabaseField):
