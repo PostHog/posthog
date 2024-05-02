@@ -2570,17 +2570,6 @@
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.53
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.54
-  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2605,7 +2594,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.55
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.54
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
@@ -2613,7 +2602,7 @@
          AND "posthog_dashboard"."team_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_listing_dashboards_is_not_nplus1.56
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.55
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -2737,6 +2726,24 @@
          AND "posthog_dashboard"."team_id" = 2)
   ORDER BY "posthog_dashboard"."name" ASC
   LIMIT 300
+  '''
+# ---
+# name: TestDashboard.test_listing_dashboards_is_not_nplus1.56
+  '''
+  SELECT "posthog_sharingconfiguration"."id",
+         "posthog_sharingconfiguration"."team_id",
+         "posthog_sharingconfiguration"."dashboard_id",
+         "posthog_sharingconfiguration"."insight_id",
+         "posthog_sharingconfiguration"."recording_id",
+         "posthog_sharingconfiguration"."created_at",
+         "posthog_sharingconfiguration"."enabled",
+         "posthog_sharingconfiguration"."access_token"
+  FROM "posthog_sharingconfiguration"
+  WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
+                                                          2,
+                                                          3,
+                                                          4,
+                                                          5 /* ... */)
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.57
