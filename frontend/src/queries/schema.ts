@@ -1269,7 +1269,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
 
 export interface DatabaseSchemaQueryResponseField {
     key: string
-    type: string
+    type: DatabaseSerializedFieldType
     table?: string
     fields?: string[]
     chain?: string[]
@@ -1280,6 +1280,21 @@ export interface DatabaseSchemaQuery extends DataNode {
     kind: NodeKind.DatabaseSchemaQuery
     response?: DatabaseSchemaQueryResponse
 }
+
+export type DatabaseSerializedFieldType =
+    | 'integer'
+    | 'float'
+    | 'string'
+    | 'datetime'
+    | 'date'
+    | 'boolean'
+    | 'array'
+    | 'json'
+    | 'lazy_table'
+    | 'virtual_table'
+    | 'field_traverser'
+    | 'expression'
+    | 'view'
 
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery

@@ -172,6 +172,22 @@ class DatabaseSchemaQueryResponseField(BaseModel):
     type: str
 
 
+class DatabaseSerializedFieldType(str, Enum):
+    integer = "integer"
+    float = "float"
+    string = "string"
+    datetime = "datetime"
+    date = "date"
+    boolean = "boolean"
+    array = "array"
+    json = "json"
+    lazy_table = "lazy_table"
+    virtual_table = "virtual_table"
+    field_traverser = "field_traverser"
+    expression = "expression"
+    view = "view"
+
+
 class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

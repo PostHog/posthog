@@ -8,6 +8,7 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
+    FloatDatabaseField,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -21,6 +22,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
+from posthog.schema import DatabaseSerializedFieldType
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
@@ -29,6 +31,17 @@ from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from .external_table_definitions import external_tables
+
+SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
+    DatabaseSerializedFieldType.integer: "Int64",
+    DatabaseSerializedFieldType.float: "Float64",
+    DatabaseSerializedFieldType.string: "String",
+    DatabaseSerializedFieldType.datetime: "DateTime64",
+    DatabaseSerializedFieldType.date: "Date",
+    DatabaseSerializedFieldType.boolean: "Bool",
+    DatabaseSerializedFieldType.array: "Array",
+    DatabaseSerializedFieldType.json: "Map",
+}
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -42,10 +55,10 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
-    "Float8": IntegerDatabaseField,
-    "Float16": IntegerDatabaseField,
-    "Float32": IntegerDatabaseField,
-    "Float64": IntegerDatabaseField,
+    "Float8": FloatDatabaseField,
+    "Float16": FloatDatabaseField,
+    "Float32": FloatDatabaseField,
+    "Float64": FloatDatabaseField,
     "Int8": IntegerDatabaseField,
     "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
@@ -54,7 +67,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
-    "Decimal": IntegerDatabaseField,
+    "Decimal": FloatDatabaseField,
 }
 
 STR_TO_HOGQL_MAPPING = {
@@ -62,6 +75,7 @@ STR_TO_HOGQL_MAPPING = {
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
     "IntegerDatabaseField": IntegerDatabaseField,
+    "FloatDatabaseField": FloatDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,

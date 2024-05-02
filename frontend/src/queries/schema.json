@@ -986,6 +986,24 @@
             "required": ["key", "type"],
             "type": "object"
         },
+        "DatabaseSerializedFieldType": {
+            "enum": [
+                "integer",
+                "float",
+                "string",
+                "datetime",
+                "date",
+                "boolean",
+                "array",
+                "json",
+                "lazy_table",
+                "virtual_table",
+                "field_traverser",
+                "expression",
+                "view"
+            ],
+            "type": "string"
+        },
         "DateRange": {
             "additionalProperties": false,
             "properties": {
