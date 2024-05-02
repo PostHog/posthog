@@ -916,7 +916,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
-    @skip("TODO: Not implemented in HogQL")
     def test_event_filter_with_properties(self):
         user = "test_event_filter_with_properties-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
