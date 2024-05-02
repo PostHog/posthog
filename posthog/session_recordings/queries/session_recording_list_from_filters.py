@@ -7,7 +7,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 

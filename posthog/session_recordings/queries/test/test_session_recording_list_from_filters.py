@@ -746,9 +746,9 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         user = "test_session_ids-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-        first_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
-        second_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
-        third_session_id = f"test_filter_on_session_ids-{str(uuid4())}"
+        first_session_id = str(uuid4())
+        second_session_id = str(uuid4())
+        third_session_id = str(uuid4())
 
         produce_replay_summary(
             session_id=first_session_id,
