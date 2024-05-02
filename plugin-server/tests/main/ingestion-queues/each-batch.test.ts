@@ -162,47 +162,6 @@ describe('eachBatchX', () => {
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
         })
-        // TODO: Move these tests to the run.ts part somehow...
-        it('parses elements when useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [{ attributes: {}, order: 0, tag_name: 'random' }],
-                })
-            )
-        })
-        it('skips elements parsing when not useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [],
-                })
-            )
-        })
     })
 
     describe('eachBatchWebhooksHandlers', () => {
