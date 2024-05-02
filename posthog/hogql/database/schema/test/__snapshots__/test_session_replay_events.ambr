@@ -70,7 +70,7 @@
   JOIN
     (SELECT events.event AS event,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__events.event, '$pageview'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -87,7 +87,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(like(raw_session_replay_events__events.`properties___$current_url`, '%example.com%'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -105,7 +105,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE equals(session_replay_events.team_id, 2)
   GROUP BY session_replay_events.session_id
@@ -123,7 +123,7 @@
   JOIN
     (SELECT events.distinct_id AS raw_session_replay_events__events___distinct_id,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
      WHERE equals(events.team_id, 2)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS raw_session_replay_events__events__pdi___person_id,

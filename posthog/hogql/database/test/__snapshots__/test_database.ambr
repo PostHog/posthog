@@ -466,6 +466,14 @@
               ]
           },
           {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -879,6 +887,14 @@
                   "$group_4",
                   "group_4",
                   "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
               ]
           },
           {
@@ -1611,6 +1627,14 @@
               ]
           },
           {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -2024,6 +2048,14 @@
                   "$group_4",
                   "group_4",
                   "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
               ]
           },
           {
