@@ -252,7 +252,8 @@ class SessionRecordingListFromFilters:
                     name="hasAll",
                     args=[
                         ast.Call(name="groupUniqArray", args=[ast.Field(chain=["events", "event"])]),
-                        ast.Constant(value=event_names),
+                        # KLUDGE: sorting only so that snapshot tests are consistent
+                        ast.Constant(value=sorted(event_names)),
                     ],
                 )
             )
