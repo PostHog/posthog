@@ -23,7 +23,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from posthog.models import Action, ActionStep, Cohort
+from posthog.models import Action, Cohort
 from posthog.models.instance_setting import get_instance_setting
 
 
@@ -31,8 +31,7 @@ def create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
     return action
 
 

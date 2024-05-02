@@ -51,8 +51,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(team_id=team_id, name=name)
-        ActionStep.objects.create(action=action, event=name, properties=properties)
+        action = Action.objects.create(
+            team_id=team_id, name=name, steps_json=[{"event": name, "properties": properties}]
+        )
         return action
 
     def create_event(

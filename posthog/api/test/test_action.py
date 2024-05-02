@@ -135,8 +135,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
-        action = Action.objects.create(name="user signed up", team=self.team)
-        ActionStep.objects.create(action=action, text="sign me up!")
+        action = Action.objects.create(name="user signed up", team=self.team, steps_json=[{"text": "sign me up!"}])
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={

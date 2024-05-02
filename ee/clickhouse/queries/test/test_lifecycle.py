@@ -19,14 +19,6 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
-    return action
-
-
 class TestClickhouseLifecycle(TestLifecycleBase):
     @snapshot_clickhouse_queries
     def test_test_account_filters_with_groups(self):

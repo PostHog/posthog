@@ -184,7 +184,7 @@ def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentif
 
     result: TCounter[PropertyIdentifier] = Counter()
 
-    for action_step in action.steps.all():
+    for action_step in action.steps:
         if action_step.url:
             result[("$current_url", "event", None)] += 1
         result += extract_tables_and_properties(
@@ -195,7 +195,7 @@ def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentif
 
 
 def uses_elements_chain(action: Action) -> bool:
-    for action_step in action.steps.all():
+    for action_step in action.steps:
         if any(Property(**prop).type == "element" for prop in (action_step.properties or [])):
             return True
         if any(getattr(action_step, attribute) is not None for attribute in ["selector", "tag_name", "href", "text"]):

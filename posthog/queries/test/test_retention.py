@@ -30,8 +30,7 @@ from posthog.test.base import (
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
     return action
 
 
@@ -1198,11 +1197,14 @@ def retention_test_factory(retention):
 
         @snapshot_clickhouse_queries
         def test_retention_with_user_properties_via_action(self):
-            action = Action.objects.create(team=self.team)
-            ActionStep.objects.create(
-                action=action,
-                event="$pageview",
-                properties=[{"key": "email", "value": "person1@test.com", "type": "person"}],
+            action = Action.objects.create(
+                team=self.team,
+                steps_json=[
+                    {
+                        "event": "$pageview",
+                        "properties": [{"key": "email", "value": "person1@test.com", "type": "person"}],
+                    }
+                ],
             )
 
             _create_person(

@@ -21,8 +21,7 @@ from posthog.test.base import (
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
     return action
 
 

@@ -282,11 +282,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
 
-        action = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="event_name",
-            action=action,
-            properties=[{"key": "name", "type": "person", "value": "John"}],
+        action = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[{"event": "event_name", "properties": [{"key": "name", "type": "person", "value": "John"}]}],
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "type": "actions", "order": 0}]})

@@ -1436,41 +1436,43 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         cohort_extra.calculate_people_ch(pending_version=1)
 
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="insight viewed",
-            action=action1,
-            properties=[
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
                 {
-                    "key": "insight",
-                    "type": "event",
-                    "value": ["RETENTION"],
-                    "operator": "exact",
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "insight",
+                            "type": "event",
+                            "value": ["RETENTION"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "id",
+                            "value": cohort_extra.id,
+                            "type": "cohort",
+                        },
+                    ],
                 },
                 {
-                    "key": "id",
-                    "value": cohort_extra.id,
-                    "type": "cohort",
+                    "event": "insight viewed",
+                    "properties": [
+                        {
+                            "key": "filters_count",
+                            "type": "event",
+                            "value": "1",
+                            "operator": "gt",
+                        }
+                    ],
+                },
+                {
+                    "event": "$autocapture",
+                    "url": "/123",
+                    "url_matching": "regex",
                 },
             ],
-        )
-        ActionStep.objects.create(
-            event="insight viewed",
-            action=action1,
-            properties=[
-                {
-                    "key": "filters_count",
-                    "type": "event",
-                    "value": "1",
-                    "operator": "gt",
-                }
-            ],
-        )
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="/123",
-            url_matching=ActionStep.REGEX,
         )
         response = self._generate_experiment(
             datetime.now() - timedelta(days=5),

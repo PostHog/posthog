@@ -394,8 +394,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             self.assertEqual(len(response["results"]), 1)
 
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action, event="sign up")
+        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
