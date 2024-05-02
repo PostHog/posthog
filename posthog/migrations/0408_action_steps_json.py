@@ -3,8 +3,31 @@
 from django.db import migrations, models
 
 
-class Migration(migrations.Migration):
+def copy_action_steps_to_json(apps, schema_editor):
+    Action = apps.get_model("posthog", "Action")
 
+    all_actions_with_steps = Action.objects.prefetch_related("action_steps").all()
+
+    for action in all_actions_with_steps:
+        action.steps = [
+            {
+                "tag_name": step.tag_name,
+                "text": step.text,
+                "text_matching": step.text_matching,
+                "href": step.href,
+                "href_matching": step.href_matching,
+                "selector": step.selector,
+                "url": step.url,
+                "url_matching": step.url_matching,
+                "event": step.event,
+                "properties": step.properties,
+            }
+            for step in action.action_steps.all()
+        ]
+        action.save()
+
+
+class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0407_verbose_name_for_team_model"),
     ]
@@ -15,4 +38,5 @@ class Migration(migrations.Migration):
             name="steps_json",
             field=models.JSONField(blank=True, null=True),
         ),
+        migrations.RunPython(copy_action_steps_to_json, reverse_code=migrations.RunPython.noop),
     ]
