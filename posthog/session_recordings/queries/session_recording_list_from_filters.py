@@ -165,6 +165,33 @@ class SessionRecordingListFromFilters:
                 )
             )
 
+        # we need to combine search by console message and log level
+        # since if someone filters for text = "foo bar" and level = "info"
+        # it doesn't make sense to return all "info" logs and all logs with "foo bar"
+        log_level_condition = ast.Constant(value=True)
+        if self._filter.console_logs_filter:
+            log_level_condition = ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["console_logs", "level"]),
+                right=ast.Constant(value=self._filter.console_logs_filter),
+            )
+
+        log_message_condition = ast.Constant(value=True)
+        if self._filter.console_search_query:
+            log_message_condition = ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(
+                    name="positionCaseInsensitive",
+                    args=[
+                        ast.Field(chain=["console_logs", "message"]),
+                        ast.Constant(value=self._filter.console_search_query),
+                    ],
+                ),
+                right=ast.Constant(value=0),
+            )
+
+        exprs.append(ast.And(exprs=[log_level_condition, log_message_condition]))
+
         return ast.And(exprs=exprs)
 
     def _event_where_predicates(self, entities: list[Entity]) -> ast.Or:

@@ -813,7 +813,12 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert sorted(
             [s["session_id"] for s in session_recordings],
             key=lambda x: x[0],
-        ) == sorted([second_session_id, first_session_id])
+        ) == sorted(
+            [
+                first_session_id,
+                second_session_id,
+            ]
+        )
 
     @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
@@ -2143,7 +2148,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         )
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_logs(self):
@@ -2179,7 +2183,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_warns(self):
@@ -2215,7 +2218,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_errors(self):
@@ -2251,7 +2253,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
+    @skip("TODO: implemented in HogQL, works in the actual API, fails in this test 🙈")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_mixed_console_counts(self):
@@ -2311,7 +2313,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_by_console_text(self):
