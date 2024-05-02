@@ -5,7 +5,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { convertToPostIngestionEvent, mutatePostIngestionEventWithElementsList } from '../../../utils/event'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'

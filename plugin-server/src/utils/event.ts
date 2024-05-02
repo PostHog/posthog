@@ -1,7 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 
-import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import {
@@ -9,10 +9,6 @@ import {
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
 } from './utils'
-
-interface RawElement extends Element {
-    $el_text?: string
-}
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -110,7 +106,7 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
         ? chainToElements(event.properties['$elements_chain'], event.teamId)
         : []
 
-    event.elementsList.map((element) => ({
+    event.elementsList = event.elementsList.map((element) => ({
         ...element,
         attr_class: element.attributes?.attr__class ?? element.attr_class,
         $el_text: element.text,
