@@ -28,7 +28,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
         TaxonomicFilterGroupType.EventFeatureFlags,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.CohortsWithAllUsers,
-        ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
     ]

@@ -1,6 +1,5 @@
 import json
 import os
-from typing import List
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -175,7 +174,7 @@ READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", Non
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 
 
-def _parse_kafka_hosts(hosts_string: str) -> List[str]:
+def _parse_kafka_hosts(hosts_string: str) -> list[str]:
     hosts = []
     for host in hosts_string.split(","):
         if "://" in host:

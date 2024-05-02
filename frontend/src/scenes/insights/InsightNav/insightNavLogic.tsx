@@ -10,7 +10,7 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
+import { getDisplay, getShowPercentStackView, getShowValuesOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
     DataWarehouseNode,
@@ -87,10 +87,9 @@ const cleanSeriesEntityMath = (
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
         // return entity with default actors only availability math set
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
-    } else {
-        // return entity without math properties for insights that don't support it
-        return baseEntity
     }
+    // return entity without math properties for insights that don't support it
+    return baseEntity
 }
 
 const cleanSeriesMath = (
@@ -154,15 +153,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             return InsightType.SQL
                         } else if (isInsightVizNode(query)) {
                             return insightMap[query.source.kind] || InsightType.TRENDS
-                        } else {
-                            return InsightType.JSON
                         }
-                    } else {
-                        return filters.insight || InsightType.TRENDS
+                        return InsightType.JSON
                     }
-                } else {
-                    return userSelectedView
+                    return filters.insight || InsightType.TRENDS
                 }
+                return userSelectedView
             },
         ],
         tabs: [
@@ -401,7 +397,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValueOnSeries(node) ? { showValuesOnSeries: getShowValueOnSeries(node) } : {}),
+            ...(getShowValuesOnSeries(node) ? { showValuesOnSeries: getShowValuesOnSeries(node) } : {}),
             ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }

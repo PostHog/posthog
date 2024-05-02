@@ -3,7 +3,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import lru_cache
 from math import exp, lgamma, log
-from typing import List, Optional, Tuple, Type
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 from numpy.random import default_rng
@@ -78,7 +78,7 @@ class ClickhouseTrendExperimentResult:
         feature_flag: FeatureFlag,
         experiment_start_date: datetime,
         experiment_end_date: Optional[datetime] = None,
-        trend_class: Type[Trends] = Trends,
+        trend_class: type[Trends] = Trends,
         custom_exposure_filter: Optional[Filter] = None,
     ):
         breakdown_key = f"$feature/{feature_flag.key}"
@@ -316,7 +316,7 @@ class ClickhouseTrendExperimentResult:
         return control_variant, test_variants
 
     @staticmethod
-    def calculate_results(control_variant: Variant, test_variants: List[Variant]) -> List[Probability]:
+    def calculate_results(control_variant: Variant, test_variants: list[Variant]) -> list[Probability]:
         """
         Calculates probability that A is better than B. First variant is control, rest are test variants.
 
@@ -346,9 +346,9 @@ class ClickhouseTrendExperimentResult:
     @staticmethod
     def are_results_significant(
         control_variant: Variant,
-        test_variants: List[Variant],
-        probabilities: List[Probability],
-    ) -> Tuple[ExperimentSignificanceCode, Probability]:
+        test_variants: list[Variant],
+        probabilities: list[Probability],
+    ) -> tuple[ExperimentSignificanceCode, Probability]:
         # TODO: Experiment with Expected Loss calculations for trend experiments
 
         for variant in test_variants:
@@ -375,7 +375,7 @@ class ClickhouseTrendExperimentResult:
         return ExperimentSignificanceCode.SIGNIFICANT, p_value
 
 
-def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: List[Variant]) -> float:
+def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants: list[Variant]) -> float:
     random_sampler = default_rng()
     simulations_count = 100_000
 
@@ -399,7 +399,7 @@ def simulate_winning_variant_for_arrival_rates(target_variant: Variant, variants
     return winnings / simulations_count
 
 
-def calculate_probability_of_winning_for_each(variants: List[Variant]) -> List[Probability]:
+def calculate_probability_of_winning_for_each(variants: list[Variant]) -> list[Probability]:
     """
     Calculates the probability of winning for each variant.
     """
@@ -458,7 +458,7 @@ def poisson_p_value(control_count, control_exposure, test_count, test_exposure):
     return min(1, 2 * min(low_p_value, high_p_value))
 
 
-def calculate_p_value(control_variant: Variant, test_variants: List[Variant]) -> Probability:
+def calculate_p_value(control_variant: Variant, test_variants: list[Variant]) -> Probability:
     best_test_variant = max(test_variants, key=lambda variant: variant.count)
 
     return poisson_p_value(

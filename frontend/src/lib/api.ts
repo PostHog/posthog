@@ -71,6 +71,7 @@ import {
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -386,6 +387,10 @@ class ApiRequest {
             .addPathComponent('property_definitions')
             .addPathComponent('seen_together')
             .withQueryString(queryParams)
+    }
+
+    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
     }
 
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
@@ -1212,6 +1217,23 @@ const api = {
         },
     },
 
+    sessions: {
+        async propertyDefinitions({
+            teamId = ApiConfig.getCurrentTeamId(),
+            search,
+            properties,
+        }: {
+            teamId?: TeamType['id']
+            search?: string
+            properties?: string[]
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .sessionPropertyDefinitions(teamId)
+                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .get()
+        },
+    },
+
     cohorts: {
         async get(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDetail(cohortId).get()
@@ -1646,16 +1668,19 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(
+        async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
+            if (params.source) {
+                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
+            }
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(
+        async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any>
+            params: SessionRecordingSnapshotParams
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
@@ -1675,16 +1700,10 @@ const api = {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
 
+            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
-        async updateRecording(
-            recordingId: SessionRecordingType['id'],
-            recording: Partial<SessionRecordingType>,
-            params?: string
-        ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
-        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
@@ -1801,22 +1820,18 @@ const api = {
         ): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).update({ data })
         },
-
         async create(data?: Partial<BatchExportConfiguration>): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExports().create({ data })
         },
         async delete(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).delete()
         },
-
         async pause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('pause').create()
         },
-
         async unpause(id: BatchExportConfiguration['id']): Promise<BatchExportConfiguration> {
             return await new ApiRequest().batchExport(id).withAction('unpause').create()
         },
-
         async listRuns(
             id: BatchExportConfiguration['id'],
             params: Record<string, any> = {}
@@ -1954,6 +1969,12 @@ const api = {
             data: Partial<ExternalDataSourceSchema>
         ): Promise<ExternalDataSourceSchema> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
+        },
+        async reload(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('reload').create()
+        },
+        async resync(schemaId: ExternalDataSourceSchema['id']): Promise<void> {
+            await new ApiRequest().externalDataSourceSchema(schemaId).withAction('resync').create()
         },
     },
 

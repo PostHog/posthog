@@ -1,5 +1,4 @@
 import re
-from typing import Dict
 from sentry_sdk import capture_exception
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -47,7 +46,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             )
         ]
 
-    def get_columns(self) -> Dict[str, str]:
+    def get_columns(self) -> dict[str, str]:
         from posthog.api.services.query import process_query
 
         # TODO: catch and raise error
@@ -81,11 +80,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     def hogql_definition(self) -> SavedQuery:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        if not self.columns:
-            raise Exception("Columns must be fetched and saved to use in HogQL.")
+        columns = self.columns or {}
 
         fields = {}
-        for column, type in self.columns.items():
+        for column, type in columns.items():
             if type.startswith("Nullable("):
                 type = type.replace("Nullable(", "")[:-1]
 

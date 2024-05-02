@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 
@@ -85,7 +83,7 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         ]
 
     @staticmethod
-    def _tile_child_ids_from(dashboard_json: Dict) -> List[int]:
+    def _tile_child_ids_from(dashboard_json: dict) -> list[int]:
         return [
             (tile.get("insight", None) or {}).get("id", None) or (tile.get("text", None) or {}).get("id", None)
             for tile in dashboard_json["tiles"]

@@ -1,5 +1,5 @@
-from typing import Dict, List
-
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     Table,
     StringDatabaseField,
@@ -11,14 +11,47 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
+from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
 
+
+def join_with_console_logs_log_entries_table(
+    from_table: str,
+    to_table: str,
+    requested_fields: dict[str, list[str | int]],
+    context: HogQLContext,
+    node: SelectQuery,
+):
+    from posthog.hogql import ast
+
+    if "log_source_id" not in requested_fields:
+        requested_fields = {**requested_fields, "log_source_id": ["log_source_id"]}
+
+    select_query = SelectQuery(
+        select=[ast.Field(chain=chain) for chain in requested_fields.values()],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
+    )
+
+    join_expr = ast.JoinExpr(table=select_query)
+    join_expr.join_type = "LEFT JOIN"
+    join_expr.alias = to_table
+    join_expr.constraint = ast.JoinConstraint(
+        expr=ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=[from_table, "session_id"]),
+            right=ast.Field(chain=[to_table, "log_source_id"]),
+        )
+    )
+
+    return join_expr
+
+
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
-SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
+SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
@@ -40,20 +73,25 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
         join_table=PersonDistinctIdsTable(),
         join_function=join_with_person_distinct_ids_table,
     ),
+    "console_logs": LazyJoin(
+        from_field=["session_id"],
+        join_table=ReplayConsoleLogsLogEntriesTable(),
+        join_function=join_with_console_logs_log_entries_table,
+    ),
     "person": FieldTraverser(chain=["pdi", "person"]),
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
 }
 
 
 class RawSessionReplayEventsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
         "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
         "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
         "first_url": DatabaseField(name="first_url"),
     }
 
-    def avoid_asterisk_fields(self) -> List[str]:
+    def avoid_asterisk_fields(self) -> list[str]:
         return ["first_url"]
 
     def to_printed_clickhouse(self, context):
@@ -63,7 +101,7 @@ class RawSessionReplayEventsTable(Table):
         return "raw_session_replay_events"
 
 
-def select_from_session_replay_events_table(requested_fields: Dict[str, List[str | int]]):
+def select_from_session_replay_events_table(requested_fields: dict[str, list[str | int]]):
     from posthog.hogql import ast
 
     table_name = "raw_session_replay_events"
@@ -85,8 +123,8 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
         "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
     }
 
-    select_fields: List[ast.Expr] = []
-    group_by_fields: List[ast.Expr] = []
+    select_fields: list[ast.Expr] = []
+    group_by_fields: list[ast.Expr] = []
 
     for name, chain in requested_fields.items():
         if name in RAW_ONLY_FIELDS:
@@ -107,14 +145,14 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
 
 
 class SessionReplayEventsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **{k: v for k, v in SESSION_REPLAY_EVENTS_COMMON_FIELDS.items() if k not in RAW_ONLY_FIELDS},
         "start_time": DateTimeDatabaseField(name="start_time"),
         "end_time": DateTimeDatabaseField(name="end_time"),
         "first_url": StringDatabaseField(name="first_url"),
     }
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_session_replay_events_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

@@ -1,7 +1,7 @@
 import zoneinfo
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from freezegun import freeze_time
@@ -10,6 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
+from posthog.hogql_queries.insights.trends.breakdown_values import BREAKDOWN_OTHER_DISPLAY
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.property_definition import PropertyDefinition
@@ -48,14 +49,14 @@ from posthog.test.base import (
 @dataclass
 class Series:
     event: str
-    timestamps: List[str]
+    timestamps: list[str]
 
 
 @dataclass
 class SeriesTestData:
     distinct_id: str
-    events: List[Series]
-    properties: Dict[str, str | int]
+    events: list[Series]
+    properties: dict[str, str | int]
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -63,9 +64,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
-    def _create_events(self, data: List[SeriesTestData]):
+    def _create_events(self, data: list[SeriesTestData]):
         person_result = []
-        properties_to_create: Dict[str, str] = {}
+        properties_to_create: dict[str, str] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
@@ -173,7 +174,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[List[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
         filter_test_accounts: Optional[bool] = None,
@@ -181,7 +182,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         limit_context: Optional[LimitContext] = None,
         explicit_date: Optional[bool] = None,
     ) -> TrendsQueryRunner:
-        query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
+        query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
@@ -197,7 +198,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         date_from: str,
         date_to: Optional[str],
         interval: IntervalType,
-        series: Optional[List[EventsNode | ActionsNode]],
+        series: Optional[list[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
         *,
@@ -1784,19 +1785,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             IntervalType.day,
             [EventsNode(event="$pageview")],
             None,
-            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser", breakdown_limit=3),
         )
 
         response = runner.to_actors_query_options()
 
+        assert response.day is not None
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
-
         assert response.breakdown == [
-            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label=BREAKDOWN_OTHER_DISPLAY, value="$$_posthog_breakdown_other_$$"),
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),
-            BreakdownItem(label="Edge", value="Edge"),
         ]
 
     def test_to_actors_query_options_breakdowns_boolean(self):
@@ -1904,7 +1904,30 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
 
         assert response.breakdown == [
-            # BreakdownItem(label="Other", value="$$_posthog_breakdown_other_$$"), # TODO: uncomment when "other" shows correct results
+            BreakdownItem(label="Chrome", value="Chrome"),
+            BreakdownItem(label="Firefox", value="Firefox"),
+            BreakdownItem(label="Safari", value="Safari"),
+            BreakdownItem(label="Edge", value="Edge"),
+        ]
+
+    def test_to_actors_query_options_bar_value(self):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsBarValue),
+            BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
+        )
+
+        response = runner.to_actors_query_options()
+
+        assert response.day is None
+        assert response.series == [InsightActorsQuerySeries(label="$pageview", value=0)]
+        assert response.breakdown == [
             BreakdownItem(label="Chrome", value="Chrome"),
             BreakdownItem(label="Firefox", value="Firefox"),
             BreakdownItem(label="Safari", value="Safari"),

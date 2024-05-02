@@ -1,5 +1,4 @@
 import datetime as dt
-from typing import Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +27,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> Tuple[Organization, User]:
+def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
     with freeze_time(creation_date):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)

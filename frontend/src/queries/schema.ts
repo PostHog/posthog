@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
+    SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -66,7 +67,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
@@ -190,6 +190,7 @@ export interface HogQLQueryModifiers {
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+    debug?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -208,7 +209,7 @@ export interface HogQLQueryResponse {
     clickhouse?: string
     /** Query results */
     results?: any[]
-    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string
     /** Returned columns */
     columns?: any[]
@@ -240,8 +241,9 @@ export interface HogQLQuery extends DataNode {
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    explain?: boolean
     response?: HogQLQueryResponse
+    /** @deprecated use modifiers.debug instead */
+    explain?: boolean
 }
 
 export interface HogQLNotice {
@@ -858,6 +860,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
 export interface QueryRequest {
@@ -893,6 +896,8 @@ export interface QueryResponse {
     results: unknown
     timings?: QueryTiming[]
     hogql?: string
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
@@ -924,7 +929,7 @@ export interface LifecycleQueryResponse extends QueryResponse {
     results: Record<string, any>[]
 }
 
-export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
+export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -986,7 +991,7 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
@@ -1039,7 +1044,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
-    // ExitPage = 'ExitPage'
+    ExitPage = 'ExitPage', // not supported in the legacy version
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',

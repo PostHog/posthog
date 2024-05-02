@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, cast
+from typing import Any, cast
 
 from django.db.models import Count, Prefetch
 from rest_framework import request, serializers, viewsets
@@ -123,7 +123,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         return instance
 
-    def update(self, instance: Any, validated_data: Dict[str, Any]) -> Any:
+    def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps
@@ -166,13 +166,12 @@ class ActionViewSet(
 ):
     scope_object = "action"
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
-    queryset = Action.objects.all()
+    queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
-    def get_queryset(self):
-        queryset = super().get_queryset().select_related("created_by")
+    def safely_get_queryset(self, queryset):
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -181,8 +180,8 @@ class ActionViewSet(
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.get_queryset()
-        actions_list: List[Dict[Any, Any]] = self.serializer_class(
+        actions = self.filter_queryset(self.get_queryset())
+        actions_list: list[dict[Any, Any]] = self.serializer_class(
             actions, many=True, context={"request": request}
         ).data  # type: ignore
         return Response({"results": actions_list})

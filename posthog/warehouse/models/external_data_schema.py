@@ -1,11 +1,10 @@
-from typing import Any, List
+from typing import Any
 from django.db import models
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 import uuid
-import psycopg
-from django.conf import settings
+import psycopg2
 from posthog.warehouse.util import database_sync_to_async
 
 
@@ -34,6 +33,12 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
 
     __repr__ = sane_repr("name")
 
+    @property
+    def is_incremental(self):
+        from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING
+
+        return self.name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[self.source.source_type]
+
 
 @database_sync_to_async
 def asave_external_data_schema(schema: ExternalDataSchema) -> None:
@@ -52,7 +57,7 @@ def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) 
 
 @database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
-    return ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
+    return ExternalDataSchema.objects.prefetch_related("source").get(id=schema_id, team_id=team_id)
 
 
 @database_sync_to_async
@@ -74,14 +79,17 @@ def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, t
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
 
-def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str) -> List[Any]:
-    connection = psycopg.Connection.connect(
+def get_postgres_schemas(host: str, port: str, database: str, user: str, password: str, schema: str) -> list[Any]:
+    connection = psycopg2.connect(
         host=host,
         port=int(port),
         dbname=database,
         user=user,
         password=password,
-        sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+        sslmode="prefer",
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
     )
 
     with connection.cursor() as cursor:

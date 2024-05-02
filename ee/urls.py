@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
@@ -92,7 +92,7 @@ admin_urlpatterns = (
 )
 
 
-urlpatterns: List[Any] = [
+urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     *admin_urlpatterns,

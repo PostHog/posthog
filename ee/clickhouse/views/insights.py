@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -47,7 +47,7 @@ class ClickhouseInsightsViewSet(InsightViewSet):
         return Response(result)
 
     @cached_by_filters
-    def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
+    def calculate_funnel_correlation(self, request: Request) -> dict[str, Any]:
         team = self.team
         filter = Filter(request=request, team=team)
 
