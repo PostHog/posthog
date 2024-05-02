@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
+import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -187,6 +188,15 @@ export class ActionMatcher {
     }
 
     /**
+     * Helper method to build the elementsList if not already present and return it.
+     */
+    private getElementsList(event: PostIngestionEvent): Element[] {
+        mutatePostIngestionEventWithElementsList(event)
+
+        return event.elementsList ?? []
+    }
+
+    /**
      * Sublevel 1 of action matching.
      *
      * Return whether the event is a match for the step (match group).
@@ -194,9 +204,10 @@ export class ActionMatcher {
      */
     private async checkStep(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         return (
-            this.checkStepElement(event.elementsList, step) &&
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
+            // The below checks are less performant may parse the elements chain or do a database query hence moved to the end
+            this.checkStepElement(event, step) &&
             (await this.checkStepFilters(event, step))
         )
     }
@@ -228,9 +239,10 @@ export class ActionMatcher {
      * the step's "Link href equals", "Text equals" and "HTML selector matches" constraints.
      * Step properties: `tag_name`, `text`, `href`, `selector`.
      */
-    private checkStepElement(elements: Element[], step: ActionStep): boolean {
+    private checkStepElement(event: PostIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.href || step.tag_name || step.text) {
+            const elements = this.getElementsList(event)
             if (
                 !elements.some((element) => {
                     if (
@@ -255,7 +267,7 @@ export class ActionMatcher {
                 return false
             }
         }
-        if (step.selector && !this.checkElementsAgainstSelector(elements, step.selector)) {
+        if (step.selector && !this.checkElementsAgainstSelector(event, step.selector)) {
             return false // SELECTOR IS A MISMATCH
         }
         return true
@@ -336,10 +348,10 @@ export class ActionMatcher {
         if (filter.key === 'selector') {
             const okValues = Array.isArray(filter.value) ? filter.value : [filter.value]
             return okValues.some((okValue) =>
-                okValue ? this.checkElementsAgainstSelector(event.elementsList, okValue.toString()) : false
+                okValue ? this.checkElementsAgainstSelector(event, okValue.toString()) : false
             )
         } else {
-            return event.elementsList.some((element) => this.checkPropertiesAgainstFilter(element, filter))
+            return this.getElementsList(event).some((element) => this.checkPropertiesAgainstFilter(element, filter))
         }
     }
 
@@ -447,7 +459,8 @@ export class ActionMatcher {
     /**
      * Sublevel 3 or 5 of action matching.
      */
-    public checkElementsAgainstSelector(elements: Element[], selector: string, escapeSlashes = true): boolean {
+    public checkElementsAgainstSelector(event: PostIngestionEvent, selector: string, escapeSlashes = true): boolean {
+        const elements = this.getElementsList(event)
         const parts: SelectorPart[] = []
         // Sometimes people manually add *, just remove them as they don't do anything
         selector = selector

@@ -14,16 +14,12 @@ interface RawElement extends Element {
     $el_text?: string
 }
 
-const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
-    for (const element of elements) {
-        if (element.attributes && element.attributes.attr__class) {
-            element.attr_class = element.attributes.attr__class
-        }
-        if (element.text) {
-            element.$el_text = element.text
-        }
-    }
-    return elements
+export const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+    return elements.map((element) => ({
+        ...element,
+        attr_class: element.attributes?.attr__class ?? element.attr_class,
+        $el_text: element.text,
+    }))
 }
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
@@ -86,7 +82,7 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     }
 }
 
-export function convertToPostIngestionEvent(event: RawClickHouseEvent, skipElementsChain = false): PostIngestionEvent {
+export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
@@ -99,17 +95,28 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent, skipEleme
         distinctId: event.distinct_id,
         properties,
         timestamp: clickHouseTimestampToISO(event.timestamp),
-        elementsList: skipElementsChain
-            ? []
-            : event.elements_chain
-            ? chainToElements(event.elements_chain, event.team_id)
-            : [],
+        elementsList: undefined,
         person_id: event.person_id,
         person_created_at: event.person_created_at
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
             : null,
         person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
     }
+}
+
+/**
+ * Elements parsing can be really slow so it is only done when required by the caller.
+ * It mutates the event which is not ideal but the performance gains of lazy loading it were deemed worth it.
+ */
+export function mutatePostIngestionEventWithElementsList(event: PostIngestionEvent): void {
+    if (event.elementsList) {
+        // Don't set if already done before
+        return
+    }
+
+    event.elementsList = event.properties['$elements_chain']
+        ? chainToElements(event.properties['$elements_chain'], event.teamId)
+        : []
 }
 
 /// Does normalization steps involving the $process_person_profile property. This is currently a separate

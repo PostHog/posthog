@@ -1,8 +1,13 @@
-import { PluginEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Action, Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
-import { convertToPostHogEvent } from '../../utils/event'
+import {
+    convertToPostHogEvent,
+    convertToProcessedPluginEvent,
+    mutatePostIngestionEventWithElementsList,
+} from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
@@ -11,23 +16,32 @@ import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
-    event: ProcessedPluginEvent,
+    event: PostIngestionEvent,
     pluginConfig: PluginConfig,
     onEvent: VMMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.team_id} for plugin ${pluginConfig.id}`)
+        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
+
+    if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
+        // Elements parsing can be extremely slow, so we skip it for some plugins that are manually marked as not needing it
+        mutatePostIngestionEventWithElementsList(event)
+    }
+
+    const processedPluginEvent = convertToProcessedPluginEvent(event)
+
     try {
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(event)
+            await onEvent(processedPluginEvent)
+
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
                 .observe(new Date().getTime() - timer.getTime())
             await hub.appMetrics.queueMetric({
-                teamId: event.team_id,
+                teamId: event.teamId,
                 pluginConfigId: pluginConfig.id,
                 category: 'onEvent',
                 successes: 1,
@@ -36,10 +50,10 @@ async function runSingleTeamPluginOnEvent(
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'error')
                 .observe(new Date().getTime() - timer.getTime())
-            await processError(hub, pluginConfig, error, event)
+            await processError(hub, pluginConfig, error, processedPluginEvent)
             await hub.appMetrics.queueError(
                 {
-                    teamId: event.team_id,
+                    teamId: event.teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'onEvent',
                     failures: 1,
@@ -55,9 +69,9 @@ async function runSingleTeamPluginOnEvent(
     }
 }
 
-export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
+export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs onEvent for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'onEvent')
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, onEvent]) =>
@@ -77,9 +91,9 @@ async function runSingleTeamPluginComposeWebhook(
     // 2. Send via Rusty-Hook if enabled.
     // 3. Send via `fetch` if Rusty-Hook is not enabled.
 
+    const event = convertToPostHogEvent(postIngestionEvent)
     let maybeWebhook: Webhook | null = null
     try {
-        // TODO: This was async before but the type is not async - was it supposed to be??
         maybeWebhook = composeWebhook(event)
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
@@ -217,84 +231,68 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
 
-    // runProcessEvent handles both `processEvent` and `onEvent` for plugins.
-    const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
-    const pluginConfigsWithMethods = await Promise.all(
-        pluginConfigs.map(async (pluginConfig) => ({
-            pluginConfig,
-            onEvent: await pluginConfig?.vm?.getOnEvent(),
-            processEvent: await pluginConfig?.vm?.getVmMethod('processEvent'),
-        }))
-    )
+    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
 
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
     const pluginsFailed = event.properties?.$plugins_failed || []
-    const pluginsDeferred = []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
 
-    for (const { pluginConfig, onEvent, processEvent } of pluginConfigsWithMethods) {
-        if (processEvent) {
-            const timer = new Date()
-            const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
+    for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
+        const timer = new Date()
+        const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
 
-            if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
-                continue
+        if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
+            continue
+        }
+
+        try {
+            returnedEvent = (await processEvent(returnedEvent!)) || null
+            if (returnedEvent && returnedEvent.team_id !== teamId) {
+                returnedEvent.team_id = teamId
+                throw new IllegalOperationError('Plugin tried to change event.team_id')
             }
-
-            try {
-                returnedEvent = (await processEvent(returnedEvent!)) || null
-                if (returnedEvent && returnedEvent.team_id !== teamId) {
-                    returnedEvent.team_id = teamId
-                    throw new IllegalOperationError('Plugin tried to change event.team_id')
-                }
-                pluginsSucceeded.push(pluginIdentifier)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
-                    .observe(new Date().getTime() - timer.getTime())
-                await hub.appMetrics.queueMetric({
+            pluginsSucceeded.push(pluginIdentifier)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
+                .observe(new Date().getTime() - timer.getTime())
+            await hub.appMetrics.queueMetric({
+                teamId,
+                pluginConfigId: pluginConfig.id,
+                category: 'processEvent',
+                successes: 1,
+            })
+        } catch (error) {
+            await processError(hub, pluginConfig, error, returnedEvent)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
+                .observe(new Date().getTime() - timer.getTime())
+            pluginsFailed.push(pluginIdentifier)
+            await hub.appMetrics.queueError(
+                {
                     teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'processEvent',
-                    successes: 1,
-                })
-            } catch (error) {
-                await processError(hub, pluginConfig, error, returnedEvent)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
-                    .observe(new Date().getTime() - timer.getTime())
-                pluginsFailed.push(pluginIdentifier)
-                await hub.appMetrics.queueError(
-                    {
-                        teamId,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'processEvent',
-                        failures: 1,
-                    },
-                    {
-                        error,
-                        event,
-                    }
-                )
-            }
-
-            if (!returnedEvent) {
-                return null
-            }
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
         }
 
-        if (onEvent) {
-            pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+        if (!returnedEvent) {
+            return null
         }
     }
 
-    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0 || pluginsDeferred.length > 0) {
+    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
         event.properties = {
             ...event.properties,
             $plugins_succeeded: pluginsSucceeded,
             $plugins_failed: pluginsFailed,
-            $plugins_deferred: pluginsDeferred,
         }
     }
 
@@ -469,7 +467,12 @@ async function getActionMatchingPluginConfigs(
     const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
 
     if (!relatedAction) {
-        // TODO: Is this what we want to do here?
+        captureException(new Error('Could not find action for PluginConfig!'), {
+            extra: {
+                pluginConfigId: pluginConfig.id,
+                teamId: event.teamId,
+            },
+        })
         status.error('🔴', 'Could not find action for PluginConfig!', {
             pluginConfigId: pluginConfig.id,
             teamId: event.teamId,
