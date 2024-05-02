@@ -1,16 +1,13 @@
-from typing import Any, NamedTuple, Union
+from typing import Any, NamedTuple
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.property import entity_to_expr
-from posthog.models import Entity, Team
-from posthog.models.action.util import format_entity_filter
-from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
@@ -25,7 +22,7 @@ class SessionRecordingListFromFilters:
     _team: Team
     _filter: SessionRecordingsFilter
 
-    SAMPLE_QUERY: str = """
+    BASE_QUERY: str = """
         SELECT s.session_id,
             any(s.team_id),
             any(s.distinct_id),
@@ -90,27 +87,30 @@ class SessionRecordingListFromFilters:
         return ttl_days(self._team)
 
     def run(self) -> SessionRecordingQueryResult:
-        # query = parse_select(
-        #     self.SAMPLE_QUERY,
-        #     {
-        #         "order_by": self._order_by_clause(),
-        #         "where_predicates": self._where_predicates(),
-        #         "having_predicates": self._having_predicates(),
-        #     },
-        # )
-
         query = parse_select(
-            "select session_id, any(events.properties.$browser) from raw_session_replay_events group by session_id order by session_id asc"
+            self.BASE_QUERY,
+            {
+                "order_by": self._order_by_clause(),
+                "where_predicates": self._where_predicates(),
+                "having_predicates": self._having_predicates(),
+            },
         )
+
+        # query = parse_select(
+        #     """
+        #     SELECT
+        #     events.properties.$browser
+        #     FROM
+        #     raw_session_replay_events
+        #     WHERE
+        #     events.properties.$browser = 'Chrome'
+        #     """
+        # )
 
         response = execute_hogql_query(
             query=query,
             team=self._team,
         )
-
-        print("results:")
-        print(response.results)
-        print(response.hogql)
 
         session_recordings = self._data_to_return(response.results)
         return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
@@ -155,15 +155,7 @@ class SessionRecordingListFromFilters:
             )
 
         if self._filter.entities:
-            (event_names, event_exprs) = self._event_where_predicates(self._filter.entities)
-            exprs.append(ast.Or(exprs=event_exprs))
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["events", "event"]),
-                    right=ast.Constant(value=event_names),
-                )
-            )
+            exprs.append(self._event_where_predicates())
 
         # we need to combine search by console message and log level
         # since if someone filters for text = "foo bar" and level = "info"
@@ -194,21 +186,18 @@ class SessionRecordingListFromFilters:
 
         return ast.And(exprs=exprs)
 
-    def _event_where_predicates(self, entities: list[Entity]) -> ast.Or:
-        event_names: list[Union[int, str]] = []
-        event_exprs: list[ast.Expr] = []
+    def _event_where_predicates(self) -> ast.Or:
+        exprs: list[ast.Expr] = []
 
-        for entity in entities:
-            event_exprs.append(entity_to_expr(entity=entity))
+        for entity in self._filter.entities:
+            entity_exprs = [entity_to_expr(entity=entity)]
 
-            if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                action = entity.get_action()
-                event_names.extend([ae for ae in action.get_step_events() if ae not in event_names])
-            else:
-                if entity.id and entity.id not in event_names:
-                    event_names.append(entity.id)
+            if entity.property_groups:
+                entity_exprs.append(property_to_expr(entity.property_groups, team=self._team, scope="session"))
 
-        return event_names, event_exprs
+            exprs.append(ast.And(exprs=entity_exprs))
+
+        return ast.Or(exprs=exprs)
 
     def _having_predicates(self) -> ast.And | Constant:
         exprs: list[ast.Expr] = []
