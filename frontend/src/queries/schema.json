@@ -22,23 +22,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -50,10 +34,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
@@ -63,6 +43,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 }
             },
             "required": ["id", "kind"],
@@ -194,6 +177,307 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
         },
+        "AnalyticsQueryResponseBase<(FunnelStepsResults|FunnelStepsBreakdownResults|FunnelTimeToConvertResults|FunnelTrendsResults)>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/FunnelStepsResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTimeToConvertResults"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelTrendsResults"
+                        }
+                    ]
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<FunnelCorrelationResult>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/FunnelCorrelationResult"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<alias-1091336055-73326-73452-1091336055-0-213718<string,any>[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<any[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<any[][]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<def-interface-1166371915-23993-24124-1166371915-0-43294[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/RetentionResult"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<def-interface-1166371915-32009-32231-1166371915-0-43294[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/TimelineEntry"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<def-interface-1166371915-33492-33697-1166371915-0-43294[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/WebOverviewItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "AnalyticsQueryResponseBase<unknown[]>": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "AnyDataNode": {
             "anyOf": [
                 {
@@ -311,28 +595,10 @@
                     "$ref": "#/definitions/HogQLAutocompleteResponse"
                 },
                 {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "next": {
-                                    "type": "string"
-                                },
-                                "results": {
-                                    "items": {
-                                        "$ref": "#/definitions/EventType"
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "not": {}
-                        }
-                    ],
-                    "description": "Return a limited set of data"
+                    "type": "object"
+                },
+                {
+                    "not": {}
                 },
                 {
                     "$ref": "#/definitions/EventsQueryResponse"
@@ -1304,59 +1570,6 @@
             ],
             "type": "object"
         },
-        "CachedTestBasicQueryResponse": {
-            "additionalProperties": false,
-            "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "type": "string"
-                },
-                "results": {
-                    "items": {},
-                    "type": "array"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -1695,6 +1908,213 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<ActorsQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<DatabaseSchemaQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<EventsQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/EventsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<HogQLAutocompleteResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLAutocompleteResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<HogQLMetadataResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLMetadataResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<HogQLQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<SessionsTimelineQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/SessionsTimelineQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<TimeToSeeDataSessionsQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<WebOverviewQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<WebStatsTableQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebStatsTableQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<WebTopClicksQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebTopClicksQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "DataNode<alias-1091336055-73326-73452-1091336055-0-213718<string,any>>": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "type": "object"
                 }
             },
             "required": ["kind"],
@@ -1740,6 +2160,328 @@
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"
+                },
+                "response": {
+                    "anyOf": [
+                        {
+                            "properties": {},
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
+                                },
+                                "results": {
+                                    "items": {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["columns", "hogql", "results", "types"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "missing_actors_count": {
+                                    "type": "integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
+                                },
+                                "results": {
+                                    "items": {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "clickhouse": {
+                                    "description": "Executed ClickHouse query",
+                                    "type": "string"
+                                },
+                                "columns": {
+                                    "description": "Returned columns",
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "explain": {
+                                    "description": "Query explanation output",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "metadata": {
+                                    "$ref": "#/definitions/HogQLMetadataResponse",
+                                    "description": "Query metadata output"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
+                                },
+                                "query": {
+                                    "description": "Input query string",
+                                    "type": "string"
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "description": "Types of returned columns",
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "results": {
+                                    "items": {
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/WebOverviewItem"
+                                    },
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "type": "integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "type": "integer"
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        }
+                    ]
                 },
                 "showActions": {
                     "description": "Show the kebab menu at the end of the row",
@@ -1925,23 +2667,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -1953,10 +2679,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
@@ -1966,6 +2688,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 },
                 "table_name": {
                     "type": "string"
@@ -2187,23 +2912,7 @@
                     "$ref": "#/definitions/NodeKind"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -2215,10 +2924,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
@@ -2228,6 +2933,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 }
             },
             "required": ["kind"],
@@ -2381,23 +3089,7 @@
                     "type": "integer"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -2408,10 +3100,6 @@
                 },
                 "math_property": {
                     "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
                 },
                 "name": {
                     "type": "string"
@@ -2431,20 +3119,6 @@
                     "type": "array"
                 },
                 "response": {
-                    "additionalProperties": false,
-                    "description": "Return a limited set of data",
-                    "properties": {
-                        "next": {
-                            "type": "string"
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/EventType"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
                     "type": "object"
                 }
             },
@@ -2782,7 +3456,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -2947,23 +3622,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -2975,10 +3634,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
                 "name": {
                     "type": "string"
                 },
@@ -2988,6 +3643,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 }
             },
             "required": ["funnelFromStep", "funnelToStep", "id", "kind"],
@@ -3024,23 +3682,7 @@
                     "type": "integer"
                 },
                 "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/GroupMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLMathType"
-                        }
-                    ]
+                    "$ref": "#/definitions/MathType"
                 },
                 "math_group_type_index": {
                     "enum": [0, 1, 2, 3, 4],
@@ -3051,10 +3693,6 @@
                 },
                 "math_property": {
                     "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
                 },
                 "name": {
                     "type": "string"
@@ -3074,20 +3712,6 @@
                     "type": "array"
                 },
                 "response": {
-                    "additionalProperties": false,
-                    "description": "Return a limited set of data",
-                    "properties": {
-                        "next": {
-                            "type": "string"
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/EventType"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
                     "type": "object"
                 }
             },
@@ -3245,7 +3869,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -3415,6 +4040,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -3432,7 +4060,6 @@
         },
         "FunnelsQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3907,7 +4534,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -3931,13 +4559,18 @@
                 "includeRecordings": {
                     "type": "boolean"
                 },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
                 }
             },
+            "required": ["kind"],
             "type": "object"
         },
         "InsightActorsQueryOptions": {
@@ -4220,7 +4853,7 @@
             "required": ["kind", "source"],
             "type": "object"
         },
-        "InsightsQueryBase": {
+        "InsightsQueryBase<FunnelsQueryResponse>": {
             "additionalProperties": false,
             "description": "Base class for insight query nodes. Should not be used directly.",
             "properties": {
@@ -4256,6 +4889,201 @@
                         }
                     ],
                     "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/FunnelsQueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsQueryBase<LifecycleQueryResponse>": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/LifecycleQueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsQueryBase<PathsQueryResponse>": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/PathsQueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsQueryBase<RetentionQueryResponse>": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/RetentionQueryResponse"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsQueryBase<TrendsQueryResponse>": {
+            "additionalProperties": false,
+            "description": "Base class for insight query nodes. Should not be used directly.",
+            "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "integer"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "response": {
+                    "$ref": "#/definitions/TrendsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
@@ -4371,7 +5199,6 @@
         },
         "LifecycleQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -4406,6 +5233,25 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "MathType": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/BaseMathType"
+                },
+                {
+                    "$ref": "#/definitions/PropertyMathType"
+                },
+                {
+                    "$ref": "#/definitions/CountPerActorMathType"
+                },
+                {
+                    "$ref": "#/definitions/GroupMathType"
+                },
+                {
+                    "$ref": "#/definitions/HogQLMathType"
+                }
+            ]
+        },
         "NamedParameters<typeof dateRangeForFilter>": {
             "additionalProperties": false,
             "properties": {
@@ -4413,17 +5259,6 @@
                     "$ref": "#/definitions/FilterType"
                 }
             },
-            "type": "object"
-        },
-        "Node": {
-            "additionalProperties": false,
-            "description": "Node base class, everything else inherits from here",
-            "properties": {
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                }
-            },
-            "required": ["kind"],
             "type": "object"
         },
         "NodeKind": {
@@ -4669,7 +5504,6 @@
         },
         "PathsQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -4761,6 +5595,9 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "response": {
+                    "type": "object"
                 },
                 "search": {
                     "type": "string"
@@ -4899,19 +5736,6 @@
         "QueryResponseAlternative": {
             "anyOf": [
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "next": {
-                            "type": "string"
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/EventType"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -5445,6 +6269,433 @@
                     "type": "object"
                 },
                 {
+                    "properties": {},
+                    "type": "object"
+                },
+                {
+                    "not": {}
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "hogql", "results", "types"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "missing_actors_count": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "hogql", "limit", "offset", "results", "types"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "clickhouse": {
+                            "description": "Executed ClickHouse query",
+                            "type": "string"
+                        },
+                        "columns": {
+                            "description": "Returned columns",
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "explain": {
+                            "description": "Query explanation output",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "metadata": {
+                            "$ref": "#/definitions/HogQLMetadataResponse",
+                            "description": "Query metadata output"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "query": {
+                            "description": "Input query string",
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "description": "Types of returned columns",
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/WebOverviewItem"
+                            },
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "type": "integer"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/FunnelStepsResults"
+                                },
+                                {
+                                    "$ref": "#/definitions/FunnelStepsBreakdownResults"
+                                },
+                                {
+                                    "$ref": "#/definitions/FunnelTimeToConvertResults"
+                                },
+                                {
+                                    "$ref": "#/definitions/FunnelTrendsResults"
+                                }
+                            ]
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/RetentionResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
                     "additionalProperties": false,
                     "properties": {
                         "error": {
@@ -5493,7 +6744,39 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/RetentionResult"
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
                             },
                             "type": "array"
                         },
@@ -5882,7 +7165,6 @@
         },
         "RetentionQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6266,6 +7548,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/StickinessQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
@@ -6287,7 +7572,6 @@
         },
         "StickinessQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6321,7 +7605,6 @@
         "TestBasicQueryResponse": {
             "additionalProperties": false,
             "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6348,6 +7631,59 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TestCachedBasicQueryResponse": {
+            "additionalProperties": false,
+            "deprecated": "Only exported for use in test_query_runner.py! Don't use anywhere else.",
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
             "type": "object"
         },
         "TimeToSeeDataJSONNode": {
@@ -6384,6 +7720,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "type": "object"
                 },
                 "sessionEnd": {
                     "type": "string"
@@ -6650,7 +7989,6 @@
         },
         "TrendsQueryResponse": {
             "additionalProperties": false,
-            "description": "All query responses must inherit from this.",
             "properties": {
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6734,17 +8072,24 @@
             },
             "type": "array"
         },
-        "WebAnalyticsQueryBase": {
+        "WebAnalyticsQueryBase<WebOverviewQueryResponse>": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebOverviewQueryResponse"
                 },
                 "sampling": {
                     "additionalProperties": false,
@@ -6762,7 +8107,83 @@
                     "type": "boolean"
                 }
             },
-            "required": ["properties"],
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsQueryBase<WebStatsTableQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebStatsTableQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebAnalyticsQueryBase<WebTopClicksQueryResponse>": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "$ref": "#/definitions/NodeKind"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebTopClicksQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "useSessionsTable": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties"],
             "type": "object"
         },
         "WebOverviewItem": {
@@ -6805,7 +8226,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
@@ -6914,7 +8336,8 @@
                     "type": "integer"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"
@@ -7002,7 +8425,8 @@
                     "type": "string"
                 },
                 "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers"
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
                 },
                 "properties": {
                     "$ref": "#/definitions/WebAnalyticsPropertyFilters"

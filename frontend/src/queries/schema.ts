@@ -157,9 +157,12 @@ type QueryResponseType<T> = T extends { response?: infer R } ? { response: R } :
 type QueryAllResponses = QueryResponseType<QuerySchema>
 export type QueryResponseAlternative = QueryAllResponses['response']
 
-/** Node base class, everything else inherits from here */
-export interface Node {
+/** Node base class, everything else inherits from here.
+ * @internal
+ */
+export interface Node<R extends Record<string, any> = Record<string, any>> {
     kind: NodeKind
+    response?: R
 }
 
 // Data nodes
@@ -172,7 +175,7 @@ export type AnyResponseType =
     | EventsNode['response']
     | EventsQueryResponse
 
-export interface DataNode extends Node {
+export interface DataNode<R extends Record<string, any> = Record<string, any>> extends Node<R> {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiers
 }
@@ -198,7 +201,7 @@ export interface DataWarehouseEventsModifier {
     id_field: string
 }
 
-export interface HogQLQueryResponse extends QueryResponseBase<any[]> {
+export interface HogQLQueryResponse extends AnalyticsQueryResponseBase<any[]> {
     /** Input query string */
     query?: string
     /** Executed ClickHouse query */
@@ -224,13 +227,12 @@ export interface HogQLFilters {
     filterTestAccounts?: boolean
 }
 
-export interface HogQLQuery extends DataNode {
+export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    response?: HogQLQueryResponse
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
 }
@@ -316,7 +318,7 @@ export interface HogQLAutocompleteResponse {
     timings?: QueryTiming[]
 }
 
-export interface HogQLMetadata extends DataNode {
+export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     kind: NodeKind.HogQLMetadata
     /** Full select query to validate (use `select` or `expr`, but not both) */
     select?: string
@@ -330,10 +332,9 @@ export interface HogQLMetadata extends DataNode {
     filters?: HogQLFilters
     /** Enable more verbose output, usually run from the /debug page */
     debug?: boolean
-    response?: HogQLMetadataResponse
 }
 
-export interface HogQLAutocomplete extends DataNode {
+export interface HogQLAutocomplete extends DataNode<HogQLAutocompleteResponse> {
     kind: NodeKind.HogQLAutocomplete
     /** Full select query to validate */
     select: string
@@ -347,13 +348,14 @@ export interface HogQLAutocomplete extends DataNode {
      * End position of the editor word
      */
     endPosition: integer
-    response?: HogQLAutocompleteResponse
 }
 
-export interface EntityNode extends DataNode {
+export type MathType = BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+
+export interface EntityNode extends Node {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType | HogQLMathType
+    math?: MathType
     math_property?: string
     math_hogql?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
@@ -370,11 +372,6 @@ export interface EventsNode extends EntityNode {
     limit?: integer
     /** Columns to order by */
     orderBy?: string[]
-    /** Return a limited set of data */
-    response?: {
-        results: EventType[]
-        next?: string
-    }
 }
 
 export interface DataWarehouseNode extends EntityNode {
@@ -399,7 +396,7 @@ export interface QueryTiming {
     /** Time in seconds. Shortened to 't' to save on data. */
     t: number
 }
-export interface EventsQueryResponse extends QueryResponseBase<any[][]> {
+export interface EventsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
     types: string[]
     hogql: string
@@ -418,7 +415,7 @@ export interface EventsQueryPersonColumn {
     }
     distinct_id: string
 }
-export interface EventsQuery extends DataNode {
+export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
     select: HogQLExpression[]
@@ -452,8 +449,6 @@ export interface EventsQuery extends DataNode {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
-
-    response?: EventsQueryResponse
 }
 
 export interface PersonsNode extends DataNode {
@@ -473,7 +468,23 @@ export interface PersonsNode extends DataNode {
 
 export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
-export interface DataTableNode extends Node, DataTableNodeViewProps {
+export interface DataTableNode
+    extends Node<
+            NonNullable<
+                (
+                    | EventsNode
+                    | EventsQuery
+                    | PersonsNode
+                    | ActorsQuery
+                    | HogQLQuery
+                    | TimeToSeeDataSessionsQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | WebTopClicksQuery
+                )['response']
+            >
+        >,
+        DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
     source:
@@ -508,7 +519,7 @@ interface ChartSettings {
     goalLines?: GoalLine[]
 }
 
-export interface DataVisualizationNode extends Node {
+export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
     display?: ChartDisplayType
@@ -561,7 +572,7 @@ interface DataTableNodeViewProps {
 
 // Saved insight node
 
-export interface SavedInsightNode extends Node, InsightVizNodeViewProps, DataTableNodeViewProps {
+export interface SavedInsightNode extends Node<never>, InsightVizNodeViewProps, DataTableNodeViewProps {
     kind: NodeKind.SavedInsightNode
     shortId: InsightShortId
 }
@@ -584,7 +595,7 @@ export interface VizSpecificOptions {
     }
 }
 
-export interface InsightVizNode extends Node, InsightVizNodeViewProps {
+export interface InsightVizNode extends Node<never>, InsightVizNodeViewProps {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
 }
@@ -607,7 +618,7 @@ interface InsightVizNodeViewProps {
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
-export interface InsightsQueryBase extends Node {
+export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
     /** Date range for the query */
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
@@ -648,10 +659,10 @@ export type TrendsFilter = {
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 
-export type TrendsQueryResponse = QueryResponseBase<Record<string, any>[]>
+export interface TrendsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryResponseMixin
 
-export interface TrendsQuery extends InsightsQueryBase {
+export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -661,7 +672,6 @@ export interface TrendsQuery extends InsightsQueryBase {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
-    response?: TrendsQueryResponse
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -705,7 +715,7 @@ export type FunnelsFilter = {
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }
 
-export interface FunnelsQuery extends InsightsQueryBase {
+export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -726,9 +736,10 @@ export type FunnelTimeToConvertResults = {
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
-export type FunnelsQueryResponse = QueryResponseBase<
-    FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
->
+export interface FunnelsQueryResponse
+    extends AnalyticsQueryResponseBase<
+        FunnelStepsResults | FunnelStepsBreakdownResults | FunnelTimeToConvertResults | FunnelTrendsResults
+    > {}
 export type CachedFunnelsQueryResponse = FunnelsQueryResponse & CachedQueryResponseMixin
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -754,17 +765,16 @@ export interface RetentionResult {
     date: string
 }
 
-export type RetentionQueryResponse = QueryResponseBase<RetentionResult[]>
+export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
 export type CachedRetentionQueryResponse = RetentionQueryResponse & CachedQueryResponseMixin
 
-export interface RetentionQuery extends InsightsQueryBase {
+export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
-    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
     retentionFilter: RetentionFilter
 }
 
-export type PathsQueryResponse = QueryResponseBase<Record<string, any>[]>
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 export type CachedPathsQueryResponse = PathsQueryResponse & CachedQueryResponseMixin
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -801,9 +811,8 @@ export type FunnelPathsFilter = {
     funnelStep?: integer
 }
 
-export interface PathsQuery extends InsightsQueryBase {
+export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     kind: NodeKind.PathsQuery
-    response?: PathsQueryResponse
     /** Properties specific to the paths insight */
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
@@ -825,10 +834,11 @@ export type StickinessFilter = {
     hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
-export type StickinessQueryResponse = QueryResponseBase<Record<string, any>[]>
+export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 export type CachedStickinessQueryResponse = StickinessQueryResponse & CachedQueryResponseMixin
 
-export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
+export interface StickinessQuery
+    extends Omit<InsightsQueryBase<StickinessQueryResponse>, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -879,8 +889,8 @@ export interface QueryRequest {
     query: QuerySchema
 }
 
-/** All query responses must inherit from this. */
-interface QueryResponseBase<T> {
+/** All analytics query responses must inherit from this. */
+export interface AnalyticsQueryResponseBase<T> {
     results: T
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTiming[]
@@ -901,9 +911,9 @@ interface CachedQueryResponseMixin {
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export type TestBasicQueryResponse = QueryResponseBase<any[]>
+export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export type CachedTestBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
+export type TestCachedBasicQueryResponse = TestBasicQueryResponse & CachedQueryResponseMixin
 
 export interface CacheMissResponse {
     cache_key: string | null
@@ -930,10 +940,10 @@ export type QueryStatus = {
     task_id?: string
 }
 
-export type LifecycleQueryResponse = QueryResponseBase<Record<string, any>[]>
+export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 export type CachedLifecycleQueryResponse = LifecycleQueryResponse & CachedQueryResponseMixin
 
-export interface LifecycleQuery extends InsightsQueryBase {
+export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse> {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -941,10 +951,9 @@ export interface LifecycleQuery extends InsightsQueryBase {
     series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
-    response?: LifecycleQueryResponse
 }
 
-export interface ActorsQueryResponse extends QueryResponseBase<any[][]> {
+export interface ActorsQueryResponse extends AnalyticsQueryResponseBase<any[][]> {
     columns: any[]
     types: string[]
     hogql: string
@@ -955,7 +964,7 @@ export interface ActorsQueryResponse extends QueryResponseBase<any[][]> {
 }
 export type CachedActorsQueryResponse = ActorsQueryResponse & CachedQueryResponseMixin
 
-export interface ActorsQuery extends DataNode {
+export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
@@ -965,7 +974,6 @@ export interface ActorsQuery extends DataNode {
     orderBy?: string[]
     limit?: integer
     offset?: integer
-    response?: ActorsQueryResponse
 }
 
 export interface TimelineEntry {
@@ -976,12 +984,12 @@ export interface TimelineEntry {
     recording_duration_s?: number
 }
 
-export interface SessionsTimelineQueryResponse extends QueryResponseBase<TimelineEntry[]> {
+export interface SessionsTimelineQueryResponse extends AnalyticsQueryResponseBase<TimelineEntry[]> {
     hasMore?: boolean
 }
 export type CachedSessionsTimelineQueryResponse = SessionsTimelineQueryResponse & CachedQueryResponseMixin
 
-export interface SessionsTimelineQuery extends DataNode {
+export interface SessionsTimelineQuery extends DataNode<SessionsTimelineQueryResponse> {
     kind: NodeKind.SessionsTimelineQuery
     /** Fetch sessions only for a given person */
     personId?: string
@@ -989,12 +997,11 @@ export interface SessionsTimelineQuery extends DataNode {
     after?: string
     /** Only fetch sessions that started before this timestamp (default: '+5s') */
     before?: string
-    response?: SessionsTimelineQueryResponse
 }
 export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
-export interface WebAnalyticsQueryBase {
+export interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     sampling?: {
@@ -1002,12 +1009,10 @@ export interface WebAnalyticsQueryBase {
         forceSamplingRate?: SamplingRate
     }
     useSessionsTable?: boolean
-    modifiers?: HogQLQueryModifiers
 }
 
-export interface WebOverviewQuery extends WebAnalyticsQueryBase {
+export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    response?: WebOverviewQueryResponse
     compare?: boolean
 }
 
@@ -1025,16 +1030,15 @@ export interface SamplingRate {
     denominator?: number
 }
 
-export interface WebOverviewQueryResponse extends QueryResponseBase<WebOverviewItem[]> {
+export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
 }
 export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
-export interface WebTopClicksQuery extends WebAnalyticsQueryBase {
+export interface WebTopClicksQuery extends WebAnalyticsQueryBase<WebTopClicksQueryResponse> {
     kind: NodeKind.WebTopClicksQuery
-    response?: WebTopClicksQueryResponse
 }
-export interface WebTopClicksQueryResponse extends QueryResponseBase<unknown[]> {
+export interface WebTopClicksQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
     types?: unknown[]
     columns?: unknown[]
     samplingRate?: SamplingRate
@@ -1059,16 +1063,15 @@ export enum WebStatsBreakdown {
     Region = 'Region',
     City = 'City',
 }
-export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
+export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
-    response?: WebStatsTableQueryResponse
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     doPathCleaning?: boolean
     limit?: integer
 }
-export interface WebStatsTableQueryResponse extends QueryResponseBase<unknown[]> {
+export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
     types?: unknown[]
     columns?: unknown[]
     hogql?: string
@@ -1109,14 +1112,15 @@ export type InsightFilter =
 
 export type Day = integer
 
-export interface InsightActorsQueryBase {
+export interface InsightActorsQueryBase extends DataNode<ActorsQueryResponse> {
     includeRecordings?: boolean
-    response?: ActorsQueryResponse
     modifiers?: HogQLQueryModifiers
 }
-export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
+
+export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryResponseBase<any>> = InsightQuerySource>
+    extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
-    source: T
+    source: S
     day?: string | Day
     status?: string
     /** An interval selected out of available intervals in source query. */
@@ -1169,7 +1173,7 @@ export interface FunnelCorrelationResult {
     skewed: boolean
 }
 
-export interface FunnelCorrelationResponse extends QueryResponseBase<FunnelCorrelationResult> {
+export interface FunnelCorrelationResponse extends AnalyticsQueryResponseBase<FunnelCorrelationResult> {
     columns?: any[]
     types?: any[]
     hasMore?: boolean
@@ -1251,7 +1255,7 @@ export interface TimeToSeeDataSessionsQueryResponse {
     results: Record<string, any>[]
 }
 
-export interface TimeToSeeDataSessionsQuery extends DataNode {
+export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessionsQueryResponse> {
     kind: NodeKind.TimeToSeeDataSessionsQuery
 
     /** Date range for the query */
@@ -1261,8 +1265,6 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
      * Project to filter on. Defaults to current project
      */
     teamId?: integer
-
-    response?: TimeToSeeDataSessionsQueryResponse
 }
 
 export interface DatabaseSchemaQueryResponseField {
@@ -1274,12 +1276,11 @@ export interface DatabaseSchemaQueryResponseField {
 }
 export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
 
-export interface DatabaseSchemaQuery extends DataNode {
+export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
-    response?: DatabaseSchemaQueryResponse
 }
 
-export interface TimeToSeeDataQuery extends DataNode {
+export interface TimeToSeeDataQuery extends DataNode<Record<string, any> /* TODO: Type specifically */> {
     kind: NodeKind.TimeToSeeDataQuery
 
     /**
