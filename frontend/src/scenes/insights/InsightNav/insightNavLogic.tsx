@@ -234,6 +234,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
+            console.log(view, values, actions)
             if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
                 // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
                 // so no need to check it
@@ -374,7 +375,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
 
     // interval
     if (isInsightQueryWithSeries(mergedQuery) && cache.interval) {
-        mergedQuery.interval = cache.interval
+        // Only support real time queries on trends for now
+        if (!isTrendsQuery(mergedQuery) && cache.interval == 'minute') {
+            mergedQuery.interval = 'hour'
+        } else {
+            mergedQuery.interval = cache.interval
+        }
     }
 
     // breakdown filter

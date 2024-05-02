@@ -738,6 +738,8 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
 }
 
+// Hourly date mappings for real time analytics. Only shown on Trends at the moment.
+// Could potentially be expensive to compute.
 export const realTimeDateMapping: DateMappingOption[] = [
     {
         key: 'Last Hour',

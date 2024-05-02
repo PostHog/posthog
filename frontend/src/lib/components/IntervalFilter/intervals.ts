@@ -5,6 +5,7 @@ export type Intervals = {
         label: string
         newDateFrom?: string
         disabledReason?: string
+        hidden?: boolean
     }
 }
 

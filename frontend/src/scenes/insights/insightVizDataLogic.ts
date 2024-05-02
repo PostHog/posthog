@@ -284,8 +284,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath],
-            (activeUsersMath) => {
+            (s) => [s.activeUsersMath, s.isTrends],
+            (activeUsersMath, isTrends): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
 
                 if (activeUsersMath) {
@@ -303,6 +303,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
                         }
+                    }
+                }
+
+                if (!isTrends) {
+                    enabledIntervals.minute = {
+                        ...enabledIntervals.minute,
+                        hidden: true,
                     }
                 }
 
@@ -381,6 +388,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ display })
         },
         updateQuerySource: ({ querySource }) => {
+            console.log('UPDATE QUERY SOURCE', querySource)
+
             actions.setQuery({
                 ...values.query,
                 source: {
@@ -460,8 +469,11 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user just flipped an event action to use WAUs/MAUs math and their
     // current interval is unsupported by the math type, switch their interval
     // to an appropriate allowed interval and inform them of the change via a toast
-    if (maybeChangedActiveUsersMath !== null && (interval === 'hour' || interval === 'month')) {
-        if (interval === 'hour') {
+    if (
+        maybeChangedActiveUsersMath !== null &&
+        (interval === 'hour' || interval === 'month' || interval === 'minute')
+    ) {
+        if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
@@ -545,5 +557,14 @@ const handleQuerySourceUpdateSideEffects = (
         mergedUpdate['properties'] = []
     }
 
+    console.log('handleQuerySourceUpdateSideEffects')
+    // Don't allow minutes on anything other than Trends
+    if (
+        currentState.kind == NodeKind.TrendsQuery &&
+        kind !== NodeKind.TrendsQuery &&
+        ((mergedUpdate as Partial<TrendsQuery>)?.interval || interval) == 'minute'
+    ) {
+        ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+    }
     return mergedUpdate
 }
