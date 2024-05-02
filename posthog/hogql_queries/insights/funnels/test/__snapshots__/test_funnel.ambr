@@ -80,7 +80,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -172,7 +172,7 @@
                              WHERE equals(person_distinct_id2.team_id, 2)
                              GROUP BY person_distinct_id2.distinct_id
                              HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -289,7 +289,7 @@
                           FROM person_overrides
                           WHERE equals(person_overrides.team_id, 2)
                           GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -372,7 +372,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -477,7 +477,7 @@
                                                                             WHERE equals(person.team_id, 2)
                                                                             GROUP BY person.id
                                                                             HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -581,7 +581,7 @@
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
                                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -696,7 +696,7 @@
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
                                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -811,7 +811,7 @@
                                                                                WHERE equals(person.team_id, 2)
                                                                                GROUP BY person.id
                                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.id)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__pdi__person.properties___email, '%.com%'), 0), ifNull(equals(e__pdi__person.properties___age, '20'), 0)), or(ifNull(ilike(e__pdi__person.properties___email, '%.org%'), 0), ifNull(equals(e__pdi__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -894,7 +894,7 @@
                     WHERE equals(person_distinct_id2.team_id, 2)
                     GROUP BY person_distinct_id2.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -979,7 +979,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(e__pdi.person_id))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e__pdi.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1062,7 +1062,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,
@@ -1089,7 +1089,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-  WHERE and(equals(e.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(e__pdi.person_id))
+  WHERE and(equals(e.team_id, 2), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e__pdi.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1176,7 +1176,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
+                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
                  JOIN prop_vals AS prop
                  WHERE ifNull(notEquals(prop, []), isNotNull(prop)
                               or isNotNull([]))))
@@ -1205,7 +1205,7 @@
      WHERE equals(person_distinct_id2.team_id, 2)
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(e__pdi.person_id))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e__pdi.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1287,7 +1287,7 @@
                        WHERE equals(person_distinct_id2.team_id, 2)
                        GROUP BY person_distinct_id2.distinct_id
                        HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                    WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,
@@ -1314,7 +1314,7 @@
      WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(e.person_id))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1436,7 +1436,7 @@
                              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                              GROUP BY groups.group_type_index,
                                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,
@@ -1469,7 +1469,7 @@
      WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1591,7 +1591,7 @@
                              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                              GROUP BY groups.group_type_index,
                                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,
@@ -1625,7 +1625,7 @@
      WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), notEmpty(e__pdi.person_id))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(e__pdi.person_id))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -1754,7 +1754,7 @@
                              WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
                              GROUP BY groups.group_type_index,
                                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                          WHERE and(equals(e.team_id, 2), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,

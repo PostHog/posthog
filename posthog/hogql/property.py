@@ -71,8 +71,6 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
-    # TODO: need to check multiple property types from replay queries
     scope: Literal["event", "person", "session", "replay"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
