@@ -67,9 +67,6 @@ jobs:
       - name: Run cargo test
         run: cargo test --all-features
 
-      - name: Run cargo check
-        run: cargo check --all-features
-
   linting:
     runs-on: depot-ubuntu-22.04-4
 
@@ -89,12 +86,15 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-debug-${{ hashFiles('**/Cargo.lock') }}
-
+      
+      - name: Check format
+        run: cargo fmt -- --check
+        
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-      - name: Check format
-        run: cargo fmt -- --check
+      - name: Run cargo check
+        run: cargo check --all-features
 
   shear:
     runs-on: depot-ubuntu-22.04-4
