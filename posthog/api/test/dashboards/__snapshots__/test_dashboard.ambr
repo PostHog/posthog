@@ -86,7 +86,17 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.10
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -96,6 +106,17 @@
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.11
+  '''
+  SELECT "posthog_dashboardtile"."dashboard_id"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2)
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.12
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -122,7 +143,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.12
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.13
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -130,7 +151,7 @@
   WHERE "posthog_taggeditem"."insight_id" = 2
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.13
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.14
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -161,7 +182,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.14
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.15
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -215,7 +236,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.15
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.16
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -247,7 +268,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.16
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.17
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -373,7 +394,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.17
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.18
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -391,7 +412,7 @@
                                                           5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.18
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.19
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -566,27 +587,6 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.19
-  '''
-  SELECT "posthog_insightcachingstate"."id",
-         "posthog_insightcachingstate"."team_id",
-         "posthog_insightcachingstate"."insight_id",
-         "posthog_insightcachingstate"."dashboard_tile_id",
-         "posthog_insightcachingstate"."cache_key",
-         "posthog_insightcachingstate"."target_cache_age_seconds",
-         "posthog_insightcachingstate"."last_refresh",
-         "posthog_insightcachingstate"."last_refresh_queued_at",
-         "posthog_insightcachingstate"."refresh_attempt",
-         "posthog_insightcachingstate"."created_at",
-         "posthog_insightcachingstate"."updated_at"
-  FROM "posthog_insightcachingstate"
-  WHERE "posthog_insightcachingstate"."dashboard_tile_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
-  '''
-# ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.2
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -620,6 +620,27 @@
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.20
+  '''
+  SELECT "posthog_insightcachingstate"."id",
+         "posthog_insightcachingstate"."team_id",
+         "posthog_insightcachingstate"."insight_id",
+         "posthog_insightcachingstate"."dashboard_tile_id",
+         "posthog_insightcachingstate"."cache_key",
+         "posthog_insightcachingstate"."target_cache_age_seconds",
+         "posthog_insightcachingstate"."last_refresh",
+         "posthog_insightcachingstate"."last_refresh_queued_at",
+         "posthog_insightcachingstate"."refresh_attempt",
+         "posthog_insightcachingstate"."created_at",
+         "posthog_insightcachingstate"."updated_at"
+  FROM "posthog_insightcachingstate"
+  WHERE "posthog_insightcachingstate"."dashboard_tile_id" IN (1,
+                                                              2,
+                                                              3,
+                                                              4,
+                                                              5 /* ... */)
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.21
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -730,7 +751,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.21
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.22
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -755,7 +776,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.22
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.23
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -781,7 +802,7 @@
                                      5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.23
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.24
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -957,7 +978,7 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.24
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
   '''
   SELECT "posthog_insightcachingstate"."id",
          "posthog_insightcachingstate"."team_id",
@@ -978,7 +999,7 @@
                                                               5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.25
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -1089,7 +1110,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -1114,7 +1135,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.27
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.28
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1140,7 +1161,7 @@
                                      5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.28
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.29
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -1162,7 +1183,18 @@
                                               5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.29
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.30
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1189,31 +1221,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" = 2)
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.30
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -1237,14 +1245,6 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
-  '''
-  SELECT "posthog_tag"."name"
-  FROM "posthog_taggeditem"
-  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.32
@@ -1275,72 +1275,35 @@
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
   WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" = 2)
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN (1,
                                           2,
                                           3,
                                           4,
                                           5 /* ... */))
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
-  '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
-  LIMIT 21
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.6
@@ -1406,6 +1369,67 @@
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.7
   '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.8
+  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1430,7 +1454,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.8
+# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.9
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1451,27 +1475,6 @@
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  '''
-# ---
-# name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.9
-  '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
@@ -2959,60 +2962,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.100
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.101
-  '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3046,7 +2995,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.102
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.101
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -3107,13 +3056,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.103
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.102
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.103
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3124,7 +3084,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3135,7 +3095,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3146,7 +3106,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3157,23 +3117,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.108
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.109
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.108
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -3198,6 +3147,67 @@
                                           3,
                                           4,
                                           5 /* ... */))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.109
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 2
+  LIMIT 21
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.11
@@ -3433,63 +3443,13 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.111
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.112
@@ -3498,7 +3458,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3509,7 +3469,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3520,7 +3480,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3531,7 +3491,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3542,23 +3502,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.117
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.118
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.117
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -3612,7 +3561,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.119
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.118
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -3630,15 +3579,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.12
-  '''
-  SELECT "posthog_tag"."name"
-  FROM "posthog_taggeditem"
-  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_taggeditem"."dashboard_id" = 2
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.120
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.119
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -3673,7 +3614,15 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.121
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.12
+  '''
+  SELECT "posthog_tag"."name"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."dashboard_id" = 2
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.120
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -3696,7 +3645,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.122
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.121
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -3757,13 +3706,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.123
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.122
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.123
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3774,7 +3734,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3785,7 +3745,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3796,7 +3756,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3807,23 +3767,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.128
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.129
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.128
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -3847,6 +3796,30 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.129
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.13
@@ -3882,30 +3855,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.130
   '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."insight_id" = 2)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.131
-  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -3925,13 +3874,24 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.132
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.131
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.132
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3942,7 +3902,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3953,7 +3913,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3964,7 +3924,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3975,7 +3935,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3986,7 +3946,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -3997,7 +3957,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4008,7 +3968,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4073,7 +4033,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4084,7 +4044,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4095,23 +4055,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.143
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.144
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.143
   '''
   SELECT "posthog_dashboardtile"."dashboard_id"
   FROM "posthog_dashboardtile"
@@ -4122,7 +4071,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.145
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.144
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -4149,7 +4098,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.146
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.145
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -4157,7 +4106,7 @@
   WHERE "posthog_taggeditem"."insight_id" = 2
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.147
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.146
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -4188,7 +4137,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.148
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.147
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4242,7 +4191,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.149
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.148
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -4272,6 +4221,30 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.149
+  '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" = 2)
+  LIMIT 21
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.15
@@ -4308,30 +4281,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.150
   '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" = 2)
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.151
-  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4384,7 +4333,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.152
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.151
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -4419,7 +4368,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.152
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4480,13 +4429,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.154
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.154
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4497,7 +4457,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4508,7 +4468,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4519,7 +4479,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4530,34 +4490,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.159
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.16
-  '''
-  SELECT "posthog_dashboardtile"."id"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 2)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.160
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.159
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -4582,6 +4520,78 @@
                                           3,
                                           4,
                                           5 /* ... */))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.16
+  '''
+  SELECT "posthog_dashboardtile"."id"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.160
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 2
+  LIMIT 21
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.161
@@ -4647,63 +4657,13 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.162
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
-  LIMIT 21
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.163
@@ -4712,7 +4672,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4723,7 +4683,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4734,7 +4694,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4745,7 +4705,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -4756,23 +4716,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.168
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.169
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.168
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4823,6 +4772,24 @@
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.169
+  '''
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  WHERE "posthog_dashboardtile"."id" = 2
   LIMIT 21
   '''
 # ---
@@ -4853,24 +4820,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.170
-  '''
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.171
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -4905,7 +4854,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.172
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.171
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -4928,7 +4877,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.172
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -4989,13 +4938,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.174
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.173
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.174
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5006,7 +4966,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5017,7 +4977,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5028,7 +4988,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5039,35 +4999,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.18
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 2
-         AND NOT ("posthog_dashboardtile"."insight_id" IS NULL))
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.180
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.179
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -5093,7 +5030,19 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.18
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."dashboard_id" = 2
+         AND NOT ("posthog_dashboardtile"."insight_id" IS NULL))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.180
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -5117,7 +5066,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.182
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.181
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -5138,13 +5087,24 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.183
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.182
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.183
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5155,7 +5115,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5166,7 +5126,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5177,7 +5137,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5188,7 +5148,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5199,7 +5159,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5210,7 +5170,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5235,7 +5195,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5246,7 +5206,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5257,7 +5217,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5268,23 +5228,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.194
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.195
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.194
   '''
   SELECT "posthog_dashboardtile"."dashboard_id"
   FROM "posthog_dashboardtile"
@@ -5295,7 +5244,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.196
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.195
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -5322,7 +5271,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.197
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.196
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -5330,7 +5279,7 @@
   WHERE "posthog_taggeditem"."insight_id" = 2
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.198
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.197
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -5361,7 +5310,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.199
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.198
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5413,6 +5362,38 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.199
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."available_features"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.2
@@ -5456,38 +5437,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.200
   '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."available_features"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 2
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.201
-  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -5510,7 +5459,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.202
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.201
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5564,7 +5513,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.203
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.202
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -5599,7 +5548,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.204
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.203
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5660,13 +5609,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.205
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.204
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.205
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5677,7 +5637,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5688,7 +5648,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5699,7 +5659,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5710,7 +5670,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -5778,17 +5738,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.210
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.211
-  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -5812,6 +5761,67 @@
                                           3,
                                           4,
                                           5 /* ... */))
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.211
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 2
+  LIMIT 21
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.212
@@ -5877,6 +5887,72 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.213
   '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.214
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.215
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.216
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.217
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.218
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.219
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5922,84 +5998,11 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.214
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.215
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.216
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.217
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.218
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.219
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.22
@@ -6018,60 +6021,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.220
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."extra_settings",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.221
-  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -6088,7 +6037,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.222
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.221
   '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -6123,7 +6072,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.223
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.222
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6146,7 +6095,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.224
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.223
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6207,13 +6156,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.225
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.224
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.225
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6224,7 +6184,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6235,7 +6195,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6246,7 +6206,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6257,7 +6217,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6434,17 +6394,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.230
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.231
-  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -6469,7 +6418,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.232
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.231
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6493,7 +6442,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.233
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.232
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -6514,13 +6463,24 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.234
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.233
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.234
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6531,7 +6491,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6542,7 +6502,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6553,7 +6513,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6564,7 +6524,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6575,7 +6535,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6594,7 +6554,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6605,7 +6565,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6616,7 +6576,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6627,7 +6587,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -6638,23 +6598,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.245
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.246
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.245
   '''
   SELECT "posthog_dashboardtile"."dashboard_id"
   FROM "posthog_dashboardtile"
@@ -6665,7 +6614,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.247
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.246
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6692,7 +6641,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.248
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.247
   '''
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -6700,69 +6649,38 @@
   WHERE "posthog_taggeditem"."insight_id" = 2
   '''
 # ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.248
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '''
+# ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.249
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."is_active",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.25
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."is_active",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 2
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.250
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -6816,7 +6734,38 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.251
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.25
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.250
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -6848,7 +6797,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.252
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.251
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -6974,7 +6923,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.253
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.252
   '''
   SELECT "posthog_sharingconfiguration"."id",
          "posthog_sharingconfiguration"."team_id",
@@ -6992,7 +6941,7 @@
                                                           5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.254
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.253
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7167,7 +7116,7 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.255
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.254
   '''
   SELECT "posthog_insightcachingstate"."id",
          "posthog_insightcachingstate"."team_id",
@@ -7188,7 +7137,7 @@
                                                               5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.256
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.255
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -7299,7 +7248,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.257
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.256
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7324,7 +7273,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.258
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.257
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7350,7 +7299,7 @@
                                      5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.259
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.258
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7526,6 +7475,27 @@
   ORDER BY "posthog_dashboarditem"."order" ASC
   '''
 # ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.259
+  '''
+  SELECT "posthog_insightcachingstate"."id",
+         "posthog_insightcachingstate"."team_id",
+         "posthog_insightcachingstate"."insight_id",
+         "posthog_insightcachingstate"."dashboard_tile_id",
+         "posthog_insightcachingstate"."cache_key",
+         "posthog_insightcachingstate"."target_cache_age_seconds",
+         "posthog_insightcachingstate"."last_refresh",
+         "posthog_insightcachingstate"."last_refresh_queued_at",
+         "posthog_insightcachingstate"."refresh_attempt",
+         "posthog_insightcachingstate"."created_at",
+         "posthog_insightcachingstate"."updated_at"
+  FROM "posthog_insightcachingstate"
+  WHERE "posthog_insightcachingstate"."dashboard_tile_id" IN (1,
+                                                              2,
+                                                              3,
+                                                              4,
+                                                              5 /* ... */)
+  '''
+# ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.26
   '''
   SELECT "posthog_team"."id",
@@ -7581,27 +7551,6 @@
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.260
-  '''
-  SELECT "posthog_insightcachingstate"."id",
-         "posthog_insightcachingstate"."team_id",
-         "posthog_insightcachingstate"."insight_id",
-         "posthog_insightcachingstate"."dashboard_tile_id",
-         "posthog_insightcachingstate"."cache_key",
-         "posthog_insightcachingstate"."target_cache_age_seconds",
-         "posthog_insightcachingstate"."last_refresh",
-         "posthog_insightcachingstate"."last_refresh_queued_at",
-         "posthog_insightcachingstate"."refresh_attempt",
-         "posthog_insightcachingstate"."created_at",
-         "posthog_insightcachingstate"."updated_at"
-  FROM "posthog_insightcachingstate"
-  WHERE "posthog_insightcachingstate"."dashboard_tile_id" IN (1,
-                                                              2,
-                                                              3,
-                                                              4,
-                                                              5 /* ... */)
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.261
   '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -7712,7 +7661,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.262
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.261
   '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -7737,7 +7686,7 @@
                                                       5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.263
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.262
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7763,7 +7712,7 @@
                                      5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.264
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.263
   '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -7785,13 +7734,24 @@
                                               5 /* ... */)
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.265
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.264
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.265
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7802,7 +7762,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7813,7 +7773,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7824,7 +7784,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7835,7 +7795,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7878,7 +7838,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7889,7 +7849,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7900,7 +7860,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7911,7 +7871,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7922,7 +7882,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -7933,23 +7893,12 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.276
-  '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.277
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.276
   '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -7976,7 +7925,7 @@
                                           5 /* ... */))
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.278
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.277
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -8002,13 +7951,24 @@
   LIMIT 21
   '''
 # ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.279
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.278
   '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.279
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8043,7 +8003,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8054,7 +8014,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8065,7 +8025,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8076,7 +8036,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8087,7 +8047,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8098,7 +8058,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8109,7 +8069,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8120,7 +8080,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8131,7 +8091,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8142,7 +8102,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8177,7 +8137,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8188,7 +8148,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8199,7 +8159,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8210,7 +8170,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8221,7 +8181,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8232,7 +8192,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8243,7 +8203,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8254,7 +8214,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8265,7 +8225,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8276,7 +8236,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8352,7 +8312,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8363,7 +8323,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8374,7 +8334,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8385,7 +8345,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8396,7 +8356,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8407,7 +8367,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8418,7 +8378,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8429,7 +8389,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8440,7 +8400,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8451,7 +8411,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8497,7 +8457,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8508,7 +8468,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8519,7 +8479,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
@@ -8530,20 +8490,17 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.314
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
+  SELECT "posthog_tag"."name"
+  FROM "posthog_taggeditem"
+  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
+  WHERE "posthog_taggeditem"."dashboard_id" = 2
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.315
@@ -10036,17 +9993,6 @@
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.98
   '''
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.99
-  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -10066,6 +10012,60 @@
   FROM "posthog_dashboard"
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 2)
+  LIMIT 21
+  '''
+# ---
+# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.99
+  '''
+  SELECT "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."extra_settings",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
+  FROM "posthog_team"
+  WHERE "posthog_team"."id" = 2
   LIMIT 21
   '''
 # ---
