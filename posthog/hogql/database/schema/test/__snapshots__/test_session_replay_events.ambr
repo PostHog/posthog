@@ -8,11 +8,9 @@
             console_logs_log_entries.log_source_id AS log_source_id
      FROM
        (SELECT log_entries.message AS message,
-               log_entries.log_source_id AS log_source_id,
-               log_entries.timestamp AS timestamp
+               log_entries.log_source_id AS log_source_id
         FROM log_entries
-        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-     WHERE ifNull(greaterOrEquals(console_logs_log_entries.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
+        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__console_logs.message, 'This is a generic message'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -32,11 +30,9 @@
      FROM
        (SELECT log_entries.message AS message,
                log_entries.level AS level,
-               log_entries.log_source_id AS log_source_id,
-               log_entries.timestamp AS timestamp
+               log_entries.log_source_id AS log_source_id
         FROM log_entries
-        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-     WHERE ifNull(greaterOrEquals(console_logs_log_entries.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
+        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__console_logs.message, 'This is a generic message'), 0), ifNull(equals(raw_session_replay_events__console_logs.level, 'error'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
@@ -56,11 +52,9 @@
      FROM
        (SELECT log_entries.message AS message,
                log_entries.level AS level,
-               log_entries.log_source_id AS log_source_id,
-               log_entries.timestamp AS timestamp
+               log_entries.log_source_id AS log_source_id
         FROM log_entries
-        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
-     WHERE ifNull(greaterOrEquals(console_logs_log_entries.timestamp, minus(toDateTime64('0000-00-00 00:00:00.000000', 0, 'UTC'), toIntervalDay(90))), 0)) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
+        WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries) AS raw_session_replay_events__console_logs ON equals(session_replay_events.session_id, raw_session_replay_events__console_logs.log_source_id)
   WHERE and(equals(session_replay_events.team_id, 2), ifNull(equals(raw_session_replay_events__console_logs.level, 'info'), 0))
   ORDER BY session_replay_events.session_id ASC
   LIMIT 100 SETTINGS readonly=2,
