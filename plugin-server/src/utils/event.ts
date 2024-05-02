@@ -14,14 +14,6 @@ interface RawElement extends Element {
     $el_text?: string
 }
 
-export const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
-    return elements.map((element) => ({
-        ...element,
-        attr_class: element.attributes?.attr__class ?? element.attr_class,
-        $el_text: element.text,
-    }))
-}
-
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
@@ -33,7 +25,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: convertDatabaseElementsToRawElements(event.elementsList ?? []),
+        elements: event.elementsList ?? [],
     }
 }
 
@@ -117,6 +109,12 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
     event.elementsList = event.properties['$elements_chain']
         ? chainToElements(event.properties['$elements_chain'], event.teamId)
         : []
+
+    event.elementsList.map((element) => ({
+        ...element,
+        attr_class: element.attributes?.attr__class ?? element.attr_class,
+        $el_text: element.text,
+    }))
 }
 
 /// Does normalization steps involving the $process_person_profile property. This is currently a separate
