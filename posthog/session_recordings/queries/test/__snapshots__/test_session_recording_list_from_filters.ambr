@@ -1,0 +1,2182 @@
+# serializer version: 1
+# name: TestSessionRecordingsListFromFilters.test_basic_query
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING ifNull(greaterOrEquals(inactive_seconds, 60), 0)
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY active_seconds DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY console_error_count DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_from_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-01 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_from_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-30 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-12 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 12:46:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-10 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 12:46:00.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_to_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2020-12-28 23:59:59.999999', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_date_to_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2020-12-29 23:59:59.999999', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_duration_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING ifNull(greaterOrEquals(duration, 60), 0)
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_duration_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING ifNull(lessOrEquals(duration, 60), 0)
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$autocapture'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING and(ifNull(greaterOrEquals(duration, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING and(ifNull(greaterOrEquals(active_seconds, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$autocapture'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_person_properties
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  INNER JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), ifNull(equals(s__pdi__person.properties___email, 'bla'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Safari'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
+            events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Safari'), 0)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 4'), 0), 0)))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 5'), 0), 0)))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(ifNull(in(console_logs_log_entries.level, ['warn', 'error']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'MESSAGE 5'), 0), 0)))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.3
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level, log_entries.message AS message
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE and(ifNull(in(console_logs_log_entries.level, ['info']), 0), ifNull(greater(positionCaseInsensitive(console_logs_log_entries.message, 'message 5'), 0), 0)))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['error']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['warn']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), true, in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                             (SELECT console_logs_log_entries.log_source_id AS log_source_id
+                                                                                                                                                                                                                                                                                                                                                                                                                              FROM
+                                                                                                                                                                                                                                                                                                                                                                                                                                (SELECT log_entries.log_source_id AS log_source_id, log_entries.level AS level
+                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(log_entries.team_id, 2), equals(log_entries.log_source, 'session_replay'))) AS console_logs_log_entries
+                                                                                                                                                                                                                                                                                                                                                                                                                              WHERE ifNull(in(console_logs_log_entries.level, ['info']), 0))))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2),
+            ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0),
+            ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0),
+            ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0),
+            in(s.session_id,
+               ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
+               true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2),
+            ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0),
+            ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0),
+            ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0),
+            in(s.session_id,
+               ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */],
+               true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_multiple_event_filters
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event'), 0), true)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event2'), 0), true)), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event2'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_person_id_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true, ifNull(equals(s__pdi.person_id, '00000000-0000-0000-0000-000000000000'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'is_internal_user'), ''), 'null'), '^"|"$', '') AS properties___is_internal_user,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__events.properties___is_internal_user, 'true'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT nullIf(nullIf(events.mat_is_internal_user, ''), 'null') AS properties___is_internal_user,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__events.properties___is_internal_user, 'true'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  INNER JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__pdi__person.properties___email, 'bla'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  INNER JOIN
+    (SELECT person.id AS id,
+            nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__pdi__person.properties___email, 'bla'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  INNER JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__pdi__person.properties___email, 'bla'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  JOIN
+    (SELECT events.event AS event,
+            events.`$session_id` AS `$session_id`
+     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
+     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  GROUP BY s.session_id
+  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS s__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE equals(person_distinct_id2.team_id, 2)
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id)
+  INNER JOIN
+    (SELECT person.id AS id,
+            nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+     FROM person
+     WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 2)
+                                                       GROUP BY person.id
+                                                       HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS s__pdi__person ON equals(s__pdi.s__pdi___person_id, s__pdi__person.id)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), ifNull(equals(s__pdi__person.properties___email, 'bla'), 0))
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 10 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

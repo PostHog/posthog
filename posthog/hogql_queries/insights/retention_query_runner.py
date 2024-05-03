@@ -22,6 +22,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    CachedRetentionQueryResponse,
     HogQLQueryModifiers,
     RetentionQueryResponse,
     IntervalType,
@@ -35,6 +36,8 @@ DEFAULT_TOTAL_INTERVALS = 11
 
 class RetentionQueryRunner(QueryRunner):
     query: RetentionQuery
+    response: RetentionQueryResponse
+    cached_response: CachedRetentionQueryResponse
 
     def __init__(
         self,
