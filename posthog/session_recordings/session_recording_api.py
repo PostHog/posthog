@@ -40,7 +40,9 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
-from posthog.session_recordings.queries.session_recording_list_from_filters import SessionRecordingListFromFilters
+from posthog.session_recordings.queries.session_recording_list_from_filters import (
+    SessionRecordingListFromFilters,
+)
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )

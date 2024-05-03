@@ -465,14 +465,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -498,14 +498,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$autocapture'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$autocapture'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$autocapture']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -531,14 +531,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(duration, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
+  HAVING ifNull(greaterOrEquals(duration, 60), 0)
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -564,14 +564,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING and(ifNull(greaterOrEquals(active_seconds, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
+  HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -597,15 +597,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -631,15 +630,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -665,15 +663,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -699,15 +696,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -733,14 +729,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -766,14 +762,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$autocapture'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$autocapture'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$autocapture']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -845,15 +841,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -879,15 +874,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -913,15 +907,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, 'a_different_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['a_different_event']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -947,15 +940,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Safari'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, 'a_different_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Safari'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['a_different_event']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -981,15 +973,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1015,15 +1006,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), ifNull(equals(s__events.`properties___$browser`, 'Firefox'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1049,15 +1039,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Chrome'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, 'a_different_event'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['a_different_event']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1083,15 +1072,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `properties___$browser`,
-            events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, 'a_different_event'), 0), ifNull(equals(s__events.`properties___$browser`, 'Safari'), 0)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, 'a_different_event'), ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Safari'), 0)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['a_different_event']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1525,14 +1513,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event'), 0), true)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), or(and(equals(events.event, '$pageview'), true), and(equals(events.event, 'new-event'), true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview', 'new-event']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1558,14 +1546,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), or(and(ifNull(equals(s__events.event, '$pageview'), 0), true), and(ifNull(equals(s__events.event, 'new-event2'), 0), true)), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-24 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-02 01:46:23.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), or(and(equals(events.event, '$pageview'), true), and(equals(events.event, 'new-event2'), true)))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview', 'new-event2']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event2'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1626,14 +1614,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1692,14 +1680,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1758,14 +1746,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1837,14 +1825,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1916,14 +1904,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -1995,14 +1983,14 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count
   FROM session_replay_events AS s
-  JOIN
-    (SELECT events.event AS event,
-            events.`$session_id` AS `$session_id`
-     FROM events PREWHERE ifNull(greaterOrEquals(events.timestamp, minus(toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC'), toIntervalDay(90))), 0)
-     WHERE equals(events.team_id, 2)) AS s__events ON equals(s.session_id, s__events.`$session_id`)
-  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), and(ifNull(equals(s__events.event, '$pageview'), 0), true), true)
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-21 20:00:00.000000', 6, 'UTC')), 0), in(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                        FROM events PREWHERE and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-13 12:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-22 08:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 2), notEmpty(events.`$session_id`), and(equals(events.event, '$pageview'), true))
+                                                                                                                                                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                        HAVING hasAll(groupUniqArray(events.event), ['$pageview']))), true)
   GROUP BY s.session_id
-  HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
+  HAVING true
   ORDER BY start_time DESC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
