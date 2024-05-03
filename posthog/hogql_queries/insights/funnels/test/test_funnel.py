@@ -70,8 +70,9 @@ class TestFunnelBreakdown(
 
 class TestFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(FunnelOrderType.ORDERED),
+    funnel_breakdown_group_test_factory(FunnelOrderType.ORDERED),  # type: ignore
 ):
+    maxDiff = None
     pass
 
 

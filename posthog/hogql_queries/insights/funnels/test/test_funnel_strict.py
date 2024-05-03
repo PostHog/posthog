@@ -181,8 +181,9 @@ class TestFunnelStrictStepsBreakdown(
 
 class TestStrictFunnelGroupBreakdown(
     ClickhouseTestMixin,
-    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),
+    funnel_breakdown_group_test_factory(FunnelOrderType.STRICT),  # type: ignore
 ):
+    maxDiff = None
     pass
 
 
