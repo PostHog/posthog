@@ -429,6 +429,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -806,6 +851,51 @@
           {
               "key": "message_count",
               "type": "integer"
+          },
+          {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
           },
           {
               "key": "pdi",
@@ -1500,6 +1590,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -1877,6 +2012,51 @@
           {
               "key": "message_count",
               "type": "integer"
+          },
+          {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
           },
           {
               "key": "pdi",
