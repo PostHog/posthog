@@ -1,5 +1,4 @@
 # serializer version: 1
-<<<<<<< HEAD
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds
   '''
   SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
@@ -967,8 +966,6 @@
                      format_csv_allow_double_quotes=0
   '''
 # ---
-=======
->>>>>>> c3869b3313 (hotfix inner join person)
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '''
   /* cohort_calculation: */
@@ -1797,12 +1794,14 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  SELECT actor_id AS actor_id
+  SELECT persons.id,
+         persons.id AS id
   FROM
     (SELECT aggregation_target AS actor_id
      FROM
@@ -1833,9 +1832,9 @@
                      step_2 AS step_2,
                      latest_2 AS latest_2,
                      prop AS prop,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      prop AS prop
               FROM
                 (SELECT aggregation_target AS aggregation_target,
@@ -1923,11 +1922,19 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['finance']))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array(['finance'])))))
-     ORDER BY aggregation_target ASC)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -1956,12 +1963,14 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.5
   '''
-  SELECT actor_id AS actor_id
+  SELECT persons.id,
+         persons.id AS id
   FROM
     (SELECT aggregation_target AS actor_id
      FROM
@@ -1992,9 +2001,9 @@
                      step_2 AS step_2,
                      latest_2 AS latest_2,
                      prop AS prop,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      prop AS prop
               FROM
                 (SELECT aggregation_target AS aggregation_target,
@@ -2082,11 +2091,19 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['finance']))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array(['finance'])))))
-     ORDER BY aggregation_target ASC)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -2115,12 +2132,14 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.7
   '''
-  SELECT actor_id AS actor_id
+  SELECT persons.id,
+         persons.id AS id
   FROM
     (SELECT aggregation_target AS actor_id
      FROM
@@ -2151,9 +2170,9 @@
                      step_2 AS step_2,
                      latest_2 AS latest_2,
                      prop AS prop,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      prop AS prop
               FROM
                 (SELECT aggregation_target AS aggregation_target,
@@ -2241,11 +2260,19 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['technology']))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array(['technology'])))))
-     ORDER BY aggregation_target ASC)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -2274,12 +2301,14 @@
   LIMIT 26
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.9
   '''
-  SELECT actor_id AS actor_id
+  SELECT persons.id,
+         persons.id AS id
   FROM
     (SELECT aggregation_target AS actor_id
      FROM
@@ -2310,9 +2339,9 @@
                      step_2 AS step_2,
                      latest_2 AS latest_2,
                      prop AS prop,
-                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
+                     if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                     if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                     if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time,
                      prop AS prop
               FROM
                 (SELECT aggregation_target AS aggregation_target,
@@ -2400,10 +2429,18 @@
                       and isNull(max_steps)))
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array(['technology']))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array(['technology'])))))
-     ORDER BY aggregation_target ASC)
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
