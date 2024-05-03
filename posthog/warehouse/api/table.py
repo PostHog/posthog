@@ -158,16 +158,16 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except:
                 return response.Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f"Column {key} does not parse with value {value}"},
+                    data={"message": f"Can not parse type {value} for column {key} - type does not exist"},
                 )
 
             current_value = columns[key]
-            # TODO: have a better parser for Clickhouse types to handle things like Nullables etc
+            # If the column is in the "old" style, convert it to the new
             if isinstance(current_value, str):
-                columns[key] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
-            else:
-                columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
-                columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+                columns[key] = {}
+
+            columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
+            columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
 
         table.columns = columns
         table.save()
