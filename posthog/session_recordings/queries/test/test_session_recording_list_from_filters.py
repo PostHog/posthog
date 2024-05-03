@@ -681,7 +681,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == []
 
     @snapshot_clickhouse_queries
-    @skip("TODO: This should work!")
     def test_event_filter_has_ttl_applied_too(self):
         user = "test_event_filter_has_ttl_applied_too-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -1120,7 +1119,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(["$session_id", "$browser"], person_properties=["email"])
     @freeze_time("2023-01-04")
-    @skip("TODO: This should work!")
     def test_action_filter(self):
         user = "test_action_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
