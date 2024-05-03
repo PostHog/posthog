@@ -1,4 +1,4 @@
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
@@ -9,6 +9,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.schema import QueryTiming
 from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
@@ -16,6 +17,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
+    timings: list[QueryTiming] | None = None
 
 
 class SessionRecordingListFromFilters:
@@ -45,7 +47,6 @@ class SessionRecordingListFromFilters:
         GROUP BY session_id
         HAVING {having_predicates}
         ORDER BY {order_by} DESC
-        LIMIT 10
         """
 
     @staticmethod
@@ -125,14 +126,18 @@ class SessionRecordingListFromFilters:
         )
 
         paginated_response = self._paginator.execute_hogql_query(
-            query=query,
+            # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+            query=cast(ast.SelectQuery, query),
             team=self._team,
             # TODO - should we have our own query type 🤷
             query_type="hogql_query",
         )
 
-        session_recordings = self._data_to_return(paginated_response.results)
-        return SessionRecordingQueryResult(results=session_recordings, has_more_recording=self._paginator.has_more())
+        return SessionRecordingQueryResult(
+            results=(self._data_to_return(self._paginator.results)),
+            has_more_recording=self._paginator.has_more(),
+            timings=paginated_response.timings,
+        )
 
     def _order_by_clause(self) -> ast.Field:
         order = self._filter.target_entity_order or "start_time"
