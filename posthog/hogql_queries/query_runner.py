@@ -8,6 +8,7 @@ from django.core.cache import cache
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
+import structlog
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
@@ -19,6 +20,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team
 from posthog.schema import (
+    CacheMissResponse,
     DateRange,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
@@ -26,6 +28,8 @@ from posthog.schema import (
     FunnelsActorsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryTiming,
+    SamplingRate,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -36,17 +40,17 @@ from posthog.schema import (
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
-    QueryTiming,
     SessionsTimelineQuery,
     ActorsQuery,
     EventsQuery,
     InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
-    SamplingRate,
     InsightActorsQueryOptions,
 )
-from posthog.utils import generate_cache_key, get_safe_cache
+from posthog.utils import generate_cache_key, get_safe_cache, get_from_dict_or_attr
+
+logger = structlog.get_logger(__name__)
 
 QUERY_CACHE_WRITE_COUNTER = Counter(
     "posthog_query_cache_write_total",
@@ -60,8 +64,6 @@ QUERY_CACHE_HIT_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, "cache_hit"],
 )
 
-DataT = TypeVar("DataT")
-
 
 class ExecutionMode(IntEnum):
     CALCULATION_ALWAYS = 2
@@ -70,40 +72,6 @@ class ExecutionMode(IntEnum):
     """Use cache, unless the results are missing or stale."""
     CACHE_ONLY_NEVER_CALCULATE = 0
     """Do not initiate calculation."""
-
-
-class QueryResponse(BaseModel, Generic[DataT]):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: DataT
-    timings: Optional[list[QueryTiming]] = None
-    types: Optional[list[Union[tuple[str, str], str]]] = None
-    columns: Optional[list[str]] = None
-    hogql: Optional[str] = None
-    hasMore: Optional[bool] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-
-
-class CachedQueryResponse(QueryResponse):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    is_cached: bool
-    last_refresh: str
-    next_allowed_client_refresh: str
-    cache_key: str
-    timezone: str
-
-
-class CacheMissResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: Optional[str]
 
 
 RunnableQueryNode = Union[
@@ -135,12 +103,9 @@ def get_query_runner(
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
-    kind = None
-    if isinstance(query, dict):
-        kind = query.get("kind", None)
-    elif hasattr(query, "kind"):
-        kind = query.kind
-    else:
+    try:
+        kind = get_from_dict_or_attr(query, "kind")
+    except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
@@ -273,27 +238,47 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "WebOverviewQuery":
-        from .web_analytics.web_overview import WebOverviewQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.web_overview import WebOverviewQueryRunner
 
-        return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
+
+            return LegacyWebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
         return WebTopClicksQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebStatsTableQuery":
-        from .web_analytics.stats_table import WebStatsTableQueryRunner
+        use_session_table = get_from_dict_or_attr(query, "useSessionsTable")
+        if use_session_table:
+            from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+            return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
+        else:
+            from .web_analytics.stats_table_legacy import LegacyWebStatsTableQueryRunner
+
+            return LegacyWebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
+# R (for Response) should have a structure similar to QueryResponse
+# Due to the way schema.py is generated, we don't have a good inheritance story here
+R = TypeVar("R", bound=BaseModel)
+# CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
+# Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
+CR = TypeVar("CR", bound=BaseModel)
 
 
-class QueryRunner(ABC, Generic[Q]):
+class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
-    query_type: type[Q]
+    response: R
+    cached_response: CR
+
     team: Team
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -318,42 +303,50 @@ class QueryRunner(ABC, Generic[Q]):
         assert isinstance(query, self.query_type)
         self.query = query
 
+    @property
+    def query_type(self) -> type[Q]:
+        return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
+
+    @property
+    def cached_response_type(self) -> type[CR]:
+        return self.__annotations__["cached_response"]
+
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
+    def is_cached_response(self, data) -> TypeGuard[CR]:
+        return hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
+
     @abstractmethod
-    def calculate(self) -> BaseModel:
-        # The returned model should have a structure similar to QueryResponse.
-        # Due to the way schema.py is generated, we don't have a good inheritance story here.
+    def calculate(self) -> R:
         raise NotImplementedError()
 
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
-    ) -> CachedQueryResponse | CacheMissResponse:
+    ) -> CR | CacheMissResponse:
         # TODO: `self.limit_context` should probably just be in get_cache_key()
         cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
-            cached_response: CachedQueryResponse | CacheMissResponse
+            cached_response: CR | CacheMissResponse
             cached_response_candidate = get_safe_cache(cache_key)
-            match cached_response_candidate:
-                case CachedQueryResponse():
-                    cached_response = cached_response_candidate
-                    cached_response_candidate.is_cached = True
-                case None:
-                    cached_response = CacheMissResponse(cache_key=cache_key)
-                case _:
-                    # Whatever's in cache is malformed, so let's treat is as non-existent
-                    cached_response = CacheMissResponse(cache_key=cache_key)
-                    with push_scope() as scope:
-                        scope.set_tag("cache_key", cache_key)
-                        capture_exception(
-                            ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
-                        )
+            if self.is_cached_response(cached_response_candidate):
+                cached_response = cached_response_candidate
+                cached_response_candidate.is_cached = True
+            elif cached_response_candidate is None:
+                cached_response = CacheMissResponse(cache_key=cache_key)
+            else:
+                # Whatever's in cache is malformed, so let's treat is as non-existent
+                cached_response = CacheMissResponse(cache_key=cache_key)
+                with push_scope() as scope:
+                    scope.set_tag("cache_key", cache_key)
+                    capture_exception(
+                        ValueError(f"Cached response is of unexpected type {type(cached_response)}, ignoring it")
+                    )
 
-            if isinstance(cached_response, CachedQueryResponse):
+            if self.is_cached_response(cached_response_candidate):
                 if not self._is_stale(cached_response):
                     QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit="hit").inc()
                     # We have a valid result that's fresh enough, let's return it
@@ -371,7 +364,7 @@ class QueryRunner(ABC, Generic[Q]):
                 if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
                     return cached_response
 
-        fresh_response_dict = cast(QueryResponse, self.calculate()).model_dump()
+        fresh_response_dict = self.calculate().model_dump()
         fresh_response_dict["is_cached"] = False
         fresh_response_dict["last_refresh"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
@@ -379,8 +372,14 @@ class QueryRunner(ABC, Generic[Q]):
         )
         fresh_response_dict["cache_key"] = cache_key
         fresh_response_dict["timezone"] = self.team.timezone
-        fresh_response = CachedQueryResponse(**fresh_response_dict)
-        cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+        CachedResponse = self.cached_response_type
+        fresh_response = CachedResponse(**fresh_response_dict)
+
+        # Dont cache debug queries with errors
+        has_error = fresh_response_dict.get("error", None)
+        if has_error is None or len(has_error) == 0:
+            cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 
@@ -405,13 +404,13 @@ class QueryRunner(ABC, Generic[Q]):
                 "hogql",
             )
 
-    def toJSON(self) -> str:
+    def to_json(self) -> str:
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def get_cache_key(self) -> str:
         modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
+            f"query_{self.to_json()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod
@@ -423,33 +422,84 @@ class QueryRunner(ABC, Generic[Q]):
         raise NotImplementedError()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> Q:
+        if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
+            raise NotImplementedError(
+                f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
+            )
+
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        if hasattr(self.query, "properties") and hasattr(self.query, "dateRange"):
-            query_update: dict[str, Any] = {}
-            if dashboard_filter.properties:
-                if self.query.properties:
+        query_update: dict[str, Any] = {}
+        if dashboard_filter.properties:
+            if self.query.properties:
+                try:
                     query_update["properties"] = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND,
                         values=[
-                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties),
+                            PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
+                            if isinstance(self.query.properties, list)
+                            else PropertyGroupFilterValue(**self.query.properties.model_dump()),
                             PropertyGroupFilterValue(
                                 type=FilterLogicalOperator.AND, values=dashboard_filter.properties
                             ),
                         ],
                     )
-                else:
-                    query_update["properties"] = dashboard_filter.properties
-            if dashboard_filter.date_from or dashboard_filter.date_to:
-                date_range_update = {}
-                if dashboard_filter.date_from:
-                    date_range_update["date_from"] = dashboard_filter.date_from
-                if dashboard_filter.date_to:
-                    date_range_update["date_to"] = dashboard_filter.date_to
-                if self.query.dateRange:
-                    query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
-                else:
-                    query_update["dateRange"] = DateRange(**date_range_update)
-            return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
+                except Exception:
+                    # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
+                    capture_exception()
+                    logger.exception("Failed to apply dashboard property filters")
+            else:
+                query_update["properties"] = dashboard_filter.properties
+        if dashboard_filter.date_from or dashboard_filter.date_to:
+            date_range_update = {}
+            if dashboard_filter.date_from:
+                date_range_update["date_from"] = dashboard_filter.date_from
+            if dashboard_filter.date_to:
+                date_range_update["date_to"] = dashboard_filter.date_to
+            if self.query.dateRange:
+                query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
+            else:
+                query_update["dateRange"] = DateRange(**date_range_update)
+        return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
 
-        raise NotImplementedError(f"{self.query.__class__.__name__} does not support dashboard filters out of the box")
+
+### START OF BACKWARDS COMPATIBILITY CODE
+
+# In May 2024 we've switched from a single shared `CachedQueryResponse` to a `Cached*QueryResponse` being defined
+# for each runnable query kind, so we won't be creating new `CachedQueryResponse`s. Unfortunately, as of May 2024,
+# we're pickling cached query responses instead of e.g. serializing to JSON, so we have to unpickle them later.
+# Because of that, we need `CachedQueryResponse` to still be defined here till the end of May 2024 - otherwise
+# we wouldn't be able to unpickle and therefore use cached results from before this change was merged.
+
+DataT = TypeVar("DataT")
+
+
+class QueryResponse(BaseModel, Generic[DataT]):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: DataT
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[Union[tuple[str, str], str]]] = None
+    columns: Optional[list[str]] = None
+    error: Optional[str] = None
+    hogql: Optional[str] = None
+    hasMore: Optional[bool] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
+
+
+class CachedQueryResponse(QueryResponse):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    is_cached: bool
+    last_refresh: str
+    next_allowed_client_refresh: str
+    cache_key: str
+    timezone: str
+
+
+### END OF BACKWARDS COMPATIBILITY CODE

@@ -165,6 +165,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "modifiers",
+            "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
@@ -179,6 +181,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
         )
@@ -334,7 +337,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _handle_timezone_update(self, team: Team) -> None:
+    def _clear_team_insight_cache(self, team: Team) -> None:
         # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
@@ -342,8 +345,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
 
-        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance)
+        if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
+            "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
+        ):
+            self._clear_team_insight_cache(instance)
 
         if (
             "session_replay_config" in validated_data
@@ -403,10 +408,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_queryset(self):
+    def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        return super().get_queryset().filter(id__in=visible_teams_ids)
+        return queryset.filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
@@ -414,46 +419,44 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
-    def get_permissions(self) -> list:
+    def dangerously_get_permissions(self) -> list:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        common_permissions: list = [
+        permissions: list = [
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]
 
-        base_permissions = [permission() for permission in common_permissions]
-
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    base_permissions.append(OrganizationAdminWritePermissions())
+                    permissions.append(OrganizationAdminWritePermissions)
                 else:
-                    base_permissions.append(OrganizationMemberPermissions())
+                    permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-                base_permissions.append(TeamMemberLightManagementPermission())
-        return base_permissions
+                permissions.append(TeamMemberLightManagementPermission)
 
-    def get_object(self):
+        return [permission() for permission in permissions]
+
+    def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
             return team
-        queryset = self.filter_queryset(self.get_queryset())
+
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
             team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, team)
         return team
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.

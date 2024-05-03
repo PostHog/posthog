@@ -56,6 +56,8 @@ class Survey(UUIDModel):
     end_date: models.DateTimeField = models.DateTimeField(null=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     archived: models.BooleanField = models.BooleanField(default=False)
+    # It's not a strict limit as it's enforced in a periodic task
+    responses_limit = models.PositiveIntegerField(null=True)
 
 
 @mutable_receiver([post_save, post_delete], sender=Survey)

@@ -55,7 +55,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types(
-    node: ast.Expr,
+    node: ast.Expr | ast.SelectQuery,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     scopes: Optional[list[ast.SelectQueryType]] = None,
@@ -101,8 +101,18 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        # all expressions combined by UNION ALL can use CTEs from the first expression
+        # so we put these CTEs to the scope
+        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        if default_ctes:
+            self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
+
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+
+        if default_ctes:
+            self.scopes.pop()
+
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -450,7 +460,7 @@ class Resolver(CloningVisitor):
         scope = self.scopes[-1]
 
         type: Optional[ast.Type] = None
-        name = node.chain[0]
+        name = str(node.chain[0])
 
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
@@ -487,10 +497,18 @@ class Resolver(CloningVisitor):
                 return response
 
         if not type:
-            raise QueryError(f"Unable to resolve field: {name}")
+            if self.dialect == "clickhouse":
+                raise QueryError(f"Unable to resolve field: {name}")
+            else:
+                type = ast.UnresolvedFieldType(name=name)
+                self.context.add_error(
+                    start=node.start,
+                    end=node.end,
+                    message=f"Unable to resolve field: {name}",
+                )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
-        field_name = node.chain[-1]
+        field_name = str(node.chain[-1])
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
@@ -509,7 +527,7 @@ class Resolver(CloningVisitor):
                 loop_type = previous_types[-1]
                 next_chain = chain_to_parse.pop(0)
 
-            loop_type = loop_type.get_child(next_chain, self.context)
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
@@ -518,7 +536,7 @@ class Resolver(CloningVisitor):
             # only swap out expression fields in ClickHouse
             if self.dialect == "clickhouse":
                 new_expr = clone_expr(node.type.expr)
-                new_node = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
+                new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
                 new_node = self.visit(new_node)
                 return new_node
 
@@ -537,7 +555,7 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),
             )
         elif isinstance(node.type, ast.PropertyType):
-            property_alias = "__".join(node.type.chain)
+            property_alias = "__".join(str(s) for s in node.type.chain)
             return ast.Alias(
                 alias=property_alias,
                 expr=node,

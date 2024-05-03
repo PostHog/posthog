@@ -14,9 +14,9 @@ from posthog.schema import (
     EventsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
-    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
+    CachedHogQLQueryResponse,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -351,7 +351,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    @patch("sqlparse.format", return_value="SELECT 1&&&")  # Erroneously constructed SQL
+    @patch(
+        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
+    )  # Erroneously constructed SQL
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
@@ -554,11 +556,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.model_validate(api_response)
+            response = CachedHogQLQueryResponse.model_validate(api_response)
 
-            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(response.results and len(response.results), 4)
             self.assertEqual(
-                query.response.results,
+                response.results,
                 [
                     ["sign up", "2", "test_val1"],
                     ["sign out", "2", "test_val2"],
@@ -782,12 +784,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = HogQLQuery(query="select * from event_view")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()})
-            query.response = HogQLQueryResponse.model_validate(api_response.json())
+            response = CachedHogQLQueryResponse.model_validate(api_response.json())
 
             self.assertEqual(api_response.status_code, 200)
-            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(response.results and len(response.results), 4)
             self.assertEqual(
-                query.response.results,
+                response.results,
                 [
                     ["sign up", "2", "test_val1"],
                     ["sign out", "2", "test_val2"],

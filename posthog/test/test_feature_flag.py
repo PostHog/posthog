@@ -10,6 +10,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 import pytest
 
+from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
@@ -4406,6 +4407,67 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 
+    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
+    def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="active-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag2: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            active=True,
+            key="other-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "tear", "value": "tear", "type": "person"}], "rollout_percentage": 100}
+                ],
+            },
+        )
+
+        matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html?\x00")
+
+        self.assertEqual(
+            matcher.get_matches(),
+            (
+                {"active-flag": True},
+                {
+                    "active-flag": {
+                        "condition_index": 0,
+                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    }
+                },
+                {},
+                True,
+            ),
+        )
+        self.assertEqual(matcher.failed_to_fetch_conditions, True)
+        mock_database_healthcheck.set_connection.assert_not_called()
+
+        # with operational error, should set db down
+        with connection.execute_wrapper(QueryTimeoutWrapper()):
+            matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html")
+
+            self.assertEqual(
+                matcher.get_matches(),
+                (
+                    {"active-flag": True},
+                    {
+                        "active-flag": {
+                            "condition_index": 0,
+                            "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                        }
+                    },
+                    {},
+                    True,
+                ),
+            )
+            self.assertEqual(matcher.failed_to_fetch_conditions, True)
+            mock_database_healthcheck.set_connection.assert_called_once_with(False)
+
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
@@ -4682,6 +4744,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
+
+    @pytest.mark.skip("This case doesn't work yet, which is a bit problematic")
+    @snapshot_postgres_queries
+    def test_property_with_double_underscores(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"org__member_count": 15},
+        )
+        # double scores in key name are interpreted in the ORM as a nested property.
+        # Unclear if there's a way to solve this, other than moving away from the ORM.
+        # But, we're doing that anyway with the rust rewrite, so not fixing for now.
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "org__member_count",
+                                "value": "9",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
 
     def test_numeric_operator(self):
         Person.objects.create(

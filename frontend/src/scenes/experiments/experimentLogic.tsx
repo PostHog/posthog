@@ -1001,22 +1001,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     // display the right colour for the variant
                     if (!experimentResults || !experimentResults.insight) {
                         return null
-                    } else {
-                        let index = -1
-                        if (insightType === InsightType.FUNNELS) {
-                            // Funnel Insight is displayed in order of decreasing count
-                            index = ([...experimentResults.insight] as FunnelStep[][])
-                                .sort((a, b) => b[0]?.count - a[0]?.count)
-                                .findIndex(
-                                    (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
-                                )
-                        } else {
-                            index = (experimentResults.insight as TrendResult[]).findIndex(
-                                (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
-                            )
-                        }
-                        result = index === -1 ? null : index
                     }
+                    let index = -1
+                    if (insightType === InsightType.FUNNELS) {
+                        // Funnel Insight is displayed in order of decreasing count
+                        index = ([...experimentResults.insight] as FunnelStep[][])
+                            .sort((a, b) => b[0]?.count - a[0]?.count)
+                            .findIndex(
+                                (variantFunnel: FunnelStep[]) => variantFunnel[0]?.breakdown_value?.[0] === variant
+                            )
+                    } else {
+                        index = (experimentResults.insight as TrendResult[]).findIndex(
+                            (variantTrend: TrendResult) => variantTrend.breakdown_value === variant
+                        )
+                    }
+                    result = index === -1 ? null : index
+
                     if (result !== null && insightType === InsightType.FUNNELS) {
                         result++
                     }
@@ -1068,9 +1068,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal
                         return result.toFixed(2)
-                    } else {
-                        return result.toString()
                     }
+                    return result.toString()
                 },
         ],
         exposureCountDataForVariant: [
@@ -1093,9 +1092,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     if (result % 1 !== 0) {
                         // not an integer, so limit to 2 digits post decimal
                         return result.toFixed(2)
-                    } else {
-                        return result.toString()
                     }
+                    return result.toString()
                 },
         ],
         getHighestProbabilityVariant: [

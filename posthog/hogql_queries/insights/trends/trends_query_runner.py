@@ -20,7 +20,7 @@ from posthog.caching.insights_api import (
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import LimitContext, MAX_SELECT_RETURNED_ROWS, BREAKDOWN_VALUES_LIMIT
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -47,9 +47,11 @@ from posthog.models.property_definition import PropertyDefinition
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
+    CachedTrendsQueryResponse,
     ChartDisplayType,
     Compare,
     CompareItem,
+    DashboardFilter,
     DayItem,
     EventsNode,
     DataWarehouseNode,
@@ -69,7 +71,8 @@ from posthog.utils import format_label_date, multisort
 
 class TrendsQueryRunner(QueryRunner):
     query: TrendsQuery
-    query_type = TrendsQuery
+    response: TrendsQueryResponse
+    cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
 
     def __init__(
@@ -292,6 +295,7 @@ class TrendsQueryRunner(QueryRunner):
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
         timings_matrix: list[list[QueryTiming] | None] = [None] * len(queries)
         errors: list[Exception] = []
+        debug_errors: list[str] = []
 
         def run(index: int, query: ast.SelectQuery | ast.SelectUnionQuery, is_parallel: bool):
             try:
@@ -308,6 +312,8 @@ class TrendsQueryRunner(QueryRunner):
 
                 timings_matrix[index] = response.timings
                 res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                if response.error:
+                    debug_errors.append(response.error)
             except Exception as e:
                 errors.append(e)
             finally:
@@ -362,7 +368,9 @@ class TrendsQueryRunner(QueryRunner):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
 
-        return TrendsQueryResponse(results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers)
+        return TrendsQueryResponse(
+            results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
+        )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
         if response.results is None:
@@ -548,7 +556,7 @@ class TrendsQueryRunner(QueryRunner):
         if isinstance(series, DataWarehouseNode):
             return series.table_name
 
-        return None
+        return None  # type: ignore [unreachable]
 
     def update_hogql_modifiers(self) -> None:
         if (
@@ -817,9 +825,21 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, *args, **kwargs) -> RunnableQueryNode:
-        updated_query = super().apply_dashboard_filters(*args, **kwargs)
-        # Remove any set breakdown limit for display on the dashboard
-        if updated_query.breakdownFilter:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
+        updated_query: TrendsQuery = super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
+        if (
+            updated_query.breakdownFilter
+            and updated_query.breakdownFilter.breakdown_limit
+            and updated_query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
+        ):
+            # Remove too high breakdown limit for display on the dashboard
             updated_query.breakdownFilter.breakdown_limit = None
+
+        if (
+            updated_query.trendsFilter is not None
+            and updated_query.trendsFilter.compare
+            and dashboard_filter.date_from == "all"
+        ):
+            updated_query.trendsFilter.compare = False
+
         return updated_query

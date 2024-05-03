@@ -19,7 +19,6 @@ import { HEATMAP_COLOR_PALETTE_OPTIONS, heatmapLogic } from '~/toolbar/elements/
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
-import { useToolbarFeatureFlag } from '../toolbarPosthogJS'
 
 const ScrollDepthJSWarning = (): JSX.Element | null => {
     const { scrollDepthPosthogJsError } = useValues(heatmapLogic)
@@ -163,8 +162,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
             onClick: () => setCommonFilters({ date_from: dateOption.values[0], date_to: dateOption.values[1] }),
         }))
 
-    const showNewHeatmaps = useToolbarFeatureFlag('toolbar-heatmaps')
-
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
@@ -196,202 +193,195 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                {showNewHeatmaps ? (
-                    <div className="border-b p-2">
-                        <SectionButton
-                            onChange={(e) =>
-                                patchHeatmapFilters({
-                                    enabled: e,
-                                })
-                            }
-                            loading={rawHeatmapLoading}
-                            checked={!!heatmapFilters.enabled}
-                        >
-                            Heatmaps <LemonTag type="highlight">NEW</LemonTag>{' '}
-                        </SectionButton>
+                <div className="border-b p-2">
+                    <SectionButton
+                        onChange={(e) =>
+                            patchHeatmapFilters({
+                                enabled: e,
+                            })
+                        }
+                        loading={rawHeatmapLoading}
+                        checked={!!heatmapFilters.enabled}
+                    >
+                        Heatmaps <LemonTag type="highlight">NEW</LemonTag>{' '}
+                    </SectionButton>
 
-                        {heatmapFilters.enabled && (
-                            <>
-                                <HeatmapsJSWarning />
-                                <p>
-                                    Heatmaps are calculated using additional data sent along with standard events. They
-                                    are based off of general pointer interactions and might not be 100% accurate to the
-                                    page you are viewing.
-                                </p>
+                    {heatmapFilters.enabled && (
+                        <>
+                            <HeatmapsJSWarning />
+                            <p>
+                                Heatmaps are calculated using additional data sent along with standard events. They are
+                                based off of general pointer interactions and might not be 100% accurate to the page you
+                                are viewing.
+                            </p>
 
-                                <SectionSetting
-                                    title="Heatmap type"
-                                    info={
-                                        <>
-                                            Select the kind of heatmap you want to view. Clicks, rageclicks, and mouse
-                                            moves options will show different "heat" based on the number of interactions
-                                            at that area of the page. Scroll depth will show how far down the page users
-                                            have reached.
-                                            <br />
-                                            Scroll depth uses additional information from Pageview and Pageleave events
-                                            to indicate how far down the page users have scrolled.
-                                        </>
-                                    }
-                                >
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSegmentedButton
-                                            onChange={(e) => patchHeatmapFilters({ type: e })}
-                                            value={heatmapFilters.type ?? undefined}
-                                            options={[
-                                                {
-                                                    value: 'click',
-                                                    label: 'Clicks',
-                                                },
-                                                {
-                                                    value: 'rageclick',
-                                                    label: 'Rageclicks',
-                                                },
-                                                {
-                                                    value: 'mousemove',
-                                                    label: 'Mouse moves',
-                                                },
-                                                {
-                                                    value: 'scrolldepth',
-                                                    label: 'Scroll depth',
-                                                },
-                                            ]}
-                                            size="small"
-                                        />
-
-                                        {heatmapFilters.type === 'scrolldepth' && <ScrollDepthJSWarning />}
-                                    </div>
-                                </SectionSetting>
-
-                                <SectionSetting
-                                    title="Aggregation"
-                                    info={
-                                        <>
-                                            Heatmaps can be aggregated by total count or unique visitors. Total count
-                                            will show the total number of interactions on the page, while unique
-                                            visitors will only count each visitor once.
-                                        </>
-                                    }
-                                >
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSegmentedButton
-                                            onChange={(e) => patchHeatmapFilters({ aggregation: e })}
-                                            value={heatmapFilters.aggregation ?? 'total_count'}
-                                            options={[
-                                                {
-                                                    value: 'total_count',
-                                                    label: 'Total count',
-                                                },
-                                                {
-                                                    value: 'unique_visitors',
-                                                    label: 'Unique visitors',
-                                                },
-                                            ]}
-                                            size="small"
-                                        />
-                                    </div>
-                                </SectionSetting>
-
-                                <SectionSetting
-                                    title="Viewport accuracy"
-                                    info={
-                                        <>
-                                            The viewport accuracy setting will determine how closely the loaded data
-                                            will be to your current viewport.
-                                            <br />
-                                            For example if you set this to 100%, only visitors whose viewport width is
-                                            identical to yours will be included in the heatmap.
-                                            <br />
-                                            At 90% you will see data from viewports that are 10% smaller or larger than
-                                            yours.
-                                        </>
-                                    }
-                                >
-                                    <div className="flex gap-2 justify-between items-center">
-                                        <LemonSlider
-                                            className="flex-1"
-                                            min={0}
-                                            max={1}
-                                            step={0.01}
-                                            value={heatmapFilters.viewportAccuracy ?? 0}
-                                            onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
-                                        />
-                                        <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
-                                            {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${
-                                                viewportRange.min
-                                            }px - ${viewportRange.max}px)`}
-                                        </code>
-                                    </div>
-                                </SectionSetting>
-
-                                <SectionSetting title="Color palette">
-                                    <LemonSelect
+                            <SectionSetting
+                                title="Heatmap type"
+                                info={
+                                    <>
+                                        Select the kind of heatmap you want to view. Clicks, rageclicks, and mouse moves
+                                        options will show different "heat" based on the number of interactions at that
+                                        area of the page. Scroll depth will show how far down the page users have
+                                        reached.
+                                        <br />
+                                        Scroll depth uses additional information from Pageview and Pageleave events to
+                                        indicate how far down the page users have scrolled.
+                                    </>
+                                }
+                            >
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilters({ type: e })}
+                                        value={heatmapFilters.type ?? undefined}
+                                        options={[
+                                            {
+                                                value: 'click',
+                                                label: 'Clicks',
+                                            },
+                                            {
+                                                value: 'rageclick',
+                                                label: 'Rageclicks',
+                                            },
+                                            {
+                                                value: 'mousemove',
+                                                label: 'Mouse moves',
+                                            },
+                                            {
+                                                value: 'scrolldepth',
+                                                label: 'Scroll depth',
+                                            },
+                                        ]}
                                         size="small"
-                                        options={HEATMAP_COLOR_PALETTE_OPTIONS}
-                                        value={heatmapColorPalette}
-                                        onChange={setHeatmapColorPalette}
+                                    />
+
+                                    {heatmapFilters.type === 'scrolldepth' && <ScrollDepthJSWarning />}
+                                </div>
+                            </SectionSetting>
+
+                            <SectionSetting
+                                title="Aggregation"
+                                info={
+                                    <>
+                                        Heatmaps can be aggregated by total count or unique visitors. Total count will
+                                        show the total number of interactions on the page, while unique visitors will
+                                        only count each visitor once.
+                                    </>
+                                }
+                            >
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSegmentedButton
+                                        onChange={(e) => patchHeatmapFilters({ aggregation: e })}
+                                        value={heatmapFilters.aggregation ?? 'total_count'}
+                                        options={[
+                                            {
+                                                value: 'total_count',
+                                                label: 'Total count',
+                                            },
+                                            {
+                                                value: 'unique_visitors',
+                                                label: 'Unique visitors',
+                                            },
+                                        ]}
+                                        size="small"
+                                    />
+                                </div>
+                            </SectionSetting>
+
+                            <SectionSetting
+                                title="Viewport accuracy"
+                                info={
+                                    <>
+                                        The viewport accuracy setting will determine how closely the loaded data will be
+                                        to your current viewport.
+                                        <br />
+                                        For example if you set this to 100%, only visitors whose viewport width is
+                                        identical to yours will be included in the heatmap.
+                                        <br />
+                                        At 90% you will see data from viewports that are 10% smaller or larger than
+                                        yours.
+                                    </>
+                                }
+                            >
+                                <div className="flex gap-2 justify-between items-center">
+                                    <LemonSlider
+                                        className="flex-1"
+                                        min={0}
+                                        max={1}
+                                        step={0.01}
+                                        value={heatmapFilters.viewportAccuracy ?? 0}
+                                        onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
+                                    />
+                                    <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
+                                        {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${
+                                            viewportRange.min
+                                        }px - ${viewportRange.max}px)`}
+                                    </code>
+                                </div>
+                            </SectionSetting>
+
+                            <SectionSetting title="Color palette">
+                                <LemonSelect
+                                    size="small"
+                                    options={HEATMAP_COLOR_PALETTE_OPTIONS}
+                                    value={heatmapColorPalette}
+                                    onChange={setHeatmapColorPalette}
+                                />
+                            </SectionSetting>
+
+                            {heatmapFilters.type !== 'scrolldepth' && (
+                                <SectionSetting
+                                    title="Fixed positioning calculation"
+                                    info={
+                                        <>
+                                            PostHog JS will attempt to detect fixed elements such as headers or modals
+                                            and will therefore show those heatmap areas, ignoring the scroll value.
+                                            <br />
+                                            You can choose to show these areas as fixed, include them with scrolled data
+                                            or hide them altogether.
+                                        </>
+                                    }
+                                >
+                                    <LemonSegmentedButton
+                                        onChange={setHeatmapFixedPositionMode}
+                                        value={heatmapFixedPositionMode}
+                                        options={[
+                                            {
+                                                value: 'fixed',
+                                                label: 'Show fixed',
+                                            },
+                                            {
+                                                value: 'relative',
+                                                label: 'Show scrolled',
+                                            },
+                                            {
+                                                value: 'hidden',
+                                                label: 'Hide',
+                                            },
+                                        ]}
+                                        size="small"
                                     />
                                 </SectionSetting>
-
-                                {heatmapFilters.type !== 'scrolldepth' && (
-                                    <SectionSetting
-                                        title="Fixed positioning calculation"
-                                        info={
-                                            <>
-                                                PostHog JS will attempt to detect fixed elements such as headers or
-                                                modals and will therefore show those heatmap areas, ignoring the scroll
-                                                value.
-                                                <br />
-                                                You can choose to show these areas as fixed, include them with scrolled
-                                                data or hide them altogether.
-                                            </>
-                                        }
-                                    >
-                                        <LemonSegmentedButton
-                                            onChange={setHeatmapFixedPositionMode}
-                                            value={heatmapFixedPositionMode}
-                                            options={[
-                                                {
-                                                    value: 'fixed',
-                                                    label: 'Show fixed',
-                                                },
-                                                {
-                                                    value: 'relative',
-                                                    label: 'Show scrolled',
-                                                },
-                                                {
-                                                    value: 'hidden',
-                                                    label: 'Hide',
-                                                },
-                                            ]}
-                                            size="small"
-                                        />
-                                    </SectionSetting>
-                                )}
-                            </>
-                        )}
-                    </div>
-                ) : null}
+                            )}
+                        </>
+                    )}
+                </div>
 
                 <div className="p-2">
-                    {showNewHeatmaps ? (
-                        <SectionButton
-                            onChange={(e) => toggleClickmapsEnabled(e)}
-                            loading={elementStatsLoading}
-                            checked={!!clickmapsEnabled}
-                        >
-                            Clickmaps (autocapture)
-                        </SectionButton>
-                    ) : null}
+                    <SectionButton
+                        onChange={(e) => toggleClickmapsEnabled(e)}
+                        loading={elementStatsLoading}
+                        checked={!!clickmapsEnabled}
+                    >
+                        Clickmaps (autocapture)
+                    </SectionButton>
 
-                    {(clickmapsEnabled || !showNewHeatmaps) && (
+                    {clickmapsEnabled && (
                         <>
-                            {showNewHeatmaps ? (
-                                <p>
-                                    Clickmaps are built using Autocapture events. They are more accurate than heatmaps
-                                    if the event can be mapped to a specific element found on the page you are viewing
-                                    but less data is usually captured.
-                                </p>
-                            ) : null}
+                            <p>
+                                Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
+                                the event can be mapped to a specific element found on the page you are viewing but less
+                                data is usually captured.
+                            </p>
                             <div className="flex items-center gap-2">
                                 <LemonButton
                                     icon={<IconSync />}

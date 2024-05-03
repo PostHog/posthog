@@ -1,3 +1,5 @@
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+
 import { AvailableFeature } from '~/types'
 
 import { Invites } from './organization/Invites'
@@ -89,7 +91,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
-                flag: 'TOOLBAR_HEATMAPS',
             },
             {
                 id: 'exception-autocapture',
@@ -119,6 +120,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Event person filtering behavior',
+                component: <PersonsOnEvents />,
             },
             {
                 id: 'correlation-analysis',
@@ -225,7 +231,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],

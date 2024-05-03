@@ -11,7 +11,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.element.element import chain_to_elements
-from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
+from posthog.schema import (
+    EventType,
+    SessionsTimelineQuery,
+    SessionsTimelineQueryResponse,
+    CachedSessionsTimelineQueryResponse,
+    TimelineEntry,
+)
 from posthog.utils import relative_date_parse
 
 
@@ -34,7 +40,8 @@ class SessionsTimelineQueryRunner(QueryRunner):
     EVENT_LIMIT = 1000
 
     query: SessionsTimelineQuery
-    query_type = SessionsTimelineQuery
+    response: SessionsTimelineQueryResponse
+    cached_response: CachedSessionsTimelineQueryResponse
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
