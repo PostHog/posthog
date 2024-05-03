@@ -39,7 +39,6 @@ import {
 } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
-import { SessionRecordingIngesterV3 } from './ingestion-queues/session-recording/session-recordings-consumer-v3'
 import { setupCommonRoutes } from './services/http-server'
 import { getObjectStorage } from './services/object_storage'
 
