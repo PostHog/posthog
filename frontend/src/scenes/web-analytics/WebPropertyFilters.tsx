@@ -32,6 +32,18 @@ export const WebPropertyFilters = ({
             propertyFilters={webAnalyticsFilters}
             pageKey="web-analytics"
             eventNames={useSessionTablePropertyFilters ? ['$pageview'] : ['$pageview', '$pageleave', '$autocapture']}
+            propertyAllowList={{
+                [TaxonomicFilterGroupType.EventProperties]: [
+                    '$pathname',
+                    '$host',
+                    '$browser',
+                    '$os',
+                    '$device_type',
+                    '$geoip_country_code',
+                    '$geoip_subdivision_1_code',
+                    '$geoip_city_name',
+                ],
+            }}
         />
     )
 }
