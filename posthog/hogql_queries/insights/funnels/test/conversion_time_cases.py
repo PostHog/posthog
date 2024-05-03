@@ -14,7 +14,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelConversionTime(APIBaseTest):
         def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
             results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
-            return [val[0]["id"] for val in results]
+            return [val[1]["id"] for val in results]
 
         def test_funnel_with_multiple_incomplete_tries(self):
             filters = {

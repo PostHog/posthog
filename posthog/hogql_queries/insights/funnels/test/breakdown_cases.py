@@ -46,7 +46,7 @@ def funnel_breakdown_test_factory(
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
             results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
-            return [val[0]["id"] for val in results]
+            return [val[1]["id"] for val in results]
 
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
@@ -2688,7 +2688,7 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filters, funnelStep, funnelStepBreakdown=None):
             results = get_actors(filters, self.team, funnelStep=funnelStep, funnelStepBreakdown=funnelStepBreakdown)
-            return [val[0]["id"] for val in results]
+            return [val[1]["id"] for val in results]
 
         def _create_groups(self):
             GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

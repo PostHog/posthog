@@ -266,17 +266,8 @@
 # name: TestFunnelTrends.test_week_interval.1
   '''
   SELECT persons.id,
-         persons.id AS id,
-         toTimeZone(persons.created_at, 'UTC') AS created_at,
-         1
+         persons.id AS id
   FROM
-    (SELECT argMax(person.created_at, person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 2)
-     GROUP BY person.id
-     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons
-  INNER JOIN
     (SELECT aggregation_target AS actor_id
      FROM
        (SELECT aggregation_target AS aggregation_target,
@@ -291,9 +282,9 @@
                   latest_1 AS latest_1,
                   step_2 AS step_2,
                   latest_2 AS latest_2,
-                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(latest_0, toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), 2, 1)) AS steps,
-                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(latest_0, toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
-                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(latest_1, toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
+                  if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0), ifNull(lessOrEquals(latest_1, latest_2), 0), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 3, if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1)) AS steps,
+                  if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
+                  if(and(isNotNull(latest_2), ifNull(lessOrEquals(latest_2, plus(toTimeZone(latest_1, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_1, latest_2), NULL) AS step_2_conversion_time
            FROM
              (SELECT aggregation_target AS aggregation_target,
                      timestamp AS timestamp,
@@ -347,11 +338,18 @@
         GROUP BY aggregation_target,
                  entrance_period_start)
      WHERE ifNull(greaterOrEquals(steps_completed, 3), 0)
-     ORDER BY aggregation_target ASC) AS source ON equals(persons.id, source.actor_id)
-  ORDER BY toTimeZone(persons.created_at, 'UTC') DESC
+     ORDER BY aggregation_target ASC) AS source
+  INNER JOIN
+    (SELECT person.id AS id
+     FROM person
+     WHERE equals(person.team_id, 2)
+     GROUP BY person.id
+     HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
+  ORDER BY persons.id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---

@@ -171,7 +171,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[1]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user a"]],
         )
 
@@ -249,7 +249,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00", funnelTrendsDropOff=False
         )
 
-        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[1]["distinct_ids"] for person in persons], [["user_one"]])
 
     @snapshot_clickhouse_queries
     def test_week_interval(self):
@@ -287,7 +287,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(2, len(results))
-        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[1]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_month_interval(self):
         filters = {
@@ -371,7 +371,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filters, self.team, funnelTrendsEntrancePeriodStart="2020-05-01 00:00:00", funnelTrendsDropOff=False
         )
 
-        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[1]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_date_range(self):
         filters = {
@@ -410,7 +410,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             filters, self.team, funnelTrendsEntrancePeriodStart="2021-05-01 00:00:00", funnelTrendsDropOff=False
         )
 
-        self.assertEqual([person[0]["distinct_ids"] for person in persons], [["user_one"]])
+        self.assertEqual([person[1]["distinct_ids"] for person in persons], [["user_one"]])
 
     def test_all_results_for_day_interval(self):
         self._create_sample_data()
@@ -732,7 +732,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[1]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_two"]],
         )
 
@@ -743,7 +743,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[1]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_one"]],
         )
 
@@ -938,7 +938,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[1]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_two"]],
         )
 
@@ -949,7 +949,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(funnel_trends_persons_existent_dropped_off_results), 1)
         self.assertEqual(
-            [person[0]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
+            [person[1]["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results],
             [["user_one"]],
         )
 
