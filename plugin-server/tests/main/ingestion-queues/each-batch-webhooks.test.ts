@@ -1,12 +1,5 @@
 import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
-import {
-    ClickHouseTimestamp,
-    ClickHouseTimestampSecondPrecision,
-    Hub,
-    ISOTimestamp,
-    PostIngestionEvent,
-    RawClickHouseEvent,
-} from '../../../src/types'
+import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, Hub, RawClickHouseEvent } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
@@ -16,19 +9,6 @@ import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-
-// const event: PostIngestionEvent = {
-//     eventUuid: 'uuid1',
-//     distinctId: 'my_id',
-//     teamId: 2,
-//     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
-//     event: '$pageview',
-//     properties: {},
-//     elementsList: undefined,
-//     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
-//     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
-//     person_properties: {},
-// }
 
 const clickhouseEvent: RawClickHouseEvent = {
     event: '$pageview',
