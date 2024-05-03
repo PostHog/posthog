@@ -9,7 +9,7 @@ use hook_common::pgqueue::{NewJob, PgQueue};
 use serde::Serialize;
 use tracing::{debug, error};
 
-const MAX_BODY_SIZE: usize = 1_000_000;
+pub const MAX_BODY_SIZE: usize = 5_000_000;
 
 #[derive(Serialize, Deserialize)]
 pub struct WebhookPostResponse {
@@ -252,7 +252,7 @@ mod tests {
 
         let app = add_routes(Router::new(), pg_queue);
 
-        let bytes: Vec<u8> = vec![b'a'; 1_000_000 * 2];
+        let bytes: Vec<u8> = vec![b'a'; 5_000_000 * 2];
         let long_string = String::from_utf8_lossy(&bytes);
 
         let response = app

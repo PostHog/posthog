@@ -1,4 +1,4 @@
-use axum::{routing, Router};
+use axum::{extract::DefaultBodyLimit, routing, Router};
 
 use hook_common::pgqueue::PgQueue;
 
@@ -9,7 +9,12 @@ pub fn add_routes(router: Router, pg_pool: PgQueue) -> Router {
         .route("/", routing::get(index))
         .route("/_readiness", routing::get(index))
         .route("/_liveness", routing::get(index)) // No async loop for now, just check axum health
-        .route("/webhook", routing::post(webhook::post).with_state(pg_pool))
+        .route(
+            "/webhook",
+            routing::post(webhook::post)
+                .with_state(pg_pool)
+                .layer(DefaultBodyLimit::disable()),
+        )
 }
 
 pub async fn index() -> &'static str {
