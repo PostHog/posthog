@@ -84,6 +84,13 @@ class EventViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
+    """
+    This endpoint enables you to list and filter events.
+    It is effectively deprecated and is kept only for backwards compatibility. You are advised not to use it. Instead:
+    - For ad-hoc list, aggregate events, or analysis, use the [query endpoint](https://posthog.com/docs/api/query).
+    - For large or continous event exports, use [batch exports](https://posthog.com/docs/cdp/batch-exports).
+    """
+
     scope_object = "query"
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     serializer_class = ClickhouseEventSerializer
@@ -106,13 +113,6 @@ class EventViewSet(
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
-        description="""
-        This endpoint allows you to list and filter events.
-        It is effectively deprecated and is kept only for backwards compatibility.
-        If you ever ask about it you will be advised to not use it...
-        If you want to ad-hoc list or aggregate events, use the Query endpoint instead.
-        If you want to export all events or many pages of events you should use our CDP/Batch Exports products instead.
-        """,
         parameters=[
             OpenApiParameter(
                 "event",

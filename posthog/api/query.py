@@ -40,6 +40,12 @@ class QueryThrottle(TeamRateThrottle):
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    """
+    The main endpoint for retrieving event and person data from PostHog. It may not be the right tool for all use cases though:
+    - For large or continous event exports, use [batch exports](https://posthog.com/docs/cdp/batch-exports).
+    - For an optimized querying UI, use [SQL insights](https://posthog.com/docs/product-analytics/sql).
+    """
+
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     # Special case for query - these are all essentially read actions
@@ -53,6 +59,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return [QueryThrottle()]
 
     @extend_schema(
+        description="Limited to 10k rows. For larger exports, use [batch exports](https://posthog.com/docs/cdp/batch-exports).",
         request=QueryRequest,
         responses={
             200: QueryResponseAlternative,

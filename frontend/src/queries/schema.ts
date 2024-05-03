@@ -881,13 +881,11 @@ export interface QueryRequest {
      * Example payload:
      *
      * ```
-     *
      * {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
-     *
      * ```
      *
      * For more details on HogQL queries,
-     * see the [PostHog HogQL documentation](/docs/hogql#api-access).
+     * see the [HogQL documentation](/docs/hogql#query-api).
      */
     query: QuerySchema
 }
