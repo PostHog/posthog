@@ -610,7 +610,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -648,9 +648,9 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data

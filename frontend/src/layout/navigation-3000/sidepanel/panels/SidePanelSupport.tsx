@@ -51,7 +51,7 @@ const PRODUCTS = [
     },
     {
         name: 'A/B testing',
-        slug: 'ab-testing',
+        slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
     {
@@ -71,13 +71,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 }
 
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
-    const { billing } = useValues(billingLogic)
-
-    // TODO(@zach): remove after updated plans w/ support levels are shipped
-    const supportResponseTimes = {
-        [AvailableFeature.EMAIL_SUPPORT]: '24 hours',
-        [AvailableFeature.PRIORITY_SUPPORT]: '12 hours',
-    }
+    const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
         <Section title="Email an engineer">
@@ -90,30 +84,27 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                         <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
                     </div>
                 </div>
-                {billing?.products
-                    ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
-                    ?.plans?.map((plan) => (
+                {supportPlans?.map((plan) => {
+                    // If they have an addon plan, only show the addon plan
+                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                    return (
                         <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {plan.name}
-                                {plan.current_plan && (
+                                {currentPlan && (
                                     <>
                                         {' '}
                                         <span className="font-normal opacity-60 text-sm">(your plan)</span>
                                     </>
                                 )}
                             </div>
-                            <div className={plan.current_plan ? 'font-bold' : undefined}>
+                            <div className={currentPlan ? 'font-bold' : undefined}>
                                 {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note ??
-                                    (plan.features.some((f) => f.key == AvailableFeature.PRIORITY_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.PRIORITY_SUPPORT]
-                                        : plan.features.some((f) => f.key == AvailableFeature.EMAIL_SUPPORT)
-                                        ? supportResponseTimes[AvailableFeature.EMAIL_SUPPORT]
-                                        : 'Community support only')}
+                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
                             </div>
                         </React.Fragment>
-                    ))}
+                    )
+                })}
             </div>
             <SupportForm />
             <LemonButton
@@ -227,7 +218,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             </Section>
                             <Section title="Ask the community">
                                 <p>
-                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    Questions about features, how-tos, or use cases? There are thousands of discussions
                                     in our community forums.{' '}
                                     <Link to="https://posthog.com/questions">Ask a question</Link>
                                 </p>

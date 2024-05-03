@@ -40,6 +40,7 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
+from posthog.session_recordings.queries.session_recording_list_from_filters import SessionRecordingListFromFilters
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
@@ -200,7 +201,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     blob_key = serializers.CharField(allow_null=True)
 
 
-class SessionRecordingSnapshotsSerializer(serializers.Serializer):
+class SessionRecordingSourcesSerializer(serializers.Serializer):
     sources = serializers.ListField(child=SessionRecordingSnapshotsSourceSerializer(), required=False)
     snapshots = serializers.ListField(required=False)
 
@@ -364,10 +365,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        response_data = {}
         source = request.GET.get("source")
-        might_have_realtime = True
-        newest_timestamp = None
 
         event_properties = {
             "team_id": self.team.pk,
@@ -388,92 +386,79 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             SNAPSHOT_SOURCE_REQUESTED.labels(source=source).inc()
 
         if not source:
-            sources: list[dict] = []
-
-            blob_keys: list[str] | None = None
-            if recording.object_storage_path:
-                if recording.storage_version == "2023-08-01":
-                    blob_prefix = recording.object_storage_path
-                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                else:
-                    # originally LTS files were in a single file
-                    sources.append(
-                        {
-                            "source": "blob",
-                            "start_timestamp": recording.start_time,
-                            "end_timestamp": recording.end_time,
-                            "blob_key": recording.object_storage_path,
-                        }
-                    )
-                    might_have_realtime = False
-            else:
-                blob_prefix = recording.build_blob_ingestion_storage_path()
-                blob_keys = object_storage.list_objects(blob_prefix)
-
-            if blob_keys:
-                for full_key in blob_keys:
-                    # Keys are like 1619712000-1619712060
-                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
-                    time_range = [
-                        datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")
-                    ]
-
-                    sources.append(
-                        {
-                            "source": "blob",
-                            "start_timestamp": time_range[0],
-                            "end_timestamp": time_range.pop(),
-                            "blob_key": blob_key,
-                        }
-                    )
-
-            if sources:
-                sources = sorted(sources, key=lambda x: x["start_timestamp"])
-                oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-
-                if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
-
-            if might_have_realtime:
-                sources.append(
-                    {
-                        "source": "realtime",
-                        "start_timestamp": newest_timestamp,
-                        "end_timestamp": None,
-                    }
-                )
-                # the UI will use this to try to load realtime snapshots
-                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                # it takes a short while for the subscription to be sync'd into redis
-                # let's use the network round trip time to get started
-                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
-
-            response_data["sources"] = sources
-
+            return self._gather_session_recording_sources(recording)
         elif source == "realtime":
-            with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-                snapshots = get_realtime_snapshots(team_id=self.team.pk, session_id=str(recording.session_id)) or []
-
-            event_properties["source"] = "realtime"
-            event_properties["snapshots_length"] = len(snapshots)
-            posthoganalytics.capture(
-                self._distinct_id_from_request(request),
-                "session recording snapshots v2 loaded",
-                event_properties,
-            )
-
-            response_data["snapshots"] = snapshots
-
+            return self._send_realtime_snapshots_to_client(recording, request, event_properties)
         elif source == "blob":
             return self._stream_blob_to_client(recording, request, event_properties)
-
         else:
             raise exceptions.ValidationError("Invalid source must be one of [realtime, blob]")
 
-        serializer = SessionRecordingSnapshotsSerializer(response_data)
+    def _gather_session_recording_sources(self, recording: SessionRecording) -> Response:
+        might_have_realtime = True
+        newest_timestamp = None
+        response_data = {}
+        sources: list[dict] = []
+        blob_keys: list[str] | None = None
+        blob_prefix = ""
 
+        if recording.object_storage_path:
+            if recording.storage_version == "2023-08-01":
+                blob_prefix = recording.object_storage_path
+                blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+            else:
+                # originally LTS files were in a single file
+                # TODO this branch can be deleted after 01-08-2024
+                sources.append(
+                    {
+                        "source": "blob",
+                        "start_timestamp": recording.start_time,
+                        "end_timestamp": recording.end_time,
+                        "blob_key": recording.object_storage_path,
+                    }
+                )
+                might_have_realtime = False
+        else:
+            blob_prefix = recording.build_blob_ingestion_storage_path()
+            blob_keys = object_storage.list_objects(blob_prefix)
+
+        if blob_keys:
+            for full_key in blob_keys:
+                # Keys are like 1619712000-1619712060
+                blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
+                blob_key_base = blob_key.split(".")[0]  # Remove the extension if it exists
+                time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key_base.split("-")]
+
+                sources.append(
+                    {
+                        "source": "blob",
+                        "start_timestamp": time_range[0],
+                        "end_timestamp": time_range.pop(),
+                        "blob_key": blob_key,
+                    }
+                )
+        if sources:
+            sources = sorted(sources, key=lambda x: x["start_timestamp"])
+            oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
+            newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
+
+            if might_have_realtime:
+                might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
+        if might_have_realtime:
+            sources.append(
+                {
+                    "source": "realtime",
+                    "start_timestamp": newest_timestamp,
+                    "end_timestamp": None,
+                }
+            )
+            # the UI will use this to try to load realtime snapshots
+            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+            # it takes a short while for the subscription to be sync'd into redis
+            # let's use the network round trip time to get started
+            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+        response_data["sources"] = sources
+        serializer = SessionRecordingSourcesSerializer(response_data)
         return Response(serializer.data)
 
     @staticmethod
@@ -682,9 +667,51 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response["Cache-Control"] = streaming_response.headers.get("Cache-Control") or "max-age=3600"
 
                 response["Content-Type"] = "application/json"
-
                 response["Content-Disposition"] = "inline"
+
                 return response
+
+    def _send_realtime_snapshots_to_client(
+        self, recording: SessionRecording, request: request.Request, event_properties: dict
+    ) -> HttpResponse | Response:
+        version = request.GET.get("version", "og")
+
+        with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
+            snapshot_lines = (
+                get_realtime_snapshots(
+                    team_id=self.team.pk,
+                    session_id=str(recording.session_id),
+                )
+                or []
+            )
+
+        event_properties["source"] = "realtime"
+        event_properties["snapshots_length"] = len(snapshot_lines)
+        posthoganalytics.capture(
+            self._distinct_id_from_request(request),
+            "session recording snapshots v2 loaded",
+            event_properties,
+        )
+
+        if version == "og":
+            # originally we returned a list of dictionaries
+            # under a snapshot key
+            # we keep doing this here for a little while
+            # so that existing browser sessions, that don't know about the new format
+            # can carry on working until the next refresh
+            serializer = SessionRecordingSourcesSerializer({"snapshots": [json.loads(s) for s in snapshot_lines]})
+            return Response(serializer.data)
+        elif version == "2024-04-30":
+            response = HttpResponse(
+                # convert list to a jsonl response
+                content=("\n".join(snapshot_lines)),
+                content_type="application/json",
+            )
+            # the browser is not allowed to cache this at all
+            response["Cache-Control"] = "no-store"
+            return response
+        else:
+            raise exceptions.ValidationError(f"Invalid version: {version}")
 
 
 def list_recordings(
@@ -725,11 +752,19 @@ def list_recordings(
             filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
         if (all_session_ids and filter.session_ids) or not all_session_ids:
-            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-            (
-                ch_session_recordings,
-                more_recordings_available,
-            ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+            has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
+
+            if has_hog_ql_filtering:
+                (
+                    ch_session_recordings,
+                    more_recordings_available,
+                ) = SessionRecordingListFromFilters(filter=filter, team=team).run()
+            else:
+                # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+                (
+                    ch_session_recordings,
+                    more_recordings_available,
+                ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse

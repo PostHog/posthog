@@ -247,9 +247,8 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                     <code>{schema.table.name}</code>
                                 </Link>
                             )
-                        } else {
-                            return <div>Not yet synced</div>
                         }
+                        return <div>Not yet synced</div>
                     },
                 },
                 {

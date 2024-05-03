@@ -5,10 +5,9 @@ import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
@@ -121,7 +120,6 @@ export const PlanComparison = ({
     const { billing, redirectPath } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
     const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
@@ -188,15 +186,7 @@ export const PlanComparison = ({
                         ? 'View products'
                         : plan.free_allocation && !plan.tiers
                         ? 'Select' // Free plan
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                        ? 'Subscribe'
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          !billing?.has_active_subscription
-                        ? 'Add credit card'
-                        : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                          billing?.has_active_subscription
-                        ? 'Add paid plan'
-                        : 'Upgrade'}
+                        : 'Subscribe'}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -205,17 +195,7 @@ export const PlanComparison = ({
                             className="text-muted text-xs"
                             disableClientSideRouting
                         >
-                            or{' '}
-                            {featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'subscribe'
-                                ? 'subscribe'
-                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                  !billing?.has_active_subscription
-                                ? 'add credit card'
-                                : featureFlags[FEATURE_FLAGS.BILLING_UPGRADE_LANGUAGE] === 'credit_card' &&
-                                  !billing?.has_active_subscription
-                                ? 'add paid plan'
-                                : 'upgrade'}{' '}
-                            without addons
+                            or subscribe without addons
                         </Link>
                     </p>
                 )}
