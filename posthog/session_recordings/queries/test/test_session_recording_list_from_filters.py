@@ -1974,7 +1974,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: Not implemented in HogQL")
+    @skip("TODO: throwing posthog.errors.CHQueryErrorIllegalPrewhere")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
