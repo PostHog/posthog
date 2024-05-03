@@ -231,7 +231,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],
