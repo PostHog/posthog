@@ -166,28 +166,30 @@ export function TableData(): JSX.Element {
             </div>
             {table.type == DataWarehouseRowType.ExternalTable && (
                 <div className="flex flex-col">
-                    <>
-                        <span className="card-secondary mt-2">Last Synced At</span>
-                        <span>
-                            {table.payload.external_schema?.last_synced_at
-                                ? humanFriendlyDetailedTime(
-                                      table.payload.external_schema?.last_synced_at,
-                                      'MMMM DD, YYYY',
-                                      'h:mm A'
-                                  )
-                                : 'Not yet synced'}
-                        </span>
-                    </>
+                    {table.payload.external_data_source && (
+                        <>
+                            <span className="card-secondary mt-2">Last Synced At</span>
+                            <span>
+                                {table.payload.external_schema?.last_synced_at
+                                    ? humanFriendlyDetailedTime(
+                                          table.payload.external_schema?.last_synced_at,
+                                          'MMMM DD, YYYY',
+                                          'h:mm A'
+                                      )
+                                    : 'Not yet synced'}
+                            </span>
+                        </>
+                    )}
 
-                    <>
-                        <span className="card-secondary mt-2">Files URL pattern</span>
-                        <span className="break-all">{table.payload.url_pattern}</span>
-                    </>
+                    {!table.payload.external_data_source && (
+                        <>
+                            <span className="card-secondary mt-2">Files URL pattern</span>
+                            <span className="break-all>{table.payload.url_pattern}</span>
 
-                    <>
-                        <span className="card-secondary mt-2">File format</span>
-                        <span>{table.payload.format}</span>
-                    </>
+                            <span className="card-secondary mt-2">File format</span>
+                            <span>{table.payload.format}</span>
+                        </>
+                    )}
                 </div>
             )}
 
