@@ -2,7 +2,7 @@
 # name: TestPropertyTypes.test_data_warehouse_person_property_types
   '''
   
-  SELECT persons__extended_properties.string_prop AS string_prop, accurateCastOrNull(persons__extended_properties.int_prop, %(hogql_val_6)s) AS int_prop, transform(persons__extended_properties.bool_prop, %(hogql_val_7)s, %(hogql_val_8)s, NULL) AS bool_prop 
+  SELECT persons__extended_properties.string_prop AS string_prop, persons__extended_properties.int_prop AS int_prop, transform(persons__extended_properties.bool_prop, %(hogql_val_6)s, %(hogql_val_7)s, NULL) AS bool_prop 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS persons___properties___email, person.id AS id 
   FROM person 

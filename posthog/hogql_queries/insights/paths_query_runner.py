@@ -24,6 +24,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    CachedPathsQueryResponse,
     FunnelsActorsQuery,
     FunnelsFilter,
     HogQLQueryModifiers,
@@ -43,6 +44,8 @@ EDGE_LIMIT_DEFAULT = 50
 
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
+    response: PathsQueryResponse
+    cached_response: CachedPathsQueryResponse
 
     def __init__(
         self,
