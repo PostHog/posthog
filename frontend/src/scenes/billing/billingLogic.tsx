@@ -209,9 +209,8 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         const res = await api.getResponse('api/billing-v2/get_open_invoices?status=open')
                         const jsonRes = await getJSONOrNull(res)
-                        if (jsonRes['code'] == BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
-                            // Block if there are open invoices and show a billingAlert.
-                            const numOpenInvoices = jsonRes['count']
+                        const numOpenInvoices = jsonRes['count']
+                        if (numOpenInvoices > 0) {
                             const viewInvoicesButton = {
                                 to:
                                     numOpenInvoices == 1 && jsonRes['link']

@@ -135,7 +135,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 onClick={() => {
                                     setBillingProductLoading(addon.type)
                                 }}
-                                disabledReason={billingError.message}
+                                disabledReason={billingError && billingError.message}
                             >
                                 Add
                             </LemonButton>
@@ -687,7 +687,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
                                                 loading={billingProductLoading === product.type}
-                                                disabledReason={billingError.message}
+                                                disabledReason={billingError && billingError.message}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
                                                     setBillingProductLoading(product.type)

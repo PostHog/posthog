@@ -12,11 +12,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.billing.billing_manager import (  # BillingAPIErrorCodes,
-    BillingAPIErrorCodes,
-    BillingManager,
-    build_billing_token,
-)
+from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -177,7 +173,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             {
                 "link": res["portal_url"],
                 "count": res["count"],
-                "code": BillingAPIErrorCodes.OPEN_INVOICES_ERROR,
             },
             status=status.HTTP_200_OK,
         )
