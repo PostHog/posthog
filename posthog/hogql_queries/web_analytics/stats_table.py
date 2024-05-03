@@ -16,6 +16,7 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     map_columns,
 )
 from posthog.schema import (
+    CachedWebStatsTableQueryResponse,
     WebStatsTableQuery,
     WebStatsBreakdown,
     WebStatsTableQueryResponse,
@@ -26,6 +27,8 @@ from posthog.schema import (
 
 class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query: WebStatsTableQuery
+    response: WebStatsTableQueryResponse
+    cached_response: CachedWebStatsTableQueryResponse
     paginator: HogQLHasMorePaginator
 
     def __init__(self, *args, **kwargs):

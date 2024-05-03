@@ -83,6 +83,28 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.11
   '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_V2_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.12
+  '''
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.13
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -112,7 +134,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.12
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.14
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -135,23 +157,7 @@
          AND "posthog_featureflag"."team_id" = 2)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.13
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 2)
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.14
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.15
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -221,6 +227,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -448,6 +455,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -611,6 +619,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -767,6 +776,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
