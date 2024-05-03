@@ -106,7 +106,7 @@ describe('ActionWebhookFormatter', () => {
 
         it.each(cases)('%s', (options) => {
             const formatter = createFormatter(options)
-            const message = formatter.composeWebhook()
+            const message = formatter.generateWebhookPayload()
             // For non-slack messages the text is always markdown
             expect(message.text).toMatchSnapshot()
         })

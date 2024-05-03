@@ -47,7 +47,7 @@ export class ActionWebhookFormatter {
         )}`
     }
 
-    composeWebhook(): Record<string, any> {
+    generateWebhookPayload(): Record<string, any> {
         const [messageText, messageMarkdown] = this.getFormattedMessage()
         if (this.webhookType === WebhookType.Slack) {
             return {

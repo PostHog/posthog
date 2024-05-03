@@ -120,7 +120,7 @@ export class HookCommander {
                 team,
                 this.siteUrl
             )
-            return actionWebhookFormatter.composeWebhook()
+            return actionWebhookFormatter.generateWebhookPayload()
         } finally {
             endTimer()
         }
