@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, cast
+from typing import Any, cast
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -62,7 +62,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(
@@ -109,7 +109,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["average_conversion_time"], None)
             self.assertEqual(results[1]["average_conversion_time"], 6000)
@@ -165,7 +165,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 3)
             self.assertEqual(results[1]["count"], 2)
@@ -192,7 +192,7 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results4 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results4 = cast(List[Dict[str, Any]], results4)
+            results4 = cast(list[dict[str, Any]], results4)
 
             self.assertNotEqual(results, results4)
             self.assertEqual(results4[0]["count"], 3)

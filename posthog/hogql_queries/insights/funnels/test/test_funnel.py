@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List, cast
+from typing import Any, cast
 import uuid
 from django.test import override_settings
 from freezegun import freeze_time
@@ -181,7 +181,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 4)
@@ -254,7 +254,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             with freeze_time("2012-01-01T03:21:46.000Z"):
                 results = funnel.calculate().results
-                results = cast(List[Dict[str, Any]], results)
+                results = cast(list[dict[str, Any]], results)
 
                 self.assertEqual(results[0]["name"], "user signed up")
 
@@ -307,7 +307,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 4)
@@ -348,7 +348,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], None)
             self.assertEqual(results[0]["count"], 5)
@@ -404,7 +404,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 4)
@@ -420,7 +420,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[1]["count"], 0)
             self.assertEqual(results[2]["count"], 0)
@@ -445,7 +445,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._pay_event(distinct_id="half_property")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 2)
             self.assertEqual(results[1]["count"], 1)
@@ -522,7 +522,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="half_property")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
@@ -578,7 +578,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._movie_event(distinct_id="with_property")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
@@ -622,7 +622,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
@@ -647,7 +647,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
 
@@ -689,7 +689,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 2)
 
@@ -734,7 +734,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 2)
 
@@ -766,7 +766,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -808,7 +808,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -870,7 +870,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -914,7 +914,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -946,7 +946,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results2 = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results2 = cast(List[Dict[str, Any]], results2)
+            results2 = cast(list[dict[str, Any]], results2)
 
             assert_funnel_results_equal(results, results2)
 
@@ -1012,7 +1012,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[1]["name"], "$pageview")
@@ -1174,7 +1174,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[1]["name"], "$pageview")
@@ -1276,7 +1276,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "sign up")
             self.assertEqual(results[0]["count"], 2)
@@ -1349,7 +1349,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
                 query = cast(FunnelsQuery, filter_to_query(filters))
                 results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-                results = cast(List[Dict[str, Any]], results)
+                results = cast(list[dict[str, Any]], results)
 
                 self.assertEqual(results[0]["name"], "sign up")
                 self.assertEqual(results[0]["count"], 2)
@@ -1425,7 +1425,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "sign up")
             self.assertEqual(results[0]["count"], 2)
@@ -1520,7 +1520,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "sign up")
             self.assertEqual(results[0]["count"], 2)
@@ -1635,7 +1635,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[1]["name"], "$pageview")
@@ -1734,7 +1734,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 25)
             self.assertEqual(results[1]["count"], 10)
@@ -1793,7 +1793,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 25)
             self.assertEqual(results[1]["count"], 10)
@@ -1958,7 +1958,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(len(results), 2)
             self.assertEqual(results[0]["name"], "user signed up")
@@ -2058,7 +2058,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(len(results), 2)
             self.assertEqual(results[0]["name"], "user signed up")
@@ -2143,7 +2143,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(len(results), 2)
             self.assertEqual(results[0]["name"], "user signed up")
@@ -2324,7 +2324,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -2346,7 +2346,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -2368,7 +2368,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2390,7 +2390,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 0)
@@ -2413,7 +2413,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2622,7 +2622,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2651,7 +2651,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2679,7 +2679,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2707,7 +2707,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2752,7 +2752,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -2795,7 +2795,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
                 query = cast(FunnelsQuery, filter_to_query(filters))
                 results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-                results = cast(List[Dict[str, Any]], results)
+                results = cast(list[dict[str, Any]], results)
 
                 self.assertEqual(len(results), 2)
                 self.assertEqual(results[0]["name"], "user signed up")
@@ -2875,7 +2875,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
         #     query = cast(FunnelsQuery, filter_to_query(filters))
         #     results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-        #     results = cast(List[Dict[str, Any]], results)
+        #     results = cast(list[dict[str, Any]], results)
 
         #     self.assertEqual(results[0]["name"], "user signed up")
         #     self.assertEqual(results[0]["count"], 1)
@@ -2960,7 +2960,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
                 query = cast(FunnelsQuery, filter_to_query(filters))
                 results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-                results = cast(List[Dict[str, Any]], results)
+                results = cast(list[dict[str, Any]], results)
                 self.assertEqual(results[0]["name"], "user signed up")
                 self.assertEqual(results[0]["count"], 1)
 
@@ -3021,7 +3021,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 1)
@@ -3185,7 +3185,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[1]["name"], "$pageview")
@@ -3243,7 +3243,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 0)
@@ -3289,7 +3289,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self._signup_event(distinct_id="wrong_order")
 
             results = funnel.calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 4)
@@ -3330,7 +3330,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             # without hogql aggregation
             results = self._basic_funnel(filters=basic_filters).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
@@ -3348,7 +3348,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 .calculate()
                 .results
             )
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
             self.assertEqual(results[0]["count"], 3)
             self.assertEqual(results[1]["count"], 2)
             self.assertEqual(results[2]["count"], 1)
@@ -3359,7 +3359,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 .calculate()
                 .results
             )
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
             self.assertEqual(results[0]["count"], 2)
             self.assertEqual(results[1]["count"], 1)
             self.assertEqual(results[2]["count"], 1)
@@ -3370,7 +3370,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 .calculate()
                 .results
             )
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
             self.assertEqual(results[0]["count"], 2)
             self.assertEqual(results[1]["count"], 1)
             self.assertEqual(results[2]["count"], 1)
@@ -3382,7 +3382,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 .calculate()
                 .results
             )
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
             self.assertEqual(results[2]["count"], 1)
@@ -3427,7 +3427,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             results = self._basic_funnel(filters=filters).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
@@ -3448,7 +3448,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             }
 
             results = self._basic_funnel(filters=filters).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["count"], 1)
             self.assertEqual(results[1]["count"], 1)
@@ -3583,7 +3583,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             query = cast(FunnelsQuery, filter_to_query(filters))
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-            results = cast(List[Dict[str, Any]], results)
+            results = cast(list[dict[str, Any]], results)
 
             self.assertEqual(results[0]["name"], "user signed up")
             self.assertEqual(results[0]["count"], 2)
