@@ -145,6 +145,7 @@ export async function eachMessageWebhooksHandlers(
         // exit early if no webhooks nor resthooks
         return
     }
+
     const event = convertToIngestionEvent(clickHouseEvent)
 
     // TODO: previously onEvent and Webhooks were executed in the same process,
