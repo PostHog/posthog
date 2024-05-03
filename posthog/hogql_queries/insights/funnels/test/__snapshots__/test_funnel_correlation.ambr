@@ -146,7 +146,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
@@ -305,7 +307,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
@@ -435,7 +439,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
@@ -450,7 +456,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
@@ -580,7 +588,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
@@ -595,7 +605,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
@@ -725,7 +737,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
@@ -740,7 +754,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
@@ -870,7 +886,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
@@ -885,7 +903,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
@@ -1020,7 +1040,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1155,7 +1177,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
@@ -1284,7 +1308,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
@@ -1396,7 +1422,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
@@ -1508,7 +1536,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
@@ -1620,7 +1650,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
@@ -1732,7 +1764,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
@@ -1877,7 +1911,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
@@ -1989,7 +2025,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
@@ -2101,7 +2139,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2230,7 +2270,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2342,7 +2384,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2454,7 +2498,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2566,7 +2612,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2678,7 +2726,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -2823,7 +2873,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2935,7 +2987,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -3047,7 +3101,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
@@ -3191,7 +3247,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
@@ -3310,7 +3368,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
@@ -3429,7 +3489,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
@@ -3548,7 +3610,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
@@ -3667,7 +3731,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
@@ -3811,7 +3877,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
@@ -3955,7 +4023,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -4074,7 +4144,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -4193,7 +4265,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -4312,7 +4386,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -4431,7 +4507,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -4575,7 +4653,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -4719,7 +4799,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -4838,7 +4920,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -4957,7 +5041,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -5076,7 +5162,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -5195,7 +5283,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -5339,7 +5429,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -5483,7 +5575,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -5602,7 +5696,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -5721,7 +5817,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -5840,7 +5938,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -5959,7 +6059,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -6103,7 +6205,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -6247,7 +6351,9 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -6366,7 +6472,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -6485,7 +6593,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -6604,7 +6714,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -6723,7 +6835,9 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -6867,6 +6981,8 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000
   '''
 # ---

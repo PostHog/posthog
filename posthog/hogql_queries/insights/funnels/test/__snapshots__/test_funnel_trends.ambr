@@ -84,7 +84,9 @@
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTrends.test_timezones_trends.1
@@ -172,7 +174,9 @@
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval
@@ -260,7 +264,9 @@
   LIMIT 1000 SETTINGS readonly=2,
                       max_execution_time=60,
                       allow_experimental_object_type=1,
-                      format_csv_allow_double_quotes=0
+                      format_csv_allow_double_quotes=0,
+                      max_ast_elements=1000000,
+                      max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelTrends.test_week_interval.1

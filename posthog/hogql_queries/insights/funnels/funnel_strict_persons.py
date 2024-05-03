@@ -24,5 +24,4 @@ class FunnelStrictActors(FunnelStrict):
             select_from=select_from,
             order_by=order_by,
             where=where,
-            # SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         )
