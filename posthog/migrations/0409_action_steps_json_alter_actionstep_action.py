@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0407_verbose_name_for_team_model"),
+        ("posthog", "0408_team_modifiers"),
     ]
 
     operations = [

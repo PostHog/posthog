@@ -489,7 +489,7 @@ index 0d49411b1f6d31103bed898c0e81d1d74ab51234..0b2160ef08aa3ae5310f63c295abc0a5
      }
      applyMutation(d, isSync) {
 diff --git a/es/rrweb/packages/rrweb/src/replay/media/index.js b/es/rrweb/packages/rrweb/src/replay/media/index.js
-index 22fee601e786c1d8dfb5c01d2e359c8bcbac7c42..20c3e14adfde860563e8dd902041bd14c860f462 100644
+index 22fee601e786c1d8dfb5c01d2e359c8bcbac7c42..6d80d33030c601fa74f1b95573cb1590c3a0116b 100644
 --- a/es/rrweb/packages/rrweb/src/replay/media/index.js
 +++ b/es/rrweb/packages/rrweb/src/replay/media/index.js
 @@ -21,7 +21,7 @@ class MediaManager {
@@ -528,6 +528,15 @@ index 22fee601e786c1d8dfb5c01d2e359c8bcbac7c42..20c3e14adfde860563e8dd902041bd14
          let playbackRate = 1;
          if (typeof mediaAttributes.rr_mediaPlaybackRate === 'number') {
              playbackRate = mediaAttributes.rr_mediaPlaybackRate;
+@@ -180,6 +180,8 @@ class MediaManager {
+         this.syncTargetWithState(target);
+     }
+     mediaMutation({ target, timeOffset, mutation, }) {
++        if (!['AUDIO', 'VIDEO'].includes(target.nodeName))
++            return;
+         this.mediaMap.set(target, this.getMediaStateFromMutation({
+             target,
+             timeOffset,
 diff --git a/es/rrweb/packages/rrweb-snapshot/es/css.js b/es/rrweb/packages/rrweb-snapshot/es/css.js
 new file mode 100644
 index 0000000000000000000000000000000000000000..0a6c5930c017852afd3d7f0170f6eca821619dd3
