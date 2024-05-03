@@ -1,6 +1,7 @@
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
 import { AppMetrics } from 'worker/ingestion/app-metrics'
+import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
 import { RustyHook } from 'worker/rusty-hook'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
@@ -48,6 +49,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig,
     rustyHook,
     appMetrics,
+    groupTypeManager,
 }: {
     kafka: Kafka
     postgres: PostgresRouter
@@ -56,6 +58,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     serverConfig: PluginsServerConfig
     rustyHook: RustyHook
     appMetrics: AppMetrics
+    groupTypeManager: GroupTypeManager
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
@@ -108,7 +111,8 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
+        eachBatch: (payload) =>
+            eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency, groupTypeManager),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)

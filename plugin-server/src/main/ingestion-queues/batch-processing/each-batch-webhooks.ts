@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
+import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -61,12 +62,13 @@ export async function eachBatchWebhooksHandlers(
     payload: EachBatchPayload,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
-    concurrency: number
+    concurrency: number,
+    groupTypeManager: GroupTypeManager
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
-        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon),
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, groupTypeManager),
         concurrency,
         'webhooks'
     )
@@ -139,13 +141,15 @@ export async function eachBatchHandlerHelper(
 export async function eachMessageWebhooksHandlers(
     clickHouseEvent: RawClickHouseEvent,
     actionMatcher: ActionMatcher,
-    hookCannon: HookCommander
+    hookCannon: HookCommander,
+    groupTypeManager: GroupTypeManager
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
         // exit early if no webhooks nor resthooks
         return
     }
 
+    const groupTypes = await groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
     const event = convertToIngestionEvent(clickHouseEvent)
 
     // TODO: previously onEvent and Webhooks were executed in the same process,

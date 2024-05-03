@@ -385,6 +385,8 @@ export async function startPluginsServer(
                     serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
                 )
 
+            const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
+
             const { stop: webhooksStopConsumer, isHealthy: isWebhooksIngestionHealthy } =
                 await startAsyncWebhooksHandlerConsumer({
                     postgres: postgres,
@@ -394,6 +396,7 @@ export async function startPluginsServer(
                     serverConfig: serverConfig,
                     rustyHook: rustyHook,
                     appMetrics: appMetrics,
+                    groupTypeManager,
                 })
 
             stopWebhooksHandlerConsumer = webhooksStopConsumer

@@ -9,13 +9,10 @@ import { TeamManager } from './team-manager'
 export const MAX_GROUP_TYPES_PER_TEAM = 5
 
 export class GroupTypeManager {
-    groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    private groupTypesCache: Map<number, [GroupTypeToColumnIndex, number]>
+    private instanceSiteUrl: string
 
-    constructor(
-        private postgres: PostgresRouter,
-        private teamManager: TeamManager,
-        private instanceSiteUrl?: string | null
-    ) {
+    constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.groupTypesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
     }
@@ -71,7 +68,7 @@ export class GroupTypeManager {
         }
     }
 
-    private async insertGroupType(
+    public async insertGroupType(
         teamId: TeamId,
         groupType: string,
         index: number

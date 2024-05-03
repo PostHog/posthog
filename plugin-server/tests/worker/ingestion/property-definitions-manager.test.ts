@@ -31,7 +31,7 @@ describe('PropertyDefinitionsManager()', () => {
         ;[hub, closeHub] = await createHub()
         organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
-        const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
+        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
         manager = new PropertyDefinitionsManager(hub.teamManager, groupTypeManager, hub.db, hub)
 
         Settings.defaultZoneName = 'utc'
