@@ -666,12 +666,20 @@ class FunnelBase(ABC):
 
             # :TRICKY: we need to handle strings differently, so that parse_expr correctly parses them into a constant
             if not isinstance(funnelStepBreakdown, str):
-                conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))"))
+                conditions.append(
+                    parse_expr(
+                        "arrayFlatten(array(prop)) = arrayFlatten(array({funnelStepBreakdown}))",
+                        placeholders={"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                    )
+                )
             elif len(funnelStepBreakdown) == 0:
-                conditions.append(parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array(''))"))
+                conditions.append(parse_expr("arrayFlatten(array(prop)) = arrayFlatten(array(''))"))
             else:
                 conditions.append(
-                    parse_expr(f"arrayFlatten(array(prop)) = arrayFlatten(array('{funnelStepBreakdown}'))")
+                    parse_expr(
+                        "arrayFlatten(array(prop)) = arrayFlatten(array('{funnelStepBreakdown}'))",
+                        placeholders={"funnelStepBreakdown": ast.Constant(value=funnelStepBreakdown)},
+                    )
                 )
 
         return ast.And(exprs=conditions)
