@@ -18,7 +18,8 @@ use reqwest::header;
 use tokio::sync;
 use tracing::error;
 
-use crate::error::{WebhookError, WorkerError};
+use crate::error::{WebhookError, WebhookParseError, WebhookRequestError, WorkerError};
+use crate::util::first_n_bytes_of_response;
 
 /// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `WebhookJobMetadata`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
@@ -259,7 +260,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             Ok(())
         }
-        Err(WebhookError::ParseHeadersError(e)) => {
+        Err(WebhookError::Parse(WebhookParseError::ParseHeadersError(e))) => {
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
@@ -272,7 +273,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             Ok(())
         }
-        Err(WebhookError::ParseHttpMethodError(e)) => {
+        Err(WebhookError::Parse(WebhookParseError::ParseHttpMethodError(e))) => {
             webhook_job
                 .fail(WebhookJobError::new_parse(&e))
                 .await
@@ -285,7 +286,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
             Ok(())
         }
-        Err(WebhookError::ParseUrlError(e)) => {
+        Err(WebhookError::Parse(WebhookParseError::ParseUrlError(e))) => {
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
@@ -298,26 +299,53 @@ async fn process_webhook_job<W: WebhookJob>(
 
             Ok(())
         }
-        Err(WebhookError::RetryableRequestError { error, retry_after }) => {
-            let retry_interval =
-                retry_policy.retry_interval(webhook_job.attempt() as u32, retry_after);
-            let current_queue = webhook_job.queue();
-            let retry_queue = retry_policy.retry_queue(&current_queue);
+        Err(WebhookError::Request(request_error)) => {
+            let webhook_job_error = WebhookJobError::from(&request_error);
 
-            match webhook_job
-                .retry(WebhookJobError::from(&error), retry_interval, retry_queue)
-                .await
-            {
-                Ok(_) => {
-                    metrics::counter!("webhook_jobs_retried", &labels).increment(1);
+            match request_error {
+                WebhookRequestError::RetryableRequestError {
+                    error, retry_after, ..
+                } => {
+                    let retry_interval =
+                        retry_policy.retry_interval(webhook_job.attempt() as u32, retry_after);
+                    let current_queue = webhook_job.queue();
+                    let retry_queue = retry_policy.retry_queue(&current_queue);
 
-                    Ok(())
+                    match webhook_job
+                        .retry(webhook_job_error, retry_interval, retry_queue)
+                        .await
+                    {
+                        Ok(_) => {
+                            metrics::counter!("webhook_jobs_retried", &labels).increment(1);
+
+                            Ok(())
+                        }
+                        Err(RetryError::RetryInvalidError(RetryInvalidError {
+                            job: webhook_job,
+                            ..
+                        })) => {
+                            webhook_job
+                                .fail(WebhookJobError::from(&error))
+                                .await
+                                .map_err(|job_error| {
+                                    metrics::counter!("webhook_jobs_database_error", &labels)
+                                        .increment(1);
+                                    job_error
+                                })?;
+
+                            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
+
+                            Ok(())
+                        }
+                        Err(RetryError::DatabaseError(job_error)) => {
+                            metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
+                            Err(WorkerError::from(job_error))
+                        }
+                    }
                 }
-                Err(RetryError::RetryInvalidError(RetryInvalidError {
-                    job: webhook_job, ..
-                })) => {
+                WebhookRequestError::NonRetryableRetryableRequestError { .. } => {
                     webhook_job
-                        .fail(WebhookJobError::from(&error))
+                        .fail(webhook_job_error)
                         .await
                         .map_err(|job_error| {
                             metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
@@ -328,24 +356,7 @@ async fn process_webhook_job<W: WebhookJob>(
 
                     Ok(())
                 }
-                Err(RetryError::DatabaseError(job_error)) => {
-                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                    Err(WorkerError::from(job_error))
-                }
             }
-        }
-        Err(WebhookError::NonRetryableRetryableRequestError(error)) => {
-            webhook_job
-                .fail(WebhookJobError::from(&error))
-                .await
-                .map_err(|job_error| {
-                    metrics::counter!("webhook_jobs_database_error", &labels).increment(1);
-                    job_error
-                })?;
-
-            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
-
-            Ok(())
         }
     }
 }
@@ -367,10 +378,10 @@ async fn send_webhook(
     body: String,
 ) -> Result<reqwest::Response, WebhookError> {
     let method: http::Method = method.into();
-    let url: reqwest::Url = (url).parse().map_err(WebhookError::ParseUrlError)?;
+    let url: reqwest::Url = (url).parse().map_err(WebhookParseError::ParseUrlError)?;
     let headers: reqwest::header::HeaderMap = (headers)
         .try_into()
-        .map_err(WebhookError::ParseHeadersError)?;
+        .map_err(WebhookParseError::ParseHeadersError)?;
     let body = reqwest::Body::from(body);
 
     let response = client
@@ -379,26 +390,36 @@ async fn send_webhook(
         .body(body)
         .send()
         .await
-        .map_err(|e| WebhookError::RetryableRequestError {
+        .map_err(|e| WebhookRequestError::RetryableRequestError {
             error: e,
+            response: None,
             retry_after: None,
         })?;
 
     let retry_after = parse_retry_after_header(response.headers());
 
-    match response.error_for_status() {
-        Ok(response) => Ok(response),
+    match response.error_for_status_ref() {
+        Ok(_) => Ok(response),
         Err(err) => {
             if is_retryable_status(
                 err.status()
                     .expect("status code is set as error is generated from a response"),
             ) {
-                Err(WebhookError::RetryableRequestError {
-                    error: err,
-                    retry_after,
-                })
+                Err(WebhookError::Request(
+                    WebhookRequestError::RetryableRequestError {
+                        error: err,
+                        // TODO: Make amount of bytes configurable.
+                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                        retry_after,
+                    },
+                ))
             } else {
-                Err(WebhookError::NonRetryableRetryableRequestError(err))
+                Err(WebhookError::Request(
+                    WebhookRequestError::NonRetryableRetryableRequestError {
+                        error: err,
+                        response: first_n_bytes_of_response(response, 10 * 1024).await.ok(),
+                    },
+                ))
             }
         }
     }
@@ -574,7 +595,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn test_send_webhook(_: PgPool) {
+    async fn test_send_webhook(_pg: PgPool) {
         let method = HttpMethod::POST;
         let url = "http://localhost:18081/echo";
         let headers = collections::HashMap::new();
@@ -590,5 +611,59 @@ mod tests {
             response.text().await.expect("failed to read response body"),
             body.to_owned(),
         );
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_error_message_contains_response_body(_pg: PgPool) {
+        let method = HttpMethod::POST;
+        let url = "http://localhost:18081/fail";
+        let headers = collections::HashMap::new();
+        let body = "this is an error message";
+        let client = reqwest::Client::new();
+
+        let err = send_webhook(client, &method, url, &headers, body.to_owned())
+            .await
+            .err()
+            .expect("request didn't fail when it should have failed");
+
+        assert!(matches!(err, WebhookError::Request(..)));
+        if let WebhookError::Request(request_error) = err {
+            assert_eq!(request_error.status(), Some(StatusCode::BAD_REQUEST));
+            assert!(request_error.to_string().contains(body));
+            // This is the display implementation of reqwest. Just checking it is still there.
+            // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
+            assert!(request_error.to_string().contains(
+                "HTTP status client error (400 Bad Request) for url (http://localhost:18081/fail)"
+            ));
+        }
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_error_message_contains_up_to_n_bytes_of_response_body(_pg: PgPool) {
+        let method = HttpMethod::POST;
+        let url = "http://localhost:18081/fail";
+        let headers = collections::HashMap::new();
+        // This is double the current hardcoded amount of bytes.
+        // TODO: Make this configurable and change it here too.
+        let body = (0..20 * 1024).map(|_| "a").collect::<Vec<_>>().concat();
+        let client = reqwest::Client::new();
+
+        let err = send_webhook(client, &method, url, &headers, body.to_owned())
+            .await
+            .err()
+            .expect("request didn't fail when it should have failed");
+
+        assert!(matches!(err, WebhookError::Request(..)));
+        if let WebhookError::Request(request_error) = err {
+            assert_eq!(request_error.status(), Some(StatusCode::BAD_REQUEST));
+            assert!(request_error.to_string().contains(&body[0..10 * 1024]));
+            // The 81 bytes account for the reqwest erorr message as described below.
+            assert_eq!(request_error.to_string().len(), 10 * 1024 + 81);
+            // This is the display implementation of reqwest. Just checking it is still there.
+            // See: https://github.com/seanmonstar/reqwest/blob/master/src/error.rs
+            assert!(request_error.to_string().contains(
+                "HTTP status client error (400 Bad Request) for url (http://localhost:18081/fail)"
+            ));
+        }
     }
 }
