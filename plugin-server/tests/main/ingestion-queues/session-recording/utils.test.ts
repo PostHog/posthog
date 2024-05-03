@@ -1,7 +1,6 @@
 import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
