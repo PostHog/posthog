@@ -1,9 +1,10 @@
 import re
-from typing import Optional
+from typing import Optional, TypeAlias
 from django.db import models
 
 from posthog.client import sync_execute
 from posthog.errors import wrap_query_error
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
@@ -97,6 +98,8 @@ ExtractErrors = {
     "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
+DataWarehouseTableColumns: TypeAlias = dict[str, dict[str, str | bool]] | dict[str, str]
+
 
 class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     class TableFormat(models.TextChoices):
@@ -137,7 +140,24 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             prefix = ""
         return self.name[len(prefix) :]
 
-    def get_columns(self, safe_expose_ch_error=True) -> dict[str, dict[str, str]]:
+    def validate_column_type(self, column_key) -> bool:
+        from posthog.hogql.query import execute_hogql_query
+
+        if column_key not in self.columns.keys():
+            raise Exception(f"Column {column_key} does not exist on table: {self.name}")
+
+        try:
+            query = ast.SelectQuery(
+                select=[ast.Call(name="count", args=[ast.Field(chain=[column_key])])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
+            )
+
+            execute_hogql_query(query, self.team)
+            return True
+        except:
+            return False
+
+    def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -177,6 +197,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             str(item[0]): {
                 "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
                 "clickhouse": item[1],
+                "valid": True,
             }
             for item in result
         }

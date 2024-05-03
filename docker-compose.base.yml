@@ -51,7 +51,7 @@ services:
             KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
             DYNAMIC_CONFIG_ENABLED: 'true'
 
-    object_storage:
+    objectstorage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         environment:
