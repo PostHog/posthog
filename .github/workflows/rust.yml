@@ -17,9 +17,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@1.77
 
       - uses: actions/cache@v3
         with:
@@ -52,9 +50,7 @@ jobs:
           echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
       - name: Install rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@1.77
 
       - uses: actions/cache@v3
         with:
@@ -73,10 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install latest rust
-        uses: dtolnay/rust-toolchain@master
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@1.77
         with:
-          toolchain: stable
           components: clippy,rustfmt
 
       - uses: actions/cache@v3

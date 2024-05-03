@@ -1,4 +1,4 @@
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.74.0-buster AS chef
+FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.77-bookworm AS chef
 ARG BIN
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release --bin $BIN
 
-FROM debian:bullseye-20230320-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
