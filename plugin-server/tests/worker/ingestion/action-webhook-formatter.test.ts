@@ -125,7 +125,7 @@ describe('ActionWebhookFormatter', () => {
                 webhookUrl: 'https://hooks.slack.com/services/123/456/789',
                 ...options,
             })
-            const message = formatter.composeWebhook()
+            const message = formatter.generateWebhookPayload()
             expect(message.text).toMatchSnapshot()
             expect(message.blocks[0].text.text).toMatchSnapshot()
         })
