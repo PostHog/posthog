@@ -250,6 +250,26 @@ class TestResolver(BaseTest):
             self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
         )
 
+    def test_ctes_with_union_all(self):
+        self.assertEqual(
+            self._print_hogql("""
+                    WITH cte1 AS (SELECT 1 AS a)
+                    SELECT 1 AS a
+                    UNION ALL
+                    WITH cte2 AS (SELECT 2 AS a)
+                    SELECT * FROM cte2
+                    UNION ALL
+                    SELECT * FROM cte1
+                        """),
+            self._print_hogql("""
+                    SELECT 1 AS a
+                    UNION ALL
+                    SELECT * FROM (SELECT 2 AS a) AS cte2
+                    UNION ALL
+                    SELECT * FROM (SELECT 1 AS a) AS cte1
+                        """),
+        )
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):
