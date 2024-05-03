@@ -38,20 +38,25 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setLoading: (loading: boolean) => ({ loading }),
         loadTopUrls: true,
         maybeLoadTopUrls: true,
+        loadBrowserSearchResults: true,
     }),
 
-    loaders({
-        browserSearchOptions: [
+    loaders(({ values }) => ({
+        browserSearchResults: [
             null as string[] | null,
             {
-                setBrowserSearch: async ({ searchTerm }) => {
+                loadBrowserSearchResults: async () => {
+                    if (!values.browserSearchTerm) {
+                        return []
+                    }
+
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
                         query: hogql`SELECT distinct properties.$current_url AS urls
                                 FROM events
                                 WHERE timestamp >= now() - INTERVAL 7 DAY
                                 AND timestamp <= now()
-                                AND properties.$current_url like '%${hogql.identifier(searchTerm)}%'
+                                AND properties.$current_url like '%${hogql.identifier(values.browserSearchTerm)}%'
                                 ORDER BY timestamp DESC
                                 limit 100`,
                     }
@@ -69,7 +74,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 loadTopUrls: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$current_url AS url, count(1) as count FROM events
+                        query: hogql`SELECT properties.$current_url AS url, count() as count FROM events
                                 WHERE timestamp >= now() - INTERVAL 7 DAY
                                 AND event in ('$pageview', '$autocapture')
                                 AND timestamp <= now()
@@ -84,9 +89,15 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
+        browserSearchTerm: [
+            '',
+            {
+                setBrowserSearch: (_, { searchTerm }) => searchTerm,
+            },
+        ],
         browserUrl: [
             null as string | null,
             { persist: true },
@@ -112,6 +123,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     selectors({
+        browserUrlSearchOptions: [
+            (s) => [s.browserSearchResults, s.topUrls, s.browserSearchTerm],
+            (browserSearchResults, topUrls, browserSearchTerm) => {
+                return browserSearchTerm ? browserSearchResults : topUrls?.map((x) => x.url) ?? []
+            },
+        ],
+
         isBrowserUrlAuthorized: [
             (s) => [s.browserUrl, s.checkUrlIsAuthorized],
             (browserUrl, checkUrlIsAuthorized) => {
@@ -124,6 +142,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        setBrowserSearch: async (_, breakpoint) => {
+            await breakpoint(200)
+            actions.loadBrowserSearchResults()
+        },
         sendToolbarMessage: ({ type, payload }) => {
             props.iframeRef?.current?.contentWindow?.postMessage(
                 {

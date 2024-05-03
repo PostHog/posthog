@@ -456,7 +456,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Heatmaps',
                                   icon: <IconCursorClick />,
                                   to: isUsingSidebar ? undefined : urls.heatmaps(),
-                                  tag: 'beta' as const,
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         {
@@ -529,9 +529,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     return 'min'
                 } else if (sidebarOverslide > 0) {
                     return 'max'
-                } else {
-                    return null
                 }
+                return null
             },
         ],
         activeNavbarItem: [
@@ -606,10 +605,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 document.addEventListener('mousemove', cache.onMouseMove)
                 document.addEventListener('mouseup', cache.onMouseUp)
                 return () => {}
-            } else {
-                document.removeEventListener('mousemove', cache.onMouseMove)
-                document.removeEventListener('mouseup', cache.onMouseUp)
             }
+            document.removeEventListener('mousemove', cache.onMouseMove)
+            document.removeEventListener('mouseup', cache.onMouseUp)
         },
         sidebarContentsFlattened: (sidebarContentsFlattened) => {
             for (const item of sidebarContentsFlattened) {
