@@ -5,6 +5,7 @@ import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
@@ -400,6 +401,12 @@ export class HookCommander {
             body = this.formatMessage(url, messageFormat, action, event, team)
         } else {
             let sendablePerson: Record<string, any> = {}
+
+            // It is only at this point that we need the elements list for the full event
+            // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
+            // currently we have no way of being sure so we keep it in
+            mutatePostIngestionEventWithElementsList(event)
+
             const { person_id, person_created_at, person_properties, ...data } = event
             if (person_id) {
                 sendablePerson = {

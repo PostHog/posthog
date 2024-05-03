@@ -51,7 +51,7 @@ const event: PostIngestionEvent = {
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
-    elementsList: [],
+    elementsList: undefined,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
     person_properties: {},
