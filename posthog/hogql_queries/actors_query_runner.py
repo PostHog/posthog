@@ -221,21 +221,14 @@ class ActorsQueryRunner(QueryRunner):
             else:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
 
-            # A simple `SELECT actor_id FROM (...)` works.
             stmt = ast.SelectQuery(
-                select=[ast.Field(chain=["actor_id"])],
-                select_from=ast.JoinExpr(table=self.source_query_runner.to_actors_query()),
+                select=columns,
+                select_from=join_expr,
+                where=where,
+                having=having,
+                group_by=group_by if has_any_aggregation else None,
+                order_by=order_by,
             )
-            # This `SELECT columns FROM (...) AS persons INNER JOIN (...) AS source ON persons.id = source.actor_id`
-            # creates additional results that should not fulful the inner join condition.
-            # stmt = ast.SelectQuery(
-            #     select=columns,
-            #     select_from=join_expr,
-            #     where=where,
-            #     having=having,
-            #     group_by=group_by if has_any_aggregation else None,
-            #     order_by=order_by,
-            # )
 
         return stmt
 
