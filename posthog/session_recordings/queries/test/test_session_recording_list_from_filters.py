@@ -2130,7 +2130,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
@@ -2161,7 +2160,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             page_view_session_id,
