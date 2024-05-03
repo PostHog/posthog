@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties } from './db/utils'
+import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
@@ -146,7 +146,7 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
 }
 
 export function normalizeEvent(event: PluginEvent): PluginEvent {
-    event.distinct_id = event.distinct_id?.toString().replace(/\u0000/g, '\uFFFD')
+    event.distinct_id = sanitizeString(String(event.distinct_id))
 
     let properties = event.properties ?? {}
     if (event['$set']) {

@@ -4478,7 +4478,7 @@
         FROM numbers(coalesce(dateDiff('week', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
         UNION ALL SELECT 0 AS total,
                          toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0) AS day_start
-        UNION ALL SELECT plus(avg(toFloat64OrNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))), 1000) AS total,
+        UNION ALL SELECT plus(avg(accurateCastOrNull(nullIf(nullIf(e.`$session_id`, ''), 'null'), 'Float64')), 1000) AS total,
                          toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
         FROM events AS e SAMPLE 1
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'))

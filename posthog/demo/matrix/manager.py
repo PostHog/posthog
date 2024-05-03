@@ -238,8 +238,7 @@ class MatrixManager:
         clickhouse_persons = query_with_columns(
             SELECT_PERSONS_OF_TEAM,
             list_params,
-            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
-            {"id": "uuid"},
+            columns_to_rename={"id": "uuid"},
         )
         bulk_persons: dict[str, Person] = {}
         for row in clickhouse_persons:

@@ -343,6 +343,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
+        reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -811,7 +812,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('test account filters updated', payload)
         },
-
+        reportPoEModeUpdated: async ({ mode }) => {
+            posthog.capture('persons on events mode updated', { mode })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },

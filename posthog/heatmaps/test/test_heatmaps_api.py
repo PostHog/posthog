@@ -103,11 +103,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @snapshot_clickhouse_queries
     @freezegun.freeze_time("2023-03-15T09:00:00")
-    def test_can_get_filter_by_relative_date_from(self) -> None:
+    def test_can_get_filter_by_relative_date(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-07T07:00:00")
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00")
 
-        self._assert_heatmap_single_result_count({"date_from": "-7d"}, 1)
+        self._assert_heatmap_single_result_count({"date_from": "-7d", "date_to": "-1d"}, 1)
+        self._assert_heatmap_no_result_count({"date_from": "dStart", "date_to": "dEnd"})
 
     @snapshot_clickhouse_queries
     def test_can_get_filter_by_click(self) -> None:

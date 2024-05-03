@@ -89,6 +89,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
+    "data_warehouse_person_property": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
