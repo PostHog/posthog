@@ -183,6 +183,7 @@ class BillingManager:
                     ):
                         todays_usage = organization.usage[usage_key]["todays_usage"]
                         current_usage = current_usage + todays_usage
+                addon["current_usage"] = current_usage
                 addon["tiers"] = compute_usage_per_tier(current_usage, addon["projected_usage"], addon["tiers"])
                 addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
 

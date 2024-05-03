@@ -11,7 +11,12 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
+from ee.billing.billing_types import (
+    BillingPeriod,
+    CustomerInfo,
+    CustomerProduct,
+    CustomerProductAddon,
+)
 from ee.models.license import License
 from posthog.cloud_utils import (
     TEST_clear_instance_license_cache,
@@ -89,6 +94,39 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 projected_usage=0,
                 projected_amount_usd="0.00",
                 usage_key="events",
+                addons=[
+                    CustomerProductAddon(
+                        name="Addon",
+                        description="Test Addon",
+                        price_description=None,
+                        type="events",
+                        image_url="https://posthog.com/static/images/product-os.png",
+                        free_allocation=10000,
+                        tiers=[
+                            {
+                                "unit_amount_usd": "0.00",
+                                "up_to": 1000000,
+                                "current_amount_usd": "0.00",
+                            },
+                            {
+                                "unit_amount_usd": "0.0000135",
+                                "up_to": 2000000,
+                                "current_amount_usd": None,
+                            },
+                        ],
+                        tiered=True,
+                        unit_amount_usd="0.00",
+                        current_amount_usd="0.00",
+                        current_usage=0,
+                        usage_limit=None,
+                        has_exceeded_limit=False,
+                        percentage_usage=0,
+                        projected_usage=0,
+                        projected_amount_usd="0.00",
+                        usage_key="events",
+                        subscribed=True,
+                    )
+                ],
             )
         ],
         billing_period=BillingPeriod(
@@ -130,14 +168,16 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                 ],
                 tiered=True,
                 unit_amount_usd="0.00",
-                current_amount_usd="0.00",
+                current_amount_usd=0.00,
                 current_usage=0,
                 usage_limit=None,
                 has_exceeded_limit=False,
                 percentage_usage=0,
                 projected_usage=0,
-                projected_amount_usd="0.00",
+                projected_amount=0,
+                projected_amount_usd=0.00,
                 usage_key="events",
+                addons=[],
             )
         ]
     }
@@ -502,7 +542,7 @@ class TestBillingAPI(APILicensedTest):
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
-                    customer=create_billing_customer(has_active_subscription=True)
+                    customer=create_billing_customer(has_active_subscription=True),
                 )
                 mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
 
@@ -536,6 +576,27 @@ class TestBillingAPI(APILicensedTest):
             },
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
+
+        self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
+        self.organization.save()
+
+        res = self.client.get("/api/billing-v2")
+        assert res.status_code == 200
+        res_json = res.json()
+        # Should update product usage to reflect today's usage
+        assert res_json["products"][0]["current_usage"] == 1101000
+        assert res_json["products"][0]["current_amount_usd"] == 45.45
+        assert res_json["products"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["tiers"][1]["current_usage"] == 101000
+        assert res_json["products"][0]["tiers"][1]["current_amount_usd"] == "45.45"
+
+        assert res_json["products"][0]["addons"][0]["current_usage"] == 1101000
+        assert res_json["products"][0]["addons"][0]["current_amount_usd"] == 1.36
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_usage"] == 1000000
+        assert res_json["products"][0]["addons"][0]["tiers"][0]["current_amount_usd"] == "0.00"
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_usage"] == 101000
+        assert res_json["products"][0]["addons"][0]["tiers"][1]["current_amount_usd"] == "1.36"
 
         def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
