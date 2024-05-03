@@ -90,9 +90,29 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         return attrs
 
+    def _sync_steps(self, action: Action, steps: list[dict[str, Any]]) -> None:
+        # And then also save the old model for backwards compatibility
+
+        if action.pk:
+            # This is slightly< inefficient but simple and temporary
+            existing_actions = list(action.action_steps.all())
+
+        # Creating
+        for step in steps:
+            ActionStep.objects.create(
+                action=action,
+                **step,
+            )
+
+        for existing_action in existing_actions:
+            existing_action.delete()
+
     def create(self, validated_data: Any) -> Any:
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
+
+        if "steps" in validated_data:
+            self._sync_steps(instance, validated_data["steps"])
 
         report_user_action(
             validated_data["created_by"],
@@ -105,6 +125,10 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         # bytecode might have been altered in the action steps
         instance = super().update(instance, validated_data)
+
+        if "steps" in validated_data:
+            self._sync_steps(instance, validated_data["steps"])
+
         report_user_action(
             self.context["request"].user,
             "action updated",
