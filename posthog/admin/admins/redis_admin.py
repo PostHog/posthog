@@ -41,7 +41,7 @@ class RedisAdmin(admin.ModelAdmin):
 
     actions = ["approve", "apply", "discard"]
 
-    @admin.display(description="Approvals")
+    @admin.display(description="Approvals")  # type: ignore
     def approvals(self, obj):
         return f"{obj.approvals} / {obj.approval_threshold}: {obj.approved_by}"
 
@@ -53,7 +53,7 @@ class RedisAdmin(admin.ModelAdmin):
         """
         return False
 
-    @admin.action(description="Approve Redis mutation")
+    @admin.action(description="Approve Redis mutation")  # type: ignore
     def approve(self, request: HttpRequest, queryset):
         user = str(request.user)
 
@@ -73,7 +73,7 @@ class RedisAdmin(admin.ModelAdmin):
             messages.SUCCESS,
         )
 
-    @admin.action(description="Mark Redis mutation as discarded")
+    @admin.action(description="Mark Redis mutation as discarded")  # type: ignore
     def discard(self, request: HttpRequest, queryset):
         user = str(request.user)
 
@@ -93,7 +93,7 @@ class RedisAdmin(admin.ModelAdmin):
             messages.SUCCESS,
         )
 
-    @admin.action(description="Apply Redis mutation")
+    @admin.action(description="Apply Redis mutation")  # type: ignore
     def apply(self, request: HttpRequest, queryset):
         user = str(request.user)
 
