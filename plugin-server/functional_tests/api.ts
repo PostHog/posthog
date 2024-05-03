@@ -7,7 +7,6 @@ import { PoolClient } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS } from '../src/config/kafka-topics'
 import {
-    ActionStep,
     Hook,
     Plugin,
     PluginConfig,
