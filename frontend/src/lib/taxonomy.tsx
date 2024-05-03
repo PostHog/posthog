@@ -1016,14 +1016,24 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The timestamp of the last event from this session</span>,
             examples: [new Date().toISOString()],
         },
-        $entry_url: {
+        $entry_current_url: {
             label: 'Entry URL',
             description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
-        $exit_url: {
+        $entry_pathname: {
+            label: 'Entry pathname',
+            description: <span>The first pathname visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_current_url: {
             label: 'Exit URL',
             description: <span>The last URL visited in this session</span>,
+            examples: ['https://example.com/interesting-article?parameter=true'],
+        },
+        $exit_pathname: {
+            label: 'Exit pathname',
+            description: <span>The last pathname visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $pageview_count: {
@@ -1040,6 +1050,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Channel type',
             description: <span>What type of acquisition channel this traffic came from.</span>,
             examples: ['Paid Search', 'Organic Video', 'Direct'],
+        },
+        $is_bounce: {
+            label: 'Is bounce',
+            description: <span>Whether the session was a bounce.</span>,
+            examples: ['true', 'false'],
         },
     },
     groups: {
@@ -1079,9 +1094,9 @@ for (const [key, value] of Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.event
         CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[key] = value
     }
     if (SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS.has(key)) {
-        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$initial_${key.replace(/^\$/, '')}`] = {
+        CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties[`$entry_${key.replace(/^\$/, '')}`] = {
             ...value,
-            label: `Initial ${value.label}`,
+            label: `Entry ${value.label}`,
             description:
                 'description' in value
                     ? `${value.description} Data from the first event in this session.`

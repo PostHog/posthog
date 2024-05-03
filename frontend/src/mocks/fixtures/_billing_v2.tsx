@@ -37,6 +37,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
                     unit: 'event',
+                    flat_rate: false,
                     free_allocation: 1000000,
                     features: [
                         {
@@ -99,6 +100,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
                     unit: 'event',
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -437,6 +439,7 @@ export const billingJson: BillingV2Type = {
                             docs_url: 'https://posthog.com/docs/product-analytics/group-analytics',
                             note: null,
                             unit: 'event',
+                            flat_rate: false,
                             free_allocation: null,
                             features: [
                                 {
@@ -628,6 +631,7 @@ export const billingJson: BillingV2Type = {
                             docs_url: 'https://posthog.com/docs/cdp/batch-exports',
                             note: null,
                             unit: 'event',
+                            flat_rate: false,
                             free_allocation: null,
                             features: [
                                 {
@@ -890,6 +894,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/session-replay',
                     note: null,
                     unit: 'recording',
+                    flat_rate: false,
                     free_allocation: 5000,
                     features: [
                         {
@@ -1025,6 +1030,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/session-replay',
                     note: null,
                     unit: 'recording',
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -1460,6 +1466,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/feature-flags',
                     note: null,
                     unit: 'request',
+                    flat_rate: false,
                     free_allocation: 1000000,
                     features: [
                         {
@@ -1601,6 +1608,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/feature-flags/feature-flags.png',
                     docs_url: 'https://posthog.com/docs/feature-flags',
                     note: null,
+                    flat_rate: false,
                     unit: 'request',
                     free_allocation: null,
                     features: [
@@ -2014,6 +2022,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/surveys/surveys.png',
                     docs_url: 'https://posthog.com/docs/surveys',
                     note: null,
+                    flat_rate: false,
                     unit: 'survey response',
                     free_allocation: 250,
                     features: [
@@ -2101,6 +2110,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/surveys/surveys.png',
                     docs_url: 'https://posthog.com/docs/surveys',
                     note: null,
+                    flat_rate: false,
                     unit: 'survey response',
                     free_allocation: null,
                     features: [
@@ -2435,6 +2445,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2495,6 +2506,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2648,6 +2660,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2723,6 +2736,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2816,6 +2830,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -3012,6 +3027,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {

@@ -17,3 +17,9 @@
     margin-bottom: 10px;
     break-inside: avoid;
 }
+
+.survey-view {
+    .survey-form {
+        z-index: 0 !important;
+    }
+}

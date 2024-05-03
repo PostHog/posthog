@@ -86,7 +86,6 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
-    query_type = FunnelCorrelationQuery
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]

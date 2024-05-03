@@ -223,22 +223,25 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "$entry_url",
-                  "$exit_url",
-                  "$initial_utm_source",
-                  "$initial_utm_campaign",
-                  "$initial_utm_medium",
-                  "$initial_utm_term",
-                  "$initial_utm_content",
-                  "$initial_referring_domain",
-                  "$initial_gclid",
-                  "$initial_gad_source",
+                  "$entry_current_url",
+                  "$entry_pathname",
+                  "$exit_current_url",
+                  "$exit_pathname",
+                  "$entry_utm_source",
+                  "$entry_utm_campaign",
+                  "$entry_utm_medium",
+                  "$entry_utm_term",
+                  "$entry_utm_content",
+                  "$entry_referring_domain",
+                  "$entry_gclid",
+                  "$entry_gad_source",
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -426,6 +429,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -434,6 +482,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
@@ -615,43 +677,51 @@
               "type": "array"
           },
           {
-              "key": "$entry_url",
+              "key": "$entry_current_url",
               "type": "string"
           },
           {
-              "key": "$exit_url",
+              "key": "$entry_pathname",
               "type": "string"
           },
           {
-              "key": "$initial_utm_source",
+              "key": "$exit_current_url",
               "type": "string"
           },
           {
-              "key": "$initial_utm_campaign",
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
-              "key": "$initial_utm_medium",
+              "key": "$entry_utm_source",
               "type": "string"
           },
           {
-              "key": "$initial_utm_term",
+              "key": "$entry_utm_campaign",
               "type": "string"
           },
           {
-              "key": "$initial_utm_content",
+              "key": "$entry_utm_medium",
               "type": "string"
           },
           {
-              "key": "$initial_referring_domain",
+              "key": "$entry_utm_term",
               "type": "string"
           },
           {
-              "key": "$initial_gclid",
+              "key": "$entry_utm_content",
               "type": "string"
           },
           {
-              "key": "$initial_gad_source",
+              "key": "$entry_referring_domain",
+              "type": "string"
+          },
+          {
+              "key": "$entry_gclid",
+              "type": "string"
+          },
+          {
+              "key": "$entry_gad_source",
               "type": "string"
           },
           {
@@ -673,6 +743,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
           }
       ],
       "heatmaps": [
@@ -779,6 +853,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -787,6 +906,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
@@ -1251,22 +1384,25 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "$entry_url",
-                  "$exit_url",
-                  "$initial_utm_source",
-                  "$initial_utm_campaign",
-                  "$initial_utm_medium",
-                  "$initial_utm_term",
-                  "$initial_utm_content",
-                  "$initial_referring_domain",
-                  "$initial_gclid",
-                  "$initial_gad_source",
+                  "$entry_current_url",
+                  "$entry_pathname",
+                  "$exit_current_url",
+                  "$exit_pathname",
+                  "$entry_utm_source",
+                  "$entry_utm_campaign",
+                  "$entry_utm_medium",
+                  "$entry_utm_term",
+                  "$entry_utm_content",
+                  "$entry_referring_domain",
+                  "$entry_gclid",
+                  "$entry_gad_source",
                   "$event_count_map",
                   "$pageview_count",
                   "$autocapture_count",
                   "$channel_type",
                   "$session_duration",
-                  "duration"
+                  "duration",
+                  "$is_bounce"
               ]
           }
       ],
@@ -1454,6 +1590,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -1462,6 +1643,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {
@@ -1643,43 +1838,51 @@
               "type": "array"
           },
           {
-              "key": "$entry_url",
+              "key": "$entry_current_url",
               "type": "string"
           },
           {
-              "key": "$exit_url",
+              "key": "$entry_pathname",
               "type": "string"
           },
           {
-              "key": "$initial_utm_source",
+              "key": "$exit_current_url",
               "type": "string"
           },
           {
-              "key": "$initial_utm_campaign",
+              "key": "$exit_pathname",
               "type": "string"
           },
           {
-              "key": "$initial_utm_medium",
+              "key": "$entry_utm_source",
               "type": "string"
           },
           {
-              "key": "$initial_utm_term",
+              "key": "$entry_utm_campaign",
               "type": "string"
           },
           {
-              "key": "$initial_utm_content",
+              "key": "$entry_utm_medium",
               "type": "string"
           },
           {
-              "key": "$initial_referring_domain",
+              "key": "$entry_utm_term",
               "type": "string"
           },
           {
-              "key": "$initial_gclid",
+              "key": "$entry_utm_content",
               "type": "string"
           },
           {
-              "key": "$initial_gad_source",
+              "key": "$entry_referring_domain",
+              "type": "string"
+          },
+          {
+              "key": "$entry_gclid",
+              "type": "string"
+          },
+          {
+              "key": "$entry_gad_source",
               "type": "string"
           },
           {
@@ -1701,6 +1904,10 @@
           {
               "key": "duration",
               "type": "integer"
+          },
+          {
+              "key": "$is_bounce",
+              "type": "boolean"
           }
       ],
       "heatmaps": [
@@ -1807,6 +2014,51 @@
               "type": "integer"
           },
           {
+              "key": "events",
+              "type": "lazy_table",
+              "table": "events",
+              "fields": [
+                  "uuid",
+                  "event",
+                  "properties",
+                  "timestamp",
+                  "team_id",
+                  "distinct_id",
+                  "elements_chain",
+                  "created_at",
+                  "$session_id",
+                  "$window_id",
+                  "pdi",
+                  "poe",
+                  "goe_0",
+                  "goe_1",
+                  "goe_2",
+                  "goe_3",
+                  "goe_4",
+                  "person",
+                  "person_id",
+                  "$group_0",
+                  "group_0",
+                  "$group_1",
+                  "group_1",
+                  "$group_2",
+                  "group_2",
+                  "$group_3",
+                  "group_3",
+                  "$group_4",
+                  "group_4",
+                  "session"
+              ]
+          },
+          {
+              "key": "properties",
+              "type": "field_traverser",
+              "chain": [
+                  "events",
+                  "properties"
+              ]
+          },
+          {
               "key": "pdi",
               "type": "lazy_table",
               "table": "person_distinct_ids",
@@ -1815,6 +2067,20 @@
                   "distinct_id",
                   "person_id",
                   "person"
+              ]
+          },
+          {
+              "key": "console_logs",
+              "type": "lazy_table",
+              "table": "console_logs_log_entries",
+              "fields": [
+                  "team_id",
+                  "log_source",
+                  "log_source_id",
+                  "instance_id",
+                  "timestamp",
+                  "message",
+                  "level"
               ]
           },
           {

@@ -383,6 +383,40 @@ describe('PropertyDefinitionsManager()', () => {
             })
         })
 
+        it('regression tests: 400 characters fit in property definitions', async () => {
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
+
+            const fourHundredSmileys = '😀'.repeat(400)
+            const properties = {}
+            properties[fourHundredSmileys] = 'foo'
+            await manager.updateEventNamesAndProperties(teamId, fourHundredSmileys, properties)
+
+            expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
+                expect.objectContaining({
+                    id: expect.any(String),
+                    team_id: teamId,
+                    name: fourHundredSmileys,
+                    is_numerical: false,
+                    property_type: 'String',
+                }),
+            ])
+        })
+
+        it('regression tests: >400 characters are ignored in property definitions', async () => {
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
+
+            const fourHundredAndOneSmileys = '😀'.repeat(401)
+            const properties = {}
+            properties[fourHundredAndOneSmileys] = 'foo'
+
+            // Note that this shouldn't throw, the large values are just skipped.
+            await manager.updateEventNamesAndProperties(teamId, fourHundredAndOneSmileys, properties)
+
+            expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([])
+        })
+
         describe('first event has not yet been ingested', () => {
             it('calls posthog.identify and posthog.capture', async () => {
                 // NOTE: that this functionality is dependent on users being a

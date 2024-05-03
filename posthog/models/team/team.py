@@ -164,6 +164,10 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        verbose_name = "team (soon to be environment)"
+        verbose_name_plural = "teams (soon to be environments)"
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,

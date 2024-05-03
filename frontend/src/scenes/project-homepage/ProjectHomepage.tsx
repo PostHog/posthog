@@ -97,8 +97,8 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
                         <>
-                            <IconHome className="mr-2 text-2xl opacity-50" />
                             <Link className="font-semibold text-xl text-default" to={urls.dashboard(dashboard.id)}>
+                                <IconHome className="mr-2 text-2xl opacity-50" />
                                 {dashboard?.name}
                             </Link>
                         </>

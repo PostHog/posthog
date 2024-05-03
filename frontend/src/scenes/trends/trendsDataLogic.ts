@@ -11,7 +11,7 @@ import {
     isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { EntityNode } from '~/queries/schema'
+import { EntityNode, LifecycleQuery } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -44,6 +44,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
+                'querySource',
                 'insightData',
                 'insightDataLoading',
                 'series',
@@ -125,9 +126,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
                     indexedResults.sort((a, b) =>
-                        a.label === BREAKDOWN_OTHER_STRING_LABEL
+                        a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                             ? BREAKDOWN_OTHER_NUMERIC_LABEL
-                            : a.label === BREAKDOWN_NULL_STRING_LABEL
+                            : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
                             ? BREAKDOWN_NULL_NUMERIC_LABEL
                             : b.aggregated_value - a.aggregated_value
                     )
@@ -149,13 +150,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         labelGroupType: [
-            (s) => [s.series],
-            (series): 'people' | 'none' | number => {
+            (s) => [s.series, s.querySource, s.isLifecycle],
+            (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
-                return series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
-                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
-                    : 'none' // mixed group types
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                if (isLifecycle) {
+                    firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
+                } else {
+                    firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
+                    if (!series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)) {
+                        return 'none' // mixed group types
+                    }
+                }
+
+                return firstAggregationGroupTypeIndex ?? 'people'
             },
         ],
 
