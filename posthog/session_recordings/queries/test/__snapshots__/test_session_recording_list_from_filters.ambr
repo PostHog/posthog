@@ -24,7 +24,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
@@ -52,7 +54,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
@@ -80,7 +84,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
@@ -108,7 +114,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
@@ -136,7 +144,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
@@ -164,7 +174,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
@@ -192,7 +204,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter
@@ -220,7 +234,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter.1
@@ -248,7 +264,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl
@@ -276,7 +294,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.1
@@ -304,7 +324,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.2
@@ -332,7 +354,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter
@@ -360,7 +384,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter.1
@@ -388,7 +414,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter
@@ -416,7 +444,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter.1
@@ -444,7 +474,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter
@@ -477,7 +509,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter.1
@@ -510,7 +544,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
@@ -543,7 +579,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
@@ -576,7 +614,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties
@@ -610,7 +650,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties.1
@@ -644,7 +686,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized
@@ -678,7 +722,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized.1
@@ -712,7 +758,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id
@@ -745,7 +793,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id.1
@@ -778,7 +828,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_person_properties
@@ -824,7 +876,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties
@@ -858,7 +912,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.1
@@ -892,7 +948,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.2
@@ -926,7 +984,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.3
@@ -960,7 +1020,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized
@@ -994,7 +1056,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.1
@@ -1028,7 +1092,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.2
@@ -1062,7 +1128,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.3
@@ -1096,7 +1164,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text
@@ -1130,7 +1200,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.1
@@ -1164,7 +1236,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.2
@@ -1198,7 +1272,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.3
@@ -1232,7 +1308,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
@@ -1266,7 +1344,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
@@ -1300,7 +1380,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
@@ -1334,7 +1416,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
@@ -1368,7 +1452,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
@@ -1402,7 +1488,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
@@ -1436,7 +1524,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids
@@ -1470,7 +1560,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids.1
@@ -1504,7 +1596,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters
@@ -1537,7 +1631,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.1
@@ -1570,7 +1666,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_person_id_filter
@@ -1605,7 +1703,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter
@@ -1638,7 +1738,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter.1
@@ -1671,7 +1773,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -1704,7 +1808,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -1737,7 +1843,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter
@@ -1770,7 +1878,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter.1
@@ -1816,7 +1926,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -1849,7 +1961,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -1895,7 +2009,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter
@@ -1928,7 +2044,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter.1
@@ -1974,7 +2092,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized
@@ -2007,7 +2127,9 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized.1
@@ -2053,6 +2175,8 @@
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
