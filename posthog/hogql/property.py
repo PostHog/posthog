@@ -1,19 +1,19 @@
 import re
-from typing import Optional, Union, cast, Literal
+from typing import Literal, Optional, Union, cast
 
 from pydantic import BaseModel
 
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
-    PropertyOperatorType,
+    PAGEVIEW_EVENT,
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
-    PAGEVIEW_EVENT,
+    PropertyOperatorType,
 )
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.errors import NotImplementedError
+from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.models import (
@@ -21,20 +21,20 @@ from posthog.models import (
     ActionStep,
     Cohort,
     Property,
-    Team,
     PropertyDefinition,
+    Team,
 )
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
-    PropertyOperator,
+    EmptyPropertyFilter,
+    FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
-    FilterLogicalOperator,
+    PropertyOperator,
     RetentionEntity,
-    EmptyPropertyFilter,
 )
 from posthog.utils import get_from_dict_or_attr
 

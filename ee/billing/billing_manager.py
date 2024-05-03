@@ -165,6 +165,27 @@ class BillingManager:
                 product["tiers"] = compute_usage_per_tier(current_usage, product["projected_usage"], product["tiers"])
                 product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
 
+            # Update the add on tiers
+            for addon in product["addons"]:
+                if not addon["subscribed"]:
+                    continue
+                addon_usage_key = addon.get("usage_key")
+                if not usage_key:
+                    continue
+                if addon_usage_key != usage_key:
+                    usage = response.get("usage_summary", {}).get(addon_usage_key, {})
+                    usage_limit = usage.get("limit")
+                    current_usage = usage.get("usage") or 0
+                    if (
+                        organization
+                        and organization.usage
+                        and organization.usage.get(usage_key, {}).get("todays_usage", None)
+                    ):
+                        todays_usage = organization.usage[usage_key]["todays_usage"]
+                        current_usage = current_usage + todays_usage
+                addon["tiers"] = compute_usage_per_tier(current_usage, addon["projected_usage"], addon["tiers"])
+                addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
+
         return response
 
     def update_billing(self, organization: Organization, data: dict[str, Any]) -> None:
