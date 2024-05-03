@@ -4,8 +4,8 @@ from datetime import datetime, timedelta
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.property import entity_to_expr, property_to_expr
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
@@ -83,6 +83,9 @@ class SessionRecordingListFromFilters:
     ):
         self._team = team
         self._filter = filter
+        self._paginator = HogQLHasMorePaginator(
+            limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
+        )
 
     @property
     def ttl_days(self):
@@ -121,13 +124,15 @@ class SessionRecordingListFromFilters:
             },
         )
 
-        response = execute_hogql_query(
+        paginated_response = self._paginator.execute_hogql_query(
             query=query,
             team=self._team,
+            # TODO - should we have our own query type 🤷
+            query_type="hogql_query",
         )
 
-        session_recordings = self._data_to_return(response.results)
-        return SessionRecordingQueryResult(results=session_recordings, has_more_recording=False)
+        session_recordings = self._data_to_return(paginated_response.results)
+        return SessionRecordingQueryResult(results=session_recordings, has_more_recording=self._paginator.has_more())
 
     def _order_by_clause(self) -> ast.Field:
         order = self._filter.target_entity_order or "start_time"

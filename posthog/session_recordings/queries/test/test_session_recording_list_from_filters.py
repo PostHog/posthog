@@ -275,14 +275,13 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             (session_id_inactive_is_61, 61, 61.0)
         ]
 
-    @skip("TODO: Not implemented in HogQL")
     @snapshot_clickhouse_queries
     def test_basic_query_with_paging(self):
         user = "test_basic_query_with_paging-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
-        session_id_one = f"test_basic_query_with_paging-{str(uuid4())}"
-        session_id_two = f"test_basic_query_with_paging-{str(uuid4())}"
+        session_id_one = f"id_one_test_basic_query_with_paging-{str(uuid4())}"
+        session_id_two = f"id_two_test_basic_query_with_paging-{str(uuid4())}"
 
         produce_replay_summary(
             session_id=session_id_one,
