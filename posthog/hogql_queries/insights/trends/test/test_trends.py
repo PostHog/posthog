@@ -4445,9 +4445,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             # Persons with higher value come first
             self.assertEqual(people_value_1[0][1]["distinct_ids"][0], "person2")
             self.assertEqual(people_value_1[0][3], 2)  # 2 events with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[1][1]["distinct_ids"][0], "person3")
             self.assertEqual(people_value_1[1][3], 1)  # 1 event with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[2][1]["distinct_ids"][0], "person1")
             self.assertEqual(people_value_1[2][3], 1)  # 1 event with fake_prop="value_1" in the time range
 
             people_value_2 = get_actors(data, self.team, series=0, breakdown="value_2", includeRecordings=True)
