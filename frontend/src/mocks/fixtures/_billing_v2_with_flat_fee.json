@@ -34,8 +34,8 @@
         "paths",
         "subscriptions",
         "paths_advanced",
-        "dashboard_permissioning",
-        "dashboard_collaboration",
+        "advanced_permissions",
+        "team_collaboration",
         "ingestion_taxonomy",
         "correlation_analysis",
         "tagging",
@@ -340,7 +340,7 @@
             "note": null
         },
         {
-            "key": "dashboard_permissioning",
+            "key": "advanced_permissions",
             "name": "Dashboard permissions",
             "description": "Restrict access to dashboards within the organization to only those who need it.",
             "unit": null,
@@ -348,7 +348,7 @@
             "note": null
         },
         {
-            "key": "dashboard_collaboration",
+            "key": "team_collaboration",
             "name": "Tags & text cards",
             "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
             "unit": null,

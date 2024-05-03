@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
-import { IconFlag, IconRecording, IconRocketLaunch, IconSurveys } from 'lib/lemon-ui/icons'
+import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
@@ -17,6 +17,7 @@ import { notebookNodeFlagLogic } from './NotebookNodeFlagLogic'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
+import { IconFlag, IconRocket } from '@posthog/icons'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -77,7 +78,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
             canCreateEarlyAccessFeature
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
-                      icon: <IconRocketLaunch />,
+                      icon: <IconRocket />,
                       onClick: () => {
                           if (!hasEarlyAccessFeatures) {
                               createEarlyAccessFeature()
@@ -125,7 +126,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                     <>
                         <LemonDivider className="my-0" />
                         <div className="p-2">
-                            <FeatureFlagReleaseConditions readOnly />
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
                         </div>
                     </>
                 ) : null}

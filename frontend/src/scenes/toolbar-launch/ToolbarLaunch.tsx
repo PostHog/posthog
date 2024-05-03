@@ -1,9 +1,10 @@
 import './ToolbarLaunch.scss'
 
+import { IconFlag, IconSearch } from '@posthog/icons'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -33,7 +34,7 @@ function ToolbarLaunch(): JSX.Element {
         {
             title: 'Inspect',
             caption: 'Inspect clickable elements on your website.',
-            icon: <IconMagnifier />,
+            icon: <IconSearch />,
         },
     ]
 
@@ -47,7 +48,7 @@ function ToolbarLaunch(): JSX.Element {
             </h2>
             <p>
                 Click on the URL to launch the toolbar.{' '}
-                {window.location.host === 'app.posthog.com' && 'Remember to disable your adblocker.'}
+                {window.location.host.includes('.posthog.com') && 'Remember to disable your adblocker.'}
             </p>
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 

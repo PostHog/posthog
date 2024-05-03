@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 
@@ -11,7 +12,7 @@ import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
 import type { sdksLogicType } from './sdksLogicType'
 
-/* 
+/*
 To add SDK instructions for your product:
     1. If needed, add a new ProductKey enum value in ~/types.ts
     2. Create a folder in this directory for your product
@@ -118,14 +119,16 @@ export const sdksLogic = kea<sdksLogicType>([
                 loadSnippetEvents: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
-                                FROM events
-                                WHERE timestamp >= now() - INTERVAL 3 DAY 
-                                AND timestamp <= now()
-                                AND properties.$lib = 'web'
-                                GROUP BY lib_version
-                                ORDER BY latest_timestamp DESC
-                                limit 10`,
+                        query: hogql`SELECT properties.$lib_version AS lib_version,
+                                            max(timestamp)          AS latest_timestamp,
+                                            count(lib_version) as count
+                                     FROM events
+                                     WHERE timestamp >= now() - INTERVAL 3 DAY
+                                       AND timestamp <= now()
+                                       AND properties.$lib = 'web'
+                                     GROUP BY lib_version
+                                     ORDER BY latest_timestamp DESC
+                                         limit 10`,
                     }
 
                     const res = await api.query(query)
@@ -188,4 +191,12 @@ export const sdksLogic = kea<sdksLogicType>([
     afterMount(({ actions }) => {
         actions.loadSnippetEvents()
     }),
+    urlToAction(({ actions }) => ({
+        '/onboarding/:productKey': (_productKey, { sdk }) => {
+            const matchedSDK = allSDKs.find((s) => s.key === sdk)
+            if (matchedSDK) {
+                actions.setSelectedSDK(matchedSDK)
+            }
+        },
+    })),
 ])

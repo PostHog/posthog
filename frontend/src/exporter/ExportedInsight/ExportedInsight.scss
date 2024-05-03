@@ -36,7 +36,7 @@
             border-radius: 0;
         }
 
-        .InsightCard__viz {
+        html.export-type-image & .InsightCard__viz {
             // We can't use the viewport height, as the screenshotter will resize the height of the window to capture the full content
             // Instead we try to make it roughly rectangular
             min-height: 50vw;

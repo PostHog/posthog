@@ -5,6 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
@@ -16,12 +17,16 @@ import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 const ActionsListToolbarMenu = (): JSX.Element => {
     const { searchTerm } = useValues(actionsLogic)
-    const { setSearchTerm } = useActions(actionsLogic)
+    const { setSearchTerm, getActions } = useActions(actionsLogic)
 
     const { newAction } = useActions(actionsTabLogic)
     const { allActions, sortedActions, allActionsLoading } = useValues(actionsLogic)
 
     const { apiURL } = useValues(toolbarConfigLogic)
+
+    useEffect(() => {
+        getActions()
+    }, [])
 
     return (
         <ToolbarMenu>

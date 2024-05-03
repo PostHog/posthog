@@ -74,8 +74,9 @@ class BatchExportRun(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -109,6 +110,9 @@ class BatchExportRun(UUIDModel):
     last_updated_at: models.DateTimeField = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this BatchExportRun was last updated.",
+    )
+    records_total_count: models.IntegerField = models.IntegerField(
+        null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
 
 
@@ -226,9 +230,11 @@ def fetch_batch_export_log_entries(
     before: dt.datetime | None = None,
     search: str | None = None,
     limit: int | None = None,
-    level_filter: list[BatchExportLogEntryLevel] = [],
+    level_filter: typing.Optional[list[BatchExportLogEntryLevel]] = None,
 ) -> list[BatchExportLogEntry]:
     """Fetch a list of batch export log entries from ClickHouse."""
+    if level_filter is None:
+        level_filter = []
     clickhouse_where_parts: list[str] = []
     clickhouse_kwargs: dict[str, typing.Any] = {}
 
@@ -269,8 +275,9 @@ class BatchExportBackfill(UUIDModel):
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
-        CONTINUEDASNEW = "ContinuedAsNew"
+        CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
+        FAILED_RETRYABLE = "FailedRetryable"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -283,7 +290,7 @@ class BatchExportBackfill(UUIDModel):
         help_text="The BatchExport this backfill belongs to.",
     )
     start_at: models.DateTimeField = models.DateTimeField(help_text="The start of the data interval.")
-    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.")
+    end_at: models.DateTimeField = models.DateTimeField(help_text="The end of the data interval.", null=True)
     status: models.CharField = models.CharField(
         choices=Status.choices, max_length=64, help_text="The status of this backfill."
     )
@@ -304,5 +311,5 @@ class BatchExportBackfill(UUIDModel):
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportBackfill model."""
         start_at = self.start_at.strftime("%Y-%m-%dT%H:%M:%S")
-        end_at = self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
+        end_at = self.end_at and self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"

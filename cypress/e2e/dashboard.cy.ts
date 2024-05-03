@@ -1,5 +1,6 @@
 import { randomString } from '../support/random'
 import { insight, dashboards, dashboard } from '../productAnalytics'
+import { urls } from 'scenes/urls'
 
 describe('Dashboard', () => {
     beforeEach(() => {
@@ -19,12 +20,11 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
 
-    // FIXME: this test works in real, but not in cypress
-    it.skip('Adding new insight to dashboard works', () => {
-        const dashboardName = randomString('to add an insight to')
+    it('Adding new insight to dashboard works', () => {
+        const dashboardName = randomString('Dashboard with matching filter')
         const insightName = randomString('insight to add to dashboard')
 
-        // create and visit a dashboard to get it into turbomode cache
+        // Create and visit a dashboard to get it into turbo mode cache
         dashboards.createAndGoToEmptyDashboard(dashboardName)
 
         insight.create(insightName)
@@ -32,6 +32,76 @@ describe('Dashboard', () => {
         insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
         cy.get('.CardMeta h4').should('have.text', insightName)
+
+        dashboard.addPropertyFilter()
+        cy.get('main').contains('There are no matching events for this query').should('not.exist')
+
+        cy.clickNavMenu('dashboards')
+        const dashboardNonMatching = randomString('Dashboard with non-matching filter')
+        dashboards.createAndGoToEmptyDashboard(dashboardNonMatching)
+
+        insight.visitInsight(insightName)
+        insight.addInsightToDashboard(dashboardNonMatching, { visitAfterAdding: true })
+
+        dashboard.addPropertyFilter('Browser', 'Hogbrowser')
+        cy.get('main').contains('There are no matching events for this query').should('exist')
+
+        // Go back and forth to make sure the filters are correctly applied
+        for (let i = 0; i < 3; i++) {
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardName)
+            cy.get('.CardMeta h4').should('have.text', insightName)
+            cy.get('h4').contains('Refreshing').should('not.exist')
+            cy.get('main').contains('There are no matching events for this query').should('not.exist')
+
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(dashboardNonMatching)
+            cy.get('.CardMeta h4').should('have.text', insightName)
+            cy.get('h4').contains('Refreshing').should('not.exist')
+            cy.get('main').contains('There are no matching events for this query').should('exist')
+        }
+    })
+
+    it('Dashboard filter updates are correctly isolated for one insight on multiple dashboards', () => {
+        const dashboardAName = randomString('Dashboard with insight A')
+        const dashboardBName = randomString('Dashboard with insight B')
+        const insightName = randomString('insight to add to dashboard')
+
+        // Create and visit two dashboards to get them into turbo mode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardAName)
+        cy.clickNavMenu('dashboards')
+        dashboards.createAndGoToEmptyDashboard(dashboardBName)
+
+        insight.create(insightName)
+
+        // Add that one insight to both dashboards
+        insight.addInsightToDashboard(dashboardAName, { visitAfterAdding: false })
+        cy.get('[aria-label="close"]').click()
+        insight.addInsightToDashboard(dashboardBName, { visitAfterAdding: false })
+        cy.get('[aria-label="close"]').click()
+
+        // Let's get dashboard A mounted
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardAName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days')
+        // Now let's see dashboard B
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardBName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days')
+        // Override the time range on dashboard B
+        cy.get('button').contains('Edit filters').click()
+        cy.get('[data-attr=date-filter]').contains('No date range override').click()
+        cy.get('div').contains('Yesterday').should('exist').click()
+        cy.get('[data-attr=date-filter]').contains('Yesterday')
+        cy.get('button').contains('Apply and save dashboard').click()
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Yesterday')
+        // Cool, now back to A and make sure the insight is still using the original range there, not the one from B
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(dashboardAName)
+        cy.get('[data-attr=date-filter]').contains('No date range override')
+        cy.get('.InsightCard h5').should('have.length', 1).contains('Last 7 days') // This must not be "Yesterday"!
     })
 
     it('Adding new insight to dashboard does not clear filters', () => {
@@ -39,7 +109,7 @@ describe('Dashboard', () => {
         const firstInsight = randomString('insight to add to dashboard')
         const secondInsight = randomString('another insight to add to dashboard')
 
-        // create and visit a dashboard to get it into turbomode cache
+        // Create and visit a dashboard to get it into turbo mode cache
         dashboards.createAndGoToEmptyDashboard(dashboardName)
         dashboard.addInsightToEmptyDashboard(firstInsight)
 
@@ -101,6 +171,40 @@ describe('Dashboard', () => {
         cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')
     })
 
+    const assertVariablesConfigurationScreenIsShown = (): void => {
+        cy.get('[data-attr="new-dashboard-chooser"]').contains('Unique variable name').should('exist')
+    }
+
+    it('Allow reselecting a dashboard after pressing back', () => {
+        cy.intercept('GET', /\/api\/projects\/\d+\/dashboard_templates/, (req) => {
+            req.reply((response) => {
+                response.body.results[0].variables = [
+                    {
+                        id: 'id',
+                        name: 'Unique variable name',
+                        type: 'event',
+                        default: {},
+                        required: true,
+                        description: 'description',
+                    },
+                ]
+                return response
+            })
+        })
+
+        // Request templates again.
+        cy.clickNavMenu('dashboards')
+
+        cy.get('[data-attr="new-dashboard"]').click()
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        assertVariablesConfigurationScreenIsShown()
+
+        cy.contains('.LemonButton', 'Back').click()
+
+        cy.get('[data-attr="create-dashboard-from-template"]').click()
+        assertVariablesConfigurationScreenIsShown()
+    })
+
     it('Click on a dashboard item dropdown and view graph', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
         cy.get('.InsightCard [data-attr=more-button]').first().click()
@@ -113,8 +217,8 @@ describe('Dashboard', () => {
         cy.get('.InsightCard [data-attr=more-button]').first().click()
         cy.get('button').contains('Rename').click()
 
-        cy.get('[data-attr=modal-prompt]').clear().type('Test Name')
-        cy.contains('OK').click()
+        cy.get('[data-attr=insight-name]').clear().type('Test Name')
+        cy.contains('Submit').click()
         cy.contains('Test Name').should('exist')
     })
 

@@ -9,17 +9,16 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { StatusTag } from 'scenes/surveys/Surveys'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { SurveyAppearance } from 'scenes/surveys/SurveyAppearance'
 import { SurveyReleaseSummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
-    const { survey, surveyLoading, hasTargetingFlag, surveyMissing } = useValues(surveyLogic({ id }))
+    const { survey, surveyLoading, targetingFlagFilters, surveyMissing } = useValues(surveyLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
     const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
 
@@ -74,13 +73,17 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                             <>
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
-                                    <SurveyReleaseSummary id={id} survey={survey} hasTargetingFlag={hasTargetingFlag} />
+                                    <SurveyReleaseSummary
+                                        id={id}
+                                        survey={survey}
+                                        targetingFlagFilters={targetingFlagFilters}
+                                    />
 
                                     <div className="w-full flex flex-col items-center">
-                                        <SurveyAppearance
-                                            surveyType={survey.type}
-                                            surveyQuestionItem={survey.questions[0]}
-                                            appearance={survey.appearance || defaultSurveyAppearance}
+                                        <SurveyAppearancePreview
+                                            survey={survey}
+                                            activePreview="survey"
+                                            questionIndex={0}
                                         />
                                     </div>
                                 </div>

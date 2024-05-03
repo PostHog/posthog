@@ -4,12 +4,12 @@ import {
     LemonBanner,
     LemonDialog,
     LemonInput,
+    LemonInputSelect,
     LemonLabel,
     LemonMenu,
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
-    LemonSelectMultiple,
     LemonTable,
     LemonTag,
     Link,
@@ -111,7 +111,7 @@ function EditKeyModal(): JSX.Element {
                             </p>
 
                             <LemonField name="scoped_organizations">
-                                <LemonSelectMultiple
+                                <LemonInputSelect
                                     mode="multiple"
                                     data-attr="organizations"
                                     options={
@@ -143,7 +143,7 @@ function EditKeyModal(): JSX.Element {
                             <p className="mb-2">This API key will only allow access to selected projects.</p>
                             <LemonField name="scoped_teams">
                                 {({ value, onChange }) => (
-                                    <LemonSelectMultiple
+                                    <LemonInputSelect
                                         mode="multiple"
                                         data-attr="teams"
                                         value={value.map((x: number) => String(x))}
@@ -409,35 +409,6 @@ function PersonalAPIKeysTable(): JSX.Element {
                             >
                                 <LemonButton size="small" icon={<IconEllipsis />} />
                             </LemonMenu>
-                            // <More
-                            //     overlay={
-                            //         <>
-                            //             <LemonButton fullWidth>View</LemonButton>
-                            //             <LemonButton fullWidth>Edit</LemonButton>
-                            //             <LemonDivider />
-                            //             <LemonButton
-                            //                 status="danger"
-                            //                 type="tertiary"
-                            //                 size="xsmall"
-                            //                 fullWidth
-                            //                 onClick={() => {
-                            //                     LemonDialog.open({
-                            //                         title: `Permanently delete key "${key.label}"?`,
-                            //                         description:
-                            //                             'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
-                            //                         primaryButton: {
-                            //                             status: 'danger',
-                            //                             children: 'Permanently delete',
-                            //                             onClick: () => deleteKey(key.id),
-                            //                         },
-                            //                     })
-                            //                 }}
-                            //             >
-                            //                 Delete
-                            //             </LemonButton>
-                            //         </>
-                            //     }
-                            // />
                         )
                     },
                 },

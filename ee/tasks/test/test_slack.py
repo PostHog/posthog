@@ -1,4 +1,3 @@
-from typing import List
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
@@ -14,7 +13,7 @@ from posthog.models.subscription import Subscription
 from posthog.test.base import APIBaseTest
 
 
-def create_mock_unfurl_event(team_id: str, links: List[str]):
+def create_mock_unfurl_event(team_id: str, links: list[str]):
     return {
         "token": "XXYYZZ",
         "team_id": team_id,

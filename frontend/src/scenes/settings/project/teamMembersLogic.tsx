@@ -1,4 +1,4 @@
-import { actions, events, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -7,15 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import {
-    AvailableFeature,
-    BaseMemberType,
-    ExplicitTeamMemberType,
-    FusedTeamMemberType,
-    OrganizationMemberType,
-    UserBasicType,
-    UserType,
-} from '~/types'
+import { AvailableFeature, BaseMemberType, ExplicitTeamMemberType, FusedTeamMemberType, UserBasicType } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import { userLogic } from '../../userLogic'
@@ -70,12 +62,12 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             },
         },
     })),
-    selectors(({ selectors }) => ({
+    selectors(() => ({
         allMembers: [
-            () => [
+            (s) => [
                 teamLogic.selectors.currentTeam,
                 userLogic.selectors.hasAvailableFeature,
-                selectors.explicitMembers,
+                s.explicitMembers,
                 membersLogic.selectors.members,
             ],
             // Explicit project members joined with organization admins and owner (who get project access by default)
@@ -84,7 +76,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                     !currentTeam?.access_control ||
                     !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
                 ) {
-                    return organizationMembers.map(
+                    return (organizationMembers ?? []).map(
                         (member) =>
                             ({
                                 ...member,
@@ -93,7 +85,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                             } as FusedTeamMemberType)
                     )
                 }
-                return organizationMembers
+                return (organizationMembers ?? [])
                     .filter(({ level }) => level >= MINIMUM_IMPLICIT_ACCESS_LEVEL)
                     .map(
                         (member) =>
@@ -119,28 +111,24 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             },
         ],
         allMembersLoading: [
-            () => [selectors.explicitMembersLoading, membersLogic.selectors.membersLoading],
+            (s) => [s.explicitMembersLoading, membersLogic.selectors.membersLoading],
             (explicitMembersLoading, organizationMembersLoading) =>
                 explicitMembersLoading || organizationMembersLoading,
         ],
         admins: [
-            () => [selectors.allMembers],
+            (s) => [s.allMembers],
             (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level >= TeamMembershipLevel.Admin),
         ],
         plainMembers: [
-            () => [selectors.allMembers],
+            (s) => [s.allMembers],
             (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level < TeamMembershipLevel.Admin),
         ],
         addableMembers: [
-            () => [selectors.explicitMembers, membersLogic.selectors.members, userLogic.selectors.user],
+            (s) => [s.explicitMembers, membersLogic.selectors.members, userLogic.selectors.user],
             // Organization members processed to indicate if they can be added to the project or not
-            (
-                explicitMembers: ExplicitTeamMemberType[],
-                organizationMembers: OrganizationMemberType[],
-                currentUser: UserType
-            ): FusedTeamMemberType[] =>
-                organizationMembers
-                    .filter(({ user }) => user.uuid !== currentUser.uuid)
+            (explicitMembers, organizationMembers, currentUser): FusedTeamMemberType[] =>
+                (organizationMembers ?? [])
+                    .filter(({ user }) => user.uuid !== currentUser?.uuid)
                     .map((organizationMember) => {
                         const matchedExplicitMember = explicitMembers.find(
                             (explicitMember) => explicitMember.user.uuid === organizationMember.user.uuid
@@ -187,7 +175,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             actions.loadMembers()
         },
     })),
-    events(({ actions }) => ({
-        afterMount: actions.loadMembers,
-    })),
+    afterMount(({ actions }) => {
+        actions.loadMembers()
+        membersLogic.actions.ensureAllMembersLoaded()
+    }),
 ])

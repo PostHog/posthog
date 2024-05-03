@@ -1,13 +1,25 @@
+from datetime import datetime, timedelta, timezone
 from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from dateutil import parser
 from posthog.constants import ExperimentSignificanceCode
+from posthog.models.action.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries, FuzzyInt
+from posthog.test.base import (
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_insert_cohortpeople_queries,
+    snapshot_clickhouse_queries,
+    FuzzyInt,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -1134,6 +1146,540 @@ class TestExperimentCRUD(APILicensedTest):
         )
 
 
+class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
+    def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
+        ff_key = "a-b-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": start_date,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_1",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test_2",
+                            "name": "Test Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ],
+                    **(extra_parameters or {}),
+                },
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        return response
+
+    def test_create_exposure_cohort_for_experiment(self):
+        response = self._generate_experiment("2024-01-01T10:23")
+
+        created_experiment = response.json()["id"]
+
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "test_1"},
+                    },
+                ],
+                "personX": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "test_1"},
+                    },
+                ],
+                # out of time range
+                "person3": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2023-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                # wrong event
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2024-01-03"},
+                    {"event": "$pageleave", "timestamp": "2024-01-05"},
+                ],
+                # doesn't have feature value set
+                "person_out_of_end_date": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cohort = response.json()["cohort"]
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
+        self.assertEqual(cohort["experiment_set"], [created_experiment])
+
+        cohort_id = cohort["id"]
+
+        while cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            cohort = response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
+
+    def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self):
+        self.maxDiff = None
+
+        cohort_extra = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "value": "http://example.com",
+                            "type": "person",
+                        },
+                    ],
+                }
+            },
+            name="cohort_X",
+        )
+        response = self._generate_experiment(
+            "2024-01-01T10:23",
+            {
+                "custom_exposure_filter": {
+                    "events": [
+                        {
+                            "id": "custom_exposure_event",
+                            "order": 0,
+                            "entity_type": "events",
+                            "properties": [
+                                {"key": "bonk", "value": "bonk"},
+                                {"key": "id", "value": cohort_extra.id, "type": "cohort"},
+                                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                {"key": "bonk-person", "value": "bonk", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                }
+            },
+        )
+
+        created_experiment = response.json()["id"]
+
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$current_url": "x", "bonk": "bonk"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$current_url": "y", "bonk": "bonk"},
+                    },
+                ],
+                "person2-no-bonk": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$current_url": "y"},
+                    },
+                ],
+                "person2-not-in-prop": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$current_url": "yxxxx"},
+                    },
+                ],
+                "personX": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "test_1"},
+                    },
+                ],
+                # out of time range
+                "person3": [
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2023-01-02",
+                        "properties": {"$current_url": "y"},
+                    },
+                ],
+                # wrong event
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2024-01-03"},
+                    {"event": "$pageleave", "timestamp": "2024-01-05"},
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cohort = response.json()["cohort"]
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
+        self.assertEqual(cohort["experiment_set"], [created_experiment])
+        self.assertEqual(
+            cohort["filters"],
+            {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "event_filters": [
+                                        {"key": "bonk", "type": "event", "value": "bonk"},
+                                        {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                    ],
+                                    "event_type": "events",
+                                    "explicit_datetime": "2024-01-01T10:23:00+00:00",
+                                    "key": "custom_exposure_event",
+                                    "negation": False,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        cohort_id = cohort["id"]
+
+        while cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            cohort = response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
+
+    @snapshot_clickhouse_insert_cohortpeople_queries
+    def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
+        cohort_extra = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "value": "http://example.com",
+                            "type": "person",
+                        },
+                    ],
+                }
+            },
+            name="cohort_X",
+        )
+        cohort_extra.calculate_people_ch(pending_version=1)
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
+                {
+                    "key": "insight",
+                    "type": "event",
+                    "value": ["RETENTION"],
+                    "operator": "exact",
+                },
+                {
+                    "key": "id",
+                    "value": cohort_extra.id,
+                    "type": "cohort",
+                },
+            ],
+        )
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
+                {
+                    "key": "filters_count",
+                    "type": "event",
+                    "value": "1",
+                    "operator": "gt",
+                }
+            ],
+        )
+        ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="/123",
+            url_matching=ActionStep.REGEX,
+        )
+        response = self._generate_experiment(
+            datetime.now() - timedelta(days=5),
+            {
+                "custom_exposure_filter": {
+                    "actions": [
+                        {
+                            "id": str(action1.id),  # should support string ids
+                            "order": 0,
+                            "entity_type": "actions",
+                            "properties": [
+                                {"key": "bonk", "value": "bonk"},
+                                {"key": "id", "value": cohort_extra.id, "type": "cohort"},
+                                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                {"key": "bonk-person", "value": "bonk", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                }
+            },
+        )
+
+        created_experiment = response.json()["id"]
+
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "insight viewed",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {"$current_url": "x", "bonk": "bonk", "filters_count": 2},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "insight viewed",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {
+                            "$current_url": "y",
+                            "bonk": "bonk",
+                            "insight": "RETENTION",
+                        },  # missing pageview person property
+                    },
+                ],
+                "person2-no-bonk": [
+                    {
+                        "event": "insight viewed",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {"$current_url": "y", "filters_count": 3},
+                    },
+                ],
+                "person2-not-in-prop": [
+                    {
+                        "event": "$autocapture",
+                        "timestamp": datetime.now() - timedelta(days=2),
+                        "properties": {
+                            "$current_url": "https://posthog.com/feedback/1234"
+                        },  # can't match because clashing current_url filters
+                    },
+                ],
+            },
+            self.team,
+        )
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"$pageview": "http://example.com"},
+        )
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="1",
+            properties={"insight": "RETENTION", "$current_url": "x", "bonk": "bonk"},
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        _create_person(
+            distinct_ids=["2"],
+            team_id=self.team.pk,
+            properties={"$pageview": "http://example.com"},
+        )
+        _create_event(
+            event="insight viewed",
+            team=self.team,
+            distinct_id="2",
+            properties={"insight": "RETENTION", "$current_url": "x"},
+            timestamp=datetime.now() - timedelta(days=2),
+        )
+        flush_persons_and_events()
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        cohort = response.json()["cohort"]
+        self.assertEqual(cohort["name"], 'Users exposed to experiment "Test Experiment"')
+        self.assertEqual(cohort["experiment_set"], [created_experiment])
+
+        self.maxDiff = None
+        target_filter = cohort["filters"]["properties"]["values"][0]["values"][0]
+        self.assertEqual(
+            target_filter["event_filters"],
+            [
+                {"key": "bonk", "type": "event", "value": "bonk"},
+                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+            ],
+            cohort["filters"],
+        )
+        self.assertEqual(
+            target_filter["event_type"],
+            "actions",
+        )
+        self.assertEqual(
+            target_filter["key"],
+            action1.id,
+        )
+        self.assertEqual(
+            target_filter["type"],
+            "behavioral",
+        )
+        self.assertEqual(
+            target_filter["value"],
+            "performed_event",
+        )
+        explicit_datetime = parser.isoparse(target_filter["explicit_datetime"])
+
+        self.assertTrue(
+            explicit_datetime <= datetime.now(timezone.utc) - timedelta(days=5)
+            and explicit_datetime >= datetime.now(timezone.utc) - timedelta(days=5, hours=1)
+        )
+
+        cohort_id = cohort["id"]
+
+        while cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+            cohort = response.json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["1", "person1"], sorted([res["name"] for res in response.json()["results"]]))
+
+    def test_create_exposure_cohort_for_experiment_with_invalid_action_filters_exposure(self):
+        response = self._generate_experiment(
+            "2024-01-01T10:23",
+            {
+                "custom_exposure_filter": {
+                    "actions": [
+                        {
+                            "id": "oogabooga",
+                            "order": 0,
+                            "entity_type": "actions",
+                            "properties": [
+                                {"key": "bonk", "value": "bonk"},
+                                {"key": "properties.$current_url in ('x', 'y')", "type": "hogql"},
+                                {"key": "bonk-person", "value": "bonk", "type": "person"},
+                            ],
+                        }
+                    ],
+                    "filter_test_accounts": False,
+                }
+            },
+        )
+
+        created_experiment = response.json()["id"]
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Invalid action ID")
+
+    def test_create_exposure_cohort_for_experiment_with_draft_experiment(self):
+        response = self._generate_experiment(None)
+
+        created_experiment = response.json()["id"]
+
+        # now call to make cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Experiment does not have a start date")
+
+    def test_create_exposure_cohort_for_experiment_with_existing_cohort(self):
+        response = self._generate_experiment()
+
+        created_experiment = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # now call to make cohort again
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+            {},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Experiment already has an exposure cohort")
+
+
 @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
@@ -1387,6 +1933,169 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     ],
                     "properties": [],
                     "funnel_aggregate_by_hogql": "properties.$account_id",
+                },
+            },
+        )
+
+        id = response.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
+        self.assertEqual(200, response.status_code)
+
+        response_data = response.json()["result"]
+        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
+
+        self.assertEqual(result[0][0]["name"], "$pageview")
+        self.assertEqual(result[0][0]["count"], 2)
+        self.assertEqual("control", result[0][0]["breakdown_value"][0])
+
+        self.assertEqual(result[0][1]["name"], "$pageleave")
+        self.assertEqual(result[0][1]["count"], 2)
+        self.assertEqual("control", result[0][1]["breakdown_value"][0])
+
+        self.assertEqual(result[1][0]["name"], "$pageview")
+        self.assertEqual(result[1][0]["count"], 3)
+        self.assertEqual("test", result[1][0]["breakdown_value"][0])
+
+        self.assertEqual(result[1][1]["name"], "$pageleave")
+        self.assertEqual(result[1][1]["count"], 1)
+        self.assertEqual("test", result[1][1]["breakdown_value"][0])
+
+        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
+        # The variant has very low probability of being better.
+        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
+        self.assertEqual(
+            response_data["significance_code"],
+            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
+        )
+        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
+
+    def test_experiment_with_test_account_filters(self):
+        self.team.test_account_filters = [
+            {
+                "key": "exclude",
+                "type": "event",
+                "value": "yes",
+                "operator": "is_not_set",
+            }
+        ]
+        self.team.save()
+
+        journeys_for(
+            {
+                "person1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
+                    },
+                ],
+                "person2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                "person3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                "person3_exclude": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
+                    },
+                ],
+                # doesn't have feature set
+                "person_out_of_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-03"},
+                    {"event": "$pageleave", "timestamp": "2020-01-05"},
+                ],
+                "person_out_of_end_date": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-08-03",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-08-05",
+                        "properties": {"$feature/a-b-test": "control"},
+                    },
+                ],
+                # non-converters with FF
+                "person4": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+                "person5": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "test"},
+                    }
+                ],
+            },
+            self.team,
+        )
+
+        ff_key = "a-b-test"
+        # generates the FF which should result in the above events^
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2020-01-01T00:00",
+                "end_date": "2020-01-06T00:00",
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "filter_test_accounts": True,
+                    "insight": "funnels",
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
                 },
             },
         )
@@ -1936,6 +2645,16 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
 class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
+        self.team.test_account_filters = [
+            {
+                "key": "exclude",
+                "type": "event",
+                "value": "yes",
+                "operator": "is_not_set",
+            }
+        ]
+        self.team.save()
+
         journeys_for(
             {
                 "person1": [
@@ -1965,6 +2684,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test"},
                     },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
@@ -1982,6 +2706,15 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                             "$feature_flag_response": "test",
                         },
                     },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "test",
+                            "exclude": "yes",
+                        },
+                    },
                 ],
                 "person2": [
                     {
@@ -1990,6 +2723,15 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "properties": {
                             "$feature_flag": "a-b-test",
                             "$feature_flag_response": "control",
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2020-01-02",
+                        "properties": {
+                            "$feature_flag": "a-b-test",
+                            "$feature_flag_response": "control",
+                            "exclude": "yes",
                         },
                     },
                     # 1 exposure, but more absolute counts
@@ -2007,6 +2749,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "event": "$pageview",
                         "timestamp": "2020-01-05",
                         "properties": {"$feature/a-b-test": "control"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-05",
+                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
                     },
                 ],
                 "person3": [
@@ -2077,6 +2824,7 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                 "filters": {
                     "insight": "TRENDS",
                     "events": [{"order": 0, "id": "$pageview"}],
+                    "filter_test_accounts": True,
                 },
             },
         )
@@ -2101,6 +2849,16 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
         self.assertFalse(response_data["significant"])
 
     def test_experiment_flow_with_event_results_with_custom_exposure(self):
+        self.team.test_account_filters = [
+            {
+                "key": "exclude",
+                "type": "event",
+                "value": "yes",
+                "operator": "is_not_set",
+            }
+        ]
+        self.team.save()
+
         journeys_for(
             {
                 "person1": [
@@ -2130,6 +2888,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "timestamp": "2020-01-02",
                         "properties": {"$feature/a-b-test": "test"},
                     },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
+                    },
                     # exposure measured via $feature_flag_called events
                     {
                         "event": "$feature_flag_called",
@@ -2155,6 +2918,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                     {
                         "event": "custom_exposure_event",
                         "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk", "exclude": "yes"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
                         "properties": {
                             "$feature/a-b-test": "control",
                             "bonk": "no-bonk",
@@ -2166,6 +2934,11 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                         "event": "custom_exposure_event",
                         "timestamp": "2020-01-03",
                         "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
+                    },
+                    {
+                        "event": "custom_exposure_event",
+                        "timestamp": "2020-01-03",
+                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk", "exclude": "yes"},
                     },
                     # 1 exposure, but more absolute counts
                     {
@@ -2258,11 +3031,13 @@ class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest)
                                 "properties": [{"key": "bonk", "value": "bonk"}],
                             }
                         ],
+                        "filter_test_accounts": True,
                     }
                 },
                 "filters": {
                     "insight": "TRENDS",
                     "events": [{"order": 0, "id": "$pageview"}],
+                    "filter_test_accounts": True,
                 },
             },
         )

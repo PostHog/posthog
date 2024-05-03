@@ -2,16 +2,16 @@ import './EmptyStates.scss'
 
 // eslint-disable-next-line no-restricted-imports
 import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
-import { IconPlus, IconWarning } from '@posthog/icons'
+import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconErrorOutline, IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { posthog } from 'posthog-js'
+import posthog from 'posthog-js'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, Node } from '~/queries/schema'
 import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
@@ -100,10 +100,10 @@ export function InsightTimeoutState({
                     </div>
                     <p className="text-xs m-0 leading-5">
                         {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
-                            <>
+                            <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
                                 <SamplingLink insightProps={insightProps} />.
-                            </>
+                            </span>
                         ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
@@ -139,10 +139,11 @@ export function InsightTimeoutState({
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    query?: Record<string, any> | Node | null
     queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, query, queryId }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -181,6 +182,18 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                     </div>
                 )}
                 {queryId ? <div className="text-muted text-xs text-center">Query ID: {queryId}</div> : null}
+                {query && (
+                    <LemonButton
+                        data-attr="insight-error-query"
+                        targetBlank
+                        size="small"
+                        type="secondary"
+                        to={urls.debugQuery(query)}
+                        className="mt-4"
+                    >
+                        Open in query debugger
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -243,19 +256,38 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
-export function InsightValidationError({ detail }: { detail: string }): JSX.Element {
+export function InsightValidationError({
+    detail,
+    query,
+}: {
+    detail: string
+    query?: Record<string, any> | null
+}): JSX.Element {
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
                     <IconWarning />
                 </div>
-                <h2 className="text-xl leading-tight">
+                <h2 className="text-xl leading-tight" data-attr="insight-loading-too-long">
                     There is a problem with this query
                     {/* Note that this phrasing above signals the issue is not intermittent, */}
                     {/* but rather that it's something with the definition of the query itself */}
                 </h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
+                {query ? (
+                    <p className="text-center text-balance">
+                        <LemonButton
+                            data-attr="insight-error-query"
+                            targetBlank
+                            size="small"
+                            type="secondary"
+                            to={urls.debugQuery(query)}
+                        >
+                            Open in query debugger
+                        </LemonButton>
+                    </p>
+                ) : null}
                 {detail.includes('Exclusion') && (
                     <div className="mt-4">
                         <Link

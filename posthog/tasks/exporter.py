@@ -6,6 +6,7 @@ from prometheus_client import Counter, Histogram
 from django.db import transaction
 
 from posthog import settings
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import ExportedAsset
 from posthog.tasks.utils import CeleryQueue
 
@@ -43,6 +44,10 @@ EXPORT_TIMER = Histogram(
     ignore_result=False,
     time_limit=settings.ASSET_GENERATION_MAX_TIMEOUT_SECONDS,
     queue=CeleryQueue.EXPORTS.value,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=1,
+    retry_backoff_max=3,
+    max_retries=3,
 )
 @transaction.atomic
 def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
@@ -55,9 +60,8 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
         pk=exported_asset_id
     )
 
-    is_csv_export = exported_asset.export_format == ExportedAsset.ExportFormat.CSV
-    if is_csv_export:
-        csv_exporter.export_csv(exported_asset, limit=limit)
+    if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+        csv_exporter.export_tabular(exported_asset, limit=limit)
         EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
     else:
         image_exporter.export_image(exported_asset)

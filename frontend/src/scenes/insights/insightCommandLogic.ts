@@ -1,6 +1,6 @@
+import { IconTrending } from '@posthog/icons'
 import { connect, events, kea, key, path, props } from 'kea'
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { IconTrendingUp } from 'lib/lemon-ui/icons'
 import { dateMapping } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -24,7 +24,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                     key: 'insight-graph',
                     resolver: [
                         {
-                            icon: IconTrendingUp,
+                            icon: IconTrending,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
                                 const compare = insightVizDataLogic(props).values.compare
@@ -32,7 +32,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                             },
                         },
                         ...dateMapping.map(({ key, values }) => ({
-                            icon: IconTrendingUp,
+                            icon: IconTrending,
                             display: `Set Time Range to ${key}`,
                             executor: () => {
                                 insightVizDataLogic(props).actions.updateDateRange({

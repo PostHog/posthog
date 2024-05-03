@@ -1,11 +1,12 @@
 import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+import HTTPIcon from 'public/hedgehog/running-hog.png'
 import BigQueryIcon from 'public/pipeline/BigQuery.png'
 import PostgresIcon from 'public/pipeline/Postgres.png'
 import RedshiftIcon from 'public/pipeline/Redshift.svg'
@@ -16,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
-    BatchExportDestination,
+    BatchExportService,
     PipelineNodeTab,
     PipelineStage,
     PluginConfigTypeNew,
@@ -30,7 +31,7 @@ import {
     Destination,
     ImportApp,
     PipelineBackend,
-    PluginBasedStepBase,
+    PluginBasedNode,
     SiteApp,
     Transformation,
     WebhookDestination,
@@ -74,7 +75,7 @@ const GLOBAL_EXPORT_PLUGINS = [
     'https://github.com/PostHog/rudderstack-posthog-plugin',
     'https://github.com/PostHog/salesforce-plugin',
     'https://github.com/PostHog/sendgrid-plugin',
-    'https://github.com/posthog/posthog-plugin-replicator',
+    'https://github.com/PostHog/posthog-loops-plugin',
 ]
 export const GLOBAL_PLUGINS = new Set([...PLUGINS_ALLOWED_WITHOUT_DATA_PIPELINES_ARR, ...GLOBAL_EXPORT_PLUGINS])
 
@@ -149,13 +150,14 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     )
 }
 
-export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['type'] }): JSX.Element {
+export function RenderBatchExportIcon({ type }: { type: BatchExportService['type'] }): JSX.Element {
     const icon = {
         BigQuery: BigQueryIcon,
         Postgres: PostgresIcon,
         Redshift: RedshiftIcon,
         S3: S3Icon,
         Snowflake: SnowflakeIcon,
+        HTTP: HTTPIcon,
     }[type]
 
     return (
@@ -253,20 +255,13 @@ export function nameColumn<
         sticky: true,
         render: function RenderName(_, pipelineNode) {
             return (
-                <>
-                    <Tooltip title="Click to update configuration, view metrics, and more">
-                        <Link
-                            to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
-                        >
-                            <span className="row-name">{pipelineNode.name}</span>
-                        </Link>
-                    </Tooltip>
-                    {pipelineNode.description && (
-                        <LemonMarkdown className="row-description" lowKeyHeadings>
-                            {pipelineNode.description}
-                        </LemonMarkdown>
-                    )}
-                </>
+                <Tooltip title="Click to update configuration, view metrics, and more">
+                    <LemonTableLink
+                        to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
+                        title={pipelineNode.name}
+                        description={pipelineNode.description}
+                    />
+                </Tooltip>
             )
         },
     }
@@ -280,7 +275,7 @@ export function appColumn<T extends { plugin: Transformation['plugin'] }>(): Lem
     }
 }
 
-function pluginMenuItems(node: PluginBasedStepBase): LemonMenuItem[] {
+function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
     if (node.plugin?.url) {
         return [
             {
@@ -303,6 +298,7 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         },
         {
             label: 'View metrics',
+            status: 'danger',
             to: urls.pipelineNode(node.stage, node.id, PipelineNodeTab.Metrics),
         },
         {
@@ -325,26 +321,21 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
 
     return [
-        ...(!inOverview
-            ? [
-                  {
-                      label: node.enabled ? 'Disable app' : 'Enable app',
-                      onClick: () =>
-                          toggleEnabled({
-                              enabled: !node.enabled,
-                              id: node.id,
-                          }),
-                      disabledReason: canConfigurePlugins
-                          ? undefined
-                          : 'You do not have permission to enable/disable apps.',
-                  },
-              ]
-            : []),
+        {
+            label: node.enabled ? 'Disable app' : 'Enable app',
+            onClick: () =>
+                toggleEnabled({
+                    enabled: !node.enabled,
+                    id: node.id,
+                }),
+            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
+        },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
                   {
                       label: 'Delete app',
+                      status: 'danger' as const, // for typechecker happiness
                       onClick: () => {
                           void deleteWithUndo({
                               endpoint: `plugin_config`,
@@ -355,7 +346,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                               callback: loadPluginConfigs,
                           })
                       },
-                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete apps.',
+                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
                   },
               ]
             : []),

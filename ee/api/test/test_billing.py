@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -22,7 +22,7 @@ from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
 
-def create_billing_response(**kwargs) -> Dict[str, Any]:
+def create_billing_response(**kwargs) -> dict[str, Any]:
     data: Any = {"license": {"type": "cloud"}}
     data.update(kwargs)
     return data
@@ -88,6 +88,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                usage_key="events",
             )
         ],
         billing_period=BillingPeriod(
@@ -105,7 +106,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
     return data
 
 
-def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct]]:
+def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct]]:
     data: Any = {
         "products": [
             CustomerProduct(
@@ -136,6 +137,7 @@ def create_billing_products_response(**kwargs) -> Dict[str, List[CustomerProduct
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                usage_key="events",
             )
         ]
     }
@@ -285,6 +287,7 @@ class TestBillingAPI(APILicensedTest):
                     "unit_amount_usd": "0.00",
                     "projected_amount_usd": "0.00",
                     "projected_usage": 0,
+                    "usage_key": "events",
                 }
             ],
             "billing_period": {
@@ -357,6 +360,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage_limit": None,
                     "image_url": "https://posthog.com/static/images/product-os.png",
                     "percentage_usage": 0.0,
+                    "usage_key": "events",
                 }
             ],
             "billing_period": {

@@ -339,8 +339,12 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
           }
         : undefined
 
-    const redis = new Redis(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, {
-        ...credentials,
+    return createRedisClient(credentials ? serverConfig.POSTHOG_REDIS_HOST : serverConfig.REDIS_URL, credentials)
+}
+
+export async function createRedisClient(url: string, options?: RedisOptions): Promise<Redis.Redis> {
+    const redis = new Redis(url, {
+        ...options,
         maxRetriesPerRequest: -1,
     })
     let errorCounter = 0
@@ -395,10 +399,16 @@ export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): st
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(connectionString: string, poolSize: number, onError?: (error: Error) => any): Pool {
+export function createPostgresPool(
+    connectionString: string,
+    poolSize: number,
+    applicationName: string,
+    onError?: (error: Error) => any
+): Pool {
     const pgPool = new Pool({
         connectionString,
         idleTimeoutMillis: 500,
+        application_name: applicationName,
         max: poolSize,
         ssl: process.env.DYNO // Means we are on Heroku
             ? {

@@ -1,5 +1,5 @@
 import json
-from typing import List, Any
+from typing import Any
 
 from django.db import models
 from django.db.models import Q
@@ -7,7 +7,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import BaseHogQLError
 from posthog.models.signals import mutable_receiver
 from posthog.redis import get_client
 
@@ -51,10 +51,10 @@ class Action(models.Model):
             "deleted": self.deleted,
         }
 
-    def get_step_events(self) -> List[str]:
+    def get_step_events(self) -> list[str]:
         return [action_step.event for action_step in self.steps.all()]
 
-    def generate_bytecode(self) -> List[Any]:
+    def generate_bytecode(self) -> list[Any]:
         from posthog.hogql.property import action_to_expr
         from posthog.hogql.bytecode import create_bytecode
 
@@ -67,7 +67,7 @@ class Action(models.Model):
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
                 self.save(update_fields=["bytecode", "bytecode_error"])
-        except HogQLException as e:
+        except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
             # Sentry with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):

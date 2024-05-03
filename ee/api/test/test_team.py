@@ -226,7 +226,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.team.refresh_from_db()
 
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-        self.assertEqual(self.team.name, "Default Project")
+        self.assertEqual(self.team.name, "Default project")
 
     def test_rename_private_project_current_as_org_outsider_forbidden(self):
         self.organization_membership.delete()
@@ -368,7 +368,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertDictContainsSubset(
             {
-                "name": "Default Project",
+                "name": "Default project",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
             },
@@ -385,7 +385,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertDictContainsSubset(
             {
-                "name": "Default Project",
+                "name": "Default project",
                 "access_control": False,
                 "effective_membership_level": OrganizationMembership.Level.MEMBER,
             },
@@ -424,7 +424,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertDictContainsSubset(
             {
-                "name": "Default Project",
+                "name": "Default project",
                 "access_control": True,
                 "effective_membership_level": OrganizationMembership.Level.MEMBER,
             },
@@ -448,7 +448,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_200_OK)
         self.assertDictContainsSubset(
             {
-                "name": "Default Project",
+                "name": "Default project",
                 "access_control": True,
                 "effective_membership_level": OrganizationMembership.Level.ADMIN,
             },

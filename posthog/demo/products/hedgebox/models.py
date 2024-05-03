@@ -5,11 +5,7 @@ from enum import Enum, auto
 from typing import (
     TYPE_CHECKING,
     Any,
-    Dict,
-    List,
     Optional,
-    Set,
-    Tuple,
     cast,
 )
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -18,7 +14,36 @@ from zoneinfo import ZoneInfo
 import pytz
 
 from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
-from .taxonomy import *
+from .taxonomy import (
+    EVENT_SIGNED_UP,
+    EVENT_LOGGED_IN,
+    EVENT_UPLOADED_FILE,
+    EVENT_DOWNLOADED_FILE,
+    EVENT_DELETED_FILE,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_UPGRADED_PLAN,
+    EVENT_PAID_BILL,
+    EVENT_DOWNGRADED_PLAN,
+    EVENT_INVITED_TEAM_MEMBER,
+    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_LOGGED_OUT,
+    URL_HOME,
+    URL_SIGNUP,
+    URL_LOGIN,
+    URL_MARIUS_TECH_TIPS,
+    URL_PRICING,
+    URL_FILES,
+    URL_ACCOUNT_SETTINGS,
+    URL_ACCOUNT_BILLING,
+    URL_ACCOUNT_TEAM,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    SIGNUP_SUCCESS_RATE_TEST,
+    SIGNUP_SUCCESS_RATE_CONTROL,
+    GROUP_TYPE_ACCOUNT,
+    dyn_url_file,
+    dyn_url_invite,
+)
 
 if TYPE_CHECKING:
     from posthog.demo.products.hedgebox.matrix import HedgeboxCluster
@@ -85,9 +110,9 @@ class HedgeboxFile:
 class HedgeboxAccount:
     id: str
     created_at: dt.datetime
-    team_members: Set["HedgeboxPerson"]
+    team_members: set["HedgeboxPerson"]
     plan: HedgeboxPlan
-    files: Set[HedgeboxFile] = field(default_factory=set)
+    files: set[HedgeboxFile] = field(default_factory=set)
     was_billing_scheduled: bool = field(default=False)
 
     @property
@@ -218,7 +243,7 @@ class HedgeboxPerson(SimPerson):
 
     # Abstract methods
 
-    def decide_feature_flags(self) -> Dict[str, Any]:
+    def decide_feature_flags(self) -> dict[str, Any]:
         if (
             self.cluster.simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
             and self.cluster.simulation_time < self.cluster.matrix.new_signup_page_experiment_end
@@ -263,7 +288,7 @@ class HedgeboxPerson(SimPerson):
             # Very low affinity users aren't interested
             # Non-kernel business users can't log in or sign up
             return None
-        possible_intents_with_weights: List[Tuple[HedgeboxSessionIntent, float]] = []
+        possible_intents_with_weights: list[tuple[HedgeboxSessionIntent, float]] = []
         if self.invite_to_use_id:
             possible_intents_with_weights.append((HedgeboxSessionIntent.JOIN_TEAM, 1))
         elif self.file_to_view:
@@ -313,8 +338,8 @@ class HedgeboxPerson(SimPerson):
         if possible_intents_with_weights:
             possible_intents, weights = zip(*possible_intents_with_weights)
             return self.cluster.random.choices(
-                cast(Tuple[HedgeboxSessionIntent], possible_intents),
-                cast(Tuple[float], weights),
+                cast(tuple[HedgeboxSessionIntent], possible_intents),
+                cast(tuple[float], weights),
             )[0]
         else:
             return None
@@ -778,10 +803,10 @@ class HedgeboxPerson(SimPerson):
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
 
     @property
-    def invitable_neighbors(self) -> List["HedgeboxPerson"]:
+    def invitable_neighbors(self) -> list["HedgeboxPerson"]:
         return [
             neighbor
-            for neighbor in cast(List[HedgeboxPerson], self.cluster.list_neighbors(self))
+            for neighbor in cast(list[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]
 

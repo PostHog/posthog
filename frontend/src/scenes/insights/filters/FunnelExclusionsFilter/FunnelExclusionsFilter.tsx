@@ -9,6 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { ActionsNode, EventsNode } from '~/queries/schema'
 import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'
@@ -27,7 +28,9 @@ export function FunnelExclusionsFilter(): JSX.Element {
 
     const setFilters = (filters: Partial<FilterType>): void => {
         const exclusions = filters.events?.map((entity) => {
-            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None)
+            const baseEntity = legacyEntityToNode(entity as ActionFilterType, false, MathAvailability.None) as
+                | EventsNode
+                | ActionsNode
             return { ...baseEntity, funnelFromStep: entity.funnel_from_step, funnelToStep: entity.funnel_to_step }
         })
         updateInsightFilter({ exclusions })

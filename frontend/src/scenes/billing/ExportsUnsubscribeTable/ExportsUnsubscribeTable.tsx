@@ -1,8 +1,8 @@
 import { IconCheckCircle } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { exportsUnsubscribeTableLogic } from './exportsUnsubscribeTableLogic'
@@ -23,21 +23,17 @@ export function ExportsUnsubscribeTable(): JSX.Element {
             loading={loading}
             columns={[
                 {
-                    title: 'App name',
+                    width: 0,
                     render: function RenderAppInfo(_, item) {
                         return item.icon
                     },
                 },
                 {
+                    title: 'App name',
                     render: function RenderPluginName(_, item) {
                         return (
                             <>
-                                <span className="row-name">{item.name}</span>
-                                {item.description && (
-                                    <LemonMarkdown className="row-description" lowKeyHeadings>
-                                        {item.description}
-                                    </LemonMarkdown>
-                                )}
+                                <LemonTableLink to={item.url} title={item.name} description={item.description} />
                             </>
                         )
                     },

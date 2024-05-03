@@ -106,6 +106,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.Events ||
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType === TaxonomicFilterGroupType.Metadata ||
+        listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -151,6 +152,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.Elements,
             TaxonomicFilterGroupType.Events,
+            TaxonomicFilterGroupType.DataWarehouse,
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
@@ -159,16 +161,20 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.Cohorts,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
             TaxonomicFilterGroupType.Metadata,
+            TaxonomicFilterGroupType.SessionProperties,
         ].includes(listGroupType) ||
             listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
+}
+
+const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
+    return !!listGroupType && ![TaxonomicFilterGroupType.DataWarehouse].includes(listGroupType)
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
-
     const {
         isLoading,
         results,
@@ -218,7 +224,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             <div
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
-                onClick={() => selectItem(group, itemValue ?? null, item)}
+                onClick={() => {
+                    return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
+                }}
             >
                 {renderItemContents({
                     item,

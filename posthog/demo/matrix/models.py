@@ -8,17 +8,12 @@ from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    DefaultDict,
-    Dict,
     Generic,
-    Iterable,
-    List,
     Literal,
     Optional,
-    Set,
     TypeVar,
 )
+from collections.abc import Callable, Iterable
 from urllib.parse import urlparse, parse_qs
 from uuid import UUID
 
@@ -77,7 +72,7 @@ PROPERTIES_WITH_IMPLICIT_INITIAL_VALUE_TRACKING = {
     "$referrer",
 }
 
-Properties = Dict[str, Any]
+Properties = dict[str, Any]
 
 
 class SimSessionIntent(Enum):
@@ -330,23 +325,23 @@ class SimPerson(ABC):
     timezone: str
 
     # Exposed state - present
-    past_events: List[SimEvent]
-    future_events: List[SimEvent]
+    past_events: list[SimEvent]
+    future_events: list[SimEvent]
 
     # Exposed state - at `now`
-    distinct_ids_at_now: Set[str]
+    distinct_ids_at_now: set[str]
     properties_at_now: Properties
     first_seen_at: Optional[dt.datetime]
     last_seen_at: Optional[dt.datetime]
 
     # Internal state
     active_client: SimBrowserClient  # Client being used by person
-    all_time_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across all time
-    session_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across the ongoing session
+    all_time_pageview_counts: defaultdict[str, int]  # Pageview count per URL across all time
+    session_pageview_counts: defaultdict[str, int]  # Pageview count per URL across the ongoing session
     active_session_intent: Optional[SimSessionIntent]
     wake_up_by: dt.datetime
-    _groups: Dict[str, str]
-    _distinct_ids: Set[str]
+    _groups: dict[str, str]
+    _distinct_ids: set[str]
     _properties: Properties
 
     def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
@@ -397,7 +392,7 @@ class SimPerson(ABC):
 
     # Abstract methods
 
-    def decide_feature_flags(self) -> Dict[str, Any]:
+    def decide_feature_flags(self) -> dict[str, Any]:
         """Determine feature flags in force at present."""
         return {}
 

@@ -1,20 +1,10 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { decideResponse } from '../fixtures/api/decide'
 import { savedInsights, createInsight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    hogql: true,
-                    'data-exploration-insights': true,
-                })
-            )
-        )
-
         cy.visit(urls.insightNew())
     })
 
@@ -57,7 +47,7 @@ describe('Insights', () => {
 
             cy.get('[data-attr="insight-save-dropdown"]').click()
             cy.get('[data-attr="insight-save-as-new-insight"]').click()
-            cy.get('.ant-modal-content .ant-btn-primary').click()
+            cy.get('button[type=submit]').click()
             cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)
 
             savedInsights.checkInsightIsInListView(`${insightName} (copy)`)

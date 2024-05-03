@@ -12,7 +12,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
@@ -46,12 +46,13 @@ export function Cohorts(): JSX.Element {
             render: function Render(name, { id, description }) {
                 return (
                     <>
-                        <Link to={combineUrl(urls.cohort(id), searchParams).url} className="row-name">
-                            {name || 'Untitled'}
-                        </Link>
-                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
-                            <span className="row-description">{description}</span>
-                        )}
+                        <LemonTableLink
+                            to={combineUrl(urls.cohort(id), searchParams).url}
+                            title={name ? <>{name}</> : 'Untitled'}
+                            description={
+                                hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) ? description : undefined
+                            }
+                        />
                     </>
                 )
             },

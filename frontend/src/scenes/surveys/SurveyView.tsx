@@ -1,17 +1,15 @@
 import './SurveyView.scss'
 
 import { TZLabel } from '@posthog/apps-common'
+import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconBarChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -35,9 +33,17 @@ import {
 } from './surveyViewViz'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, setSelectedQuestion } =
-        useActions(surveyLogic)
+    const { survey, surveyLoading, selectedQuestion, targetingFlagFilters } = useValues(surveyLogic)
+    const {
+        editingSurvey,
+        updateSurvey,
+        launchSurvey,
+        stopSurvey,
+        archiveSurvey,
+        resumeSurvey,
+        setSelectedQuestion,
+        duplicateSurvey,
+    } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -45,6 +51,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
+        } else {
+            setTabKey('overview')
         }
     }, [survey.start_date])
 
@@ -68,10 +76,21 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
+                                                <LemonButton
+                                                    data-attr="duplicate-survey"
+                                                    fullWidth
+                                                    onClick={duplicateSurvey}
+                                                >
+                                                    Duplicate
+                                                </LemonButton>
                                                 <LemonDivider />
                                             </>
                                             {survey.end_date && !survey.archived && (
-                                                <LemonButton onClick={() => archiveSurvey()} fullWidth>
+                                                <LemonButton
+                                                    data-attr="archive-survey"
+                                                    onClick={() => archiveSurvey()}
+                                                    fullWidth
+                                                >
                                                     Archive
                                                 </LemonButton>
                                             )}
@@ -103,7 +122,12 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     </LemonButton>
                                 ) : (
                                     !survey.archived && (
-                                        <LemonButton type="secondary" status="danger" onClick={() => stopSurvey()}>
+                                        <LemonButton
+                                            data-attr="stop-survey"
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={() => stopSurvey()}
+                                        >
                                             Stop
                                         </LemonButton>
                                     )
@@ -193,11 +217,20 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
+                                            {survey.responses_limit && (
+                                                <>
+                                                    <span className="card-secondary mt-4">Completion conditions</span>
+                                                    <span>
+                                                        The survey will be stopped once <b>{survey.responses_limit}</b>{' '}
+                                                        responses are received.
+                                                    </span>
+                                                </>
+                                            )}
                                             <LemonDivider />
                                             <SurveyReleaseSummary
                                                 id={id}
                                                 survey={survey}
-                                                hasTargetingFlag={!!survey.targeting_flag}
+                                                targetingFlagFilters={targetingFlagFilters}
                                             />
                                         </div>
                                         <div className="w-full flex flex-col items-center">
@@ -217,7 +250,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 </div>
                                             )}
                                             {survey.type !== SurveyType.API ? (
-                                                <div className="mt-6 max-w-80">
+                                                <div className="mt-6 max-w-72">
                                                     <SurveyFormAppearance
                                                         activePreview={selectedQuestion || 0}
                                                         survey={survey}
@@ -260,7 +293,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
     } = useValues(surveyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -274,10 +306,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
                                         <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_RESULTS_VISUALIZATIONS] && (
-                                            // TODO: rework this to show nps scores over time
-                                            <SurveyNPSResults survey={survey as Survey} />
-                                        )}
+                                        {/* TODO: rework this to show nps scores over time */}
+                                        <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}
                                 <RatingQuestionBarChart
@@ -322,7 +352,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                 <LemonButton
                     type="primary"
                     data-attr="survey-results-explore"
-                    icon={<IconBarChart />}
+                    icon={<IconGraph />}
                     to={urls.insightNew({
                         insight: InsightType.TRENDS,
                         events: [

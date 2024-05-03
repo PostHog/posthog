@@ -1,7 +1,7 @@
 import dataclasses
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, NamedTuple, Tuple, Union
+from typing import Any, Literal, NamedTuple, Union
 
 from django.conf import settings
 from sentry_sdk import capture_exception
@@ -14,7 +14,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import PersonOnEventsMode
+from posthog.models.team import PersonsOnEventsMode
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import PersonPropertiesMode
 from posthog.session_recordings.queries.session_replay_events import ttl_days
@@ -25,15 +25,15 @@ class SummaryEventFiltersSQL:
     having_conditions: str
     having_select: str
     where_conditions: str
-    params: Dict[str, Any]
+    params: dict[str, Any]
 
 
 class SessionRecordingQueryResult(NamedTuple):
-    results: List
+    results: list
     has_more_recording: bool
 
 
-def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter) -> Tuple[str, Dict[str, Any]]:
+def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter) -> tuple[str, dict[str, Any]]:
     start_time_clause = ""
     start_time_params = {}
     if recording_filters.date_from:
@@ -45,9 +45,14 @@ def _get_recording_start_time_clause(recording_filters: SessionRecordingsFilter)
     return start_time_clause, start_time_params
 
 
+def _get_order_by_clause(filter_order: str | None) -> str:
+    order_by = filter_order or "start_time"
+    return f"ORDER BY {order_by} DESC"
+
+
 def _get_filter_by_log_text_session_ids_clause(
     team: Team, recording_filters: SessionRecordingsFilter, column_name="session_id"
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     if not recording_filters.console_search_query:
         return "", {}
 
@@ -61,7 +66,7 @@ def _get_filter_by_log_text_session_ids_clause(
 
 def _get_filter_by_provided_session_ids_clause(
     recording_filters: SessionRecordingsFilter, column_name="session_id"
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     if recording_filters.session_ids is None:
         return "", {}
 
@@ -106,7 +111,7 @@ class LogQuery:
     # a recording spans the time boundaries
     # TODO This is just copied from below
     @cached_property
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -119,8 +124,8 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "log"]],
-    ) -> Tuple[str, Dict[str, Any]]:
+        console_logs_filter: list[Literal["error", "warn", "info"]],
+    ) -> tuple[str, dict[str, Any]]:
         return (
             (
                 f"AND level in %(console_logs_levels)s",
@@ -130,7 +135,7 @@ class LogQuery:
             else ("", {})
         )
 
-    def get_query(self) -> Tuple[str, Dict]:
+    def get_query(self) -> tuple[str, dict]:
         if not self._filter.console_search_query:
             return "", {}
 
@@ -155,12 +160,24 @@ class LogQuery:
 class ActorsQuery(EventQuery):
     _filter: SessionRecordingsFilter
 
+    def __init__(
+        self,
+        team: Team,
+        **kwargs,
+    ):
+        person_on_events_mode = team.person_on_events_mode
+        super().__init__(
+            **kwargs,
+            team=team,
+            person_on_events_mode=person_on_events_mode,
+        )
+
     # we have to implement this from EventQuery but don't need it
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
     # we have to implement this from EventQuery but don't need it
-    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: list[Any]) -> list[dict[str, Any]]:
         pass
 
     _raw_persons_query = """
@@ -178,7 +195,11 @@ class ActorsQuery(EventQuery):
             {filter_by_person_uuid_condition}
     """
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
+        # we don't support PoE V1 - hopefully that's ok
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+            return "", {}
+
         prop_query, prop_params = self._get_prop_groups(
             PropertyGroup(
                 type=PropertyOperatorType.AND,
@@ -223,9 +244,9 @@ class ActorsQuery(EventQuery):
 
             return self._raw_persons_query.format(
                 filter_persons_clause=filter_persons_clause,
-                select_person_props=", argMax(person_props, version) as person_props"
-                if "person_props" in filter_persons_clause
-                else "",
+                select_person_props=(
+                    ", argMax(person_props, version) as person_props" if "person_props" in filter_persons_clause else ""
+                ),
                 prop_filter_clause=prop_query,
                 prop_having_clause=having_prop_query,
                 filter_by_person_uuid_condition=filter_by_person_uuid_condition,
@@ -242,12 +263,24 @@ class ActorsQuery(EventQuery):
 class SessionIdEventsQuery(EventQuery):
     _filter: SessionRecordingsFilter
 
+    def __init__(
+        self,
+        team: Team,
+        **kwargs,
+    ):
+        person_on_events_mode = team.person_on_events_mode
+        super().__init__(
+            **kwargs,
+            team=team,
+            person_on_events_mode=person_on_events_mode,
+        )
+
     # we have to implement this from EventQuery but don't need it
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
     # we have to implement this from EventQuery but don't need it
-    def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(self, results: list[Any]) -> list[dict[str, Any]]:
         pass
 
     def _determine_should_join_events(self):
@@ -267,21 +300,32 @@ class SessionIdEventsQuery(EventQuery):
             )
             > 0
         )
-        return filters_by_event_or_action or has_event_property_filters
 
-    def __init__(
-        self,
-        **kwargs,
-    ):
-        super().__init__(
-            **kwargs,
+        has_poe_filters = (
+            self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+            and len(
+                [
+                    pg
+                    for pg in self._filter.property_groups.flat
+                    if pg.type == "person" or (pg.type == "hogql" and "person.properties" in pg.key)
+                ]
+            )
+            > 0
         )
+
+        has_poe_person_filter = (
+            self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+            and self._filter.person_uuid
+        )
+
+        return filters_by_event_or_action or has_event_property_filters or has_poe_filters or has_poe_person_filter
 
     @property
     def ttl_days(self):
         return ttl_days(self._team)
 
     _raw_events_query = """
+        {context_comment}
         SELECT
             {select_event_ids}
             {event_filter_having_events_select}
@@ -310,7 +354,7 @@ class SessionIdEventsQuery(EventQuery):
         HAVING 1=1 {event_filter_having_events_condition}
     """
 
-    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
+    def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> tuple[str, dict[str, Any]]:
         filter_sql, params = format_entity_filter(
             team_id=team_id,
             entity=entity,
@@ -326,7 +370,9 @@ class SessionIdEventsQuery(EventQuery):
             prepend=prepend,
             allow_denormalized_props=True,
             has_person_id_joined=True,
-            person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             hogql_context=self._filter.hogql_context,
         )
         filter_sql += f" {filters}"
@@ -336,8 +382,8 @@ class SessionIdEventsQuery(EventQuery):
 
     @cached_property
     def build_event_filters(self) -> SummaryEventFiltersSQL:
-        event_names_to_filter: List[Union[int, str]] = []
-        params: Dict = {}
+        event_names_to_filter: list[Union[int, str]] = []
+        params: dict = {}
         condition_sql = ""
 
         for index, entity in enumerate(self._filter.entities):
@@ -370,14 +416,23 @@ class SessionIdEventsQuery(EventQuery):
                 -- select the unique events in this session to support filtering sessions by presence of an event
                     groupUniqArray(event) as event_names,"""
 
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+            person_id_clause, person_id_params = self._get_person_id_clause
+            condition_sql += person_id_clause
+            params = {**params, **person_id_params}
+
+        condition_sql = (
+            f" AND {condition_sql}" if condition_sql and not condition_sql.startswith("AND") else condition_sql
+        )
+
         return SummaryEventFiltersSQL(
             having_conditions=having_conditions,
             having_select=having_select,
-            where_conditions=f"AND {condition_sql}" if condition_sql else "",
+            where_conditions=f"{condition_sql}" if condition_sql else "",
             params=params,
         )
 
-    def _get_groups_query(self) -> Tuple[str, Dict]:
+    def _get_groups_query(self) -> tuple[str, dict]:
         try:
             from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
         except ImportError:
@@ -394,7 +449,7 @@ class SessionIdEventsQuery(EventQuery):
     # We want to select events beyond the range of the recording to handle the case where
     # a recording spans the time boundaries
     @cached_property
-    def _get_events_timestamp_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_events_timestamp_clause(self) -> tuple[str, dict[str, Any]]:
         timestamp_clause = ""
         timestamp_params = {}
         if self._filter.date_from:
@@ -405,7 +460,7 @@ class SessionIdEventsQuery(EventQuery):
             timestamp_params["event_end_time"] = self._filter.date_to + timedelta(hours=12)
         return timestamp_clause, timestamp_params
 
-    def get_query(self, select_event_ids: bool = False) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self, select_event_ids: bool = False) -> tuple[str, dict[str, Any]]:
         if not self._determine_should_join_events():
             return "", {}
 
@@ -437,8 +492,14 @@ class SessionIdEventsQuery(EventQuery):
                 values=[
                     g
                     for g in self._filter.property_groups.flat
-                    if (g.type == "hogql" and "person.properties" not in g.key)
-                    or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    if (
+                        self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+                        and g.type == "person"
+                    )
+                    or (
+                        (g.type == "hogql" and "person.properties" not in g.key)
+                        or (g.type != "hogql" and "cohort" not in g.type and g.type != "person")
+                    )
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
@@ -447,6 +508,9 @@ class SessionIdEventsQuery(EventQuery):
             # it is likely this can be returned to the default of True in future
             # but would need careful monitoring
             allow_denormalized_props=settings.ALLOW_DENORMALIZED_PROPS_IN_LISTING,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
+            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
         (
@@ -467,6 +531,7 @@ class SessionIdEventsQuery(EventQuery):
                 persons_join=persons_join,
                 persons_sub_query=persons_sub_query,
                 groups_query=groups_query,
+                context_comment=f"-- running in PoE Mode: {self._person_on_events_mode}",
             ),
             {
                 **base_params,
@@ -499,7 +564,7 @@ class SessionIdEventsQuery(EventQuery):
         return persons_join, persons_select_params, persons_sub_query
 
     @cached_property
-    def _get_person_id_clause(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_person_id_clause(self) -> tuple[str, dict[str, Any]]:
         person_id_clause = ""
         person_id_params = {}
         if self._filter.person_uuid:
@@ -507,8 +572,8 @@ class SessionIdEventsQuery(EventQuery):
             person_id_params = {"person_uuid": self._filter.person_uuid}
         return person_id_clause, person_id_params
 
-    def matching_events(self) -> List[str]:
-        self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+    def matching_events(self) -> list[str]:
+        self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
         query, query_params = self.get_query(select_event_ids=True)
         query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
         results = [row[0] for row in query_results]
@@ -526,10 +591,14 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def __init__(
         self,
+        team=Team,
         **kwargs,
     ):
+        person_on_events_mode = team.person_on_events_mode
         super().__init__(
             **kwargs,
+            team=team,
+            person_on_events_mode=person_on_events_mode,
         )
 
     @property
@@ -537,6 +606,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return ttl_days(self._team)
 
     _session_recordings_query: str = """
+    {context_comment}
     SELECT
        s.session_id,
        any(s.team_id),
@@ -569,12 +639,12 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     {log_matching_session_ids_clause}
     GROUP BY session_id
         HAVING 1=1 {duration_clause} {console_log_clause}
-    ORDER BY start_time DESC
+    {order_by_clause}
     LIMIT %(limit)s OFFSET %(offset)s
     """
 
     @staticmethod
-    def _data_to_return(results: List[Any]) -> List[Dict[str, Any]]:
+    def _data_to_return(results: list[Any]) -> list[dict[str, Any]]:
         default_columns = [
             "session_id",
             "team_id",
@@ -609,8 +679,9 @@ class SessionRecordingListFromReplaySummary(EventQuery):
 
     def run(self) -> SessionRecordingQueryResult:
         try:
-            self._filter.hogql_context.modifiers.personsOnEventsMode = PersonOnEventsMode.DISABLED
+            self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
             query, query_params = self.get_query()
+
             query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
             session_recordings = self._data_to_return(query_results)
             return self._paginate_results(session_recordings)
@@ -623,7 +694,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     def limit(self):
         return self._filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT
 
-    def get_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query(self) -> tuple[str, dict[str, Any]]:
         offset = self._filter.offset or 0
 
         base_params = {
@@ -643,6 +714,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
             log_matching_session_ids_clause,
             log_matching_session_ids_params,
         ) = _get_filter_by_log_text_session_ids_clause(team=self._team, recording_filters=self._filter)
+
+        order_by_clause = _get_order_by_clause(self._filter.target_entity_order)
 
         duration_clause, duration_params = self.duration_clause(self._filter.duration_type_filter)
         console_log_clause = self._get_console_log_clause(self._filter.console_logs_filter)
@@ -668,6 +741,8 @@ class SessionRecordingListFromReplaySummary(EventQuery):
                 persons_sub_query=persons_select,
                 events_sub_query=events_select,
                 log_matching_session_ids_clause=log_matching_session_ids_clause,
+                order_by_clause=order_by_clause,
+                context_comment=f"-- running in PoE Mode: {self._person_on_events_mode}",
             ),
             {
                 **base_params,
@@ -683,7 +758,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
     def duration_clause(
         self,
         duration_filter_type: Literal["duration", "active_seconds", "inactive_seconds"],
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
         if self._filter.recording_duration_filter:
@@ -700,6 +775,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         return duration_clause, duration_params
 
     @staticmethod
-    def _get_console_log_clause(console_logs_filter: List[Literal["error", "warn", "log"]]) -> str:
-        filters = [f"console_{log}_count > 0" for log in console_logs_filter]
+    def _get_console_log_clause(console_logs_filter: list[Literal["error", "warn", "info"]]) -> str:
+        # to avoid a CH migration we map from info to log when constructing the query here
+        filters = [f"console_{'log' if log == 'info' else log}_count > 0" for log in console_logs_filter]
         return f"AND ({' OR '.join(filters)})" if filters else ""

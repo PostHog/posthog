@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -14,7 +14,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 
 class EventsSessionSubTable(VirtualTable):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         "id": StringDatabaseField(name="$session_id"),
         "duration": IntegerDatabaseField(name="session_duration"),
     }
@@ -27,7 +27,7 @@ class EventsSessionSubTable(VirtualTable):
 
 
 class GetFieldsTraverser(TraversingVisitor):
-    fields: List[ast.Field]
+    fields: list[ast.Field]
 
     def __init__(self, expr: ast.Expr):
         super().__init__()
@@ -71,16 +71,18 @@ class ContainsLazyJoinType(TraversingVisitor):
 
 
 class WhereClauseExtractor:
-    compare_operators: List[ast.Expr]
+    compare_operators: list[ast.Expr]
 
     def __init__(
         self,
         where_expression: ast.Expr,
         from_table_name: str,
         select_query_type: ast.SelectQueryType,
+        context: HogQLContext,
     ):
         self.table_name = from_table_name
         self.select_query_type = select_query_type
+        self.context = context
         self.compare_operators = self.run(deepcopy(where_expression))
 
     def _is_field_on_table(self, field: ast.Field) -> bool:
@@ -99,7 +101,7 @@ class WhereClauseExtractor:
 
         # Field in scope
         if not type:
-            type = lookup_field_by_name(self.select_query_type, str(field.chain[0]))
+            type = lookup_field_by_name(self.select_query_type, str(field.chain[0]), self.context)
 
         if not type:
             return False
@@ -115,16 +117,16 @@ class WhereClauseExtractor:
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
-            loop_type = loop_type.get_child(str(next_chain))
+            loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
                 return False
 
         return True
 
-    def run(self, expr: ast.Expr) -> List[ast.Expr]:
-        exprs_to_apply: List[ast.Expr] = []
+    def run(self, expr: ast.Expr) -> list[ast.Expr]:
+        exprs_to_apply: list[ast.Expr] = []
 
-        def should_add(expression: ast.Expr, fields: List[ast.Field]) -> bool:
+        def should_add(expression: ast.Expr, fields: list[ast.Field]) -> bool:
             for field in fields:
                 on_table = self._is_field_on_table(field)
                 if not on_table:
@@ -166,7 +168,7 @@ class WhereClauseExtractor:
 def join_with_events_table_session_duration(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, Any],
+    requested_fields: dict[str, Any],
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
@@ -180,7 +182,7 @@ def join_with_events_table_session_duration(
 
     if isinstance(select_query, ast.SelectQuery):
         compare_operators = (
-            WhereClauseExtractor(node.where, from_table, node.type).compare_operators
+            WhereClauseExtractor(node.where, from_table, node.type, context).compare_operators
             if node.where and node.type
             else []
         )

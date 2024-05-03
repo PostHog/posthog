@@ -658,47 +658,6 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return (person1, person2, person3, person4)
 
-    def test_people_csv(self):
-        person1, _, _, _ = self._create_multiple_people()
-        people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people.csv",
-            data={
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-07",
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "watched movie",
-                "display": "ActionsLineGraphCumulative",
-                "entity_math": "dau",
-                "events": json.dumps([{"id": "watched movie", "type": "events", "math": "dau"}]),
-            },
-        )
-        resp = people.content.decode("utf-8").split("\r\n")
-        resp = sorted(resp)
-        self.assertEqual(len(resp), 6)  # header, 4 people, empty line
-        self.assertEqual(resp[1], "Distinct ID,Email,Internal ID,Name,Properties.name")
-        self.assertEqual(resp[2].split(",")[0], "person1")
-
-    def test_people_csv_returns_400_on_no_entity_id_provided(self):
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people",
-            data={
-                "date_from": "2020-01-01",
-                "date_to": "2020-01-07",
-                # Here we don't provide an entity_id or entity_type, which are
-                # required
-            },
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            json.loads(response.content),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "An entity id and the entity type must be provided to determine an entity",
-                "attr": None,
-            },
-        )
-
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
         cohort = _create_cohort(

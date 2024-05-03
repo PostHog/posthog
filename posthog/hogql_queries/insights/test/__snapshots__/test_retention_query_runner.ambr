@@ -42,7 +42,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -50,13 +51,6 @@
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
@@ -99,12 +93,20 @@
               FROM events
               WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
         WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
-     GROUP BY actor_activity.actor_id) AS source ON equals(groups.key, source.actor_id)
+     GROUP BY actor_activity.actor_id) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -150,7 +152,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -196,7 +199,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -204,13 +208,6 @@
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
-    (SELECT groups.group_type_index AS index,
-            groups.group_key AS key
-     FROM groups
-     WHERE equals(groups.team_id, 2)
-     GROUP BY groups.group_type_index,
-              groups.group_key) AS groups
-  INNER JOIN
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
@@ -253,12 +250,20 @@
               FROM events
               WHERE and(equals(events.team_id, 2), equals(events.event, '$pageview'), not(has([''], events.`$group_0`)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfWeek(toDateTime64('2020-06-07 00:00:00.000000', 6, 'UTC'), 0)), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-07-27 00:00:00.000000', 6, 'UTC'))))) AS target_event)
         WHERE and(or(0, ifNull(equals(breakdown_values, [0]), 0)), or(1, isNull(intervals_from_base)))) AS actor_activity
-     GROUP BY actor_activity.actor_id) AS source ON equals(groups.key, source.actor_id)
+     GROUP BY actor_activity.actor_id) AS source
+  INNER JOIN
+    (SELECT groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 2)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups ON equals(groups.key, source.actor_id)
   ORDER BY length(source.appearances) DESC, source.actor_id ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -304,7 +309,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -371,7 +377,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -449,7 +456,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -516,7 +524,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -539,6 +548,7 @@
            FROM events
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 2)
@@ -553,7 +563,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event
         JOIN
           (SELECT toStartOfDay(toTimeZone(events.timestamp, 'UTC')) AS event_date,
@@ -580,6 +590,7 @@
            FROM events
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS events__pdi___person_id,
                      person_distinct_id2.distinct_id AS distinct_id
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 2)
@@ -594,7 +605,7 @@
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
-                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+                                                                HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
            WHERE and(equals(events.team_id, 2), and(equals(events.event, '$pageview'), ifNull(equals(events__pdi__person.properties___email, 'person1@test.com'), 0)), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(toDateTime64('2020-06-10 00:00:00.000000', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-06-17 00:00:00.000000', 6, 'UTC'))))) AS target_event)
      WHERE and(or(1, isNull(breakdown_values)), or(1, isNull(intervals_from_base)))) AS actor_activity
   GROUP BY breakdown_values,
@@ -603,7 +614,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -670,7 +682,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -737,7 +750,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -804,7 +818,8 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -871,6 +886,7 @@
            intervals_from_base ASC
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       allow_experimental_object_type=1
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0
   '''
 # ---

@@ -17,6 +17,7 @@ import {
 import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
+    const team = { id: 123, person_display_name_properties: null } as Team
     beforeEach(() => {
         process.env.NODE_ENV = 'test'
     })
@@ -34,10 +35,10 @@ describe('hooks', () => {
             expect(webhookType).toBe(WebhookType.Discord)
         })
 
-        test('Teams', () => {
+        test('Other', () => {
             const webhookType = determineWebhookType('https://outlook.office.com/webhook/')
 
-            expect(webhookType).toBe(WebhookType.Teams)
+            expect(webhookType).toBe(WebhookType.Other)
         })
     })
 
@@ -46,7 +47,6 @@ describe('hooks', () => {
             distinctId: 'WALL-E',
             person_properties: { email: 'test@posthog.com' },
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('Slack', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
@@ -57,19 +57,19 @@ describe('hooks', () => {
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('<http://localhost:8000/person/WALL-E|test@posthog.com>')
+            expect(userDetailsMarkdown).toBe('<http://localhost:8000/project/123/person/WALL-E|test@posthog.com>')
         })
 
         test('Teams', () => {
             const [userDetails, userDetailsMarkdown] = getPersonDetails(
                 event,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 team
             )
 
             expect(userDetails).toBe('test@posthog.com')
-            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/person/WALL-E)')
+            expect(userDetailsMarkdown).toBe('[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)')
         })
     })
 
@@ -78,24 +78,26 @@ describe('hooks', () => {
 
         test('Slack', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
+                team,
                 action,
                 'http://localhost:8000',
                 WebhookType.Slack
             )
 
             expect(actionDetails).toBe('action1')
-            expect(actionDetailsMarkdown).toBe('<http://localhost:8000/action/1|action1>')
+            expect(actionDetailsMarkdown).toBe('<http://localhost:8000/project/123/action/1|action1>')
         })
 
         test('Teams', () => {
             const [actionDetails, actionDetailsMarkdown] = getActionDetails(
+                team,
                 action,
                 'http://localhost:8000',
-                WebhookType.Teams
+                WebhookType.Other
             )
 
             expect(actionDetails).toBe('action1')
-            expect(actionDetailsMarkdown).toBe('[action1](http://localhost:8000/action/1)')
+            expect(actionDetailsMarkdown).toBe('[action1](http://localhost:8000/project/123/action/1)')
         })
     })
 
@@ -129,7 +131,6 @@ describe('hooks', () => {
             person_properties: { enjoys_broccoli_on_pizza: false },
             timestamp: '2021-10-31T00:44:00.000Z',
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('event', () => {
             const tokenUserName = ['event']
@@ -139,12 +140,14 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
             expect(text).toBe('$pageview')
-            expect(markdown).toBe('[$pageview](http://localhost:8000/events/123/2021-10-31T00%3A44%3A00.000Z)')
+            expect(markdown).toBe(
+                '[$pageview](http://localhost:8000/project/123/events/123/2021-10-31T00%3A44%3A00.000Z)'
+            )
         })
 
         test('event UUID', () => {
@@ -155,7 +158,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -171,7 +174,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -187,7 +190,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -203,7 +206,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
@@ -219,12 +222,12 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
             expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('person with email', () => {
@@ -235,12 +238,12 @@ describe('hooks', () => {
                 { ...event, person_properties: { ...event.person_properties, email: 'wall-e@buynlarge.com' } },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
             expect(text).toBe('wall-e@buynlarge.com')
-            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('person with custom name property, team-level setting ', () => {
@@ -259,12 +262,12 @@ describe('hooks', () => {
                 },
                 { ...team, person_display_name_properties: ['nazwisko'] },
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
             expect(text).toBe('Brzęczyszczykiewicz')
-            expect(markdown).toBe('[Brzęczyszczykiewicz](http://localhost:8000/person/fd)')
+            expect(markdown).toBe('[Brzęczyszczykiewicz](http://localhost:8000/project/123/person/fd)')
         })
 
         test('person prop', () => {
@@ -275,7 +278,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -297,7 +300,7 @@ describe('hooks', () => {
                 },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -335,12 +338,12 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserName
             )
 
             expect(text).toBe('WALL-E')
-            expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(markdown).toBe('[WALL-E](http://localhost:8000/project/123/person/WALL-E)')
         })
 
         test('user prop (actually event prop)', () => {
@@ -351,7 +354,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropString
             )
 
@@ -367,7 +370,7 @@ describe('hooks', () => {
                 event,
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 tokenUserPropMissing
             )
 
@@ -387,7 +390,7 @@ describe('hooks', () => {
 
             expect(text).toBe('text&gt;&lt;new link')
             expect(markdown).toBe(
-                '<http://localhost:8000/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
+                '<http://localhost:8000/project/123/events/**%3E)/2021-10-31T00%3A44%3A00.000Z|text&gt;&lt;new link>'
             )
         })
 
@@ -397,13 +400,13 @@ describe('hooks', () => {
                 { ...event, eventUuid: '**)', event: 'text](yes!), [new link' },
                 team,
                 'http://localhost:8000',
-                WebhookType.Teams,
+                WebhookType.Other,
                 ['event']
             )
 
             expect(text).toBe('text\\]\\(yes\\!\\), \\[new link')
             expect(markdown).toBe(
-                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
+                '[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/project/123/events/\\*\\*\\)/2021-10-31T00%3A44%3A00.000Z)'
             )
         })
     })
@@ -413,17 +416,15 @@ describe('hooks', () => {
             distinctId: '2',
             properties: { $browser: 'Chrome', page_title: 'Pricing', 'with space': 'yes sir' },
         } as unknown as PostIngestionEvent
-        const team = { person_display_name_properties: null } as Team
 
         test('custom format', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format:
-                    '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
                 action,
                 event,
                 team,
@@ -432,23 +433,7 @@ describe('hooks', () => {
             )
             expect(text).toBe('2 from Chrome on Pricing page with undefined, yes sir')
             expect(markdown).toBe(
-                '<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined, yes sir'
-            )
-        })
-
-        test('default format', () => {
-            const action = { id: 1, name: 'action1', slack_message_format: '' } as Action
-
-            const [text, markdown] = getFormattedMessage(
-                action,
-                event,
-                team,
-                'https://localhost:8000',
-                WebhookType.Slack
-            )
-            expect(text).toBe('action1 was triggered by 2')
-            expect(markdown).toBe(
-                '<https://localhost:8000/action/1|action1> was triggered by <https://localhost:8000/person/2|2>'
+                '<https://localhost:8000/project/123/person/2|2> from Chrome on Pricing page with undefined, yes sir'
             )
         })
 
@@ -456,10 +441,10 @@ describe('hooks', () => {
             const action = {
                 id: 1,
                 name: 'action1',
-                slack_message_format: '[user.name] did thing from browser [user.brauzer]',
             } as Action
 
             const [text, markdown] = getFormattedMessage(
+                '[user.name] did thing from browser [user.brauzer]',
                 action,
                 event,
                 team,
@@ -467,13 +452,18 @@ describe('hooks', () => {
                 WebhookType.Slack
             )
             expect(text).toBe('2 did thing from browser undefined')
-            expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
+            expect(markdown).toBe('<https://localhost:8000/project/123/person/2|2> did thing from browser undefined')
         })
     })
 
     describe('postRestHook', () => {
         let hookCommander: HookCommander
         let hook: Hook
+        const action = {
+            id: 1,
+            name: 'action1',
+            // slack_message_format: '[user.name] did thing from browser [user.brauzer]',
+        } as Action
 
         beforeEach(() => {
             hook = {
@@ -485,6 +475,7 @@ describe('hooks', () => {
                 target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
+                format_text: null,
             }
             hookCommander = new HookCommander(
                 {} as any,
@@ -497,7 +488,7 @@ describe('hooks', () => {
         })
 
         test('person = undefined', async () => {
-            await hookCommander.postRestHook(hook, { event: 'foo' } as any)
+            await hookCommander.postWebhook({ event: 'foo' } as any, action, team, hook)
 
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
@@ -524,13 +515,18 @@ describe('hooks', () => {
         test('person data from the event', async () => {
             const now = new Date().toISOString()
             const uuid = new UUIDT().toString()
-            await hookCommander.postRestHook(hook, {
-                event: 'foo',
-                teamId: hook.team_id,
-                person_id: uuid,
-                person_properties: { foo: 'bar' },
-                person_created_at: DateTime.fromISO(now).toUTC(),
-            } as any)
+            await hookCommander.postWebhook(
+                {
+                    event: 'foo',
+                    teamId: hook.team_id,
+                    person_id: uuid,
+                    person_properties: { foo: 'bar' },
+                    person_created_at: DateTime.fromISO(now).toUTC(),
+                } as any,
+                action,
+                team,
+                hook
+            )
             expect(fetch).toHaveBeenCalledWith('https://example.com/', {
                 body: JSON.stringify(
                     {
@@ -562,7 +558,10 @@ describe('hooks', () => {
             process.env.NODE_ENV = 'production'
 
             await expect(
-                hookCommander.postRestHook({ ...hook, target: 'http://127.0.0.1' }, { event: 'foo' } as any)
+                hookCommander.postWebhook({ event: 'foo' } as any, action, team, {
+                    ...hook,
+                    target: 'http://127.0.0.1',
+                })
             ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
         })
     })

@@ -136,15 +136,13 @@ describe('infiniteListLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('event')
             })
-                .toDispatchActions(['setSearchQuery', 'loadRemoteItems'])
-                .toMatchValues({
-                    searchQuery: 'event',
-                    remoteItems: partial({
-                        count: 0,
-                    }),
-                    remoteItemsLoading: true,
-                })
-                .toDispatchActions(['loadRemoteItemsSuccess', 'infiniteListResultsReceived'])
+                .toDispatchActions([
+                    'setSearchQuery',
+                    'loadRemoteItems',
+                    'loadRemoteItemsSuccess',
+                    'infiniteListResultsReceived',
+                ])
+                .toFinishAllListeners()
                 .toMatchValues({
                     searchQuery: 'event',
                     remoteItems: partial({

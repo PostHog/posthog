@@ -19,7 +19,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { taxonomicBreakdownType, includeSessions } = useValues(taxonomicBreakdownFilterLogic)
 
-    const { breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
+    const { breakdownFilter, currentDataWarehouseSchemaColumns } = useValues(taxonomicBreakdownFilterLogic)
     const { addBreakdown } = useActions(taxonomicBreakdownFilterLogic)
 
     const taxonomicGroupTypes = [
@@ -28,8 +28,9 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
         TaxonomicFilterGroupType.EventFeatureFlags,
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.CohortsWithAllUsers,
-        ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehouseProperties,
     ]
 
     return (
@@ -46,6 +47,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
                     }}
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    schemaColumns={currentDataWarehouseSchemaColumns}
                 />
             }
             visible={open}

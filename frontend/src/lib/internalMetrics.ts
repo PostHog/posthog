@@ -1,6 +1,9 @@
-import api, { getJSONOrThrow } from 'lib/api'
+import { captureException } from '@sentry/react'
+import api, { getJSONOrNull } from 'lib/api'
 import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
+
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 export interface TimeToSeeDataPayload {
     type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
@@ -28,11 +31,22 @@ export function currentSessionId(): string | undefined {
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA && teamId) {
-        await api.create(`api/projects/${teamId}/insights/timing`, {
-            session_id: currentSessionId(),
-            current_url: window.location.href,
-            ...payload,
-        })
+        if (getCurrentExporterData()) {
+            // This is likely we are in a "sharing" context so we are essentially unauthenticated
+            return
+        }
+
+        try {
+            await api.create(`api/projects/${teamId}/insights/timing`, {
+                session_id: currentSessionId(),
+                current_url: window.location.href,
+                ...payload,
+            })
+        } catch (e) {
+            // NOTE: As this is only telemetry, we don't want to block the user if it fails
+            console.warn('Failed to capture time to see data', e)
+            captureException(e)
+        }
     }
 }
 
@@ -53,7 +67,7 @@ export async function apiGetWithTimeToSeeDataTracking<T>(
     const requestStartMs = performance.now()
     try {
         response = await api.getResponse(url)
-        responseData = await getJSONOrThrow(response)
+        responseData = await getJSONOrNull(response)
     } catch (e) {
         error = e
     }

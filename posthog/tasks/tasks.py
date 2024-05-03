@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from celery import shared_task
@@ -9,6 +9,8 @@ from django.utils import timezone
 from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
@@ -31,9 +33,25 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.ANALYTICS_QUERIES.value,
+    acks_late=True,
+    autoretry_for=(
+        # Important: Only retry for things that might be okay on the next try
+        CHQueryErrorTooManySimultaneousQueries,
+    ),
+    retry_backoff=1,
+    retry_backoff_max=2,
+    max_retries=3,
+)
 def process_query_task(
-    team_id: str, query_id: str, query_json: Any, limit_context: Any = None, refresh_requested: bool = False
+    team_id: int,
+    user_id: int,
+    query_id: str,
+    query_json: dict,
+    limit_context: Optional[LimitContext] = None,
+    refresh_requested: bool = False,
 ) -> None:
     """
     Kick off query
@@ -43,6 +61,7 @@ def process_query_task(
 
     execute_process_query(
         team_id=team_id,
+        user_id=user_id,
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
@@ -439,12 +458,28 @@ def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
     runner = AsyncEventDeletion()
-    runner.mark_deletions_done()
-    runner.run()
+
+    try:
+        runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark deletions done", error=e, exc_info=True)
+
+    try:
+        runner.run()
+    except Exception as e:
+        logger.error("Failed to run deletions", error=e, exc_info=True)
 
     cohort_runner = AsyncCohortDeletion()
-    cohort_runner.mark_deletions_done()
-    cohort_runner.run()
+
+    try:
+        cohort_runner.mark_deletions_done()
+    except Exception as e:
+        logger.error("Failed to mark cohort deletions done", error=e, exc_info=True)
+
+    try:
+        cohort_runner.run()
+    except Exception as e:
+        logger.error("Failed to run cohort deletions", error=e, exc_info=True)
 
 
 @shared_task(ignore_result=True)
@@ -527,7 +562,14 @@ def schedule_cache_updates_task() -> None:
     schedule_cache_updates()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=10,
+    retry_backoff_max=30,
+    max_retries=3,
+    retry_jitter=True,
+)
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
 
@@ -606,6 +648,13 @@ def verify_persons_data_in_sync() -> None:
         return
 
     verify()
+
+
+@shared_task(ignrore_result=True)
+def stop_surveys_reached_target() -> None:
+    from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
+
+    stop_surveys_reached_target()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -734,3 +783,17 @@ def calculate_replay_embeddings() -> None:
         pass
     except Exception as e:
         logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
+
+
+# this task triggers other tasks
+# it can run on the default queue
+@shared_task(ignore_result=True)
+def calculate_replay_error_clusters() -> None:
+    try:
+        from ee.tasks.replay import generate_replay_embedding_error_clusters
+
+        generate_replay_embedding_error_clusters()
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)

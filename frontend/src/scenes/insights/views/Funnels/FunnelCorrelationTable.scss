@@ -1,84 +1,12 @@
-.funnel-correlation-table {
-    margin-top: 1rem;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-
-    .ant-table {
-        thead th {
-            border-bottom: 1px solid var(--border);
-        }
-    }
-
-    .funnel-correlation-header {
-        display: flex;
-        flex-wrap: wrap;
-        place-content: space-between space-between;
-        align-items: center;
-        align-self: stretch;
-        padding: 0.25rem 0.5rem;
-        background: var(--mid);
-        border-top-left-radius: var(--radius);
-        border-top-right-radius: var(--radius);
-
-        .table-header {
-            display: flex;
-            align-items: center;
-            font-size: 11px;
-            font-style: normal;
-            font-weight: bold;
-            line-height: 16px;
-            color: var(--default);
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
+.FunnelCorrelationTable {
+    .table-options {
+        .LemonCheckbox:not(:last-child) label {
+            border-right: none;
+            border-radius: var(--radius) 0 0 var(--radius);
         }
 
-        .table-options {
-            display: flex;
-            flex-grow: 1;
-            align-items: center;
-            justify-content: flex-end;
-
-            .title {
-                /* identical to box height, or 145% */
-
-                display: flex;
-                align-items: center;
-                margin: 5px;
-                font-family: var(--font-sans);
-                font-size: 11px;
-                font-style: normal;
-                font-weight: 600;
-                line-height: 16px;
-                color: var(--muted);
-                text-transform: uppercase;
-                letter-spacing: 0.02em;
-            }
-
-            .LemonCheckbox:not(:last-child) label {
-                border-right: none;
-                border-radius: var(--radius) 0 0 var(--radius);
-            }
-
-            .LemonCheckbox:last-child label {
-                border-radius: 0 var(--radius) var(--radius) 0;
-            }
-        }
-    }
-
-    .column-info {
-        padding-left: 4px;
-        color: var(--muted-alt);
-        cursor: pointer;
-    }
-
-    .nested-properties-table {
-        margin: 1rem;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-
-        thead th {
-            border-bottom: 1px solid var(--border);
+        .LemonCheckbox:last-child label {
+            border-radius: 0 var(--radius) var(--radius) 0;
         }
     }
 }

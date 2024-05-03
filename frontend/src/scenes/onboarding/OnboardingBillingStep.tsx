@@ -1,7 +1,8 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { StarHog } from 'lib/components/hedgehogs'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
@@ -39,7 +40,7 @@ export const OnboardingBillingStep = ({
             stepKey={stepKey}
             continueOverride={
                 product?.subscribed ? undefined : (
-                    <LemonButton
+                    <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
                         to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
                         type="primary"
@@ -49,9 +50,10 @@ export const OnboardingBillingStep = ({
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
                         }}
+                        data-attr="onboarding-subscribe-button"
                     >
-                        Subscribe to Paid Plan
-                    </LemonButton>
+                        Subscribe to paid plan
+                    </BillingUpgradeCTA>
                 )
             }
         >
@@ -61,7 +63,7 @@ export const OnboardingBillingStep = ({
                         <div className="mb-8">
                             <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                                 <div className="flex gap-x-4">
-                                    <IconCheckCircleOutline className="text-success text-3xl mb-6" />
+                                    <IconCheckCircle className="text-success text-3xl mb-6" />
                                     <div>
                                         <h3 className="text-lg font-bold mb-1 text-left">Subscribe successful</h3>
                                         <p className="mx-0 mb-0">You're all ready to use {product.name}.</p>
@@ -71,7 +73,11 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            <LemonButton className="mt-2" onClick={() => setShowPlanComp(!showPlanComp)}>
+                            <LemonButton
+                                data-attr="show-plans"
+                                className="mt-2"
+                                onClick={() => setShowPlanComp(!showPlanComp)}
+                            >
                                 {showPlanComp ? 'Hide' : 'Show'} plans
                             </LemonButton>
                             {currentPlan?.initial_billing_limit && (

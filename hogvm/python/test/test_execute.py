@@ -10,7 +10,7 @@ from posthog.test.base import BaseTest
 class TestBytecodeExecute(BaseTest):
     def _run(self, expr: str) -> Any:
         fields = {
-            "properties": {"foo": "bar"},
+            "properties": {"foo": "bar", "nullValue": None},
         }
         return execute_bytecode(create_bytecode(parse_expr(expr)), fields)
 
@@ -51,6 +51,8 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run("'a' not in 'car'"), False)
         self.assertEqual(self._run("properties.bla"), None)
         self.assertEqual(self._run("properties.foo"), "bar")
+        self.assertEqual(self._run("ifNull(properties.foo, false)"), "bar")
+        self.assertEqual(self._run("ifNull(properties.nullValue, false)"), False)
         self.assertEqual(self._run("concat('arg', 'another')"), "arganother")
         self.assertEqual(self._run("concat(1, NULL)"), "1")
         self.assertEqual(self._run("concat(true, false)"), "truefalse")

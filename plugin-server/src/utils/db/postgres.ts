@@ -30,8 +30,13 @@ export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
     constructor(serverConfig: PluginsServerConfig) {
+        const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
         status.info('🤔', `Connecting to common Postgresql...`)
-        const commonClient = createPostgresPool(serverConfig.DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
+        const commonClient = createPostgresPool(
+            serverConfig.DATABASE_URL,
+            serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+            app_name
+        )
         status.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
         // the rest of the constructor overrides entries if more database URLs are passed.
@@ -45,7 +50,11 @@ export class PostgresRouter {
             status.info('🤔', `Connecting to read-only common Postgresql...`)
             this.pools.set(
                 PostgresUse.COMMON_READ,
-                createPostgresPool(serverConfig.DATABASE_READONLY_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
+                createPostgresPool(
+                    serverConfig.DATABASE_READONLY_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
             )
             status.info('👍', `Read-only common Postgresql ready`)
         }
@@ -53,7 +62,11 @@ export class PostgresRouter {
             status.info('🤔', `Connecting to plugin-storage Postgresql...`)
             this.pools.set(
                 PostgresUse.PLUGIN_STORAGE_RW,
-                createPostgresPool(serverConfig.PLUGIN_STORAGE_DATABASE_URL, serverConfig.POSTGRES_CONNECTION_POOL_SIZE)
+                createPostgresPool(
+                    serverConfig.PLUGIN_STORAGE_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
             )
             status.info('👍', `Plugin-storage Postgresql ready`)
         }

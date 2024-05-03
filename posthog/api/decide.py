@@ -1,6 +1,6 @@
 import re
 from random import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
 
 import structlog
@@ -49,12 +49,14 @@ def on_permitted_recording_domain(team: Team, request: HttpRequest) -> bool:
     ) or hostname_in_allowed_url_list(team.recording_domains, referer)
     # TODO this is a short term fix for beta testers
     # TODO we will match on the app identifier in the origin instead and allow users to auth those
-    is_authorized_android_client: bool = user_agent is not None and "posthog-android" in user_agent
+    is_authorized_mobile_client: bool = user_agent is not None and any(
+        keyword in user_agent for keyword in ["posthog-android", "posthog-ios"]
+    )
 
-    return is_authorized_web_client or is_authorized_android_client
+    return is_authorized_web_client or is_authorized_mobile_client
 
 
-def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname: Optional[str]) -> bool:
+def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return False
 
@@ -93,10 +95,9 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
+        "featureFlags": [],
+        "sessionRecording": False,
     }
-
-    response["featureFlags"] = []
-    response["sessionRecording"] = False
 
     if request.method == "POST":
         try:
@@ -181,7 +182,7 @@ def get_decide(request: HttpRequest):
                 if geoip_enabled:
                     property_overrides = get_geoip_properties(get_ip_address(request))
 
-                all_property_overrides: Dict[str, Union[str, int]] = {
+                all_property_overrides: dict[str, Union[str, int]] = {
                     **property_overrides,
                     **(data.get("person_properties") or {}),
                 }
@@ -250,44 +251,10 @@ def get_decide(request: HttpRequest):
             ):
                 response["elementsChainAsString"] = True
 
-            if team.session_recording_opt_in and (
-                on_permitted_recording_domain(team, request) or not team.recording_domains
-            ):
-                capture_console_logs = True if team.capture_console_log_opt_in else False
-                sample_rate = team.session_recording_sample_rate or None
-                if sample_rate == "1.00":
-                    sample_rate = None
-
-                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-                linked_flag = team.session_recording_linked_flag or None
-                if isinstance(linked_flag, Dict):
-                    linked_flag = linked_flag.get("key")
-
-                session_recording_response = {
-                    "endpoint": "/s/",
-                    "consoleLogRecordingEnabled": capture_console_logs,
-                    "recorderVersion": "v2",
-                    "sampleRate": sample_rate,
-                    "minimumDurationMilliseconds": minimum_duration,
-                    "linkedFlag": linked_flag,
-                    "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                }
-
-                if isinstance(team.session_replay_config, Dict):
-                    record_canvas = team.session_replay_config.get("record_canvas", False)
-                    session_recording_response.update(
-                        {
-                            "recordCanvas": record_canvas,
-                            # hard coded during beta while we decide on sensible values
-                            "canvasFps": 4 if record_canvas else None,
-                            "canvasQuality": "0.6" if record_canvas else None,
-                        }
-                    )
-
-                response["sessionRecording"] = session_recording_response
+            response["sessionRecording"] = _session_recording_config_response(request, team)
 
             response["surveys"] = True if team.surveys_opt_in else False
+            response["heatmaps"] = True if team.heatmaps_opt_in else False
 
             site_apps = []
             # errors mean the database is unavailable, bail in this case
@@ -328,3 +295,53 @@ def get_decide(request: HttpRequest):
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
+
+
+def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
+    session_recording_config_response: bool | dict = False
+
+    try:
+        if team.session_recording_opt_in and (
+            on_permitted_recording_domain(team, request) or not team.recording_domains
+        ):
+            capture_console_logs = True if team.capture_console_log_opt_in else False
+            sample_rate = team.session_recording_sample_rate or None
+            if sample_rate == "1.00":
+                sample_rate = None
+
+            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+            linked_flag = None
+            linked_flag_config = team.session_recording_linked_flag or None
+            if isinstance(linked_flag_config, dict):
+                linked_flag_key = linked_flag_config.get("key", None)
+                linked_flag_variant = linked_flag_config.get("variant", None)
+                if linked_flag_variant is not None:
+                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+                else:
+                    linked_flag = linked_flag_key
+
+            session_recording_config_response = {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": capture_console_logs,
+                "recorderVersion": "v2",
+                "sampleRate": sample_rate,
+                "minimumDurationMilliseconds": minimum_duration,
+                "linkedFlag": linked_flag,
+                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+            }
+
+            if isinstance(team.session_replay_config, dict):
+                record_canvas = team.session_replay_config.get("record_canvas", False)
+                session_recording_config_response.update(
+                    {
+                        "recordCanvas": record_canvas,
+                        # hard coded during beta while we decide on sensible values
+                        "canvasFps": 4 if record_canvas else None,
+                        "canvasQuality": "0.6" if record_canvas else None,
+                    }
+                )
+    except Exception as e:
+        capture_exception(e)  # we don't want to fail decide if session recording config fails to load
+
+    return session_recording_config_response

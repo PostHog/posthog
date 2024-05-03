@@ -4,7 +4,7 @@ from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
@@ -16,157 +16,110 @@ from posthog.schema import WebOverviewQueryResponse, WebOverviewQuery
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
-    query_type = WebOverviewQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("date_expr"):
             start = self.query_date_range.previous_period_date_from_as_hogql()
             mid = self.query_date_range.date_from_as_hogql()
             end = self.query_date_range.date_to_as_hogql()
-        with self.timings.measure("overview_stats_query"):
-            if self.query.compare:
-                return parse_select(
-                    """
-WITH pages_query AS (
-        SELECT
-        uniq(if(timestamp >= {mid} AND timestamp < {end}, events.person_id, NULL)) AS unique_users,
-        uniq(if(timestamp >= {start} AND timestamp < {mid}, events.person_id, NULL)) AS previous_unique_users,
-        countIf(timestamp >= {mid} AND timestamp < {end}) AS current_pageviews,
-        countIf(timestamp >= {start} AND timestamp < {mid}) AS previous_pageviews,
-        uniq(if(timestamp >= {mid} AND timestamp < {end}, events.properties.$session_id, NULL)) AS unique_sessions,
-        uniq(if(timestamp >= {start} AND timestamp < {mid}, events.properties.$session_id, NULL)) AS previous_unique_sessions
-    FROM
-        events
-    SAMPLE {sample_rate}
-    WHERE
-        event = '$pageview' AND
-        timestamp >= {start} AND
-        timestamp < {end} AND
-        {event_properties}
-    ),
-sessions_query AS (
-    SELECT
-        avg(if(min_timestamp >= {mid}, duration_s, NULL)) AS avg_duration_s,
-        avg(if(min_timestamp < {mid}, duration_s, NULL)) AS prev_avg_duration_s,
-        avg(if(min_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
-        avg(if(min_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
-    FROM (SELECT
-            events.properties.`$session_id` AS session_id,
-            min(events.timestamp) AS min_timestamp,
-            max(events.timestamp) AS max_timestamp,
-            dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
-            countIf(events.event == '$pageview') AS num_pageviews,
-            countIf(events.event == '$autocapture') AS num_autocaptures,
 
-            -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
-            (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
-        FROM
-            events
-        SAMPLE {sample_rate}
-        WHERE
-            session_id IS NOT NULL
-            AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
-            AND ({session_where})
-        GROUP BY
-            events.properties.`$session_id`
-        HAVING
-            ({session_having})
-        )
-    )
+        if self.query.compare:
+            return parse_select(
+                """
 SELECT
-    unique_users,
-    previous_unique_users,
-    current_pageviews,
-    previous_pageviews,
-    unique_sessions,
-    previous_unique_sessions,
-    avg_duration_s,
-    prev_avg_duration_s,
-    bounce_rate,
-    prev_bounce_rate
-FROM pages_query
-CROSS JOIN sessions_query
-                """,
-                    timings=self.timings,
-                    placeholders={
-                        "start": start,
-                        "mid": mid,
-                        "end": end,
-                        "event_properties": self.event_properties(),
-                        "session_where": self.session_where(include_previous_period=True),
-                        "session_having": self.session_having(include_previous_period=True),
-                        "sample_rate": self._sample_ratio,
-                    },
-                )
-            else:
-                return parse_select(
-                    """
-WITH pages_query AS (
-        SELECT
-        uniq(events.person_id) AS unique_users,
-        count() AS current_pageviews,
-        uniq(events.properties.$session_id) AS unique_sessions
-    FROM
-        events
-    SAMPLE {sample_rate}
-    WHERE
-        event = '$pageview' AND
-        timestamp >= {mid} AND
-        timestamp < {end} AND
-        {event_properties}
-    ),
-sessions_query AS (
+    uniq(if(start_timestamp >= {mid} AND start_timestamp < {end}, person_id, NULL)) AS unique_users,
+    uniq(if(start_timestamp >= {start} AND start_timestamp < {mid}, person_id, NULL)) AS previous_unique_users,
+    sumIf(filtered_pageview_count, start_timestamp >= {mid} AND start_timestamp < {end}) AS current_pageviews,
+    sumIf(filtered_pageview_count, start_timestamp >= {start} AND start_timestamp < {mid}) AS previous_pageviews,
+    uniq(if(start_timestamp >= {mid} AND start_timestamp < {end}, session_id, NULL)) AS unique_sessions,
+    uniq(if(start_timestamp >= {start} AND start_timestamp < {mid}, session_id, NULL)) AS previous_unique_sessions,
+    avg(if(start_timestamp >= {mid}, session_duration, NULL)) AS avg_duration_s,
+    avg(if(start_timestamp < {mid}, session_duration, NULL)) AS prev_avg_duration_s,
+    avg(if(start_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
+    avg(if(start_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
+FROM (
     SELECT
-        avg(duration_s) AS avg_duration_s,
-        avg(is_bounce) AS bounce_rate
-    FROM (SELECT
-            events.properties.`$session_id` AS session_id,
-            min(events.timestamp) AS min_timestamp,
-            max(events.timestamp) AS max_timestamp,
-            dateDiff('second', min_timestamp, max_timestamp) AS duration_s,
-            countIf(events.event == '$pageview') AS num_pageviews,
-            countIf(events.event == '$autocapture') AS num_autocaptures,
+        any(events.person_id) as person_id,
+        events.`$session_id` as session_id,
+        min(sessions.$start_timestamp) as start_timestamp,
+        any(sessions.$session_duration) as session_duration,
+        count() as filtered_pageview_count,
+        any(sessions.$is_bounce) as is_bounce
 
-            -- definition of a GA4 bounce from here https://support.google.com/analytics/answer/12195621?hl=en
-            (num_autocaptures == 0 AND num_pageviews <= 1 AND duration_s < 10) AS is_bounce
-        FROM
-            events
-        SAMPLE {sample_rate}
-        WHERE
-            session_id IS NOT NULL
-            AND (events.event == '$pageview' OR events.event == '$autocapture' OR events.event == '$pageleave')
-            AND ({session_where})
-        GROUP BY
-            events.properties.`$session_id`
-        HAVING
-            ({session_having})
-        )
+    FROM events
+    JOIN sessions
+    ON events.`$session_id` = sessions.session_id
+    WHERE and(
+        `$session_id` IS NOT NULL,
+        event = '$pageview',
+        timestamp >= {start},
+        timestamp < {end},
+        {event_properties},
+        {session_properties}
     )
-SELECT
-    unique_users,
+    GROUP BY `$session_id`
+    HAVING and(
+        start_timestamp >= {start},
+        start_timestamp < {end}
+    )
+)
+
+    """,
+                placeholders={
+                    "start": start,
+                    "mid": mid,
+                    "end": end,
+                    "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
+                },
+            )
+        else:
+            return parse_select(
+                """
+                SELECT
+    uniq(person_id) AS unique_users,
     NULL as previous_unique_users,
-    current_pageviews,
+    sum(filtered_pageview_count) AS current_pageviews,
     NULL as previous_pageviews,
-    unique_sessions,
+    uniq(session_id) AS unique_sessions,
     NULL as previous_unique_sessions,
-    avg_duration_s,
+    avg(session_duration) AS avg_duration_s,
     NULL as prev_avg_duration_s,
-    bounce_rate,
+    avg(is_bounce) AS bounce_rate,
     NULL as prev_bounce_rate
-FROM pages_query
-CROSS JOIN sessions_query
+FROM (
+    SELECT
+        any(events.person_id) as person_id,
+        events.`$session_id` as session_id,
+        min(sessions.$start_timestamp) as $start_timestamp,
+        any(sessions.$session_duration) as session_duration,
+        count() as filtered_pageview_count,
+        any(sessions.$is_bounce) as is_bounce
+    FROM events
+    JOIN sessions
+    ON events.`$session_id` = sessions.session_id
+    WHERE and(
+        `$session_id` IS NOT NULL,
+        event = '$pageview',
+        timestamp >= {mid},
+        timestamp < {end},
+        {event_properties},
+        {session_properties}
+    )
+    GROUP BY `$session_id`
+    HAVING and(
+        $start_timestamp >= {mid},
+        $start_timestamp < {end}
+    )
+)
                 """,
-                    timings=self.timings,
-                    placeholders={
-                        "start": start,
-                        "mid": mid,
-                        "end": end,
-                        "event_properties": self.event_properties(),
-                        "session_where": self.session_where(include_previous_period=False),
-                        "session_having": self.session_having(include_previous_period=False),
-                        "sample_rate": self._sample_ratio,
-                    },
-                )
+                placeholders={
+                    "mid": mid,
+                    "end": end,
+                    "event_properties": self.event_properties(),
+                    "session_properties": self.session_properties(),
+                },
+            )
 
     def calculate(self):
         response = execute_hogql_query(
@@ -175,6 +128,7 @@ CROSS JOIN sessions_query
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
         assert response.results
 
@@ -189,6 +143,7 @@ CROSS JOIN sessions_query
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ],
             samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
         )
 
     @cached_property
@@ -200,8 +155,21 @@ CROSS JOIN sessions_query
             now=datetime.now(),
         )
 
+    def all_properties(self) -> ast.Expr:
+        properties = self.query.properties + self._test_account_filters
+        return property_to_expr(properties, team=self.team)
+
     def event_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties + self._test_account_filters, team=self.team)
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        ]
+        return property_to_expr(properties, team=self.team, scope="event")
+
+    def session_properties(self) -> ast.Expr:
+        properties = [
+            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
+        ]
+        return property_to_expr(properties, team=self.team, scope="session")
 
 
 def to_data(

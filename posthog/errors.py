@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re
-from typing import Dict
+from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
@@ -8,9 +8,10 @@ from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExce
 
 
 class InternalCHQueryError(ServerException):
-    code_name: str
+    code_name: Optional[str]
+    """Can be null if re-raised from a thread (see `failhard_threadhook_context`)."""
 
-    def __init__(self, message, *, code=None, nested=None, code_name):
+    def __init__(self, message, *, code=None, nested=None, code_name=None):
         self.code_name = code_name
         super().__init__(message, code, nested)
 
@@ -56,6 +57,10 @@ def wrap_query_error(err: Exception) -> Exception:
     # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
     if hasattr(err, "code"):
         meta = look_up_error_code_meta(err)
+
+        if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
+            return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+
         name = f"CHQueryError{meta.name.replace('_', ' ').title().replace(' ', '')}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
         message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
@@ -70,8 +75,21 @@ def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
 
 
+# Specific error classes we need
+# These exist here and are not dynamically created because they are used in the codebase.
+class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
+    pass
+
+
+CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
+    "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
+        "Too many simultaneous queries. Try again later.", code=202
+    ),
+}
+
+
 #
-# From https://github.com/ClickHouse/ClickHouse/blob/22.3/src/Common/ErrorCodes.cpp#L16-L622
+# From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
 #
 # Please keep this list up to date at each ClickHouse upgrade.
 #
@@ -81,15 +99,16 @@ def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 # import re
 # import requests
 # output = {}
-# resp = requests.get('https://raw.githubusercontent.com/ClickHouse/ClickHouse/22.3/src/Common/ErrorCodes.cpp')
+# resp = requests.get('https://raw.githubusercontent.com/ClickHouse/ClickHouse/23.12/src/Common/ErrorCodes.cpp')
 # for line in resp.text.split("\n"):
 #     result = re.search(r"^M\(([0-9]+), (\S+)\).*$", line.strip())
 #     if result is not None:
 #         output[int(result.group(1))] = result.group(2)
 # print(json.dumps(output, sort_keys=True, indent=4))
 #
+# Remember to add back the `user_safe` args though!
 CLICKHOUSE_UNKNOWN_EXCEPTION = ErrorCodeMeta("UNKNOWN_EXCEPTION")
-CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
+CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     0: ErrorCodeMeta("OK"),
     1: ErrorCodeMeta("UNSUPPORTED_METHOD"),
     2: ErrorCodeMeta("UNSUPPORTED_PARAMETER"),
@@ -105,21 +124,14 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
     16: ErrorCodeMeta("NO_SUCH_COLUMN_IN_TABLE"),
-    17: ErrorCodeMeta("DELIMITER_IN_STRING_LITERAL_DOESNT_MATCH"),
-    18: ErrorCodeMeta("CANNOT_INSERT_ELEMENT_INTO_CONSTANT_COLUMN"),
     19: ErrorCodeMeta("SIZE_OF_FIXED_STRING_DOESNT_MATCH"),
     20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
-    21: ErrorCodeMeta("CANNOT_READ_ALL_DATA_FROM_TAB_SEPARATED_INPUT"),
-    22: ErrorCodeMeta("CANNOT_PARSE_ALL_VALUE_FROM_TAB_SEPARATED_INPUT"),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
     26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
     27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
-    29: ErrorCodeMeta("CANNOT_PRINT_INTEGER"),
-    30: ErrorCodeMeta("CANNOT_READ_SIZE_OF_COMPRESSED_CHUNK"),
-    31: ErrorCodeMeta("CANNOT_READ_COMPRESSED_CHUNK"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
     34: ErrorCodeMeta("TOO_MANY_ARGUMENTS_FOR_FUNCTION"),
@@ -133,29 +145,22 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     42: ErrorCodeMeta("NUMBER_OF_ARGUMENTS_DOESNT_MATCH"),
     43: ErrorCodeMeta("ILLEGAL_TYPE_OF_ARGUMENT", user_safe=True),
     44: ErrorCodeMeta("ILLEGAL_COLUMN"),
-    45: ErrorCodeMeta("ILLEGAL_NUMBER_OF_RESULT_COLUMNS"),
     46: ErrorCodeMeta("UNKNOWN_FUNCTION", user_safe=True),
-    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER"),
+    47: ErrorCodeMeta("UNKNOWN_IDENTIFIER", user_safe=True),  # TODO: Unset user_safe once HogQL is accurate in Data WH
     48: ErrorCodeMeta("NOT_IMPLEMENTED"),
     49: ErrorCodeMeta("LOGICAL_ERROR"),
     50: ErrorCodeMeta("UNKNOWN_TYPE"),
     51: ErrorCodeMeta("EMPTY_LIST_OF_COLUMNS_QUERIED"),
     52: ErrorCodeMeta("COLUMN_QUERIED_MORE_THAN_ONCE"),
     53: ErrorCodeMeta("TYPE_MISMATCH", user_safe=True),
-    54: ErrorCodeMeta("STORAGE_DOESNT_ALLOW_PARAMETERS"),
     55: ErrorCodeMeta("STORAGE_REQUIRES_PARAMETER"),
     56: ErrorCodeMeta("UNKNOWN_STORAGE"),
     57: ErrorCodeMeta("TABLE_ALREADY_EXISTS"),
     58: ErrorCodeMeta("TABLE_METADATA_ALREADY_EXISTS"),
     59: ErrorCodeMeta("ILLEGAL_TYPE_OF_COLUMN_FOR_FILTER"),
     60: ErrorCodeMeta("UNKNOWN_TABLE"),
-    61: ErrorCodeMeta("ONLY_FILTER_COLUMN_IN_BLOCK"),
     62: ErrorCodeMeta("SYNTAX_ERROR"),
-    63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION"),
-    64: ErrorCodeMeta("CANNOT_READ_AGGREGATE_FUNCTION_FROM_TEXT"),
-    65: ErrorCodeMeta("CANNOT_WRITE_AGGREGATE_FUNCTION_AS_TEXT"),
-    66: ErrorCodeMeta("NOT_A_COLUMN"),
-    67: ErrorCodeMeta("ILLEGAL_KEY_OF_AGGREGATION"),
+    63: ErrorCodeMeta("UNKNOWN_AGGREGATE_FUNCTION", user_safe=True),
     68: ErrorCodeMeta("CANNOT_GET_SIZE_OF_FIELD"),
     69: ErrorCodeMeta("ARGUMENT_OUT_OF_BOUND"),
     70: ErrorCodeMeta("CANNOT_CONVERT_TYPE"),
@@ -185,16 +190,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     94: ErrorCodeMeta("CANNOT_MERGE_DIFFERENT_AGGREGATED_DATA_VARIANTS"),
     95: ErrorCodeMeta("CANNOT_READ_FROM_SOCKET"),
     96: ErrorCodeMeta("CANNOT_WRITE_TO_SOCKET"),
-    97: ErrorCodeMeta("CANNOT_READ_ALL_DATA_FROM_CHUNKED_INPUT"),
-    98: ErrorCodeMeta("CANNOT_WRITE_TO_EMPTY_BLOCK_OUTPUT_STREAM"),
     99: ErrorCodeMeta("UNKNOWN_PACKET_FROM_CLIENT"),
     100: ErrorCodeMeta("UNKNOWN_PACKET_FROM_SERVER"),
     101: ErrorCodeMeta("UNEXPECTED_PACKET_FROM_CLIENT"),
     102: ErrorCodeMeta("UNEXPECTED_PACKET_FROM_SERVER"),
-    103: ErrorCodeMeta("RECEIVED_DATA_FOR_WRONG_QUERY_ID"),
     104: ErrorCodeMeta("TOO_SMALL_BUFFER_SIZE"),
-    105: ErrorCodeMeta("CANNOT_READ_HISTORY"),
-    106: ErrorCodeMeta("CANNOT_APPEND_HISTORY"),
     107: ErrorCodeMeta("FILE_DOESNT_EXIST"),
     108: ErrorCodeMeta("NO_DATA_TO_INSERT"),
     109: ErrorCodeMeta("CANNOT_BLOCK_SIGNAL"),
@@ -213,7 +213,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
     125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
-    126: ErrorCodeMeta("CANNOT_GET_RETURN_TYPE"),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
@@ -225,30 +224,17 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     137: ErrorCodeMeta("UNKNOWN_ELEMENT_IN_CONFIG"),
     138: ErrorCodeMeta("EXCESSIVE_ELEMENT_IN_CONFIG"),
     139: ErrorCodeMeta("NO_ELEMENTS_IN_CONFIG"),
-    140: ErrorCodeMeta("ALL_REQUESTED_COLUMNS_ARE_MISSING"),
     141: ErrorCodeMeta("SAMPLING_NOT_SUPPORTED"),
     142: ErrorCodeMeta("NOT_FOUND_NODE"),
-    143: ErrorCodeMeta("FOUND_MORE_THAN_ONE_NODE"),
-    144: ErrorCodeMeta("FIRST_DATE_IS_BIGGER_THAN_LAST_DATE"),
     145: ErrorCodeMeta("UNKNOWN_OVERFLOW_MODE"),
-    146: ErrorCodeMeta("QUERY_SECTION_DOESNT_MAKE_SENSE"),
-    147: ErrorCodeMeta("NOT_FOUND_FUNCTION_ELEMENT_FOR_AGGREGATE"),
-    148: ErrorCodeMeta("NOT_FOUND_RELATION_ELEMENT_FOR_CONDITION"),
-    149: ErrorCodeMeta("NOT_FOUND_RHS_ELEMENT_FOR_CONDITION"),
-    150: ErrorCodeMeta("EMPTY_LIST_OF_ATTRIBUTES_PASSED"),
-    151: ErrorCodeMeta("INDEX_OF_COLUMN_IN_SORT_CLAUSE_IS_OUT_OF_RANGE"),
     152: ErrorCodeMeta("UNKNOWN_DIRECTION_OF_SORTING"),
     153: ErrorCodeMeta("ILLEGAL_DIVISION", user_safe=True),
-    154: ErrorCodeMeta("AGGREGATE_FUNCTION_NOT_APPLICABLE"),
-    155: ErrorCodeMeta("UNKNOWN_RELATION"),
     156: ErrorCodeMeta("DICTIONARIES_WAS_NOT_LOADED"),
-    157: ErrorCodeMeta("ILLEGAL_OVERFLOW_MODE"),
     158: ErrorCodeMeta("TOO_MANY_ROWS"),
     159: ErrorCodeMeta("TIMEOUT_EXCEEDED"),
     160: ErrorCodeMeta("TOO_SLOW"),
     161: ErrorCodeMeta("TOO_MANY_COLUMNS"),
     162: ErrorCodeMeta("TOO_DEEP_SUBQUERIES"),
-    163: ErrorCodeMeta("TOO_DEEP_PIPELINE"),
     164: ErrorCodeMeta("READONLY"),
     165: ErrorCodeMeta("TOO_MANY_TEMPORARY_COLUMNS"),
     166: ErrorCodeMeta("TOO_MANY_TEMPORARY_NON_CONST_COLUMNS"),
@@ -259,36 +245,27 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     172: ErrorCodeMeta("CANNOT_CREATE_DIRECTORY"),
     173: ErrorCodeMeta("CANNOT_ALLOCATE_MEMORY"),
     174: ErrorCodeMeta("CYCLIC_ALIASES"),
-    176: ErrorCodeMeta("CHUNK_NOT_FOUND"),
-    177: ErrorCodeMeta("DUPLICATE_CHUNK_NAME"),
-    178: ErrorCodeMeta("MULTIPLE_ALIASES_FOR_EXPRESSION"),
     179: ErrorCodeMeta("MULTIPLE_EXPRESSIONS_FOR_ALIAS"),
     180: ErrorCodeMeta("THERE_IS_NO_PROFILE"),
     181: ErrorCodeMeta("ILLEGAL_FINAL"),
     182: ErrorCodeMeta("ILLEGAL_PREWHERE"),
     183: ErrorCodeMeta("UNEXPECTED_EXPRESSION"),
     184: ErrorCodeMeta("ILLEGAL_AGGREGATION", user_safe=True),
-    185: ErrorCodeMeta("UNSUPPORTED_MYISAM_BLOCK_TYPE"),
     186: ErrorCodeMeta("UNSUPPORTED_COLLATION_LOCALE"),
     187: ErrorCodeMeta("COLLATION_COMPARISON_FAILED"),
-    188: ErrorCodeMeta("UNKNOWN_ACTION"),
-    189: ErrorCodeMeta("TABLE_MUST_NOT_BE_CREATED_MANUALLY"),
-    190: ErrorCodeMeta("SIZES_OF_ARRAYS_DOESNT_MATCH"),
+    190: ErrorCodeMeta("SIZES_OF_ARRAYS_DONT_MATCH"),
     191: ErrorCodeMeta("SET_SIZE_LIMIT_EXCEEDED"),
     192: ErrorCodeMeta("UNKNOWN_USER"),
     193: ErrorCodeMeta("WRONG_PASSWORD"),
     194: ErrorCodeMeta("REQUIRED_PASSWORD"),
     195: ErrorCodeMeta("IP_ADDRESS_NOT_ALLOWED"),
     196: ErrorCodeMeta("UNKNOWN_ADDRESS_PATTERN_TYPE"),
-    197: ErrorCodeMeta("SERVER_REVISION_IS_TOO_OLD"),
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
-    200: ErrorCodeMeta("QUOTA_DOESNT_ALLOW_KEYS"),
-    201: ErrorCodeMeta("QUOTA_EXPIRED"),
+    201: ErrorCodeMeta("QUOTA_EXCEEDED"),
     202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES"),
     203: ErrorCodeMeta("NO_FREE_CONNECTION"),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
-    205: ErrorCodeMeta("NESTED_TYPE_TOO_DEEP"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
     207: ErrorCodeMeta("AMBIGUOUS_IDENTIFIER"),
     208: ErrorCodeMeta("EMPTY_NESTED_TABLE"),
@@ -305,7 +282,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     219: ErrorCodeMeta("DATABASE_NOT_EMPTY"),
     220: ErrorCodeMeta("DUPLICATE_INTERSERVER_IO_ENDPOINT"),
     221: ErrorCodeMeta("NO_SUCH_INTERSERVER_IO_ENDPOINT"),
-    222: ErrorCodeMeta("ADDING_REPLICA_TO_NON_EMPTY_TABLE"),
     223: ErrorCodeMeta("UNEXPECTED_AST_STRUCTURE"),
     224: ErrorCodeMeta("REPLICA_IS_ALREADY_ACTIVE"),
     225: ErrorCodeMeta("NO_ZOOKEEPER"),
@@ -332,12 +308,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     243: ErrorCodeMeta("NOT_ENOUGH_SPACE"),
     244: ErrorCodeMeta("UNEXPECTED_ZOOKEEPER_ERROR"),
     246: ErrorCodeMeta("CORRUPTED_DATA"),
-    247: ErrorCodeMeta("INCORRECT_MARK"),
     248: ErrorCodeMeta("INVALID_PARTITION_VALUE"),
-    250: ErrorCodeMeta("NOT_ENOUGH_BLOCK_NUMBERS"),
     251: ErrorCodeMeta("NO_SUCH_REPLICA"),
     252: ErrorCodeMeta("TOO_MANY_PARTS"),
-    253: ErrorCodeMeta("REPLICA_IS_ALREADY_EXIST"),
+    253: ErrorCodeMeta("REPLICA_ALREADY_EXISTS"),
     254: ErrorCodeMeta("NO_ACTIVE_REPLICAS"),
     255: ErrorCodeMeta("TOO_MANY_RETRIES_TO_FETCH_PARTS"),
     256: ErrorCodeMeta("PARTITION_ALREADY_EXISTS"),
@@ -350,8 +324,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     264: ErrorCodeMeta("INCOMPATIBLE_TYPE_OF_JOIN"),
     265: ErrorCodeMeta("NO_AVAILABLE_REPLICA"),
     266: ErrorCodeMeta("MISMATCH_REPLICAS_DATA_SOURCES"),
-    267: ErrorCodeMeta("STORAGE_DOESNT_SUPPORT_PARALLEL_REPLICAS"),
-    268: ErrorCodeMeta("CPUID_ERROR"),
     269: ErrorCodeMeta("INFINITE_LOOP"),
     270: ErrorCodeMeta("CANNOT_COMPRESS"),
     271: ErrorCodeMeta("CANNOT_DECOMPRESS"),
@@ -374,9 +346,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     290: ErrorCodeMeta("LIMIT_EXCEEDED"),
     291: ErrorCodeMeta("DATABASE_ACCESS_DENIED"),
     293: ErrorCodeMeta("MONGODB_CANNOT_AUTHENTICATE"),
-    294: ErrorCodeMeta("INVALID_BLOCK_EXTRA_INFO"),
     295: ErrorCodeMeta("RECEIVED_EMPTY_DATA"),
-    296: ErrorCodeMeta("NO_REMOTE_SHARD_FOUND"),
     297: ErrorCodeMeta("SHARD_HAS_NO_CONNECTIONS"),
     298: ErrorCodeMeta("CANNOT_PIPE"),
     299: ErrorCodeMeta("CANNOT_FORK"),
@@ -390,13 +360,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     307: ErrorCodeMeta("TOO_MANY_BYTES"),
     308: ErrorCodeMeta("UNEXPECTED_NODE_IN_ZOOKEEPER"),
     309: ErrorCodeMeta("FUNCTION_CANNOT_HAVE_PARAMETERS"),
-    317: ErrorCodeMeta("INVALID_SHARD_WEIGHT"),
     318: ErrorCodeMeta("INVALID_CONFIG_PARAMETER"),
     319: ErrorCodeMeta("UNKNOWN_STATUS_OF_INSERT"),
     321: ErrorCodeMeta("VALUE_IS_OUT_OF_RANGE_OF_DATA_TYPE", user_safe=True),
-    335: ErrorCodeMeta("BARRIER_TIMEOUT"),
     336: ErrorCodeMeta("UNKNOWN_DATABASE_ENGINE"),
-    337: ErrorCodeMeta("DDL_GUARD_IS_ACTIVE"),
     341: ErrorCodeMeta("UNFINISHED"),
     342: ErrorCodeMeta("METADATA_MISMATCH"),
     344: ErrorCodeMeta("SUPPORT_IS_DISABLED"),
@@ -404,14 +371,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     346: ErrorCodeMeta("CANNOT_CONVERT_CHARSET"),
     347: ErrorCodeMeta("CANNOT_LOAD_CONFIG"),
     349: ErrorCodeMeta("CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN"),
-    350: ErrorCodeMeta("INCOMPATIBLE_SOURCE_TABLES"),
-    351: ErrorCodeMeta("AMBIGUOUS_TABLE_NAME"),
     352: ErrorCodeMeta("AMBIGUOUS_COLUMN_NAME"),
     353: ErrorCodeMeta("INDEX_OF_POSITIONAL_ARGUMENT_IS_OUT_OF_RANGE", user_safe=True),
     354: ErrorCodeMeta("ZLIB_INFLATE_FAILED"),
     355: ErrorCodeMeta("ZLIB_DEFLATE_FAILED"),
-    356: ErrorCodeMeta("BAD_LAMBDA"),
-    357: ErrorCodeMeta("RESERVED_IDENTIFIER_NAME"),
     358: ErrorCodeMeta("INTO_OUTFILE_NOT_ALLOWED"),
     359: ErrorCodeMeta("TABLE_SIZE_EXCEEDS_MAX_DROP_SIZE_LIMIT"),
     360: ErrorCodeMeta("CANNOT_CREATE_CHARSET_CONVERTER"),
@@ -420,7 +383,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     363: ErrorCodeMeta("CANNOT_CREATE_IO_BUFFER"),
     364: ErrorCodeMeta("RECEIVED_ERROR_TOO_MANY_REQUESTS"),
     366: ErrorCodeMeta("SIZES_OF_NESTED_COLUMNS_ARE_INCONSISTENT"),
-    367: ErrorCodeMeta("TOO_MANY_FETCHES"),
     369: ErrorCodeMeta("ALL_REPLICAS_ARE_STALE"),
     370: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_USED_IN_TABLES"),
     371: ErrorCodeMeta("INCONSISTENT_CLUSTER_DEFINITION"),
@@ -431,7 +393,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     376: ErrorCodeMeta("CANNOT_PARSE_UUID"),
     377: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_DATA_TYPE"),
     378: ErrorCodeMeta("DATA_TYPE_CANNOT_HAVE_ARGUMENTS"),
-    379: ErrorCodeMeta("UNKNOWN_STATUS_OF_DISTRIBUTED_DDL_TASK"),
     380: ErrorCodeMeta("CANNOT_KILL"),
     381: ErrorCodeMeta("HTTP_LENGTH_REQUIRED"),
     382: ErrorCodeMeta("CANNOT_LOAD_CATBOOST_MODEL"),
@@ -457,11 +418,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     402: ErrorCodeMeta("CANNOT_IOSETUP"),
     403: ErrorCodeMeta("INVALID_JOIN_ON_EXPRESSION"),
     404: ErrorCodeMeta("BAD_ODBC_CONNECTION_STRING"),
-    405: ErrorCodeMeta("PARTITION_SIZE_EXCEEDS_MAX_DROP_SIZE_LIMIT"),
     406: ErrorCodeMeta("TOP_AND_LIMIT_TOGETHER"),
     407: ErrorCodeMeta("DECIMAL_OVERFLOW"),
     408: ErrorCodeMeta("BAD_REQUEST_PARAMETER"),
-    409: ErrorCodeMeta("EXTERNAL_EXECUTABLE_NOT_FOUND"),
     410: ErrorCodeMeta("EXTERNAL_SERVER_IS_NOT_RESPONDING"),
     411: ErrorCodeMeta("PTHREAD_ERROR"),
     412: ErrorCodeMeta("NETLINK_ERROR"),
@@ -478,7 +437,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     424: ErrorCodeMeta("CANNOT_LINK"),
     425: ErrorCodeMeta("SYSTEM_ERROR"),
     427: ErrorCodeMeta("CANNOT_COMPILE_REGEXP"),
-    428: ErrorCodeMeta("UNKNOWN_LOG_LEVEL"),
     429: ErrorCodeMeta("FAILED_TO_GETPWUID"),
     430: ErrorCodeMeta("MISMATCHING_USERS_FOR_PROCESS_AND_DATA"),
     431: ErrorCodeMeta("ILLEGAL_SYNTAX_FOR_CODEC_TYPE"),
@@ -512,7 +470,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     459: ErrorCodeMeta("CANNOT_SET_THREAD_PRIORITY"),
     460: ErrorCodeMeta("CANNOT_CREATE_TIMER"),
     461: ErrorCodeMeta("CANNOT_SET_TIMER_PERIOD"),
-    462: ErrorCodeMeta("CANNOT_DELETE_TIMER"),
     463: ErrorCodeMeta("CANNOT_FCNTL"),
     464: ErrorCodeMeta("CANNOT_PARSE_ELF"),
     465: ErrorCodeMeta("CANNOT_PARSE_DWARF"),
@@ -535,15 +492,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     482: ErrorCodeMeta("DICTIONARY_ACCESS_DENIED"),
     483: ErrorCodeMeta("TOO_MANY_REDIRECTS"),
     484: ErrorCodeMeta("INTERNAL_REDIS_ERROR"),
-    485: ErrorCodeMeta("SCALAR_ALREADY_EXISTS"),
     487: ErrorCodeMeta("CANNOT_GET_CREATE_DICTIONARY_QUERY"),
-    488: ErrorCodeMeta("UNKNOWN_DICTIONARY"),
     489: ErrorCodeMeta("INCORRECT_DICTIONARY_DEFINITION"),
     490: ErrorCodeMeta("CANNOT_FORMAT_DATETIME"),
     491: ErrorCodeMeta("UNACCEPTABLE_URL"),
     492: ErrorCodeMeta("ACCESS_ENTITY_NOT_FOUND"),
     493: ErrorCodeMeta("ACCESS_ENTITY_ALREADY_EXISTS"),
-    494: ErrorCodeMeta("ACCESS_ENTITY_FOUND_DUPLICATES"),
     495: ErrorCodeMeta("ACCESS_STORAGE_READONLY"),
     496: ErrorCodeMeta("QUOTA_REQUIRES_CLIENT_KEY"),
     497: ErrorCodeMeta("ACCESS_DENIED"),
@@ -554,8 +508,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     502: ErrorCodeMeta("CANNOT_SIGQUEUE"),
     503: ErrorCodeMeta("AGGREGATE_FUNCTION_THROW"),
     504: ErrorCodeMeta("FILE_ALREADY_EXISTS"),
-    505: ErrorCodeMeta("CANNOT_DELETE_DIRECTORY"),
-    506: ErrorCodeMeta("UNEXPECTED_ERROR_CODE"),
     507: ErrorCodeMeta("UNABLE_TO_SKIP_UNUSED_SHARDS"),
     508: ErrorCodeMeta("UNKNOWN_ACCESS_TYPE"),
     509: ErrorCodeMeta("INVALID_GRANT"),
@@ -580,8 +532,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     530: ErrorCodeMeta("CANNOT_CONNECT_RABBITMQ"),
     531: ErrorCodeMeta("CANNOT_FSTAT"),
     532: ErrorCodeMeta("LDAP_ERROR"),
-    533: ErrorCodeMeta("INCONSISTENT_RESERVATIONS"),
-    534: ErrorCodeMeta("NO_RESERVATIONS_PROVIDED"),
     535: ErrorCodeMeta("UNKNOWN_RAID_TYPE"),
     536: ErrorCodeMeta("CANNOT_RESTORE_FROM_FIELD_DUMP"),
     537: ErrorCodeMeta("ILLEGAL_MYSQL_VARIABLE"),
@@ -597,8 +547,6 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     547: ErrorCodeMeta("INVALID_RAID_TYPE"),
     548: ErrorCodeMeta("UNKNOWN_VOLUME"),
     549: ErrorCodeMeta("DATA_TYPE_CANNOT_BE_USED_IN_KEY"),
-    550: ErrorCodeMeta("CONDITIONAL_TREE_PARENT_NOT_FOUND"),
-    551: ErrorCodeMeta("ILLEGAL_PROJECTION_MANIPULATOR"),
     552: ErrorCodeMeta("UNRECOGNIZED_ARGUMENTS"),
     553: ErrorCodeMeta("LZMA_STREAM_ENCODER_FAILED"),
     554: ErrorCodeMeta("LZMA_STREAM_DECODER_FAILED"),
@@ -654,13 +602,11 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     604: ErrorCodeMeta("BACKUP_ENTRY_ALREADY_EXISTS"),
     605: ErrorCodeMeta("BACKUP_ENTRY_NOT_FOUND"),
     606: ErrorCodeMeta("BACKUP_IS_EMPTY"),
-    607: ErrorCodeMeta("BACKUP_ELEMENT_DUPLICATE"),
+    607: ErrorCodeMeta("CANNOT_RESTORE_DATABASE"),
     608: ErrorCodeMeta("CANNOT_RESTORE_TABLE"),
     609: ErrorCodeMeta("FUNCTION_ALREADY_EXISTS"),
     610: ErrorCodeMeta("CANNOT_DROP_FUNCTION"),
     611: ErrorCodeMeta("CANNOT_CREATE_RECURSIVE_FUNCTION"),
-    612: ErrorCodeMeta("OBJECT_ALREADY_STORED_ON_DISK"),
-    613: ErrorCodeMeta("OBJECT_WAS_NOT_STORED_ON_DISK"),
     614: ErrorCodeMeta("POSTGRESQL_CONNECTION_FAILURE"),
     615: ErrorCodeMeta("CANNOT_ADVISE"),
     616: ErrorCodeMeta("UNKNOWN_READ_METHOD"),
@@ -691,8 +637,56 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: Dict[int, ErrorCodeMeta] = {
     641: ErrorCodeMeta("CANNOT_APPEND_TO_FILE"),
     642: ErrorCodeMeta("CANNOT_PACK_ARCHIVE"),
     643: ErrorCodeMeta("CANNOT_UNPACK_ARCHIVE"),
-    644: ErrorCodeMeta("REMOTE_FS_OBJECT_CACHE_ERROR"),
-    645: ErrorCodeMeta("NUMBER_OF_DIMENSIONS_MISMATHED"),
+    645: ErrorCodeMeta("NUMBER_OF_DIMENSIONS_MISMATCHED"),
+    647: ErrorCodeMeta("CANNOT_BACKUP_TABLE"),
+    648: ErrorCodeMeta("WRONG_DDL_RENAMING_SETTINGS"),
+    649: ErrorCodeMeta("INVALID_TRANSACTION"),
+    650: ErrorCodeMeta("SERIALIZATION_ERROR"),
+    651: ErrorCodeMeta("CAPN_PROTO_BAD_TYPE"),
+    652: ErrorCodeMeta("ONLY_NULLS_WHILE_READING_SCHEMA"),
+    653: ErrorCodeMeta("CANNOT_PARSE_BACKUP_SETTINGS"),
+    654: ErrorCodeMeta("WRONG_BACKUP_SETTINGS"),
+    655: ErrorCodeMeta("FAILED_TO_SYNC_BACKUP_OR_RESTORE"),
+    659: ErrorCodeMeta("UNKNOWN_STATUS_OF_TRANSACTION"),
+    660: ErrorCodeMeta("HDFS_ERROR"),
+    661: ErrorCodeMeta("CANNOT_SEND_SIGNAL"),
+    662: ErrorCodeMeta("FS_METADATA_ERROR"),
+    663: ErrorCodeMeta("INCONSISTENT_METADATA_FOR_BACKUP"),
+    664: ErrorCodeMeta("ACCESS_STORAGE_DOESNT_ALLOW_BACKUP"),
+    665: ErrorCodeMeta("CANNOT_CONNECT_NATS"),
+    667: ErrorCodeMeta("NOT_INITIALIZED"),
+    668: ErrorCodeMeta("INVALID_STATE"),
+    669: ErrorCodeMeta("NAMED_COLLECTION_DOESNT_EXIST"),
+    670: ErrorCodeMeta("NAMED_COLLECTION_ALREADY_EXISTS"),
+    671: ErrorCodeMeta("NAMED_COLLECTION_IS_IMMUTABLE"),
+    672: ErrorCodeMeta("INVALID_SCHEDULER_NODE"),
+    673: ErrorCodeMeta("RESOURCE_ACCESS_DENIED"),
+    674: ErrorCodeMeta("RESOURCE_NOT_FOUND"),
+    675: ErrorCodeMeta("CANNOT_PARSE_IPV4"),
+    676: ErrorCodeMeta("CANNOT_PARSE_IPV6"),
+    677: ErrorCodeMeta("THREAD_WAS_CANCELED"),
+    678: ErrorCodeMeta("IO_URING_INIT_FAILED"),
+    679: ErrorCodeMeta("IO_URING_SUBMIT_ERROR"),
+    690: ErrorCodeMeta("MIXED_ACCESS_PARAMETER_TYPES"),
+    691: ErrorCodeMeta("UNKNOWN_ELEMENT_OF_ENUM"),
+    692: ErrorCodeMeta("TOO_MANY_MUTATIONS"),
+    693: ErrorCodeMeta("AWS_ERROR"),
+    694: ErrorCodeMeta("ASYNC_LOAD_CYCLE"),
+    695: ErrorCodeMeta("ASYNC_LOAD_FAILED"),
+    696: ErrorCodeMeta("ASYNC_LOAD_CANCELED"),
+    697: ErrorCodeMeta("CANNOT_RESTORE_TO_NONENCRYPTED_DISK"),
+    698: ErrorCodeMeta("INVALID_REDIS_STORAGE_TYPE"),
+    699: ErrorCodeMeta("INVALID_REDIS_TABLE_STRUCTURE"),
+    700: ErrorCodeMeta("USER_SESSION_LIMIT_EXCEEDED"),
+    701: ErrorCodeMeta("CLUSTER_DOESNT_EXIST"),
+    702: ErrorCodeMeta("CLIENT_INFO_DOES_NOT_MATCH"),
+    703: ErrorCodeMeta("INVALID_IDENTIFIER"),
+    704: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NONDETERMINISTIC_FUNCTIONS"),
+    705: ErrorCodeMeta("TABLE_NOT_EMPTY"),
+    706: ErrorCodeMeta("LIBSSH_ERROR"),
+    707: ErrorCodeMeta("GCP_ERROR"),
+    708: ErrorCodeMeta("ILLEGAL_STATISTIC"),
+    709: ErrorCodeMeta("CANNOT_GET_REPLICATED_DATABASE_SNAPSHOT"),
     999: ErrorCodeMeta("KEEPER_EXCEPTION"),
     1000: ErrorCodeMeta("POCO_EXCEPTION"),
     1001: ErrorCodeMeta("STD_EXCEPTION"),

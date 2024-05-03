@@ -7,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery } from '~/queries/schema'
-import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
@@ -52,9 +52,7 @@ export function AggregationSelect({
     }
 
     const value = getHogQLValue(
-        isLifecycleQuery(querySource) || isStickinessQuery(querySource)
-            ? undefined
-            : querySource.aggregation_group_type_index,
+        isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
         isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
     )
     const onChange = (value: string): void => {
@@ -132,7 +130,7 @@ export function AggregationSelect({
 
     return (
         <LemonSelect
-            className={className}
+            className={className || 'flex-1'}
             value={value}
             onChange={(newValue) => {
                 if (newValue !== null) {

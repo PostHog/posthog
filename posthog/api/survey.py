@@ -1,6 +1,6 @@
 from contextlib import contextmanager
-from typing import Type
 
+from django.db.models import Min
 from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
@@ -24,6 +24,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from nanoid import generate
 
 from typing import Any
 
@@ -58,6 +59,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -89,6 +91,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "start_date",
             "end_date",
             "archived",
+            "responses_limit",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -207,6 +210,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 validated_data["targeting_flag_id"] = None
             validated_data.pop("remove_targeting_flag")
 
+            # make sure instance.targeting_flag is gone
+            instance.refresh_from_db()
+
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
             new_filters = validated_data["targeting_flag_filters"]
@@ -226,7 +232,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         end_date = validated_data.get("end_date")
         if instance.targeting_flag:
-            # turn off feature flag if survey is ended
+            # turn off feature flag if survey is completed
             if end_date is None:
                 instance.targeting_flag.active = True
             else:
@@ -247,7 +253,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
             elif name and filters:
-                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
+                random_id = generate("1234567890abcdef", 10)
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}")
                 feature_flag_serializer = FeatureFlagSerializer(
                     data={
                         "key": feature_flag_key,
@@ -268,7 +275,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
 
-    def get_serializer_class(self) -> Type[serializers.Serializer]:
+    def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
         else:
@@ -284,14 +291,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
+        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
+            "created_at__min"
+        ]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id},
+            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
         )
 
         counts = {}

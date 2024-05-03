@@ -1,10 +1,10 @@
 import { TZLabel } from '@posthog/apps-common'
+import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { IconCalendar, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -50,7 +50,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <LemonButton
                         size="small"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
-                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
                 )
             },
@@ -131,7 +131,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             status="alt"
                             center
                             onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
-                            icon={filters.pinned ? <IconPinFilled /> : <IconPinOutline />}
+                            icon={filters.pinned ? <IconPinFilled /> : <IconPin />}
                         >
                             Pinned
                         </LemonButton>

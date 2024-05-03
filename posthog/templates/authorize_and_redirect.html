@@ -28,15 +28,14 @@
     </div>
 
     <form class="form-signin" method="post" action="/login">
-
-        <h2>Link URL</h2>
-        <p>Do you want to give the PostHog toolbar on <strong>{{ redirect_url }}</strong> access to your PostHog data?
+        <h2>Toolbar authorization</h2>
+        <p>Do you want to give the PostHog Toolbar access to your PostHog data on <strong style="word-wrap: break-word;">{{ redirect_url }}</strong>?
         </p>
-        <p>With the toolbar, you can:</p>
+        <p>With the Toolbar, you can:</p>
         <ul>
-            <li>See aggregated stats</li>
             <li>See heatmaps</li>
-            <li>Create new events</li>
+            <li>Create and edit actions</li>
+            <li>Toggle feature flags</li>
         </ul>
 
         <a href="/api/user/redirect_to_site/?appUrl={{ redirect_url }}" class="button">

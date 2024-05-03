@@ -1,4 +1,3 @@
-from typing import Dict, List
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -12,23 +11,22 @@ from posthog.hogql.database.models import (
     LazyTable,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.persons import PersonsTable, join_with_persons_table
-from posthog.hogql.errors import HogQLException
-from posthog.schema import HogQLQueryModifiers
+from posthog.hogql.database.schema.persons import join_with_persons_table
+from posthog.hogql.errors import ResolutionError
 
 PERSON_DISTINCT_IDS_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),
     "person_id": StringDatabaseField(name="person_id"),
     "person": LazyJoin(
-        from_field="person_id",
-        join_table=PersonsTable(),
+        from_field=["person_id"],
+        join_table="persons",
         join_function=join_with_persons_table,
     ),
 }
 
 
-def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]):
+def select_from_person_distinct_ids_table(requested_fields: dict[str, list[str | int]]):
     # Always include "person_id", as it's the key we use to make further joins, and it'd be great if it's available
     if "person_id" not in requested_fields:
         requested_fields = {**requested_fields, "person_id": ["person_id"]}
@@ -44,14 +42,14 @@ def select_from_person_distinct_ids_table(requested_fields: Dict[str, List[str]]
 def join_with_person_distinct_ids_table(
     from_table: str,
     to_table: str,
-    requested_fields: Dict[str, List[str]],
+    requested_fields: dict[str, list[str]],
     context: HogQLContext,
     node: SelectQuery,
 ):
     from posthog.hogql import ast
 
     if not requested_fields:
-        raise HogQLException("No fields requested from person_distinct_ids")
+        raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=select_from_person_distinct_ids_table(requested_fields))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
@@ -66,7 +64,7 @@ def join_with_person_distinct_ids_table(
 
 
 class RawPersonDistinctIdsTable(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **PERSON_DISTINCT_IDS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted"),
         "version": IntegerDatabaseField(name="version"),
@@ -80,9 +78,9 @@ class RawPersonDistinctIdsTable(Table):
 
 
 class PersonDistinctIdsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
+    fields: dict[str, FieldOrTable] = PERSON_DISTINCT_IDS_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_person_distinct_ids_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

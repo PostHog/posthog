@@ -21,9 +21,9 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema, BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
 from posthog.temporal.batch_exports.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
@@ -32,7 +32,8 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -433,9 +434,9 @@ async def test_bigquery_export_workflow(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
-                    create_export_run,
+                    start_batch_export_run,
                     insert_into_bigquery_activity,
-                    update_export_run_status,
+                    finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
@@ -453,6 +454,8 @@ async def test_bigquery_export_workflow(
 
         run = runs[0]
         assert run.status == "Completed"
+        assert run.records_completed == 100
+        assert run.records_total_count == 100
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.timezone.utc)
         assert_clickhouse_records_in_bigquery(
@@ -494,9 +497,60 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 insert_into_bigquery_activity_mocked,
-                update_export_run_status,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    BigQueryBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+
+
+async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_errors(
+    ateam, bigquery_batch_export, interval
+):
+    """Test that BigQuery Export Workflow can gracefully handle non-retryable errors when inserting BigQuery data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = BigQueryBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(bigquery_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **bigquery_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_bigquery_activity")
+    async def insert_into_bigquery_activity_mocked(_: BigQueryInsertInputs) -> str:
+        class RefreshError(Exception):
+            pass
+
+        raise RefreshError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_bigquery_activity_mocked,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -514,7 +568,9 @@ async def test_bigquery_export_workflow_handles_insert_activity_errors(ateam, bi
 
     run = runs[0]
     assert run.status == "Failed"
-    assert run.latest_error == "ValueError: A useful error message"
+    assert run.latest_error == "RefreshError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
 
 
 async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_batch_export, interval):
@@ -542,9 +598,9 @@ async def test_bigquery_export_workflow_handles_cancellation(ateam, bigquery_bat
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[BigQueryBatchExportWorkflow],
             activities=[
-                create_export_run,
+                mocked_start_batch_export_run,
                 never_finish_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):

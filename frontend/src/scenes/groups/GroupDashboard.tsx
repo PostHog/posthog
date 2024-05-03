@@ -5,7 +5,7 @@ import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardCho
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { groupDashboardLogic } from 'scenes/groups/groupDashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -15,8 +15,34 @@ export function GroupDashboard({ groupData }: { groupData: Group }): JSX.Element
     const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Group }))
     const { dashboardLogicProps } = useValues(groupDashboardLogic)
 
+    return (
+        <>
+            {dashboardLogicProps?.id !== undefined ? (
+                <GroupDashboardExisting groupData={groupData} dashboardLogicProps={dashboardLogicProps} />
+            ) : (
+                <SceneDashboardChoiceRequired
+                    open={() => {
+                        showSceneDashboardChoiceModal()
+                    }}
+                    scene={Scene.Group}
+                />
+            )}
+            <SceneDashboardChoiceModal scene={Scene.Group} />
+        </>
+    )
+}
+
+function GroupDashboardExisting({
+    groupData,
+    dashboardLogicProps,
+}: {
+    groupData: Group
+    dashboardLogicProps: DashboardLogicProps
+}): JSX.Element {
+    const { showSceneDashboardChoiceModal } = useActions(sceneDashboardChoiceModalLogic({ scene: Scene.Group }))
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
     const { setProperties } = useActions(dashboardLogic(dashboardLogicProps))
+
     useEffect(() => {
         if (dashboard && groupData) {
             // `dashboard?.filters.properties` is typed as `any` but it's a list...
@@ -45,29 +71,17 @@ export function GroupDashboard({ groupData }: { groupData: Group }): JSX.Element
 
     return (
         <>
-            {dashboardLogicProps.id !== undefined ? (
-                <>
-                    <div className="flex items-center justify-end mb-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            data-attr="group-dashboard-change-dashboard"
-                            onClick={showSceneDashboardChoiceModal}
-                        >
-                            Change dashboard
-                        </LemonButton>
-                    </div>
-                    <Dashboard id={dashboardLogicProps.id.toString()} placement={dashboardLogicProps.placement} />
-                </>
-            ) : (
-                <SceneDashboardChoiceRequired
-                    open={() => {
-                        showSceneDashboardChoiceModal()
-                    }}
-                    scene={Scene.Group}
-                />
-            )}
-            <SceneDashboardChoiceModal scene={Scene.Group} />
+            <div className="flex items-center justify-end mb-2">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    data-attr="group-dashboard-change-dashboard"
+                    onClick={showSceneDashboardChoiceModal}
+                >
+                    Change dashboard
+                </LemonButton>
+            </div>
+            <Dashboard id={dashboardLogicProps.id.toString()} placement={dashboardLogicProps.placement} />
         </>
     )
 }

@@ -1,3 +1,5 @@
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+
 import { AvailableFeature } from '~/types'
 
 import { Invites } from './organization/Invites'
@@ -11,6 +13,8 @@ import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/Aut
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './project/HeatmapsSettings'
+import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
@@ -24,8 +28,12 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
-import { ReplayAuthorizedDomains, ReplayCostControl, ReplayGeneral } from './project/SessionRecordingSettings'
-import { SettingPersonsOnEvents } from './project/SettingPersonsOnEvents'
+import {
+    ReplayAISettings,
+    ReplayAuthorizedDomains,
+    ReplayCostControl,
+    ReplayGeneral,
+} from './project/SessionRecordingSettings'
 import { SlackIntegration } from './project/SlackIntegration'
 import { SurveySettings } from './project/SurveySettings'
 import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
@@ -71,7 +79,7 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-autocapture',
-        title: 'Autocapture',
+        title: 'Autocapture & heatmaps',
 
         settings: [
             {
@@ -80,8 +88,13 @@ export const SettingsMap: SettingSection[] = [
                 component: <AutocaptureSettings />,
             },
             {
+                id: 'heatmaps',
+                title: 'Heatmaps',
+                component: <HeatmapsSettings />,
+            },
+            {
                 id: 'exception-autocapture',
-                title: 'Exception Autocapture',
+                title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
                 flag: 'EXCEPTION_AUTOCAPTURE',
             },
@@ -96,17 +109,22 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-product-analytics',
-        title: 'Product Analytics',
+        title: 'Product analytics',
         settings: [
             {
                 id: 'date-and-time',
-                title: 'Date & Time',
+                title: 'Date & time',
                 component: <ProjectTimezone />,
             },
             {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Event person filtering behavior',
+                component: <PersonsOnEvents />,
             },
             {
                 id: 'correlation-analysis',
@@ -125,18 +143,13 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'datacapture',
-                title: 'IP Data capture configuration',
+                title: 'IP data capture configuration',
                 component: <IPCapture />,
             },
             {
                 id: 'group-analytics',
-                title: 'Group Analytics',
+                title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-            },
-            {
-                id: 'persons-on-events',
-                title: 'Persons on events (beta)',
-                component: <SettingPersonsOnEvents />,
             },
         ],
     },
@@ -144,16 +157,16 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-replay',
-        title: 'Session Replay',
+        title: 'Session replay',
         settings: [
             {
                 id: 'replay',
-                title: 'Session Replay',
+                title: 'Session replay',
                 component: <ReplayGeneral />,
             },
             {
                 id: 'replay-authorized-domains',
-                title: 'Authorized Domains for Replay',
+                title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
             },
             {
@@ -166,6 +179,12 @@ export const SettingsMap: SettingSection[] = [
                     AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
                     AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
                 ],
+            },
+            {
+                id: 'replay-ai-config',
+                title: 'AI recording summary',
+                component: <ReplayAISettings />,
+                flag: 'AI_SESSION_PERMISSIONS',
             },
         ],
     },
@@ -189,7 +208,7 @@ export const SettingsMap: SettingSection[] = [
         settings: [
             {
                 id: 'authorized-toolbar-urls',
-                title: 'Authorized Toolbar URLs',
+                title: 'Authorized toolbar URLs',
                 component: <ProjectToolbarURLs />,
             },
         ],
@@ -209,6 +228,12 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Slack integration',
                 component: <SlackIntegration />,
             },
+            {
+                id: 'integration-ip-allowlist',
+                title: 'Static IP addresses',
+                flag: 'IP_ALLOWLIST_SETTING',
+                component: <IPAllowListInfo />,
+            },
         ],
     },
     {
@@ -218,7 +243,7 @@ export const SettingsMap: SettingSection[] = [
         settings: [
             {
                 id: 'project-rbac',
-                title: 'Access Control',
+                title: 'Access control',
                 component: <ProjectAccessControl />,
             },
         ],
@@ -256,12 +281,12 @@ export const SettingsMap: SettingSection[] = [
         settings: [
             {
                 id: 'invites',
-                title: 'Pending Invites',
+                title: 'Pending invites',
                 component: <Invites />,
             },
             {
                 id: 'members',
-                title: 'Members',
+                title: 'Organization members',
                 component: <Members />,
             },
             {
@@ -274,7 +299,7 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-authentication',
-        title: 'Authentication Domains & SSO',
+        title: 'Authentication domains & SSO',
         settings: [
             {
                 id: 'authentication-domains',
@@ -287,7 +312,6 @@ export const SettingsMap: SettingSection[] = [
         level: 'organization',
         id: 'organization-rbac',
         title: 'Role-based access',
-        flag: 'ROLE_BASED_ACCESS',
         settings: [
             {
                 id: 'organization-rbac',
@@ -335,7 +359,7 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'user',
         id: 'user-api-keys',
-        title: 'Personal API Keys',
+        title: 'Personal API keys',
         settings: [
             {
                 id: 'personal-api-keys',
@@ -361,7 +385,7 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'optout',
-                title: 'Anonymize Data Collection',
+                title: 'Anonymize data collection',
                 component: <OptOutCapture />,
             },
         ],

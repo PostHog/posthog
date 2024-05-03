@@ -13,8 +13,9 @@ export const UnsubscribeSurveyModal = ({
     product: BillingProductV2Type | BillingProductV2AddonType
 }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
-    const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
+    const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
+    const { unsubscribeError, billingLoading } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
@@ -45,11 +46,9 @@ export const UnsubscribeSurveyModal = ({
                         type={textAreaNotEmpty ? 'primary' : 'secondary'}
                         disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                         onClick={() => {
-                            textAreaNotEmpty
-                                ? reportSurveySent(surveyID, surveyResponse)
-                                : reportSurveyDismissed(surveyID)
                             deactivateProduct(product.type)
                         }}
+                        loading={billingLoading}
                     >
                         Unsubscribe
                     </LemonButton>
@@ -57,6 +56,13 @@ export const UnsubscribeSurveyModal = ({
             }
         >
             <div className="flex flex-col gap-3.5">
+                {unsubscribeError && (
+                    <LemonBanner type="error">
+                        <p>
+                            {unsubscribeError.detail} {unsubscribeError.link}
+                        </p>
+                    </LemonBanner>
+                )}
                 <LemonTextArea
                     data-attr="unsubscribe-reason-survey-textarea"
                     placeholder="Reason for unsubscribing..."
@@ -87,7 +93,6 @@ export const UnsubscribeSurveyModal = ({
                         >
                             chat with support
                         </Link>
-
                         {product.type === 'session_replay' && (
                             <>
                                 {', or '}
@@ -103,6 +108,7 @@ export const UnsubscribeSurveyModal = ({
                                 {' for tuning recording volume with sampling and minimum duration.'}
                             </>
                         )}
+                        .
                     </p>
                 </LemonBanner>
             </div>

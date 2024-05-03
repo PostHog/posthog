@@ -134,7 +134,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
-                        filters={playlist.filters}
+                        advancedFilters={playlist.filters}
+                        hideSimpleFilters={true}
                         onFiltersChange={setFilters}
                         onPinnedChange={onPinnedChange}
                         pinnedRecordings={pinnedRecordings ?? []}

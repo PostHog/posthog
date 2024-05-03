@@ -1,6 +1,7 @@
 import json
 import os
 import secrets
+import structlog
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
@@ -23,7 +24,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -34,7 +35,7 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import raise_if_user_provided_url_unsafe
+from posthog.api.utils import raise_if_user_provided_url_unsafe, PublicIPOnlyHttpAdapter
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
 from posthog.email import is_email_available
 from posthog.event_usage import (
@@ -42,29 +43,19 @@ from posthog.event_usage import (
     report_user_updated,
     report_user_verified_email,
 )
+from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.permissions import APIScopePermission
+from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 
-
-class UserAuthenticationThrottle(UserRateThrottle):
-    rate = "5/minute"
-
-    def allow_request(self, request, view):
-        # only throttle non-GET requests
-        if request.method == "GET":
-            return True
-        return super().allow_request(request, view)
-
-
-class UserEmailVerificationThrottle(UserRateThrottle):
-    rate = "6/day"
+logger = structlog.get_logger(__name__)
 
 
 class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
@@ -76,6 +67,7 @@ class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
+    is_impersonated_until = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -99,13 +91,13 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "email_opt_in",
             "is_email_verified",
-            "pending_email",
             "notification_settings",
             "anonymize_data",
             "toolbar_mode",
             "has_password",
             "is_staff",
             "is_impersonated",
+            "is_impersonated_until",
             "team",
             "organization",
             "organizations",
@@ -120,8 +112,22 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
         ]
+
+        read_only_fields = [
+            "date_joined",
+            "uuid",
+            "distinct_id",
+            "pending_email",
+            "is_email_verified",
+            "has_password",
+            "is_impersonated",
+            "team",
+            "organization",
+            "organizations",
+            "has_social_auth",
+        ]
+
         extra_kwargs = {
-            "date_joined": {"read_only": True},
             "password": {"write_only": True},
         }
 
@@ -132,6 +138,14 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_is_impersonated_until(self, _) -> Optional[str]:
+        if "request" not in self.context or not is_impersonated_session(self.context["request"]):
+            return None
+
+        time = get_impersonated_session_expires_at(self.context["request"])
+
+        return time.replace(tzinfo=timezone.utc).isoformat() if time else None
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
@@ -497,6 +511,10 @@ def redirect_to_website(request):
             strapi_id = json_data["user"]["id"]
             request.user.strapi_id = strapi_id
             request.user.save()
+        else:
+            error_message = response.json()["error"]["message"]
+            if response.text and error_message == "Email or Username are already taken":
+                return redirect("https://posthog.com/auth?error=emailIsTaken")
     else:
         token = jwt.encode(
             {
@@ -530,9 +548,14 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
+        session = requests.Session()
+
         if not settings.DEBUG:
             raise_if_user_provided_url_unsafe(webhook)
-        response = requests.post(webhook, verify=False, json=message)
+            session.mount("https://", PublicIPOnlyHttpAdapter())
+            session.mount("http://", PublicIPOnlyHttpAdapter())
+
+        response = session.post(webhook, verify=False, json=message)
 
         if response.ok:
             return JsonResponse({"success": True})

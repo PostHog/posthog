@@ -4,16 +4,9 @@ describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
+        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
 
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'new-feature-flag-operators': true,
-                })
-            )
-        )
-
-        cy.intercept('/api/projects/1/property_definitions?type=person&search*', {
+        cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
         })
         cy.intercept('/api/person/values/*', {
@@ -117,7 +110,7 @@ describe('Feature Flags', () => {
         cy.get('.Toastify').contains('Undo').should('be.visible')
     })
 
-    it.only('Move between property types smoothly, and support relative dates', () => {
+    it('Move between property types smoothly, and support relative dates', () => {
         // ensure unique names to avoid clashes
         cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
@@ -139,7 +132,7 @@ describe('Feature Flags', () => {
         // selects the first value
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
-        
+
         // now change property type
         cy.get('[data-attr=property-select-toggle-0').click()
         cy.get('[data-attr=taxonomic-tab-person_properties]').click()
@@ -151,7 +144,7 @@ describe('Feature Flags', () => {
 
         // By default says "Select a value"
         cy.get('[data-attr=taxonomic-value-select]').contains('Select a value').click()
-        cy.get('.Popover__content').contains('Last 7 days').click({ force: true})
+        cy.get('.Popover__content').contains('Last 7 days').click({ force: true })
         cy.get('[data-attr=taxonomic-value-select]').contains('Last 7 days')
 
         // now change property type

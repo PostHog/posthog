@@ -4,7 +4,7 @@ import { Message } from 'node-rdkafka'
 
 import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
-import { personInitialAndUTMProperties } from './db/utils'
+import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
     clickHouseTimestampSecondPrecisionToISO,
     clickHouseTimestampToDateTime,
@@ -111,8 +111,40 @@ export function convertToIngestionEvent(event: RawClickHouseEvent, skipElementsC
     }
 }
 
+/// Does normalization steps involving the $process_person_profile property. This is currently a separate
+/// function because `normalizeEvent` is called from multiple places, some early in the pipeline,
+/// and we want to have one trusted place where `$process_person_profile` is handled and passed through
+/// all of the processing steps.
+///
+/// If `formPipelineEvent` is removed this can easily be combined with `normalizeEvent`.
+export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
+    const properties = event.properties ?? {}
+
+    if (!processPerson) {
+        delete event.$set
+        delete event.$set_once
+        // In an abundance of caution and future proofing, we delete the $unset field from the
+        // event if it is set. As of this writing we only *read* $unset out of `properties`, but
+        // we may as well future-proof this code path.
+        delete (event as any)['$unset']
+        delete properties.$set
+        delete properties.$set_once
+        delete properties.$unset
+        // Recorded for clarity and so that the property exists if it is ever sent elsewhere,
+        // e.g. for migrations.
+        properties.$process_person_profile = false
+    } else {
+        // Removed as it is the default, note that we have record the `person_mode` column
+        // in ClickHouse for all events.
+        delete properties.$process_person_profile
+    }
+
+    event.properties = properties
+    return event
+}
+
 export function normalizeEvent(event: PluginEvent): PluginEvent {
-    event.distinct_id = event.distinct_id?.toString()
+    event.distinct_id = sanitizeString(String(event.distinct_id))
 
     let properties = event.properties ?? {}
     if (event['$set']) {

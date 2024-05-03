@@ -40,7 +40,7 @@ export const SidePanelSettings = (): JSX.Element => {
                 </LemonButton>
             </SidePanelPaneHeader>
             <div className="flex-1 p-4 overflow-y-auto">
-                <Settings {...settingsLogicProps} />
+                <Settings hideSections {...settingsLogicProps} />
             </div>
         </div>
     )

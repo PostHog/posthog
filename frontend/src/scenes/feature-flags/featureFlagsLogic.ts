@@ -67,9 +67,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             updateFlag: (state, { flag }) => {
                 if (state.find(({ id }) => id === flag.id)) {
                     return state.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag))
-                } else {
-                    return [flag, ...state]
                 }
+                return [flag, ...state]
             },
             deleteFlag: (state, { id }) => state.filter((flag) => flag.id !== id),
         },

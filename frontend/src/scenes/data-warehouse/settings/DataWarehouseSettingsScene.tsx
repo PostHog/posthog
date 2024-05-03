@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -9,8 +9,6 @@ import { urls } from 'scenes/urls'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
-import SourceModal from '../external/SourceModal'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
@@ -29,8 +27,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
-    const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
-    const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
 
     const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
         return (
@@ -52,7 +48,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         type="primary"
                         data-attr="new-data-warehouse-easy-link"
                         key="new-data-warehouse-easy-link"
-                        onClick={() => toggleSourceModal()}
+                        to={urls.dataWarehouseTable()}
                     >
                         Link Source
                     </LemonButton>
@@ -67,6 +63,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
             <LemonTable
                 dataSource={dataWarehouseSources?.results ?? []}
                 loading={dataWarehouseSourcesLoading}
+                disableTableWhileLoading={false}
                 columns={[
                     {
                         title: 'Source Type',
@@ -175,7 +172,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     noIndent: true,
                 }}
             />
-            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }
@@ -185,7 +181,8 @@ interface SchemaTableProps {
 }
 
 const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
-    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSettingsLogic)
+    const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
         <LemonTable
@@ -195,7 +192,22 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     title: 'Schema Name',
                     key: 'name',
                     render: function RenderName(_, schema) {
-                        return schema.name
+                        return <span>{schema.name}</span>
+                    },
+                },
+                {
+                    title: 'Refresh Type',
+                    key: 'incremental',
+                    render: function RenderIncremental(_, schema) {
+                        return schema.incremental ? (
+                            <Tooltip title="Each run will only pull data that has since been added" placement="top">
+                                <LemonTag type="primary">Incremental</LemonTag>
+                            </Tooltip>
+                        ) : (
+                            <Tooltip title="Each run will pull all data from the source" placement="top">
+                                <LemonTag type="default">Full Refresh</LemonTag>
+                            </Tooltip>
+                        )
                     },
                 },
                 {
@@ -235,9 +247,19 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                     <code>{schema.table.name}</code>
                                 </Link>
                             )
-                        } else {
-                            return <div>Not yet synced</div>
                         }
+                        return <div>Not yet synced</div>
+                    },
+                },
+                {
+                    title: 'Status',
+                    key: 'status',
+                    render: function RenderStatus(_, schema) {
+                        if (!schema.status) {
+                            return null
+                        }
+
+                        return <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
                     },
                 },
                 {
@@ -249,6 +271,62 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                 <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
                             </>
                         ) : null
+                    },
+                },
+                {
+                    title: 'Rows Synced',
+                    key: 'rows_synced',
+                    render: function Render(_, schema) {
+                        return schema.table?.row_count ?? ''
+                    },
+                },
+                {
+                    key: 'actions',
+                    width: 0,
+                    render: function RenderActions(_, schema) {
+                        if (schemaReloadingById[schema.id]) {
+                            return (
+                                <div>
+                                    <Spinner />
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <div className="flex flex-row justify-end">
+                                <div>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    key={`reload-data-warehouse-schema-${schema.id}`}
+                                                    onClick={() => {
+                                                        reloadSchema(schema)
+                                                    }}
+                                                >
+                                                    Reload
+                                                </LemonButton>
+                                                {schema.incremental && (
+                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            key={`resync-data-warehouse-schema-${schema.id}`}
+                                                            onClick={() => {
+                                                                resyncSchema(schema)
+                                                            }}
+                                                            status="danger"
+                                                        >
+                                                            Resync
+                                                        </LemonButton>
+                                                    </Tooltip>
+                                                )}
+                                            </>
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        )
                     },
                 },
             ]}

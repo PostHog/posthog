@@ -3,11 +3,9 @@ import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../../kafka/config'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
-import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
-import { PluginsServerConfig } from '../../../../types'
+import { flushProducer, produce } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
@@ -30,7 +28,7 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
     const deduped: ConsoleLogEntry[] = []
 
     for (const cle of consoleLogEntries) {
-        const fingerPrint = `${cle.log_level}-${cle.message}`
+        const fingerPrint = `${cle.level}-${cle.message}`
         if (!seen.has(fingerPrint)) {
             deduped.push(cle)
             seen.add(fingerPrint)
@@ -42,15 +40,10 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // TODO this is an almost exact duplicate of the replay events ingester
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
-    producer?: RdKafkaProducer
-    enabled: boolean
-
     constructor(
-        private readonly serverConfig: PluginsServerConfig,
-        private readonly persistentHighWaterMarker: OffsetHighWaterMarker
-    ) {
-        this.enabled = serverConfig.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED
-    }
+        private readonly producer: RdKafkaProducer,
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+    ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
         const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
@@ -94,17 +87,23 @@ export class ConsoleLogsIngester {
             }
         }
 
-        const topicPartitionOffsets = findOffsetsToCommit(messages.map((message) => message.metadata))
-        await Promise.all(
-            topicPartitionOffsets.map((tpo) => this.persistentHighWaterMarker.add(tpo, HIGH_WATERMARK_KEY, tpo.offset))
-        )
+        if (this.persistentHighWaterMarker) {
+            const topicPartitionOffsets = findOffsetsToCommit(
+                messages.map((message) => ({
+                    topic: message.metadata.topic,
+                    partition: message.metadata.partition,
+                    offset: message.metadata.highOffset,
+                }))
+            )
+            await Promise.all(
+                topicPartitionOffsets.map((tpo) =>
+                    this.persistentHighWaterMarker!.add(tpo, HIGH_WATERMARK_KEY, tpo.offset)
+                )
+            )
+        }
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        if (!this.enabled) {
-            return
-        }
-
         const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
@@ -121,17 +120,19 @@ export class ConsoleLogsIngester {
         }
 
         if (
-            await this.persistentHighWaterMarker.isBelowHighWaterMark(
+            await this.persistentHighWaterMarker?.isBelowHighWaterMark(
                 event.metadata,
                 HIGH_WATERMARK_KEY,
-                event.metadata.offset
+                event.metadata.highOffset
             )
         ) {
             return drop('high_water_mark')
         }
 
+        const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])
+
         // cheapest possible check for any console logs to avoid parsing the events because...
-        const hasAnyConsoleLogs = event.events.some(
+        const hasAnyConsoleLogs = rrwebEvents.some(
             (e) => !!e && e.type === RRWebEventType.Plugin && e.data?.plugin === 'rrweb/console@1'
         )
 
@@ -148,7 +149,7 @@ export class ConsoleLogsIngester {
 
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
-                gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
+                gatherConsoleLogEvents(event.team_id, event.session_id, rrwebEvents)
             )
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
@@ -158,6 +159,7 @@ export class ConsoleLogsIngester {
                     topic: KAFKA_LOG_ENTRIES,
                     value: Buffer.from(JSON.stringify(cle)),
                     key: event.session_id,
+                    waitForAck: true,
                 })
             )
         } catch (error) {
@@ -167,24 +169,6 @@ export class ConsoleLogsIngester {
             captureException(error, {
                 tags: { source: 'console-log-events-ingester', team_id: event.team_id, session_id: event.session_id },
             })
-        }
-    }
-
-    public async start(): Promise<void> {
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.serverConfig)
-
-        const producerConfig = createRdProducerConfigFromEnvVars(this.serverConfig)
-
-        this.producer = await createKafkaProducer(connectionConfig, producerConfig)
-        this.producer.connect()
-    }
-
-    public async stop(): Promise<void> {
-        status.info('🔁', '[console-log-events-ingester] stopping')
-
-        if (this.producer && this.producer.isConnected()) {
-            status.info('🔁', '[console-log-events-ingester] disconnecting kafka producer in batchConsumer stop')
-            await disconnectProducer(this.producer)
         }
     }
 }

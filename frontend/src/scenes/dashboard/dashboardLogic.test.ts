@@ -20,7 +20,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    TextModel,
     TileLayout,
 } from '~/types'
 
@@ -80,9 +79,8 @@ export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
     if (typeof param === 'string') {
         return param
-    } else {
-        throw new Error("this shouldn't be an array")
     }
+    throw new Error("this shouldn't be an array")
 }
 
 const insight800 = (): InsightModel => ({
@@ -432,17 +430,6 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('when there is no props id', () => {
-        beforeEach(() => {
-            logic = dashboardLogic({ id: undefined })
-            logic.mount()
-        })
-
-        it('does not fetch dashboard items on mount', async () => {
-            await expectLogic(logic).toNotHaveDispatchedActions(['loadDashboardItems'])
-        })
-    })
-
     describe('when the dashboard API errors', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
@@ -454,7 +441,7 @@ describe('dashboardLogic', () => {
 
         it('allows consumers to respond', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                receivedErrorsFromAPI: true,
+                dashboardFailedToLoad: true,
             })
         })
     })
@@ -491,20 +478,20 @@ describe('dashboardLogic', () => {
 
             it('fetches dashboard items on mount', async () => {
                 await expectLogic(logic)
-                    .toDispatchActions(['loadDashboardItems'])
+                    .toDispatchActions(['loadDashboard'])
                     .toMatchValues({
                         dashboard: null,
                         tiles: [],
                         insightTiles: [],
                         textTiles: [],
                     })
-                    .toDispatchActions(['loadDashboardItemsSuccess'])
+                    .toDispatchActions(['loadDashboardSuccess'])
                     .toMatchValues({
                         dashboard: expect.objectContaining(dashboards['5']),
                         tiles: truth((tiles) => tiles.length === 3),
                         insightTiles: truth((insightTiles) => insightTiles.length === 2),
                         textTiles: truth((textTiles) => textTiles.length === 1),
-                        receivedErrorsFromAPI: false,
+                        dashboardFailedToLoad: false,
                     })
             })
         })
@@ -659,7 +646,7 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.filters.date_from).toEqual('-1d')
             expect(logic.values.insightTiles[0].insight!.filters.interval).toEqual('hour')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
-            expect(logic.values.insightTiles[0]!.last_refresh).toEqual('2012-04-01T00:00:00Z')
+            expect(logic.values.insightTiles[0].last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
         it('can respond to external insight rename', async () => {
@@ -688,23 +675,7 @@ describe('dashboardLogic', () => {
                 } as InsightModel)
             })
                 .toFinishAllListeners()
-                .toDispatchActions(['loadDashboardItems'])
-        })
-
-        it('can respond to external insight update for a text tile', async () => {
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-
-            await expectLogic(logic, () => {
-                const updatedTile: DashboardTile = {
-                    ...TEXT_TILE,
-                    text: { ...TEXT_TILE.text, body: 'updated body' } as TextModel,
-                }
-                dashboardsModel.actions.updateDashboardTile(updatedTile, [9])
-            }).toFinishAllListeners()
-
-            expect(logic.values.dashboard?.tiles).toHaveLength(2)
-            expect(logic.values.insightTiles[0].insight!.name).toEqual('donut')
-            expect(logic.values.textTiles[0].text!.body).toEqual('updated body')
+                .toDispatchActions(['loadDashboard'])
         })
     })
 
@@ -717,7 +688,7 @@ describe('dashboardLogic', () => {
         it('fetches dashboard items on mount', async () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
-                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toMatchValues({
                     dashboard: truth(
                         ({ tiles }) => tiles.filter((i: DashboardTile) => i.insight?.result === null).length === 2
@@ -749,34 +720,34 @@ describe('dashboardLogic', () => {
         })
     })
 
-    describe('lastRefreshed', () => {
+    describe('newestRefreshed', () => {
         it('should be the earliest refreshed dashboard', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
-                    lastRefreshed: dayjs('2021-09-21T11:48:48.444504Z'),
+                    newestRefreshed: dayjs('2021-09-21T11:48:48.586Z'),
                 })
         })
 
-        it('should refresh all dashboards if lastRefreshed is older than 3 hours', async () => {
+        it('should refresh all dashboards if newestRefreshed is older than 3 hours', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
 
-        it('should not refresh all dashboards if lastRefreshed is older than 3 hours but the feature flag is not set', async () => {
+        it('should not refresh all dashboards if newestRefreshed is older than 3 hours but the feature flag is not set', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toNotHaveDispatchedActions(['refreshAllDashboardItems']).toFinishAllListeners()
         })
 
-        it('should not refresh if lastRefreshed is less than 3 hours', async () => {
+        it('should not refresh if newestRefreshed is less than 3 hours', async () => {
             logic = dashboardLogic({ id: 9 })
             logic.mount()
             await expectLogic(logic)
-                .toDispatchActions(['loadDashboardItemsSuccess'])
+                .toDispatchActions(['loadDashboardSuccess'])
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
         })
@@ -828,12 +799,8 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedTile: DashboardTile = {
-            ...(nineLogic.values.dashboard?.tiles[0] as DashboardTile), // we know it isn't undefined
-            insight: { ...insight800(), dashboards: [10, 5] },
-        }
-
-        dashboardsModel.actions.updateDashboardTile(changedTile, [9])
+        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(
             fiveLogic.values.insightTiles.map((t) => ({
@@ -842,8 +809,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([
             { dashboards: [5, 6], short_id: '172' },
-            { dashboards: [5, 6], short_id: '175' },
-            { dashboards: [10, 5], short_id: '800' },
+            { dashboards: [5, 6], short_id: '175' }, // It's expected that 800 isn't here yet, because we expect to load it from the API for correctness
         ])
         expect(
             nineLogic.values.insightTiles.map((t) => ({
@@ -851,5 +817,7 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
+        // Ensuring we do go back to the API for 800, which was added to dashboard 5
+        expectLogic(fiveLogic).toDispatchActions(['loadDashboard']).toFinishAllListeners()
     })
 })

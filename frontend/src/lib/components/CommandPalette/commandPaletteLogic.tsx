@@ -1,5 +1,4 @@
 import {
-    IconApps,
     IconCalculator,
     IconChat,
     IconCheck,
@@ -7,6 +6,7 @@ import {
     IconDashboard,
     IconDatabase,
     IconDay,
+    IconDecisionTree,
     IconExternal,
     IconEye,
     IconFunnels,
@@ -617,8 +617,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: IconApps,
-                        display: 'Go to Apps',
+                        icon: IconDecisionTree,
+                        display: 'Go to Data pipelines',
                         synonyms: ['integrations'],
                         executor: () => {
                             push(urls.projectApps())
@@ -680,7 +680,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: IconDatabase,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug ClickHouse queries',
                               executor: () => openCHQueriesDebugModal(),
                           }
                         : [],
@@ -839,10 +839,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
                     icon: IconEye,
-                    display: 'Switch theme',
+                    display: 'Change theme',
                     synonyms: ['toggle theme', 'dark mode', 'light mode'],
                     executor: () => ({
-                        scope: 'Switch theme',
+                        scope: 'Change theme',
                         resolver: [
                             {
                                 icon: IconDay,

@@ -1,6 +1,6 @@
 import json
 from functools import cached_property
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Optional, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -63,24 +63,19 @@ class PremiumMultiProjectPermissions(BasePermission):
             except ValueError:
                 return False
 
-            # if we're not requesting to make a demo project
-            # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-            # and the org isn't allowed to make multiple projects
-            if (
-                ("is_demo" not in request.data or not request.data["is_demo"])
-                and organization.teams.exclude(is_demo=True).count() >= 1
-                and not organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
-            ):
-                return False
-
-            # if we ARE requesting to make a demo project
-            # but the org already has a demo project
-            if (
-                "is_demo" in request.data
-                and request.data["is_demo"]
-                and organization.teams.exclude(is_demo=False).count() > 0
-            ):
-                return False
+            if not request.data.get("is_demo"):
+                # if we're not requesting to make a demo project
+                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+                # and the org isn't allowed to make multiple projects
+                if organization.teams.exclude(is_demo=True).count() >= 1 and not organization.is_feature_available(
+                    AvailableFeature.ORGANIZATIONS_PROJECTS
+                ):
+                    return False
+            else:
+                # if we ARE requesting to make a demo project
+                # but the org already has a demo project
+                if organization.teams.filter(is_demo=True).count() > 0:
+                    return False
 
             # in any other case, we're good to go
             return True
@@ -116,6 +111,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
+            "heatmaps_opt_in",
         ]
 
 
@@ -169,8 +165,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "modifiers",
+            "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
+            "heatmaps_opt_in",
         )
         read_only_fields = (
             "id",
@@ -182,6 +181,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
         )
@@ -195,22 +195,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
 
-    def validate_session_recording_linked_flag(self, value) -> Dict | None:
+    def validate_session_recording_linked_flag(self, value) -> dict | None:
         if value is None:
             return None
 
-        if not isinstance(value, Dict):
+        if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
-        if value.keys() != {"id", "key"}:
-            raise exceptions.ValidationError("Must provide a dictionary with only 'id' and 'key' keys.")
+        received_keys = value.keys()
+        valid_keys = [
+            {"id", "key"},
+            {"id", "key", "variant"},
+        ]
+        if received_keys not in valid_keys:
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
 
         return value
 
-    def validate_session_recording_network_payload_capture_config(self, value) -> Dict | None:
+    def validate_session_recording_network_payload_capture_config(self, value) -> dict | None:
         if value is None:
             return None
 
-        if not isinstance(value, Dict):
+        if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
         if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
@@ -220,15 +227,40 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
-    def validate_session_replay_config(self, value) -> Dict | None:
+    def validate_session_replay_config(self, value) -> dict | None:
         if value is None:
             return None
 
-        if not isinstance(value, Dict):
+        if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
-        if not all(key in ["record_canvas"] for key in value.keys()):
-            raise exceptions.ValidationError("Must provide a dictionary with only 'record_canvas' key.")
+        known_keys = ["record_canvas", "ai_config"]
+        if not all(key in known_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys. One or more of {', '.join(known_keys)}."
+            )
+
+        if "ai_config" in value:
+            self.validate_session_replay_ai_summary_config(value["ai_config"])
+
+        return value
+
+    def validate_session_replay_ai_summary_config(self, value: dict | None) -> dict | None:
+        if value is not None:
+            if not isinstance(value, dict):
+                raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+            allowed_keys = [
+                "included_event_properties",
+                "opt_in",
+                "preferred_events",
+                "excluded_events",
+                "important_user_properties",
+            ]
+            if not all(key in allowed_keys for key in value.keys()):
+                raise exceptions.ValidationError(
+                    f"Must provide a dictionary with only allowed keys: {', '.join(allowed_keys)}."
+                )
 
         return value
 
@@ -267,7 +299,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
         return super().validate(attrs)
 
-    def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
+    def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
@@ -305,16 +337,45 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _handle_timezone_update(self, team: Team) -> None:
+    def _clear_team_insight_cache(self, team: Team) -> None:
         # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
-    def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
+    def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
 
-        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance)
+        if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
+            "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
+        ):
+            self._clear_team_insight_cache(instance)
+
+        if (
+            "session_replay_config" in validated_data
+            and validated_data["session_replay_config"] is not None
+            and instance.session_replay_config is not None
+        ):
+            # for session_replay_config and its top level keys we merge existing settings with new settings
+            # this way we don't always have to receive the entire settings object to change one setting
+            # so for each key in validated_data["session_replay_config"] we merge it with the existing settings
+            # and then merge any top level keys that weren't provided
+
+            for key, value in validated_data["session_replay_config"].items():
+                if key in instance.session_replay_config:
+                    # if they're both dicts then we merge them, otherwise, the new value overwrites the old
+                    if isinstance(instance.session_replay_config[key], dict) and isinstance(
+                        validated_data["session_replay_config"][key], dict
+                    ):
+                        validated_data["session_replay_config"][key] = {
+                            **instance.session_replay_config[key],  # existing values
+                            **value,  # and new values on top
+                        }
+
+            # then also add back in any keys that exist but are not in the provided data
+            validated_data["session_replay_config"] = {
+                **instance.session_replay_config,
+                **validated_data["session_replay_config"],
+            }
 
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
@@ -347,56 +408,55 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "id"
     ordering = "-created_by"
 
-    def get_queryset(self):
+    def safely_get_queryset(self, queryset):
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
-        return super().get_queryset().filter(id__in=visible_teams_ids)
+        return queryset.filter(id__in=visible_teams_ids)
 
-    def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if self.action == "list":
             return TeamBasicSerializer
         return super().get_serializer_class()
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
-    def get_permissions(self) -> List:
+    def dangerously_get_permissions(self) -> list:
         """
         Special permissions handling for create requests as the organization is inferred from the current user.
         """
 
-        common_permissions: list = [
+        permissions: list = [
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
-        ] + self.permission_classes
-
-        base_permissions = [permission() for permission in common_permissions]
+            *self.permission_classes,
+        ]
 
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    base_permissions.append(OrganizationAdminWritePermissions())
+                    permissions.append(OrganizationAdminWritePermissions)
                 else:
-                    base_permissions.append(OrganizationMemberPermissions())
+                    permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-                base_permissions.append(TeamMemberLightManagementPermission())
-        return base_permissions
+                permissions.append(TeamMemberLightManagementPermission)
 
-    def get_object(self):
+        return [permission() for permission in permissions]
+
+    def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
                 raise exceptions.NotFound()
             return team
-        queryset = self.filter_queryset(self.get_queryset())
+
         filter_kwargs = {self.lookup_field: lookup_value}
         try:
             team = get_object_or_404(queryset, **filter_kwargs)
         except ValueError as error:
             raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, team)
         return team
 
     # :KLUDGE: Exposed for compatibility reasons for permission classes.

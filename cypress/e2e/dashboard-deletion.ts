@@ -44,7 +44,7 @@ describe('deleting dashboards', () => {
 
             // load the named insight
             cy.contains('.saved-insights tr', insightToKeepName).within(() => {
-                cy.get('.row-name a').click()
+                cy.get('.Link').click()
             })
 
             insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })

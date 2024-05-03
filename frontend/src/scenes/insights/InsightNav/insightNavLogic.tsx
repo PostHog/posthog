@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -9,9 +10,10 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 
 import { examples, TotalEventsTable } from '~/queries/examples'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
+import { getDisplay, getShowPercentStackView, getShowValuesOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
     FunnelsQuery,
@@ -36,11 +38,12 @@ import {
     isInsightQueryWithSeries,
     isInsightVizNode,
     isLifecycleQuery,
+    isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
+import { BaseMathType, FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -70,9 +73,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode,
+    entity: EventsNode | ActionsNode | DataWarehouseNode,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode => {
+): EventsNode | ActionsNode | DataWarehouseNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -84,16 +87,15 @@ const cleanSeriesEntityMath = (
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
         // return entity with default actors only availability math set
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
-    } else {
-        // return entity without math properties for insights that don't support it
-        return baseEntity
     }
+    // return entity without math properties for insights that don't support it
+    return baseEntity
 }
 
 const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode)[],
+    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
     mathAvailability: MathAvailability
-): (EventsNode | ActionsNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -151,15 +153,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             return InsightType.SQL
                         } else if (isInsightVizNode(query)) {
                             return insightMap[query.source.kind] || InsightType.TRENDS
-                        } else {
-                            return InsightType.JSON
                         }
-                    } else {
-                        return filters.insight || InsightType.TRENDS
+                        return InsightType.JSON
                     }
-                } else {
-                    return userSelectedView
+                    return filters.insight || InsightType.TRENDS
                 }
+                return userSelectedView
             },
         ],
         tabs: [
@@ -277,6 +276,23 @@ export const insightNavLogic = kea<insightNavLogicType>([
             }
         },
     })),
+    urlToAction(({ actions }) => ({
+        '/insights/:shortId(/:mode)(/:subscriptionId)': (
+            _, // url params
+            { dashboard, ...searchParams }, // search params
+            { filters: _filters } // hash params
+        ) => {
+            // capture any filters from the URL, either #filters={} or ?insight=X&bla=foo&bar=baz
+            const filters: Partial<FilterType> | null =
+                Object.keys(_filters || {}).length > 0 ? _filters : searchParams.insight ? searchParams : null
+
+            if (!filters?.insight) {
+                return
+            }
+
+            actions.setActiveView(filters?.insight)
+        },
+    })),
     afterMount(({ values, actions }) => {
         if (values.query && isInsightVizNode(values.query)) {
             actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
@@ -366,6 +382,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery.breakdownFilter = cache.breakdownFilter
     }
 
+    // funnel paths filter
+    if (isPathsQuery(mergedQuery) && cache.funnelPathsFilter) {
+        mergedQuery.funnelPathsFilter = cache.funnelPathsFilter
+    }
+
     // insight specific filter
     const filterKey = filterKeyForQuery(mergedQuery)
     if (cache[filterKey] || cache.commonFilter) {
@@ -376,7 +397,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValueOnSeries(node) ? { showValuesOnSeries: getShowValueOnSeries(node) } : {}),
+            ...(getShowValuesOnSeries(node) ? { showValuesOnSeries: getShowValuesOnSeries(node) } : {}),
             ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }

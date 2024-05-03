@@ -27,6 +27,11 @@ class TestFormulaAST(APIBaseTest):
         response = formula.call("A/2")
         self.assertListEqual([0.5, 1, 1.5, 2], response)
 
+    def test_division_zero(self):
+        formula = self._get_formula_ast()
+        response = formula.call("A/0")
+        self.assertListEqual([0, 0, 0, 0], response)
+
     def test_modulo(self):
         formula = self._get_formula_ast()
         response = formula.call("A%2")

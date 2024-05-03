@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -18,11 +19,12 @@ export type ProjectNoticeVariant =
     | 'invite_teammates'
     | 'unverified_email'
     | 'is_impersonated'
+    | 'internet_connection_issue'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
@@ -97,8 +99,8 @@ export const navigationLogic = kea<navigationLogicType>([
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
                 userLogic.selectors.user,
-                s.members,
-                s.membersLoading,
+                s.memberCount,
+                apiStatusLogic.selectors.internetConnectionIssue,
                 s.projectNoticesAcknowledged,
             ],
             (
@@ -106,14 +108,17 @@ export const navigationLogic = kea<navigationLogicType>([
                 currentTeam,
                 preflight,
                 user,
-                members,
-                membersLoading,
+                memberCount,
+                internetConnectionIssue,
                 projectNoticesAcknowledged
             ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
                     return null
                 }
-                if (user?.is_impersonated) {
+
+                if (internetConnectionIssue) {
+                    return ['internet_connection_issue', false]
+                } else if (user?.is_impersonated) {
                     return ['is_impersonated', false]
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
@@ -128,7 +133,7 @@ export const navigationLogic = kea<navigationLogicType>([
                     !currentTeam.ingested_event
                 ) {
                     return ['real_project_with_no_events', true]
-                } else if (!projectNoticesAcknowledged['invite_teammates'] && !membersLoading && members.length <= 1) {
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return ['invite_teammates', true]
                 }
 

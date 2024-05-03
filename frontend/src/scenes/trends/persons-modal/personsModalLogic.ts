@@ -14,6 +14,8 @@ import { query as performQuery } from '~/queries/query'
 import {
     ActorsQuery,
     DataTableNode,
+    FunnelCorrelationActorsQuery,
+    FunnelsActorsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
@@ -35,7 +37,7 @@ import type { personsModalLogicType } from './personsModalLogicType'
 const RESULTS_PER_PAGE = 100
 
 export interface PersonModalLogicProps {
-    query?: InsightActorsQuery | null
+    query?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
@@ -134,25 +136,24 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                                 group[field] = result[additionalFieldIndices[index]]
                                             })
                                             return group
-                                        } else {
-                                            const person: PersonActorType = {
-                                                type: 'person',
-                                                id: result[0].id,
-                                                uuid: result[0].id,
-                                                distinct_ids: result[0].distinct_ids,
-                                                is_identified: result[0].is_identified,
-                                                properties: result[0].properties,
-                                                created_at: result[0].created_at,
-                                                matched_recordings: [],
-                                                value_at_data_point: null,
-                                            }
-
-                                            Object.keys(props.additionalSelect || {}).forEach((field, index) => {
-                                                person[field] = result[additionalFieldIndices[index]]
-                                            })
-
-                                            return person
                                         }
+                                        const person: PersonActorType = {
+                                            type: 'person',
+                                            id: result[0].id,
+                                            uuid: result[0].id,
+                                            distinct_ids: result[0].distinct_ids,
+                                            is_identified: result[0].is_identified,
+                                            properties: result[0].properties,
+                                            created_at: result[0].created_at,
+                                            matched_recordings: [],
+                                            value_at_data_point: null,
+                                        }
+
+                                        Object.keys(props.additionalSelect || {}).forEach((field, index) => {
+                                            person[field] = result[additionalFieldIndices[index]]
+                                        })
+
+                                        return person
                                     }),
                                 },
                             ],

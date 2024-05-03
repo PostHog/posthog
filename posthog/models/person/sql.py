@@ -259,6 +259,33 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
     """,
 )
 
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+    table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+    extra_fields="",
+)
+
+PERSON_DISTINCT_ID_OVERRIDES_MV_SQL = """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
+TO {database}.{table_name}
+AS SELECT
+team_id,
+distinct_id,
+person_id,
+is_deleted,
+version,
+_timestamp,
+_offset,
+_partition
+FROM {database}.kafka_{table_name}
+WHERE version > 0 -- only store updated rows, not newly inserted ones
+""".format(
+    table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
+)
+
 #
 # Static Cohort
 #
@@ -311,9 +338,11 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
     columns_except_team_id="""distinct_id, person_id, is_deleted, version, _timestamp, _offset, _partition""",
 )
 
-SELECT_PERSONS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
-    table_name=PERSONS_TABLE
-)
+SELECT_PERSONS_OF_TEAM = """
+SELECT id, created_at, properties, is_identified, version
+FROM {table_name}
+WHERE team_id = %(source_team_id)s
+""".format(table_name=PERSONS_TABLE)
 
 SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=PERSON_DISTINCT_ID2_TABLE
@@ -493,3 +522,23 @@ LIMIT 20
 
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
 GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
+
+
+CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY = """
+CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
+    `team_id` Int64, -- team_id could be made hierarchical to save some space.
+    `distinct_id` String,
+    `person_id` UUID
+)
+PRIMARY KEY team_id, distinct_id
+-- For our own sanity, we explicitly write out the group by query.
+SOURCE(CLICKHOUSE(
+    query 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
+))
+LAYOUT(complex_key_hashed())
+-- ClickHouse will choose a time uniformly within 1 to 5 hours to reload the dictionary (update if necessary to meet SLAs).
+LIFETIME(MIN 3600 MAX 18000)
+""".format(
+    cluster=CLICKHOUSE_CLUSTER,
+    database=CLICKHOUSE_DATABASE,
+)

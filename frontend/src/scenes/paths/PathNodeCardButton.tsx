@@ -1,7 +1,7 @@
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonMenu, PopoverReferenceContext } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
@@ -33,8 +33,11 @@ export function PathNodeCardButton({
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
-    const setAsPathStart = (): void => setFilter({ startPoint: pageUrl(node) })
-    const setAsPathEnd = (): void => setFilter({ endPoint: pageUrl(node) })
+    const nodeName = pageUrl(node)
+    const isPath = nodeName.includes('/')
+
+    const setAsPathStart = (): void => setFilter({ startPoint: nodeName })
+    const setAsPathEnd = (): void => setFilter({ endPoint: nodeName })
     const excludePathItem = (): void => {
         setFilter({ excludeEvents: [...(filter.excludeEvents || []), pageUrl(node, false)] })
     }
@@ -42,51 +45,50 @@ export function PathNodeCardButton({
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(pageUrl(node)).then(captureException)
+        void copyToClipboard(nodeName).then(captureException)
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
+    const isTruncatedPath = name.slice(1) === '_...'
+
     return (
         <div className="flex justify-between items-center w-full">
-            <div className="flex items-center font-semibold">
+            <div className="font-semibold overflow-hidden max-h-16">
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
-                <span className="text-xs">{pageUrl(node, true)}</span>
+                <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
             </div>
-            <div className="flex flex-nowrap">
-                <LemonButton size="small" onClick={openModal}>
-                    <span className="text-link text-xs px-1 font-medium">{count}</span>
-                </LemonButton>
-                <LemonButtonWithDropdown
-                    size="small"
-                    icon={<IconEllipsis />}
-                    dropdown={{
-                        overlay: (
-                            <>
-                                <LemonButton size="small" fullWidth onClick={setAsPathStart}>
-                                    Set as path start
-                                </LemonButton>
-                                {hasAdvancedPaths && (
-                                    <>
-                                        <LemonButton size="small" fullWidth onClick={setAsPathEnd}>
-                                            Set as path end
-                                        </LemonButton>
-                                        <LemonButton size="small" fullWidth onClick={excludePathItem}>
-                                            Exclude path item
-                                        </LemonButton>
-                                        <LemonButton size="small" fullWidth onClick={viewFunnel}>
-                                            View funnel
-                                        </LemonButton>
-                                    </>
-                                )}
-                                <LemonButton size="small" fullWidth onClick={copyName}>
-                                    Copy path item name
-                                </LemonButton>
-                            </>
-                        ),
-                        placement: 'bottom-end',
-                    }}
-                />
-            </div>
+            {/* TRICKY: We don't want the popover to affect the buttons */}
+            <PopoverReferenceContext.Provider value={null}>
+                <div className="flex flex-nowrap">
+                    <LemonButton size="small" onClick={openModal}>
+                        <span className="text-link text-xs px-1 font-medium">{count}</span>
+                    </LemonButton>
+                    <LemonMenu
+                        items={[
+                            { label: 'Set as path start', onClick: setAsPathStart },
+                            ...(hasAdvancedPaths
+                                ? [
+                                      { label: 'Set as path end', onClick: setAsPathEnd },
+                                      { label: 'Exclude path item', onClick: excludePathItem },
+                                      { label: 'View funnel', onClick: viewFunnel },
+                                  ]
+                                : []),
+                            { label: 'Copy path item name', onClick: copyName },
+                        ]}
+                        placement="bottom-end"
+                    >
+                        <LemonButton
+                            size="small"
+                            icon={<IconEllipsis />}
+                            disabledReason={
+                                isTruncatedPath
+                                    ? 'Multiple paths truncated and combined for efficiency during querying. No further analysis possible.'
+                                    : undefined
+                            }
+                        />
+                    </LemonMenu>
+                </div>
+            </PopoverReferenceContext.Provider>
         </div>
     )
 }

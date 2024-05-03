@@ -4,7 +4,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BaseMathType,
@@ -12,6 +12,7 @@ from posthog.schema import (
     BreakdownType,
     ChartDisplayType,
     DateRange,
+    DataWarehouseNode,
     EventsNode,
     HogQLQueryResponse,
     TrendsFilter,
@@ -47,6 +48,9 @@ class TestQueryBuilder(BaseTest):
 
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
+
+        if isinstance(trends_query.series[0], DataWarehouseNode):
+            raise Exception("Data Warehouse queries are not supported in this test")
 
         query_builder = TrendsQueryBuilder(
             trends_query=trends_query,

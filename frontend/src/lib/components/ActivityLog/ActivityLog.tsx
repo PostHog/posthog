@@ -6,12 +6,16 @@ import { useValues } from 'kea'
 import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
+import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
@@ -103,32 +107,39 @@ export const ActivityLog = ({
 }: ActivityLogProps): JSX.Element | null => {
     const logic = activityLogLogic({ scope, id, caption, startingPage })
     const { humanizedActivity, activityLoading, pagination } = useValues(logic)
+    const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            {activityLoading && humanizedActivity.length === 0 ? (
-                <Loading />
-            ) : humanizedActivity.length === 0 ? (
-                <Empty scope={scope} />
-            ) : (
-                <>
-                    <div className="space-y-2">
-                        {humanizedActivity.map((logItem, index) => (
-                            <ActivityLogRow
-                                key={index}
-                                logItem={logItem}
-                                showExtendedDescription={true}
-                                renderSideAction={renderSideAction}
-                            />
-                        ))}
-                    </div>
-                    <LemonDivider />
-                    <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                </>
-            )}
+            <PayGateMini
+                feature={AvailableFeature.AUDIT_LOGS}
+                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+            >
+                {activityLoading && humanizedActivity.length === 0 ? (
+                    <Loading />
+                ) : humanizedActivity.length === 0 ? (
+                    <Empty scope={scope} />
+                ) : (
+                    <>
+                        <div className="space-y-2">
+                            {humanizedActivity.map((logItem, index) => (
+                                <ActivityLogRow
+                                    key={index}
+                                    logItem={logItem}
+                                    showExtendedDescription={true}
+                                    renderSideAction={renderSideAction}
+                                />
+                            ))}
+                        </div>
+                        <LemonDivider />
+                        <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                    </>
+                )}
+            </PayGateMini>
         </div>
     )
 }

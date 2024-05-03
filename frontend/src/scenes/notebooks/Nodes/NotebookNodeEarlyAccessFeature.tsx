@@ -1,7 +1,6 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconFlag, IconRocketLaunch } from 'lib/lemon-ui/icons'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -15,6 +14,7 @@ import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
+import { IconFlag, IconRocket } from '@posthog/icons'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
@@ -54,7 +54,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
         <div>
             <BindLogic logic={earlyAccessFeatureLogic} props={{ id }}>
                 <div className="flex items-center gap-2 p-3">
-                    <IconRocketLaunch className="text-lg" />
+                    <IconRocket className="text-lg" />
                     {earlyAccessFeatureLoading ? (
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (

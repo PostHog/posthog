@@ -6,7 +6,7 @@ import { decideResponse } from '../fixtures/api/decide'
 // The actual graph is not under test
 describe('Exporting Insights', () => {
     beforeEach(() => {
-        cy.intercept('https://app.posthog.com/decide/*', (req) =>
+        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
             req.reply(
                 decideResponse({
                     'export-dashboard-insights': true,

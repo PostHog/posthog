@@ -1,5 +1,6 @@
+import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconEllipsis, IconSlack } from 'lib/lemon-ui/icons'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

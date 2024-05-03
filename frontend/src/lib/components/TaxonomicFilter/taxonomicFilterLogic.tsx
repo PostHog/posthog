@@ -1,3 +1,4 @@
+import { IconServer } from '@posthog/icons'
 import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -10,10 +11,15 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -26,7 +32,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, NodeKind } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -81,6 +87,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupTypes', 'aggregationLabel'],
             groupPropertiesModel,
             ['allGroupProperties'],
+            dataWarehouseSceneLogic,
+            ['externalTables'],
+            dataWarehouseJoinsLogic,
+            ['columnsJoinedToPersons'],
         ],
     }),
     actions(() => ({
@@ -130,11 +140,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
     })),
     selectors({
+        selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
+        schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>
@@ -154,18 +166,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
+                s.schemaColumns,
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
+                schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -194,6 +210,37 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (action: ActionType) => action.id,
                         getPopoverHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
+                    },
+                    {
+                        name: 'Data Warehouse',
+                        searchPlaceholder: 'data warehouse table name',
+                        type: TaxonomicFilterGroupType.DataWarehouse,
+                        logic: dataWarehouseSceneLogic,
+                        value: 'externalTables',
+                        getName: (table: DataWarehouseTableType) => table.name,
+                        getValue: (table: DataWarehouseTableType) => table.name,
+                        getPopoverHeader: () => 'Data Warehouse Table',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data Warehouse Properties',
+                        searchPlaceholder: 'data warehouse property',
+                        type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                        options: schemaColumns,
+                        getName: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getValue: (col: DatabaseSchemaQueryResponseField) => col.key,
+                        getPopoverHeader: () => 'Data Warehouse Column',
+                        getIcon: () => <IconServer />,
+                    },
+                    {
+                        name: 'Data Warehouse Person Properties',
+                        searchPlaceholder: 'person properties from data warehouse tables',
+                        type: TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                        logic: dataWarehouseJoinsLogic,
+                        value: 'columnsJoinedToPersons',
+                        getName: (personProperty: PersonProperty) => personProperty.name,
+                        getValue: (personProperty: PersonProperty) => personProperty.id,
+                        getPopoverHeader: () => 'Data Warehouse Person Property',
                     },
                     {
                         name: 'Autocapture elements',
@@ -443,18 +490,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Notebooks',
                     },
                     {
-                        name: 'Sessions',
+                        name: 'Session properties',
                         searchPlaceholder: 'sessions',
-                        type: TaxonomicFilterGroupType.Sessions,
-                        options: [
-                            {
-                                name: 'Session duration',
-                                value: '$session_duration',
-                            },
-                        ],
+                        type: TaxonomicFilterGroupType.SessionProperties,
+                        options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                            ? undefined
+                            : [
+                                  {
+                                      id: '$session_duration',
+                                      name: '$session_duration',
+                                      property_type: 'Duration',
+                                      is_numerical: true,
+                                  },
+                              ],
                         getName: (option: any) => option.name,
-                        getValue: (option: any) => option.value,
+                        getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
+                        endpoint: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                            ? `api/projects/${teamId}/sessions/property_definitions`
+                            : undefined,
+                        getIcon: getPropertyDefinitionIcon,
                     },
                     {
                         name: 'HogQL',

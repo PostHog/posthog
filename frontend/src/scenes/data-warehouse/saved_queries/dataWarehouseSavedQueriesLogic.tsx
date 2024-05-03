@@ -39,12 +39,26 @@ export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogic
                             : [],
                     }
                 },
+                updateDataWarehouseSavedQuery: async (view: DataWarehouseSavedQuery) => {
+                    await api.dataWarehouseSavedQueries.update(view.id, view)
+                    return {
+                        ...values.dataWarehouseSavedQueries,
+                        results: values.dataWarehouseSavedQueries
+                            ? values.dataWarehouseSavedQueries.results.map((v) =>
+                                  v.id === view.id ? { ...v, ...view } : v
+                              )
+                            : [],
+                    }
+                },
             },
         ],
     })),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
             router.actions.push(urls.dataWarehouse())
+        },
+        updateDataWarehouseSavedQuerySuccess: () => {
+            actions.loadDataWarehouseSavedQueries()
         },
     })),
     selectors({

@@ -239,6 +239,10 @@ export function InsightMeta({
                                         export_format: ExporterFormat.CSV,
                                         export_context: exporterResourceParams,
                                     },
+                                    {
+                                        export_format: ExporterFormat.XLSX,
+                                        export_context: exporterResourceParams,
+                                    },
                                 ]}
                             />
                         </>
@@ -257,7 +261,7 @@ export function InsightMeta({
                                     Remove from dashboard
                                 </LemonButton>
                             ) : allInteractionsAllowed ? (
-                                <LemonButton status="danger" onClick={deleteWithUndo} fullWidth>
+                                <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
                                     Delete insight
                                 </LemonButton>
                             ) : null}

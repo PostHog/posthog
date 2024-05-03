@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
@@ -52,9 +52,9 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
     def get_actors(
         self,
-    ) -> Tuple[
+    ) -> tuple[
         Union[QuerySet[Person], QuerySet[Group]],
-        Union[List[SerializedGroup], List[SerializedPerson]],
+        Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
@@ -167,7 +167,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     def actor_query(
         self,
         limit_actors: Optional[bool] = True,
-        extra_fields: Optional[List[str]] = None,
+        extra_fields: Optional[list[str]] = None,
     ):
         if not self._filter.correlation_property_values:
             raise ValidationError("Property Correlation expects atleast one Property to get persons for")

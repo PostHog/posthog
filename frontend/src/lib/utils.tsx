@@ -3,7 +3,6 @@ import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { AlignType } from 'rc-trigger/lib/interface'
 import { CSSProperties } from 'react'
 
 import {
@@ -26,43 +25,6 @@ import { getAppContext } from './utils/getAppContext'
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
  * Preferably create a dedicated file in utils/..
  */
-
-export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
-    // `@yiminghe/dom-align` objects
-    // https://github.com/react-component/select/blob/dade915d81069b8d3b3b5679bb9daee7e992faba/src/SelectTrigger.jsx#L11-L28
-    bottomLeft: {
-        points: ['tl', 'bl'],
-        offset: [0, 4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    bottomRight: {
-        points: ['tr', 'br'],
-        offset: [0, 4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    topLeft: {
-        points: ['bl', 'tl'],
-        offset: [0, -4],
-        overflow: {
-            adjustX: 0,
-            adjustY: 0,
-        },
-    },
-    horizontalPreferRight: {
-        points: ['cl', 'cr'],
-        offset: [4, 0],
-        overflow: {
-            adjustX: true,
-            adjustY: false,
-        },
-    },
-}
 
 export function uuid(): string {
     return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
@@ -455,9 +417,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     } else if (!isFinite(d)) {
         if (d > 0) {
             return 'inf'
-        } else {
-            return '-inf'
         }
+        return '-inf'
     }
     const trillion = 1_000_000_000_000
     const billion = 1_000_000_000
@@ -481,9 +442,8 @@ export function humanFriendlyLargeNumber(d: number): string {
     }
     if (d >= thousand) {
         return `${prefix}${(d / thousand).toString()}K`
-    } else {
-        return `${prefix}${d}`
     }
+    return `${prefix}${d}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -590,10 +550,9 @@ export function colonDelimitedDuration(d: string | number | null | undefined, fi
     ;[weeks, days, h, m, s].forEach((unit, i) => {
         if (!fixedUnits && !unit && !stopTrimming && i < 3) {
             return
-        } else {
-            units.push(zeroPad(unit, 2))
-            stopTrimming = true
         }
+        units.push(zeroPad(unit, 2))
+        stopTrimming = true
     })
 
     if (fixedUnits) {
@@ -638,10 +597,9 @@ export function isDomain(url: string): boolean {
         const parsedUrl = new URL(url)
         if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
             return true
-        } else {
-            if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
-                return true
-            }
+        }
+        if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
+            return true
         }
     } catch {
         return false
@@ -738,10 +696,9 @@ export function autoCaptureEventToDescription(
 
     if (shortForm) {
         return [getVerb(), getValue() ?? getTag()].filter((x) => x).join(' ')
-    } else {
-        const value = getValue()
-        return [getVerb(), getTag(), value].filter((x) => x).join(' ')
     }
+    const value = getValue()
+    return [getVerb(), getTag(), value].filter((x) => x).join(' ')
 }
 
 export function determineDifferenceType(
@@ -760,9 +717,8 @@ export function determineDifferenceType(
         return 'day'
     } else if (first.diff(second, 'hours') !== 0) {
         return 'hour'
-    } else {
-        return 'minute'
     }
+    return 'minute'
 }
 
 const DATE_FORMAT = 'MMMM D, YYYY'
@@ -910,9 +866,8 @@ export function dateFilterToText(
             return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
             return isDateFormatted ? dayjs(dateFrom).format(dateFormat) : `Today`
-        } else {
-            return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
         }
+        return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
     }
 
     for (const { key, values, getFormattedDate } of dateOptions) {
@@ -950,9 +905,8 @@ export function dateFilterToText(
                 return formatDateRange(date, dayjs().endOf('d'))
             } else if (startOfRange) {
                 return formatDate(date, dateFormat)
-            } else {
-                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }
+            return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
         }
     }
 
@@ -1635,6 +1589,8 @@ export function promiseResolveReject<T>(): {
     return { resolve: resolve!, reject: reject!, promise }
 }
 
+export type AsyncReturnType<T extends (...args: any) => any> = T extends (...args: any) => Promise<infer R> ? R : any
+
 export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number {
     if (timeUnit === TimeUnitType.Year) {
         return timeValue * 365
@@ -1757,4 +1713,13 @@ export const base64ToUint8Array = (encodedString: string): Uint8Array => {
         data[i] = binString.charCodeAt(i)
     }
     return data
+}
+
+export function hasFormErrors(object: any): boolean {
+    if (Array.isArray(object)) {
+        return object.some(hasFormErrors)
+    } else if (typeof object === 'object' && object !== null) {
+        return Object.values(object).some(hasFormErrors)
+    }
+    return !!object
 }

@@ -159,13 +159,16 @@ export async function createHub(
         // chained, and if we do not manage to produce then the chain will be
         // broken.
         await kafkaProducer.queueMessage({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    value: Buffer.from(JSON.stringify(job)),
-                    key: Buffer.from(job.pluginConfigTeam.toString()),
-                },
-            ],
+            kafkaMessage: {
+                topic: KAFKA_JOBS,
+                messages: [
+                    {
+                        value: Buffer.from(JSON.stringify(job)),
+                        key: Buffer.from(job.pluginConfigTeam.toString()),
+                    },
+                ],
+            },
+            waitForAck: true,
         })
     }
 
@@ -199,6 +202,7 @@ export async function createHub(
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
         poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
+        lazyPersonCreationTeams: buildIntegerMatcher(process.env.LAZY_PERSON_CREATION_TEAMS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 

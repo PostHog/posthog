@@ -1,12 +1,10 @@
-from typing import Any, List
+from typing import Any
 
 from rest_framework import filters, request, response, serializers, status, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.database.database import SerializedField, serialize_fields
-from posthog.models import User
+from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.warehouse.models import (
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
@@ -53,8 +51,12 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        return serialize_fields(table.hogql_definition().fields)
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        hogql_context = self.context.get("database", None)
+        if not hogql_context:
+            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+
+        return serialize_fields(table.hogql_definition().fields, hogql_context)
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -84,11 +86,15 @@ class SimpleTableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns"]
-        read_only_fields = ["id", "name", "columns"]
+        fields = ["id", "name", "columns", "row_count"]
+        read_only_fields = ["id", "name", "columns", "row_count"]
 
-    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
-        return serialize_fields(table.hogql_definition().fields)
+    def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        hogql_context = self.context.get("database", None)
+        if not hogql_context:
+            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+
+        return serialize_fields(table.hogql_definition().fields, hogql_context)
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -103,20 +109,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
 
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by", "externaldataschema_set")
-                .order_by(self.ordering)
-            )
-
+    def safely_get_queryset(self, queryset):
         return (
-            self.queryset.filter(team_id=self.team_id)
+            queryset.filter(team_id=self.team_id)
+            .exclude(deleted=True)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )

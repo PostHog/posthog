@@ -6,11 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { formatBreakdownLabel, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, GraphType } from '~/types'
 
@@ -32,9 +32,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
-    const { indexedResults, labelGroupType, trendsFilter, formula, showValueOnSeries } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const { indexedResults, labelGroupType, trendsFilter, formula, showValuesOnSeries, isDataWarehouseSeries } =
+        useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -42,13 +41,12 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
         setData([
             {
-                labels: _data.map((item) =>
-                    isOtherBreakdown(item.label) ? 'Other' : isNullBreakdown(item.label) ? 'None' : item.label
-                ),
+                labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),
-                breakdownValues: _data.map((item) => {
+                breakdownValues: _data.map((item) => item.breakdown_value),
+                breakdownLabels: _data.map((item) => {
                     return formatBreakdownLabel(
                         cohorts,
                         formatPropertyValueForDisplay,
@@ -77,7 +75,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     }, [indexedResults])
 
     const isTrendsQueryWithFeatureFlagOn =
-        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
         isTrends &&
         query &&
         isInsightVizNode(query) &&
@@ -97,9 +95,9 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}
-            showValueOnSeries={showValueOnSeries}
+            showValuesOnSeries={showValuesOnSeries}
             onClick={
-                !showPersonsModal || trendsFilter?.formula
+                !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point
@@ -112,9 +110,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                           if (isTrendsQueryWithFeatureFlagOn) {
                               openPersonsModal({
                                   title: label || '',
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: query.source,
+                                  query: datasetToActorsQuery({ dataset, query: query.source, index }),
+                                  additionalSelect: {
+                                      value_at_data_point: 'event_count',
+                                      matched_recordings: 'matched_recordings',
                                   },
                               })
                           } else if (selectedUrl) {

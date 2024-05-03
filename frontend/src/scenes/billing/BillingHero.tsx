@@ -13,8 +13,8 @@ export const BillingHero = (): JSX.Element => {
                 <h1 className="ingestion-title">Get the whole hog.</h1>
                 <h1 className="ingestion-title text-danger">Only pay for what you use.</h1>
                 <p className="mt-2 mb-0">
-                    Add your credit card details to get access to premium product and platform features. Set billing
-                    limits as low as $0 to control spend.
+                    Subscribe to get access to premium product and platform features. Set billing limits as low as $0 to
+                    control spend.
                 </p>
             </div>
             {width && width > 500 && (

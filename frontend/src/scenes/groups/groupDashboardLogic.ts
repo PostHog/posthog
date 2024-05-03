@@ -24,10 +24,13 @@ export const groupDashboardLogic = kea<groupDashboardLogicType>([
         ],
         dashboardLogicProps: [
             (s) => [s.groupDashboardId],
-            (groupDashboardId): DashboardLogicProps => ({
-                id: groupDashboardId ?? undefined,
-                placement: DashboardPlacement.Group,
-            }),
+            (groupDashboardId): DashboardLogicProps | null =>
+                groupDashboardId
+                    ? {
+                          id: groupDashboardId,
+                          placement: DashboardPlacement.Group,
+                      }
+                    : null,
         ],
     })),
 ])

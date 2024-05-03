@@ -2,9 +2,10 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -36,18 +37,7 @@ export function processCohort(cohort: CohortType): CohortType {
                             ? {
                                   ...group,
                                   values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      c.type &&
-                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                                      !('value_property' in c)
-                                          ? {
-                                                ...c,
-                                                value_property: c.value,
-                                                value:
-                                                    c.type === BehavioralFilterKey.Cohort
-                                                        ? BehavioralCohortType.InCohort
-                                                        : BehavioralEventType.HaveProperty,
-                                            }
-                                          : c
+                                      processCohortCriteria(c)
                                   ),
                               }
                             : group
@@ -58,10 +48,50 @@ export function processCohort(cohort: CohortType): CohortType {
     }
 }
 
+function convertTimeValueToRelativeTime(criteria: AnyCohortCriteriaType): string | undefined {
+    const timeValue = criteria?.time_value
+    const timeInterval = criteria?.time_interval
+
+    if (timeValue && timeInterval) {
+        return `-${timeValue}${timeInterval[0]}`
+    }
+}
+
+function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
+    if (!criteria.type) {
+        return criteria
+    }
+
+    const processedCriteria = { ...criteria }
+
+    if (
+        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(criteria.type) &&
+        !('value_property' in criteria)
+    ) {
+        processedCriteria.value_property = criteria.value
+        processedCriteria.value =
+            criteria.type === BehavioralFilterKey.Cohort
+                ? BehavioralCohortType.InCohort
+                : BehavioralEventType.HaveProperty
+    }
+
+    if (
+        [BehavioralFilterKey.Behavioral].includes(criteria.type) &&
+        !('explicit_datetime' in criteria) &&
+        criteria.value &&
+        COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
+    ) {
+        processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
+    }
+
+    return processedCriteria
+}
+
 export const cohortsModel = kea<cohortsModelType>([
     path(['models', 'cohortsModel']),
     connect({
         values: [teamLogic, ['currentTeam']],
+        actions: [exportsLogic, ['startExport']],
     }),
     actions(() => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
@@ -147,7 +177,7 @@ export const cohortsModel = kea<cohortsModelType>([
             if (columns && columns.length > 0) {
                 exportCommand.export_context['columns'] = columns
             }
-            await triggerExport(exportCommand)
+            actions.startExport(exportCommand)
         },
         deleteCohort: async ({ cohort }) => {
             await deleteWithUndo({

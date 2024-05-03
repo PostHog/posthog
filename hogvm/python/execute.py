@@ -1,5 +1,5 @@
 import re
-from typing import List, Any, Dict
+from typing import Any
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
@@ -33,7 +33,7 @@ def to_concat_arg(arg) -> str:
     return str(arg)
 
 
-def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
+def execute_bytecode(bytecode: list[Any], fields: dict[str, Any]) -> Any:
     try:
         stack = []
         iterator = iter(bytecode)
@@ -130,6 +130,11 @@ def execute_bytecode(bytecode: List[Any], fields: Dict[str, Any]) -> Any:
                             stack.append(int(args[0]) if name == "toInt" else float(args[0]))
                         except ValueError:
                             stack.append(None)
+                    elif name == "ifNull":
+                        if args[0] is not None:
+                            stack.append(args[0])
+                        else:
+                            stack.append(args[1])
                     else:
                         raise HogVMException(f"Unsupported function call: {name}")
                 case _:

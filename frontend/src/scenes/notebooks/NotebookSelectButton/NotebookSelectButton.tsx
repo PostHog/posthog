@@ -212,7 +212,7 @@ export function NotebookSelectPopover({
                     <NotebookSelectList {...props} onNotebookOpened={onNotebookOpened} />
                 </div>
             }
-            sameWidth={false}
+            matchWidth={false}
             actionable
             visible={!!showPopover}
             onVisibilityChange={(visible) => setShowPopover(visible)}

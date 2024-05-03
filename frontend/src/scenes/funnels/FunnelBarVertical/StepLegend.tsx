@@ -1,6 +1,7 @@
+import { IconClock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { IconSchedule, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -119,7 +120,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                         </Tooltip>
                     </LemonRow>
                     {showTime && (
-                        <LemonRow icon={<IconSchedule />} title="Median time of conversion from previous step">
+                        <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
                             {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
                         </LemonRow>
                     )}

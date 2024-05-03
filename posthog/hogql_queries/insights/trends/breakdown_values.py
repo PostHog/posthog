@@ -1,40 +1,61 @@
-from typing import List, Optional, Union, Any
-from posthog.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+from typing import Optional, Union, Any
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.placeholders import replace_placeholders, find_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
-from posthog.schema import BreakdownFilter, BreakdownType, ChartDisplayType
+from posthog.schema import (
+    BreakdownFilter,
+    BreakdownType,
+    ChartDisplayType,
+    ActionsNode,
+    EventsNode,
+    DataWarehouseNode,
+    HogQLQueryModifiers,
+)
+from functools import cached_property
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
 BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
+BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 
 
 class BreakdownValues:
     team: Team
-    event_name: str
-    breakdown_field: Union[str, float, List[Union[str, float]]]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    breakdown_field: Union[str, float, list[Union[str, float]]]
     breakdown_type: BreakdownType
     events_filter: ast.Expr
     chart_display_type: ChartDisplayType
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
     hide_other_aggregation: Optional[bool]
-    breakdown_limit: Optional[int]
+    normalize_url: Optional[bool]
+    breakdown_limit: int
+    query_date_range: QueryDateRange
+    modifiers: HogQLQueryModifiers
+    limit_context: LimitContext
 
     def __init__(
         self,
         team: Team,
-        event_name: str,
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         events_filter: ast.Expr,
         chart_display_type: ChartDisplayType,
         breakdown_filter: BreakdownFilter,
+        query_date_range: QueryDateRange,
+        modifiers: HogQLQueryModifiers,
+        limit_context: LimitContext = LimitContext.QUERY,
     ):
         self.team = team
-        self.event_name = event_name
+        self.series = series
         self.breakdown_field = breakdown_filter.breakdown  # type: ignore
         self.breakdown_type = breakdown_filter.breakdown_type  # type: ignore
         self.events_filter = events_filter
@@ -50,14 +71,17 @@ class BreakdownValues:
             else None
         )
         self.hide_other_aggregation = breakdown_filter.breakdown_hide_other_aggregation
-        self.breakdown_limit = breakdown_filter.breakdown_limit
+        self.normalize_url = breakdown_filter.breakdown_normalize_url
+        self.breakdown_limit = breakdown_filter.breakdown_limit or get_breakdown_limit_for_context(limit_context)
+        self.query_date_range = query_date_range
+        self.modifiers = modifiers
 
-    def get_breakdown_values(self) -> List[str | int]:
+    def get_breakdown_values(self) -> list[str | int]:
         if self.breakdown_type == "cohort":
             if self.breakdown_field == "all":
                 return [0]
 
-            if isinstance(self.breakdown_field, List):
+            if isinstance(self.breakdown_field, list):
                 return [value if isinstance(value, str) else int(value) for value in self.breakdown_field]
 
             return [self.breakdown_field if isinstance(self.breakdown_field, str) else int(self.breakdown_field)]
@@ -72,85 +96,145 @@ class BreakdownValues:
                 alias="value",
                 expr=ast.Field(
                     chain=get_properties_chain(
-                        breakdown_type=self.breakdown_type,  # type: ignore
+                        breakdown_type=self.breakdown_type,
                         breakdown_field=str(self.breakdown_field),
                         group_type_index=self.group_type_index,
                     )
                 ),
             )
 
+        if not self.histogram_bin_count:
+            if self.normalize_url:
+                select_field.expr = parse_expr(
+                    "empty(trimRight({node}, '/?#')) ? '/' : trimRight({node}, '/?#')",
+                    placeholders={"node": select_field.expr},
+                )
+
+            select_field.expr = ast.Call(name="toString", args=[select_field.expr])
+
         if self.chart_display_type == ChartDisplayType.WorldMap:
             breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
         else:
-            breakdown_limit = int(self.breakdown_limit) if self.breakdown_limit is not None else BREAKDOWN_VALUES_LIMIT
+            breakdown_limit = int(self.breakdown_limit)
+
+        aggregation_expression: ast.Expr
+        if self._aggregation_operation.aggregating_on_session_duration():
+            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "$session_duration"])])
+        elif self.series.math == "dau":
+            # When aggregating by (daily) unique users, run the breakdown aggregation on count(e.uuid).
+            # This retains legacy compatibility and should be removed once we have the new trends in production.
+            aggregation_expression = parse_expr("count({id_field})", placeholders={"id_field": self._id_field})
+        else:
+            aggregation_expression = self._aggregation_operation.select_aggregation()
+            # Take a shortcut with WAU and MAU queries. Get the total AU-s for the period instead.
+            if "replaced" in find_placeholders(aggregation_expression):
+                actor = "e.distinct_id" if self.team.aggregate_users_by_distinct_id else "e.person_id"
+                replaced = parse_expr(f"count(DISTINCT {actor})")
+                aggregation_expression = replace_placeholders(aggregation_expression, {"replaced": replaced})
+
+        timestamp_field = self.series.timestamp_field if hasattr(self.series, "timestamp_field") else "timestamp"
+        date_filter = ast.And(
+            exprs=[
+                parse_expr(
+                    "{timestamp} >= {date_from_with_adjusted_start_of_interval}",
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                        "timestamp": ast.Field(chain=[timestamp_field]),
+                    },
+                ),
+                parse_expr(
+                    "{timestamp} <= {date_to}",
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                        "timestamp": ast.Field(chain=[timestamp_field]),
+                    },
+                ),
+            ]
+        )
 
         inner_events_query = parse_select(
             """
                 SELECT
                     {select_field},
-                    count(e.uuid) as count
-                FROM
-                    events e
+                    {aggregation_expression} as count
+                FROM {table} e
                 WHERE
-                    {events_where}
+                    {date_filter} and {events_where}
                 GROUP BY
                     value
                 ORDER BY
                     count DESC,
                     value DESC
-                LIMIT {breakdown_limit}
+                LIMIT {breakdown_limit_plus_one}
             """,
             placeholders={
-                "events_where": self.events_filter,
                 "select_field": select_field,
-                "breakdown_limit": ast.Constant(value=breakdown_limit),
+                "aggregation_expression": aggregation_expression,
+                "table": self._table,
+                "date_filter": date_filter,
+                "events_where": self.events_filter,
+                "breakdown_limit_plus_one": ast.Constant(value=breakdown_limit + 1),
             },
         )
 
-        query = parse_select(
-            """
-                SELECT groupArray(value) FROM ({inner_events_query})
-            """,
-            placeholders={
-                "inner_events_query": inner_events_query,
-            },
-        )
+        # Reverse the order if looking at the smallest values
+        if self.series.math_property is not None and self.series.math == "min":
+            if (
+                isinstance(inner_events_query, ast.SelectQuery)
+                and inner_events_query.order_by is not None
+                and isinstance(inner_events_query.order_by[0], ast.OrderExpr)
+            ):
+                inner_events_query.order_by[0].order = "ASC"
 
+        values: list[Any]
         if self.histogram_bin_count is not None:
-            query.select = [self._to_bucketing_expression()]
+            query = parse_select(
+                """
+                    SELECT {expr} FROM ({inner_events_query})
+                """,
+                placeholders={
+                    "inner_events_query": inner_events_query,
+                    "expr": self._to_bucketing_expression(),
+                },
+            )
+            response = execute_hogql_query(
+                query_type="TrendsQueryBreakdownValues",
+                query=query,
+                team=self.team,
+                modifiers=self.modifiers,
+            )
+            if response.results and len(response.results) > 0:
+                values = response.results[0][0]
+            else:
+                values = []
+        else:
+            # We're not running this through groupArray, as that eats NULL values.
+            query = inner_events_query
+            response = execute_hogql_query(
+                query_type="TrendsQueryBreakdownValues",
+                query=query,
+                team=self.team,
+                modifiers=self.modifiers,
+            )
+            value_index = (response.columns or []).index("value")
+            values = [row[value_index] for row in response.results or []]
 
-        response = execute_hogql_query(
-            query_type="TrendsQueryBreakdownValues",
-            query=query,
-            team=self.team,
-        )
+            needs_other = False
+            if len(values) == breakdown_limit + 1:
+                needs_other = True
+                values = values[:-1]
 
-        values: List[Any] = response.results[0][0]
+            # Add "other" value if "other" is not hidden and we're not bucketing numeric values
+            if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                if needs_other:
+                    values = [BREAKDOWN_OTHER_STRING_LABEL, *values]
 
         if len(values) == 0:
             values.insert(0, None)
             return values
 
-        # Add "other" value if "other" is not hidden and we're not bucketing numeric values
-        if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
-            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
-            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
-            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
-
-            if all_values_are_ints_or_none or all_values_are_floats_or_none:
-                if all_values_are_ints_or_none:
-                    values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
-                    values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
-                else:
-                    values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
-                    values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
-            elif all_values_are_string_or_none:
-                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
-                values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
-
-            breakdown_limit += 1  # Add one to the limit to account for the "other" value
-
-        return values[:breakdown_limit]
+        return values
 
     def _to_bucketing_expression(self) -> ast.Expr:
         assert isinstance(self.histogram_bin_count, int)
@@ -166,3 +250,27 @@ class BreakdownValues:
             qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
         return parse_expr(f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))")
+
+    @cached_property
+    def _id_field(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=["e", self.series.id_field])
+
+        return ast.Field(chain=["e", "uuid"])
+
+    @cached_property
+    def _table(self) -> ast.Field:
+        if isinstance(self.series, DataWarehouseNode):
+            return ast.Field(chain=[self.series.table_name])
+
+        return ast.Field(chain=["events"])
+
+    @cached_property
+    def _aggregation_operation(self) -> AggregationOperations:
+        return AggregationOperations(
+            self.team,
+            self.series,
+            self.chart_display_type,
+            self.query_date_range,
+            should_aggregate_values=True,  # doesn't matter in this case
+        )

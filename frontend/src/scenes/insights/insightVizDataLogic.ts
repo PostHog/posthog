@@ -11,6 +11,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -28,10 +29,12 @@ import {
     getShowLabelsOnSeries,
     getShowLegend,
     getShowPercentStackView,
-    getShowValueOnSeries,
+    getShowValuesOnSeries,
 } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
+    DatabaseSchemaQueryResponseField,
+    DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
     FunnelsQuery,
@@ -45,6 +48,9 @@ import {
 import {
     filterForQuery,
     filterKeyForQuery,
+    isActionsNode,
+    isDataWarehouseNode,
+    isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
     isInsightVizNode,
@@ -76,6 +82,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            dataWarehouseSceneLogic,
+            ['externalTablesMap'],
         ],
         actions: [
             insightLogic,
@@ -143,9 +151,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
                 } else if (isLifecycle) {
                     return true
-                } else {
-                    return false
                 }
+                return false
             },
         ],
 
@@ -159,7 +166,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
-        showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
@@ -170,6 +177,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+        funnelPathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.funnelPathsFilter : null)],
 
         isUsingSessionAnalysis: [
             (s) => [s.series, s.breakdownFilter, s.properties],
@@ -211,6 +219,41 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
+        isBreakdownSeries: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter): boolean => {
+                return !!breakdownFilter?.breakdown
+            },
+        ],
+
+        isDataWarehouseSeries: [
+            (s) => [s.isTrends, s.series],
+            (isTrends, series): boolean => {
+                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
+            },
+        ],
+
+        currentDataWarehouseSchemaColumns: [
+            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.externalTablesMap],
+            (
+                series,
+                isSingleSeries,
+                isDataWarehouseSeries,
+                isBreakdownSeries,
+                externalTablesMap
+            ): DatabaseSchemaQueryResponseField[] => {
+                if (
+                    !series ||
+                    series.length === 0 ||
+                    (!isSingleSeries && !isBreakdownSeries) ||
+                    !isDataWarehouseSeries
+                ) {
+                    return []
+                }
+
+                return externalTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.columns ?? []
+            },
+        ],
 
         valueOnSeries: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.insightFilter],
@@ -227,10 +270,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasLegend: [
-            (s) => [s.isTrends, s.isStickiness, s.display],
-            (isTrends, isStickiness, display) =>
-                (isTrends || isStickiness) &&
-                !DISPLAY_TYPES_WITHOUT_LEGEND.includes(display || ChartDisplayType.ActionsLineGraph),
+            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isStickiness, isLifecycle, display) =>
+                (isTrends || isStickiness || isLifecycle) &&
+                !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
         hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
@@ -278,7 +321,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
@@ -317,15 +360,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        updateDateRange: ({ dateRange }) => {
+        updateDateRange: async ({ dateRange }, breakpoint) => {
+            await breakpoint(300)
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdownFilter: ({ breakdownFilter }) => {
+        updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            await breakpoint(500) // extra debounce time because of number input
             actions.updateQuerySource({
                 breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
             } as Partial<TrendsQuery>)
         },
-        updateInsightFilter: ({ insightFilter }) => {
+        updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            await breakpoint(300)
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
                 [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
@@ -486,6 +532,17 @@ const handleQuerySourceUpdateSideEffects = (
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }
+    }
+
+    // if mixed, clear breakdown and trends filter
+    if (
+        kind === NodeKind.TrendsQuery &&
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
+    ) {
+        mergedUpdate['breakdownFilter'] = null
+        mergedUpdate['properties'] = []
     }
 
     return mergedUpdate

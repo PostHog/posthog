@@ -1,17 +1,15 @@
 import './Billing.scss'
 
-import { IconPlus } from '@posthog/icons'
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { SurprisedHog } from 'lib/components/hedgehogs'
-import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -30,19 +28,13 @@ export const scene: SceneExport = {
     logic: billingLogic,
 }
 
-export function BillingPageHeader(): JSX.Element {
-    return <PageHeader />
-}
-
 export function Billing(): JSX.Element {
     const {
         billing,
         billingLoading,
-        redirectPath,
         isOnboarding,
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
-        isUnlicensedDebug,
         over20kAnnual,
         isAnnualPlan,
     } = useValues(billingLogic)
@@ -68,7 +60,6 @@ export function Billing(): JSX.Element {
     if (!billing && billingLoading) {
         return (
             <>
-                <BillingPageHeader />
                 <SpinnerOverlay sceneLevel />
             </>
         )
@@ -77,7 +68,6 @@ export function Billing(): JSX.Element {
     if (!billing && !billingLoading) {
         return (
             <div className="space-y-4">
-                {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
                     {
                         'There was an issue retrieving your current billing information. If this message persists, please '
@@ -96,46 +86,8 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const getUpgradeAllProductsLink = (): string => {
-        if (!products) {
-            return ''
-        }
-        let url = '/api/billing-v2/activation?products='
-        let productsToUpgrade = ''
-        for (const product of products) {
-            if (product.subscribed || product.contact_support || product.inclusion_only) {
-                continue
-            }
-            const currentPlanIndex = product.plans.findIndex((plan) => plan.current_plan)
-            const upgradePlanKey = isUnlicensedDebug
-                ? product.plans?.[product.plans?.length - 1].plan_key
-                : product.plans?.[currentPlanIndex + 1]?.plan_key
-            if (!upgradePlanKey) {
-                continue
-            }
-            productsToUpgrade += `${product.type}:${upgradePlanKey},`
-            if (product.addons?.length) {
-                for (const addon of product.addons) {
-                    productsToUpgrade += `${addon.type}:${addon.plans[0].plan_key},`
-                }
-            }
-        }
-        // remove the trailing comma that will be at the end of the url
-        if (!productsToUpgrade) {
-            return ''
-        }
-        url += productsToUpgrade.slice(0, -1)
-        if (redirectPath) {
-            url += `&redirect_path=${redirectPath}`
-        }
-        return url
-    }
-
-    const upgradeAllProductsLink = getUpgradeAllProductsLink()
-
     return (
         <div ref={ref}>
-            {!isOnboarding && <BillingPageHeader />}
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -219,7 +171,7 @@ export function Billing(): JSX.Element {
                                                                 $
                                                                 {parseInt(billing.discount_amount_usd).toLocaleString()}
                                                             </strong>
-                                                        </Tooltip>
+                                                        </Tooltip>{' '}
                                                         remaining credits applied to your bill.
                                                     </p>
                                                 </div>
@@ -265,31 +217,31 @@ export function Billing(): JSX.Element {
                             <h3>You've unlocked enterprise-grade perks:</h3>
                             <ul className="pl-4">
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         <strong>Save 20%</strong> by switching to up-front annual billing
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get <strong>discounts on bundled subscriptions</strong> to multiple products
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get <strong>customized training</strong> for you and your team
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         Get dedicated support via <strong>private Slack channel</strong>
                                     </span>
                                 </li>
                                 <li className="flex gap-2 items-center">
-                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <IconCheckCircle className="text-success shrink-0" />
                                     <span>
                                         We'll even send you <strong>awesome free merch</strong>
                                     </span>
@@ -310,21 +262,11 @@ export function Billing(): JSX.Element {
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
-                {isOnboarding && upgradeAllProductsLink && (
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        to={upgradeAllProductsLink}
-                        disableClientSideRouting
-                    >
-                        Upgrade all
-                    </LemonButton>
-                )}
             </div>
             <LemonDivider className="mt-2 mb-8" />
 
             {products
-                ?.filter((product) => !product.inclusion_only || product.contact_support)
+                ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
                 ?.map((x) => (
                     <div key={x.type}>
                         <BillingProduct product={x} />

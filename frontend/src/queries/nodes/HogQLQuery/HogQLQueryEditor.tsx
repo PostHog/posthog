@@ -1,11 +1,11 @@
 import { Monaco } from '@monaco-editor/react'
+import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAutoAwesome, IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,7 +95,9 @@ const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string)
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
     setQuery?: (query: HogQLQuery) => void
+    onChange?: (query: string) => void
     embedded?: boolean
+    editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
 }
 
 let uniqueNode = 0
@@ -105,7 +107,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
     )
     const [monaco, editor] = monacoAndEditor ?? []
-    const hogQLQueryEditorLogicProps = { query: props.query, setQuery: props.setQuery, key, editor, monaco }
+    const hogQLQueryEditorLogicProps = {
+        query: props.query,
+        setQuery: props.setQuery,
+        onChange: props.onChange,
+        key,
+        editor,
+        monaco,
+    }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
         useValues(logic)
@@ -130,7 +139,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     <div className="flex gap-2">
                         <LemonInput
                             className="grow"
-                            prefix={<IconAutoAwesome />}
+                            prefix={<IconMagicWand />}
                             value={prompt}
                             onPressEnter={() => draftFromPrompt()}
                             onChange={(value) => setPrompt(value)}
@@ -206,10 +215,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     monaco.languages.registerCompletionItemProvider('mysql', {
                                         triggerCharacters: [' ', ',', '.'],
                                         provideCompletionItems: async (model, position) => {
-                                            if (!featureFlags[FEATURE_FLAGS.HOGQL_AUTOCOMPLETE]) {
-                                                return undefined
-                                            }
-
                                             const word = model.getWordUntilPosition(position)
 
                                             const startOffset = model.getOffsetAt({
@@ -351,67 +356,75 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 suggest: {
                                     showInlineDetails: true,
                                 },
+                                quickSuggestionsDelay: 300,
                             }}
                         />
                     </div>
                 </div>
                 <div className="flex flex-row">
-                    <div className="flex-1">
-                        <LemonButton
-                            onClick={saveQuery}
-                            type="primary"
-                            disabledReason={
-                                !props.setQuery
-                                    ? 'No permission to update'
-                                    : hasErrors
-                                    ? error ?? 'Query has errors'
-                                    : undefined
-                            }
-                            center
-                            fullWidth
-                            data-attr="hogql-query-editor-save"
-                        >
-                            {!props.setQuery ? 'No permission to update' : 'Update and run'}
-                        </LemonButton>
-                    </div>
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] ? (
-                        <LemonButton
-                            className="ml-2"
-                            onClick={saveAsView}
-                            type="primary"
-                            center
-                            disabledReason={
-                                hasErrors
-                                    ? error ?? 'Query has errors'
-                                    : !isValidView
-                                    ? 'All fields must have an alias'
-                                    : ''
-                            }
-                            data-attr="hogql-query-editor-save-as-view"
-                        >
-                            Save as View
-                        </LemonButton>
-                    ) : null}
-                    {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
-                        <LemonButtonWithDropdown
-                            className="ml-2"
-                            icon={<IconInfo />}
-                            type="secondary"
-                            size="small"
-                            dropdown={{
-                                overlay: (
-                                    <div>
-                                        Save a query as a view that can be referenced in another query. This is useful
-                                        for modeling data and organizing large queries into readable chunks.{' '}
-                                        <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
-                                    </div>
-                                ),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                        />
+                    {props.editorFooter ? (
+                        props.editorFooter(hasErrors, error, isValidView)
+                    ) : (
+                        <>
+                            <div className="flex-1">
+                                <LemonButton
+                                    onClick={saveQuery}
+                                    type="primary"
+                                    disabledReason={
+                                        !props.setQuery
+                                            ? 'No permission to update'
+                                            : hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : undefined
+                                    }
+                                    center
+                                    fullWidth
+                                    data-attr="hogql-query-editor-save"
+                                >
+                                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
+                                </LemonButton>
+                            </div>
+                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] ? (
+                                <LemonButton
+                                    className="ml-2"
+                                    onClick={saveAsView}
+                                    type="primary"
+                                    center
+                                    disabledReason={
+                                        hasErrors
+                                            ? error ?? 'Query has errors'
+                                            : !isValidView
+                                            ? 'All fields must have an alias'
+                                            : ''
+                                    }
+                                    data-attr="hogql-query-editor-save-as-view"
+                                >
+                                    Save as View
+                                </LemonButton>
+                            ) : null}
+                            {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
+                                <LemonButtonWithDropdown
+                                    className="ml-2"
+                                    icon={<IconInfo />}
+                                    type="secondary"
+                                    size="small"
+                                    dropdown={{
+                                        overlay: (
+                                            <div>
+                                                Save a query as a view that can be referenced in another query. This is
+                                                useful for modeling data and organizing large queries into readable
+                                                chunks.{' '}
+                                                <Link to="https://posthog.com/docs/data-warehouse">More Info</Link>{' '}
+                                            </div>
+                                        ),
+                                        placement: 'right-start',
+                                        fallbackPlacements: ['left-start'],
+                                        actionable: true,
+                                        closeParentPopoverOnClickInside: true,
+                                    }}
+                                />
+                            )}
+                        </>
                     )}
                 </div>
             </div>

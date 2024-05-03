@@ -1,6 +1,6 @@
 import re
 import sys
-from typing import List, Optional
+from typing import Optional
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -20,7 +20,7 @@ def _get_table(search_string: str, operation_sql: str) -> Optional[str]:
 def validate_migration_sql(sql) -> bool:
     new_tables = _get_new_tables(sql)
     operations = sql.split("\n")
-    tables_created_so_far: List[str] = []
+    tables_created_so_far: list[str] = []
     for operation_sql in operations:
         # Extract table name from queries of this format: ALTER TABLE TABLE "posthog_feature"
         table_being_altered: Optional[str] = (

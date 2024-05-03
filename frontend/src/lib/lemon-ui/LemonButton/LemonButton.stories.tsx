@@ -1,9 +1,9 @@
-import { IconGear, IconPlus } from '@posthog/icons'
+import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconCalculate, IconInfo, IconLink } from 'lib/lemon-ui/icons'
+import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
@@ -386,7 +386,7 @@ WithDropdownToTheBottom.args = {
             </>
         ),
         placement: 'bottom',
-        sameWidth: true,
+        matchWidth: true,
     },
 }
 
@@ -404,7 +404,7 @@ WithVeryLongPopoverToTheBottom.args = {
             </>
         ),
         placement: 'bottom',
-        sameWidth: true,
+        matchWidth: true,
     },
 }
 

@@ -12,17 +12,18 @@ import pytest_asyncio
 from django.conf import settings
 from django.test import override_settings
 from psycopg import sql
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import BatchExportSchema
 from posthog.temporal.batch_exports.batch_exports import (
-    create_export_run,
+    finish_batch_export_run,
     iter_records,
-    update_export_run_status,
+    start_batch_export_run,
 )
-from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
@@ -31,6 +32,8 @@ from posthog.temporal.batch_exports.redshift_batch_export import (
     redshift_default_fields,
     remove_escaped_whitespace_recursive,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -66,12 +69,12 @@ async def assert_clickhouse_records_in_redshfit(
     """Assert expected records are written to a given Redshift table.
 
     The steps this function takes to assert records are written are:
-    1. Read all records inserted into given PostgreSQL table.
-    2. Cast records read from PostgreSQL to a Python list of dicts.
-    3. Assert records read from PostgreSQL have the expected column names.
+    1. Read all records inserted into given Redshift table.
+    2. Cast records read from Redshift to a Python list of dicts.
+    3. Assert records read from Redshift have the expected column names.
     4. Read all records that were supposed to be inserted from ClickHouse.
     5. Cast records returned by ClickHouse to a Python list of dicts.
-    6. Compare each record returned by ClickHouse to each record read from PostgreSQL.
+    6. Compare each record returned by ClickHouse to each record read from Redshift.
 
     Caveats:
     * Casting records to a Python list of dicts means losing some type precision.
@@ -79,10 +82,10 @@ async def assert_clickhouse_records_in_redshfit(
         * `iter_records` has its own set of related unit tests to control for this.
 
     Arguments:
-        postgres_connection: A PostgreSQL connection used to read inserted events.
+        redshift_connection: A Redshift connection used to read inserted events.
         clickhouse_client: A ClickHouseClient used to read events that are expected to be inserted.
-        schema_name: PostgreSQL schema name.
-        table_name: PostgreSQL table name.
+        schema_name: Redshift schema name.
+        table_name: Redshift table name.
         team_id: The ID of the team that we are testing events for.
         batch_export_schema: Custom schema used in the batch export.
     """
@@ -133,8 +136,8 @@ async def assert_clickhouse_records_in_redshfit(
 
             expected_records.append(expected_record)
 
-    inserted_column_names = [column_name for column_name in inserted_records[0].keys()].sort()
-    expected_column_names = [column_name for column_name in expected_records[0].keys()].sort()
+    inserted_column_names = list(inserted_records[0].keys()).sort()
+    expected_column_names = list(expected_records[0].keys()).sort()
 
     inserted_records.sort(key=operator.itemgetter("event"))
     expected_records.sort(key=operator.itemgetter("event"))
@@ -410,9 +413,9 @@ async def test_redshift_export_workflow(
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[RedshiftBatchExportWorkflow],
             activities=[
-                create_export_run,
+                start_batch_export_run,
                 insert_into_redshift_activity,
-                update_export_run_status,
+                finish_batch_export_run,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -431,6 +434,7 @@ async def test_redshift_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
+    assert run.records_completed == 100
 
     await assert_clickhouse_records_in_redshfit(
         redshift_connection=psycopg_connection,
@@ -460,3 +464,104 @@ async def test_redshift_export_workflow(
 def test_remove_escaped_whitespace_recursive(value, expected):
     """Test we remove some whitespace values."""
     assert remove_escaped_whitespace_recursive(value) == expected
+
+
+async def test_redshift_export_workflow_handles_insert_activity_errors(ateam, redshift_batch_export, interval):
+    """Test that Redshift Export Workflow can gracefully handle errors when inserting Redshift data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = RedshiftBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(redshift_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **redshift_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_redshift_activity")
+    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
+        raise ValueError("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_redshift_activity_mocked,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "FailedRetryable"
+    assert run.latest_error == "ValueError: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1
+
+
+async def test_redshift_export_workflow_handles_insert_activity_non_retryable_errors(
+    ateam, redshift_batch_export, interval
+):
+    """Test that Redshift Export Workflow can gracefully handle non-retryable errors when inserting Redshift data."""
+    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+
+    workflow_id = str(uuid4())
+    inputs = RedshiftBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(redshift_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **redshift_batch_export.destination.config,
+    )
+
+    @activity.defn(name="insert_into_redshift_activity")
+    async def insert_into_redshift_activity_mocked(_: RedshiftInsertInputs) -> str:
+        class InsufficientPrivilege(Exception):
+            pass
+
+        raise InsufficientPrivilege("A useful error message")
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[RedshiftBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_redshift_activity_mocked,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    RedshiftBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=redshift_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Failed"
+    assert run.latest_error == "InsufficientPrivilege: A useful error message"
+    assert run.records_completed is None
+    assert run.records_total_count == 1

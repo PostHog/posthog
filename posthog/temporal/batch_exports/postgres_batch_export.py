@@ -13,25 +13,33 @@ from psycopg import sql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportField, BatchExportSchema, PostgresBatchExportInputs
+from posthog.batch_exports.models import BatchExportRun
+from posthog.batch_exports.service import (
+    BatchExportField,
+    BatchExportSchema,
+    PostgresBatchExportInputs,
+)
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
-    BatchExportTemporaryFile,
-    CreateBatchExportRunInputs,
-    UpdateBatchExportRunStatusInputs,
-    create_export_run,
+    FinishBatchExportRunInputs,
+    RecordsCompleted,
+    StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
+    finish_batch_export_run,
     get_data_interval,
-    get_rows_count,
     iter_records,
+    start_batch_export_run,
 )
-from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
-from posthog.temporal.batch_exports.utils import peek_first_and_rewind
+from posthog.temporal.batch_exports.temporary_file import (
+    BatchExportTemporaryFile,
+)
+from posthog.temporal.batch_exports.utils import peek_first_and_rewind, try_set_batch_export_run_to_running
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
@@ -90,7 +98,7 @@ async def copy_tsv_to_postgres(
             # TODO: Switch to binary encoding as CSV has a million edge cases.
             sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
                 table_name=sql.Identifier(table_name),
-                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
             )
         ) as copy:
             while data := tsv_file.read():
@@ -230,40 +238,27 @@ class PostgresInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     batch_export_schema: BatchExportSchema | None = None
+    run_id: str | None = None
 
 
 @activity.defn
-async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
+async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> RecordsCompleted:
     """Activity streams data from ClickHouse to Postgres."""
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="PostgreSQL")
     logger.info(
-        "Exporting batch %s - %s",
+        "Batch exporting range %s - %s to PostgreSQL: %s.%s.%s",
         inputs.data_interval_start,
         inputs.data_interval_end,
+        inputs.database,
+        inputs.schema,
+        inputs.table_name,
     )
 
-    async with get_client() as client:
+    await try_set_batch_export_run_to_running(run_id=inputs.run_id, logger=logger)
+
+    async with get_client(team_id=inputs.team_id) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
-
-        count = await get_rows_count(
-            client=client,
-            team_id=inputs.team_id,
-            interval_start=inputs.data_interval_start,
-            interval_end=inputs.data_interval_end,
-            exclude_events=inputs.exclude_events,
-            include_events=inputs.include_events,
-        )
-
-        if count == 0:
-            logger.info(
-                "Nothing to export in batch %s - %s",
-                inputs.data_interval_start,
-                inputs.data_interval_end,
-            )
-            return
-
-        logger.info("BatchExporting %s rows", count)
 
         if inputs.batch_export_schema is None:
             fields = postgres_default_fields()
@@ -358,6 +353,8 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                 if pg_file.tell() > 0:
                     await flush_to_postgres()
 
+            return pg_file.records_total
+
 
 @workflow.defn(name="postgres-export")
 class PostgresBatchExportWorkflow(PostHogWorkflow):
@@ -380,15 +377,17 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Postgres."""
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
 
-        create_export_run_inputs = CreateBatchExportRunInputs(
+        start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
         )
-        run_id = await workflow.execute_activity(
-            create_export_run,
-            create_export_run_inputs,
+        run_id, records_total_count = await workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -398,11 +397,26 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
-        update_inputs = UpdateBatchExportRunStatusInputs(
+        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
-            status="Completed",
+            batch_export_id=inputs.batch_export_id,
+            status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
+
+        if records_total_count == 0:
+            await workflow.execute_activity(
+                finish_batch_export_run,
+                finish_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+            return
 
         insert_inputs = PostgresInsertInputs(
             team_id=inputs.team_id,
@@ -419,21 +433,23 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
+            run_id=run_id,
         )
 
         await execute_batch_export_insert_activity(
             insert_into_postgres_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 # Raised on errors that are related to database operation.
                 # For example: unexpected disconnect, database or other object not found.
-                "OperationalError"
+                "OperationalError",
                 # The schema name provided is invalid (usually because it doesn't exist).
-                "InvalidSchemaName"
+                "InvalidSchemaName",
                 # Missing permissions to, e.g., insert into table.
-                "InsufficientPrivilege"
+                "InsufficientPrivilege",
             ],
-            update_inputs=update_inputs,
+            finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.
             heartbeat_timeout_seconds=None,
         )

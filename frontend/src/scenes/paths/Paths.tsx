@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { FunnelPathsFilter } from '~/queries/schema'
+
 import { PathNodeCard } from './PathNodeCard'
 import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
@@ -23,7 +25,9 @@ export function Paths(): JSX.Element {
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { paths, pathsFilter, insightDataLoading, insightDataError } = useValues(pathsDataLogic(insightProps))
+    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
+        pathsDataLogic(insightProps)
+    )
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -35,11 +39,19 @@ export function Paths(): JSX.Element {
         const elements = document?.getElementById(id)?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodeCards)
+        renderPaths(
+            canvasRef,
+            canvasWidth,
+            canvasHeight,
+            paths,
+            pathsFilter || {},
+            funnelPathsFilter || ({} as FunnelPathsFilter),
+            setNodeCards
+        )
     }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
 
     if (insightDataError) {
-        return <InsightErrorState excludeDetail />
+        return <InsightErrorState query={insightQuery} excludeDetail />
     }
 
     return (

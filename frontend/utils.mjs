@@ -194,15 +194,21 @@ function getChunks(result) {
 }
 
 export async function buildInParallel(configs, { onBuildStart, onBuildComplete } = {}) {
-    await Promise.all(
-        configs.map((config) =>
-            buildOrWatch({
-                ...config,
-                onBuildStart,
-                onBuildComplete,
-            })
+    try {
+        await Promise.all(
+            configs.map((config) =>
+                buildOrWatch({
+                    ...config,
+                    onBuildStart,
+                    onBuildComplete,
+                })
+            )
         )
-    )
+    } catch (e) {
+        if (!isDev) {
+            process.exit(1)
+        }
+    }
 
     if (!isDev) {
         process.exit(0)
@@ -338,7 +344,11 @@ export async function buildOrWatch(config) {
                 ...buildResult.metafile,
             }
         } catch (e) {
-            log({ success: false, name, time })
+            if (isDev) {
+                log({ success: false, name, time })
+            } else {
+                throw e
+            }
         }
     }
 

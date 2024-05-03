@@ -259,6 +259,10 @@
             "const": 9,
             "type": "number"
         },
+        "IncrementalSource.CustomElement": {
+            "const": 16,
+            "type": "number"
+        },
         "IncrementalSource.Drag": {
             "const": 12,
             "type": "number"
@@ -494,6 +498,26 @@
                 }
             ]
         },
+        "customElementData": {
+            "additionalProperties": false,
+            "properties": {
+                "define": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "name": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["name"],
+                    "type": "object"
+                },
+                "source": {
+                    "$ref": "#/definitions/IncrementalSource.CustomElement"
+                }
+            },
+            "required": ["source"],
+            "type": "object"
+        },
         "fontData": {
             "additionalProperties": false,
             "properties": {
@@ -556,6 +580,9 @@
                 },
                 {
                     "$ref": "#/definitions/adoptedStyleSheetData"
+                },
+                {
+                    "$ref": "#/definitions/customElementData"
                 }
             ]
         },
@@ -589,6 +616,9 @@
                 },
                 "id": {
                     "type": "number"
+                },
+                "loop": {
+                    "type": "boolean"
                 },
                 "muted": {
                     "type": "boolean"
@@ -631,7 +661,7 @@
                     "type": "number"
                 }
             },
-            "required": ["id", "source", "type", "x", "y"],
+            "required": ["id", "source", "type"],
             "type": "object"
         },
         "mousePosition": {

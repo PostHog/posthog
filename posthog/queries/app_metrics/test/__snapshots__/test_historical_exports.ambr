@@ -7,11 +7,15 @@
          groupArray(successes_on_retry),
          groupArray(failures)
   FROM
-    (SELECT date, sum(successes) AS successes,
+    (SELECT date, sum(CASE
+                          WHEN category = 'composeWebhook' THEN 0
+                          ELSE successes
+                      END) AS successes,
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
+       (SELECT category,
+               dateTrunc('hour', timestamp, 'UTC') AS date,
                sum(successes) AS successes,
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
@@ -22,7 +26,8 @@
           AND job_id = '1234'
           AND timestamp >= '2021-08-25 00:00:00'
           AND timestamp < '2021-08-25 06:00:00'
-        GROUP BY dateTrunc('hour', timestamp, 'UTC'))
+        GROUP BY dateTrunc('hour', timestamp, 'UTC'),
+                 category)
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
@@ -63,10 +68,8 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_id']) = '"1234"'
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_id}') = '"1234"'::jsonb
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -121,8 +124,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -177,8 +179,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
@@ -233,8 +234,7 @@
   WHERE ("posthog_activitylog"."activity" IN ('job_triggered',
                                               'export_success',
                                               'export_fail')
-         AND ("posthog_activitylog"."detail" #> ARRAY['trigger',
-                                                      'job_type']) = '"Export historical events V2"'
+         AND ("posthog_activitylog"."detail" #> '{trigger,job_type}') = '"Export historical events V2"'::jsonb
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)

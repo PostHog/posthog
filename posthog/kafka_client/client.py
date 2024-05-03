@@ -1,8 +1,8 @@
 import json
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Optional
+from collections.abc import Callable
 
-import kafka.errors
 from django.conf import settings
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
@@ -33,7 +33,7 @@ class KafkaProducerForTests:
         topic: str,
         value: Any,
         key: Any = None,
-        headers: Optional[List[Tuple[str, bytes]]] = None,
+        headers: Optional[list[tuple[str, bytes]]] = None,
     ):
         produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
         future = FutureRecordMetadata(
@@ -159,7 +159,7 @@ class _KafkaProducer:
         data: Any,
         key: Any = None,
         value_serializer: Optional[Callable[[Any], Any]] = None,
-        headers: Optional[List[Tuple[str, str]]] = None,
+        headers: Optional[list[tuple[str, str]]] = None,
     ):
         if not value_serializer:
             value_serializer = self.json_serializer
@@ -195,7 +195,7 @@ def can_connect():
     """
     try:
         _KafkaProducer(test=settings.TEST)
-    except kafka.errors.KafkaError:
+    except Exception:
         logger.debug("kafka_connection_failure", exc_info=True)
         return False
     return True
@@ -259,7 +259,7 @@ class ClickhouseProducer:
     def __init__(self):
         self.producer = KafkaProducer() if not settings.TEST else None
 
-    def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
+    def produce(self, sql: str, topic: str, data: dict[str, Any], sync: bool = True):
         if self.producer is not None:  # TODO: this should be not sync and
             self.producer.produce(topic=topic, data=data)
         else:

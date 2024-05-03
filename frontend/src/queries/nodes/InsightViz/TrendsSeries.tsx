@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -22,8 +24,9 @@ export function TrendsSeries(): JSX.Element | null {
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
 
     const propertiesTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -32,8 +35,12 @@ export function TrendsSeries(): JSX.Element | null {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(isTrends ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrends ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.DataWarehouseProperties,
+        ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS]
+            ? [TaxonomicFilterGroupType.DataWarehousePersonProperties]
+            : []),
     ]
 
     if (!isInsightQueryNode(querySource)) {
@@ -51,7 +58,15 @@ export function TrendsSeries(): JSX.Element | null {
         <>
             {isLifecycle && (
                 <div className="leading-6">
-                    Showing <b>Unique users</b> who did
+                    <div className="flex items-center">
+                        Showing
+                        {showGroupsOptions ? (
+                            <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
+                        ) : (
+                            <b> Unique users </b>
+                        )}
+                        who did
+                    </div>
                 </div>
             )}
             <ActionFilter
@@ -63,7 +78,7 @@ export function TrendsSeries(): JSX.Element | null {
                         | StickinessQuery
                         | LifecycleQuery)
                 }}
-                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-TrendsSeries`}
+                typeKey={keyForInsightLogicProps('new')(insightProps)}
                 buttonCopy={`Add graph ${hasFormula ? 'variable' : 'series'}`}
                 showSeriesIndicator
                 showNestedArrow
@@ -74,6 +89,16 @@ export function TrendsSeries(): JSX.Element | null {
                 }
                 mathAvailability={mathAvailability}
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
+                actionsTaxonomicGroupTypes={
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] &&
+                    (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS])
+                        ? [
+                              TaxonomicFilterGroupType.Events,
+                              TaxonomicFilterGroupType.Actions,
+                              TaxonomicFilterGroupType.DataWarehouse,
+                          ]
+                        : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+                }
             />
         </>
     )

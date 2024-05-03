@@ -25,16 +25,16 @@ class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
         insight = Insight.objects.create(team=self.team)
 
-        params = dict(
-            team=self.team,
-            title="My Subscription",
-            insight=insight,
-            target_type="email",
-            target_value="tests@posthog.com",
-            frequency="weekly",
-            interval=2,
-            start_date=datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
-        )
+        params = {
+            "team": self.team,
+            "title": "My Subscription",
+            "insight": insight,
+            "target_type": "email",
+            "target_value": "tests@posthog.com",
+            "frequency": "weekly",
+            "interval": 2,
+            "start_date": datetime(2022, 1, 1, 0, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        }
         params.update(**kwargs)
 
         return Subscription.objects.create(**params)
@@ -70,6 +70,40 @@ class TestSubscription(BaseTest):
         subscription.target_value = "other@example.com"
         subscription.save()
         assert old_date == subscription.next_delivery_date
+
+    @freeze_time("2022-01-11 09:55:00")
+    def test_set_next_delivery_date_when_in_upcoming_delta(self):
+        subscription = Subscription.objects.create(
+            id=1,
+            team=self.team,
+            title="Daily Subscription",
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="daily",
+            start_date=datetime(2022, 1, 1, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+            next_delivery_date=datetime(2022, 1, 11, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        )
+
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+
+        assert subscription.next_delivery_date == datetime(2022, 1, 12, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
+    @freeze_time("2022-01-11 09:55:00")
+    def test_set_next_delivery_date_when_days_behind(self):
+        subscription = Subscription.objects.create(
+            id=1,
+            team=self.team,
+            title="Daily Subscription",
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="daily",
+            start_date=datetime(2022, 1, 1, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+            next_delivery_date=datetime(2022, 1, 2, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        )
+
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+
+        assert subscription.next_delivery_date == datetime(2022, 1, 12, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
 
     def test_generating_token(self):
         subscription = self._create_insight_subscription(

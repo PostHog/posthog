@@ -225,6 +225,46 @@ describe('filtersToQueryNode', () => {
             expect(result).toEqual(query)
         })
 
+        it('converts broken grouped properties', () => {
+            const filters: Partial<FilterType> = {
+                insight: InsightType.RETENTION,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: 'is_set',
+                            operator: PropertyOperator.IsSet,
+                        },
+                    ] as any,
+                },
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.RetentionQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'email',
+                                    type: PropertyFilterType.Person,
+                                    value: 'is_set',
+                                    operator: PropertyOperator.IsSet,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as InsightQueryNode
+            expect(result).toEqual(query)
+        })
+
         it('converts date range', () => {
             const filters: Partial<FilterType> = {
                 insight: InsightType.RETENTION,
@@ -239,6 +279,27 @@ describe('filtersToQueryNode', () => {
                 dateRange: {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
+                },
+            } as InsightQueryNode
+            expect(result).toEqual(query)
+        })
+
+        it('converts date range with explicit date setting', () => {
+            const filters: Partial<FilterType> = {
+                insight: InsightType.RETENTION,
+                date_to: '2021-12-08',
+                date_from: '2021-12-08',
+                explicit_date: 'y',
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.RetentionQuery,
+                dateRange: {
+                    date_to: '2021-12-08',
+                    date_from: '2021-12-08',
+                    explicitDate: true,
                 },
             } as InsightQueryNode
             expect(result).toEqual(query)
@@ -467,7 +528,25 @@ describe('filtersToQueryNode', () => {
                 end_point: 'b',
                 path_groupings: ['c', 'd'],
                 funnel_paths: FunnelPathType.between,
-                funnel_filter: { a: 1 },
+                funnel_filter: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                            type: 'events',
+                        },
+                        {
+                            id: null,
+                            order: 1,
+                            type: 'events',
+                        },
+                    ],
+                    exclusions: [],
+                    funnel_step: 1,
+                    funnel_viz_type: 'steps',
+                    insight: 'FUNNELS',
+                },
                 exclude_events: ['e', 'f'],
                 step_limit: 1,
                 path_start_key: 'g',
@@ -489,8 +568,6 @@ describe('filtersToQueryNode', () => {
                     startPoint: 'a',
                     endPoint: 'b',
                     pathGroupings: ['c', 'd'],
-                    funnelPaths: FunnelPathType.between,
-                    funnelFilter: { a: 1 },
                     excludeEvents: ['e', 'f'],
                     stepLimit: 1,
                     pathReplacements: true,
@@ -498,6 +575,27 @@ describe('filtersToQueryNode', () => {
                     edgeLimit: 1,
                     minEdgeWeight: 1,
                     maxEdgeWeight: 1,
+                },
+                funnelPathsFilter: {
+                    funnelPathType: FunnelPathType.between,
+                    funnelStep: 1,
+                    funnelSource: {
+                        funnelsFilter: {
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                event: '$pageview',
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                            },
+                            {
+                                event: null,
+                                kind: NodeKind.EventsNode,
+                            },
+                        ],
+                    },
                 },
             }
             expect(result).toEqual(query)
@@ -761,7 +859,12 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.LifecycleQuery,
                 properties: {
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
                 },
                 filterTestAccounts: true,
                 dateRange: {
@@ -922,7 +1025,6 @@ describe('filtersToQueryNode', () => {
                 ],
                 actions: [],
                 display: ChartDisplayType.ActionsTable,
-                breakdown: '$current_url',
                 date_from: '-6m',
                 new_entity: [],
                 properties: {
@@ -941,8 +1043,11 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
+                breakdown: '$current_url',
                 breakdown_type: 'event',
                 breakdown_normalize_url: true,
+                breakdown_hide_other_aggregation: true,
+                breakdown_limit: 1,
             }
 
             const result = filtersToQueryNode(filters)
@@ -963,6 +1068,8 @@ describe('filtersToQueryNode', () => {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
+                    breakdown_hide_other_aggregation: true,
+                    breakdown_limit: 1,
                 },
                 dateRange: {
                     date_from: '-6m',
@@ -1354,7 +1461,12 @@ describe('filtersToQueryNode', () => {
                 },
                 properties: {
                     type: FilterLogicalOperator.And,
-                    values: [],
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [],
+                        },
+                    ],
                 },
             }
             expect(result).toEqual(query)

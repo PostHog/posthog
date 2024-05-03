@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,7 +25,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
-        setLastDashboardId: (id: number) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType) => ({ dashboard }),
         // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
         // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
@@ -41,10 +40,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
             insight,
             extraDashboardIds,
             updateTileOnDashboards,
-        }),
-        updateDashboardTile: (tile: DashboardTile, extraDashboardIds?: number[]) => ({
-            tile,
-            extraDashboardIds,
         }),
         // a side effect on this action exists in dashboardLogic so that individual refresh statuses can be bubbled up
         // to dashboard items in dashboards
@@ -228,13 +223,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 }),
             },
         ],
-        lastDashboardId: [
-            null as null | number,
-            { persist: true },
-            {
-                setLastDashboardId: (_, { id }) => id,
-            },
-        ],
     }),
     selectors(({ selectors }) => ({
         nameSortedDashboards: [
@@ -317,13 +305,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
             )
         },
     })),
-    urlToAction(({ actions }) => ({
-        '/dashboard/:id': ({ id }) => {
-            if (id) {
-                actions.setLastDashboardId(parseInt(id))
-            }
-        },
-    })),
     afterMount(({ actions }) => {
         actions.loadDashboards()
     }),
@@ -331,6 +312,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
 ])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    if (a.pinned !== b.pinned) {
+        return b.pinned ? 1 : -1
+    }
+
     // No matter where we're comparing dashboards, we want to sort generated dashboards last
     const firstName = a.name ?? 'Untitled'
     const secondName = b.name ?? 'Untitled'

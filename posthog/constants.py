@@ -16,8 +16,8 @@ class AvailableFeature(str, Enum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    DASHBOARD_COLLABORATION = "dashboard_collaboration"
-    DASHBOARD_PERMISSIONING = "dashboard_permissioning"
+    TEAM_COLLABORATION = "team_collaboration"
+    ADVANCED_PERMISSIONS = "advanced_permissions"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -38,6 +38,7 @@ class AvailableFeature(str, Enum):
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
+TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
 
 SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
@@ -115,6 +116,7 @@ EXPLICIT_DATE = "explicit_date"
 ENTITIES = "entities"
 ACTIONS = "actions"
 EVENTS = "events"
+DATA_WAREHOUSE_ENTITIES = "data_warehouse_entities"
 EXCLUSIONS = "exclusions"
 PROPERTIES = "properties"
 PROPERTY_GROUPS = "property_groups"
@@ -260,6 +262,14 @@ class ExperimentSignificanceCode(str, Enum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentNoResultsErrorKeys(str, Enum):
+    NO_EVENTS = "no-events"
+    NO_FLAG_INFO = "no-flag-info"
+    NO_CONTROL_VARIANT = "no-control-variant"
+    NO_TEST_VARIANT = "no-test-variant"
+    NO_RESULTS = "no-results"
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"
@@ -279,9 +289,6 @@ class BreakdownAttributionType(str, Enum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
-BREAKDOWN_VALUES_LIMIT = 25
-BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
-CSV_EXPORT_LIMIT = 10000
 
 
 class EventDefinitionType(str, Enum):

@@ -9,10 +9,10 @@ https://docs.djangoproject.com/en/2.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/2.2/ref/settings/
 """
+
 # isort: skip_file
 
 import os
-from typing import Dict, List
 
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
@@ -44,6 +44,8 @@ from posthog.settings.session_replay import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
+from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.web import INSTALLED_APPS
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
@@ -65,7 +67,7 @@ else:
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
 )  # plugin server setting disabling GeoIP feature
-PLUGINS_PREINSTALLED_URLS: List[str] = (
+PLUGINS_PREINSTALLED_URLS: list[str] = (
     os.getenv(
         "PLUGINS_PREINSTALLED_URLS",
         "https://www.npmjs.com/package/@posthog/geoip-plugin",
@@ -97,7 +99,7 @@ PERSON_ON_EVENTS_V2_OVERRIDE = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", opti
 # Wether to use insight queries converted to HogQL.
 HOGQL_INSIGHTS_OVERRIDE = get_from_env("HOGQL_INSIGHTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
-HOOK_EVENTS: Dict[str, str] = {}
+HOOK_EVENTS: dict[str, str] = {}
 
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)

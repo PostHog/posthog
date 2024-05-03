@@ -10,7 +10,7 @@ describe('Invite Signup', () => {
 
         cy.location('pathname').should('contain', '/settings/organization')
         cy.get('[id="invites"]').should('exist')
-        cy.contains('Pending Invites').should('exist')
+        cy.contains('Pending invites').should('exist')
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()
@@ -102,7 +102,7 @@ describe('Invite Signup', () => {
 
         // Change membership level
         cy.contains('[data-attr=org-members-table] tr', user).within(() => {
-            cy.get('[data-attr=membership-level]').last().should('contain', 'member')
+            cy.get('[data-attr=membership-level]').last().should('contain', 'Member')
             cy.get('[data-attr=more-button]').last().click()
         })
 
@@ -110,7 +110,7 @@ describe('Invite Signup', () => {
         cy.get('[data-test-level=8]').click()
 
         cy.contains('[data-attr=org-members-table] tr', user).within(() => {
-            cy.get('[data-attr=membership-level]').last().should('contain', 'admin')
+            cy.get('[data-attr=membership-level]').last().should('contain', 'Admin')
         })
 
         // Delete member

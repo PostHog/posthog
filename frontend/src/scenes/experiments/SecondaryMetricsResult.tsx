@@ -23,7 +23,7 @@ export function SecondaryMetricsResult(): JSX.Element {
                 <LoadingState />
             ) : (
                 <LemonCollapse
-                    className="w-full mt-4"
+                    className="w-full mt-4 bg-bg-light"
                     defaultActiveKey="secondary-metric-results-0"
                     panels={
                         experiment.secondary_metrics?.map((metric, index) => {

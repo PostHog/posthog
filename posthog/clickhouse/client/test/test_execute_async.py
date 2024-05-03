@@ -5,8 +5,9 @@ from django.test import TestCase
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.client import sync_execute
-from posthog.hogql.errors import HogQLException
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch, MagicMock
 from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query
@@ -21,9 +22,11 @@ def build_query(sql):
 
 class TestExecuteProcessQuery(TestCase):
     def setUp(self):
+        user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.team_id = self.team.pk
+        self.user_id: int = user.id
         self.query_id = "test_query_id"
         self.query_json = {}
         self.limit_context = None
@@ -41,7 +44,9 @@ class TestExecuteProcessQuery(TestCase):
 
         mock_process_query.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
 
-        execute_process_query(self.team_id, self.query_id, self.query_json, self.limit_context, self.refresh_requested)
+        execute_process_query(
+            self.team_id, self.user_id, self.query_id, self.query_json, self.limit_context, self.refresh_requested
+        )
 
         mock_redis_client.assert_called_once()
         mock_process_query.assert_called_once()
@@ -55,51 +60,58 @@ class TestExecuteProcessQuery(TestCase):
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
-        self.organization = Organization.objects.create(name="test")
-        self.team = Team.objects.create(organization=self.organization)
-        self.team_id = self.team.pk
+        user = User.objects.create(email="test@posthog.com", id=1337)
+        self.organization: Organization = Organization.objects.create(name="test")
+        self.team: Team = Team.objects.create(organization=self.organization)
+        self.team_id: int = self.team.pk
+        self.user_id: int = user.id
 
     @snapshot_clickhouse_queries
     def test_async_query_client(self):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
+        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
-        self.assertFalse(result.error, result.error_message)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [[2]])
 
     def test_async_query_client_errors(self):
         query = build_query("SELECT WOW SUCH DATA FROM NOWHERE THIS WILL CERTAINLY WORK")
         self.assertRaises(
-            HogQLException,
+            ExposedHogQLError,
             client.enqueue_process_query_task,
-            **{"team_id": (self.team_id), "query_json": query, "bypass_celery": True},
+            **{"team_id": self.team_id, "user_id": self.user_id, "query_json": query, "_test_only_bypass_celery": True},
         )
         query_id = uuid.uuid4().hex
         try:
-            client.enqueue_process_query_task(self.team_id, query, query_id=query_id, bypass_celery=True)
+            client.enqueue_process_query_task(
+                self.team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
         except Exception:
             pass
 
         result = client.get_query_status(self.team_id, query_id)
         self.assertTrue(result.error)
+        assert result.error_message
         self.assertRegex(result.error_message, "Unknown table")
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
         team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
+        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
-        self.assertFalse(result.error, result.error_message)
+        self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
+        assert result.results is not None
         self.assertEqual(result.results["results"], [["00000000-0000-0000-0000-000000000000"]])
 
     def test_async_query_client_does_not_leak(self):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
         wrong_team = 5
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
+        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
 
         try:
             client.get_query_status(wrong_team, query_id)
@@ -111,13 +123,19 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
         team_id = self.team_id
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Try the same query again
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
@@ -127,13 +145,19 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 8 + 8")
         query_id = uuid.uuid4().hex
         team_id = self.team_id
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Try the same query again, but with force
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True, force=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+        )
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
@@ -145,13 +169,19 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 8 + 8")
         team_id = self.team_id
         query_id = "I'm so unique"
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Try the same query again, but with force
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True, force=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+        )
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(team_id, query, query_id=query_id, bypass_celery=True)
+        client.enqueue_process_query_task(
+            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+        )
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
@@ -186,4 +216,4 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
             # Make sure it still includes the "annotation" comment that includes
             # request routing information for debugging purposes
-            self.assertIn("/* request:1 */", first_query)
+            self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)

@@ -13,11 +13,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -78,33 +77,26 @@ export function OverViewTab({
             sorter: (a: FeatureFlagType, b: FeatureFlagType) => (a.key || '').localeCompare(b.key || ''),
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
-                    <>
-                        <div className="flex flex-row items-center">
-                            <Link
-                                to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
-                                className="row-name"
-                            >
-                                {stringWithWBR(featureFlag.key, 17)}
-                            </Link>
-                            {!featureFlag.can_edit && (
-                                <Tooltip title="You don't have edit permissions for this feature flag.">
-                                    <IconLock
-                                        style={{
-                                            marginLeft: 6,
-                                            verticalAlign: '-0.125em',
-                                            display: 'inline',
-                                        }}
-                                    />
-                                </Tooltip>
-                            )}
-                        </div>
-
-                        {featureFlag.name && (
-                            <LemonMarkdown className="row-description" lowKeyHeadings>
-                                {featureFlag.name}
-                            </LemonMarkdown>
-                        )}
-                    </>
+                    <LemonTableLink
+                        to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
+                        title={
+                            <>
+                                <span>{stringWithWBR(featureFlag.key, 17)}</span>
+                                {!featureFlag.can_edit && (
+                                    <Tooltip title="You don't have edit permissions for this feature flag.">
+                                        <IconLock
+                                            style={{
+                                                marginLeft: 6,
+                                                verticalAlign: '-0.125em',
+                                                display: 'inline',
+                                            }}
+                                        />
+                                    </Tooltip>
+                                )}
+                            </>
+                        }
+                        description={featureFlag.name}
+                    />
                 )
             },
         },

@@ -4,6 +4,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -76,14 +77,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery]
     )
 
-    let component: JSX.Element | null = null
-    if (!response && responseLoading && !showEditingUI) {
+    if (!showEditingUI && (!response || responseLoading)) {
         return (
             <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )
-    } else if (visualizationType === ChartDisplayType.ActionsTable) {
+    }
+    let component: JSX.Element | null = null
+    if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <DataTable
                 uniqueKey={props.uniqueKey}
@@ -101,6 +103,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType === ChartDisplayType.ActionsBar
     ) {
         component = <Chart />
+    } else if (visualizationType === ChartDisplayType.BoldNumber) {
+        component = <HogQLBoldNumber />
     }
 
     return (

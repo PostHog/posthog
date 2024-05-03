@@ -7,7 +7,9 @@ import time
 import uuid
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Dict, List, Optional, Tuple, Union, Generator
+from typing import Any, Optional, Union
+from collections.abc import Callable
+from collections.abc import Generator
 from unittest.mock import patch
 
 import freezegun
@@ -59,6 +61,16 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
+from posthog.models.project import Project
+from posthog.models.sessions.sql import (
+    DROP_SESSION_TABLE_SQL,
+    DROP_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_SESSION_VIEW_SQL,
+    SESSIONS_TABLE_SQL,
+    SESSIONS_TABLE_MV_SQL,
+    SESSIONS_VIEW_SQL,
+    DISTRIBUTED_SESSIONS_TABLE_SQL,
+)
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -76,25 +88,27 @@ from posthog.test.assert_faster_than import assert_faster_than
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
 
 
-persons_cache_tests: List[Dict[str, Any]] = []
-events_cache_tests: List[Dict[str, Any]] = []
+persons_cache_tests: list[dict[str, Any]] = []
+events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):
     klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.team = Team.objects.create(
+    klass.project, klass.team = Project.objects.create_with_team(
         organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN,
-        test_account_filters=[
-            {
-                "key": "email",
-                "value": "@posthog.com",
-                "operator": "not_icontains",
-                "type": "person",
-            }
-        ],
-        has_completed_onboarding_for={"product_analytics": True},
+        team_fields={
+            "api_token": klass.CONFIG_API_TOKEN,
+            "test_account_filters": [
+                {
+                    "key": "email",
+                    "value": "@posthog.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                }
+            ],
+            "has_completed_onboarding_for": {"product_analytics": True},
+        },
     )
     if klass.CONFIG_EMAIL:
         klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
@@ -112,7 +126,7 @@ class FuzzyInt(int):
     highest: int
 
     def __new__(cls, lowest, highest):
-        obj = super(FuzzyInt, cls).__new__(cls, highest)
+        obj = super().__new__(cls, highest)
         obj.lowest = lowest
         obj.highest = highest
         return obj
@@ -132,7 +146,7 @@ class ErrorResponsesMixin:
         "attr": None,
     }
 
-    def not_found_response(self, message: str = "Not found.") -> Dict[str, Optional[str]]:
+    def not_found_response(self, message: str = "Not found.") -> dict[str, Optional[str]]:
         return {
             "type": "invalid_request",
             "code": "not_found",
@@ -142,7 +156,7 @@ class ErrorResponsesMixin:
 
     def permission_denied_response(
         self, message: str = "You do not have permission to perform this action."
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
             "code": "permission_denied",
@@ -150,7 +164,7 @@ class ErrorResponsesMixin:
             "attr": None,
         }
 
-    def method_not_allowed_response(self, method: str) -> Dict[str, Optional[str]]:
+    def method_not_allowed_response(self, method: str) -> dict[str, Optional[str]]:
         return {
             "type": "invalid_request",
             "code": "method_not_allowed",
@@ -162,7 +176,7 @@ class ErrorResponsesMixin:
         self,
         message: str = "Authentication credentials were not provided.",
         code: str = "not_authenticated",
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "authentication_error",
             "code": code,
@@ -175,7 +189,7 @@ class ErrorResponsesMixin:
         message: str = "Malformed request",
         code: str = "invalid_input",
         attr: Optional[str] = None,
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         return {
             "type": "validation_error",
             "code": code,
@@ -197,6 +211,7 @@ class PostHogTestCase(SimpleTestCase):
 
     # Test data definition stubs
     organization: Organization = None  # type: ignore
+    project: Project = None  # type: ignore
     team: Team = None  # type: ignore
     user: User = None  # type: ignore
     organization_membership: OrganizationMembership = None  # type: ignore
@@ -396,9 +411,9 @@ def cleanup_materialized_columns():
 
 
 def also_test_with_materialized_columns(
-    event_properties=[],
-    person_properties=[],
-    group_properties=[],
+    event_properties=None,
+    person_properties=None,
+    group_properties=None,
     verify_no_jsonextract=True,
     # :TODO: Remove this when groups-on-events is released
     materialize_only_with_person_on_events=False,
@@ -409,6 +424,12 @@ def also_test_with_materialized_columns(
     Requires a unittest class with ClickhouseTestMixin mixed in
     """
 
+    if group_properties is None:
+        group_properties = []
+    if person_properties is None:
+        person_properties = []
+    if event_properties is None:
+        event_properties = []
     try:
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
@@ -468,7 +489,8 @@ class QueryMatchingTest:
         # :TRICKY: team_id changes every test, avoid it messing with snapshots.
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
             # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
             query = re.sub(
                 r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
@@ -487,12 +509,46 @@ class QueryMatchingTest:
         # replace django cursors
         query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
-        # hog ql checks team ids differently
+        # hog ql checks some ids differently
         query = re.sub(
-            r"equals\(([^.]+\.)?team_id?, \d+\)",
-            r"equals(\1team_id, 2)",
+            r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
+            r"equals(\1\2, 2)",
             query,
         )
+
+        # replace survey uuids
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        # replace session uuids
+        # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
+        query = re.sub(
+            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        #### Cohort replacements
+        # replace cohort id lists in queries too
+        query = re.sub(
+            r"in((.*)?cohort_id, \[\d+(, ?\d+)*\])",
+            r"in(\1cohort_id, [1, 2, 3, 4, 5 /* ... */])",
+            query,
+        )
+        # replace explicit timestamps in cohort queries
+        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+
+        # replace cohort generated conditions
+        query = re.sub(
+            r"_condition_\d+_level",
+            r"_condition_X_level",
+            query,
+        )
+        #### Cohort replacements end
 
         # Replace organization_id and notebook_id lookups, for postgres
         query = re.sub(
@@ -521,6 +577,14 @@ class QueryMatchingTest:
             flags=re.IGNORECASE,
         )
 
+        # HogQL person id in session recording queries
+        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        query = re.sub(
+            r"ifNull\(equals\(([^.]+\.)?person_id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            query,
+        )
+
         query = re.sub(
             "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
             r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
@@ -538,6 +602,11 @@ class QueryMatchingTest:
         query = re.sub(
             rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
             r"""user_id:0 request:_snapshot_""",
+            query,
+        )
+        query = re.sub(
+            rf"""user_id:([0-9]+)""",
+            r"""user_id:0""",
             query,
         )
 
@@ -583,6 +652,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -615,9 +685,18 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if capture_all_queries:
+        if custom_query_matcher:
+            if query and custom_query_matcher(query):
+                testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
-        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        elif (
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
+        ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -777,7 +856,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
         return self.capture_queries(("SELECT", "WITH", "select", "with"))
 
     @contextmanager
-    def capture_queries(self, query_prefixes: Union[str, Tuple[str, ...]]):
+    def capture_queries(self, query_prefixes: Union[str, tuple[str, ...]]):
         queries = []
         original_get_client = ch_pool.get_client
 
@@ -820,7 +899,7 @@ def failhard_threadhook_context():
         threading.excepthook = old_hook
 
 
-def run_clickhouse_statement_in_parallel(statements: List[str]):
+def run_clickhouse_statement_in_parallel(statements: list[str]):
     jobs = []
     with failhard_threadhook_context():
         for item in statements:
@@ -858,6 +937,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+                DROP_SESSION_TABLE_SQL(),
+                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_SESSION_VIEW_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -868,6 +950,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
+                SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -876,6 +959,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
+                SESSIONS_TABLE_MV_SQL(),
+                SESSIONS_VIEW_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
             ]
         )
 
@@ -891,6 +977,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+                DROP_SESSION_TABLE_SQL(),
+                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+                DROP_SESSION_VIEW_SQL(),
             ]
         )
 
@@ -902,6 +991,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL,
+                SESSIONS_TABLE_SQL(),
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -909,6 +999,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSIONS_TABLE_SQL(),
+                SESSIONS_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
@@ -948,7 +1040,7 @@ def snapshot_clickhouse_alter_queries(fn):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 
@@ -1007,8 +1099,8 @@ def also_test_with_person_on_events_v2(fn):
 
 
 def _create_insight(
-    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
-) -> Tuple[Insight, Dashboard, DashboardTile]:
+    team: Team, insight_filters: dict[str, Any], dashboard_filters: dict[str, Any]
+) -> tuple[Insight, Dashboard, DashboardTile]:
     dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
     insight = Insight.objects.create(team=team, filters=insight_filters)
     dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
@@ -1032,7 +1124,7 @@ def create_person_id_override_by_distinct_id(
     """
     )
 
-    person_id_from, person_id_to = [row[1] for row in person_ids_result]
+    person_id_from, person_id_to = (row[1] for row in person_ids_result)
 
     sync_execute(
         f"""

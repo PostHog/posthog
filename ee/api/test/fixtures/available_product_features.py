@@ -1,6 +1,6 @@
-from typing import Any, Dict, List
+from typing import Any
 
-AVAILABLE_PRODUCT_FEATURES: List[Dict[str, Any]] = [
+AVAILABLE_PRODUCT_FEATURES: list[dict[str, Any]] = [
     {
         "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
         "key": "recordings_playlists",
@@ -11,7 +11,7 @@ AVAILABLE_PRODUCT_FEATURES: List[Dict[str, Any]] = [
     },
     {
         "description": "Restrict access to data within the organization to only those who need it.",
-        "key": "dashboard_collaboration",
+        "key": "team_collaboration",
         "limit": None,
         "name": "Dashboard permissions",
         "note": None,

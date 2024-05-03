@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -12,8 +12,7 @@ from posthog.hogql.database.models import (
     Table,
     FieldOrTable,
 )
-from posthog.hogql.errors import HogQLException
-from posthog.schema import HogQLQueryModifiers
+from posthog.hogql.errors import ResolutionError
 
 GROUPS_TABLE_FIELDS = {
     "index": IntegerDatabaseField(name="group_type_index"),
@@ -25,7 +24,7 @@ GROUPS_TABLE_FIELDS = {
 }
 
 
-def select_from_groups_table(requested_fields: Dict[str, List[str]]):
+def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     return argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
@@ -38,14 +37,14 @@ def join_with_group_n_table(group_index: int):
     def join_with_group_table(
         from_table: str,
         to_table: str,
-        requested_fields: Dict[str, Any],
+        requested_fields: dict[str, Any],
         context: HogQLContext,
         node: SelectQuery,
     ):
         from posthog.hogql import ast
 
         if not requested_fields:
-            raise HogQLException("No fields requested from person_distinct_ids")
+            raise ResolutionError("No fields requested from person_distinct_ids")
 
         select_query = select_from_groups_table(requested_fields)
         select_query.where = ast.CompareOperation(
@@ -71,7 +70,7 @@ def join_with_group_n_table(group_index: int):
 
 
 class RawGroupsTable(Table):
-    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def to_printed_clickhouse(self, context):
         return "groups"
@@ -81,9 +80,9 @@ class RawGroupsTable(Table):
 
 
 class GroupsTable(LazyTable):
-    fields: Dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
+    fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str]], modifiers: HogQLQueryModifiers):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

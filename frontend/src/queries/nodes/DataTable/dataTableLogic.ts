@@ -139,9 +139,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 lastResult = result
                             }
                             return newResults
-                        } else {
-                            return results.map((result) => ({ result }))
                         }
+                        return results.map((result) => ({ result }))
                     }
                 }
 

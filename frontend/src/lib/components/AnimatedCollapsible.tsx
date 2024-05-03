@@ -9,7 +9,7 @@ export function AnimatedCollapsible({
 }): JSX.Element {
     const collapsibleSectionRef = useRef<HTMLHeadingElement>(null)
 
-    const [height, setHeight] = useState<number | undefined>()
+    const [height, setHeight] = useState<number | undefined>(collapsed ? 0 : undefined)
 
     useEffect(() => {
         if (!collapsed) {

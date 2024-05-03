@@ -1,5 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -60,10 +60,10 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
     actionToUrl(({ values }) => ({
         selectLevel({ level }) {
-            return [urls.settings(level)]
+            return [urls.settings(level), router.values.searchParams, router.values.hashParams]
         },
         selectSection({ section }) {
-            return [urls.settings(section)]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
         },
         selectSetting({ setting }) {
             const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)

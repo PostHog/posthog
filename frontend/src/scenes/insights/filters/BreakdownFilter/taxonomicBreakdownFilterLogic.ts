@@ -9,6 +9,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -35,7 +36,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         // This is a hack to get `TaxonomicFilterGroupType` imported in `taxonomicBreakdownFilterLogicType.ts`
         __ignore: null as TaxonomicFilterGroupType | null,
     }),
-    connect(() => ({ values: [propertyDefinitionsModel, ['getPropertyDefinition']] })),
+    connect((props: TaxonomicBreakdownFilterLogicProps) => ({
+        values: [
+            insightVizDataLogic(props.insightProps),
+            ['currentDataWarehouseSchemaColumns'],
+            propertyDefinitionsModel,
+            ['getPropertyDefinition'],
+        ],
+    })),
     actions({
         addBreakdown: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => ({
             breakdown,
@@ -57,9 +65,9 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             },
         ],
         localBreakdownLimit: [
-            25 as number | undefined,
+            undefined as number | undefined,
             {
-                setBreakdownLimit: (_, { value }) => value ?? 25,
+                setBreakdownLimit: (_, { value }) => value,
             },
         ],
     }),
@@ -165,6 +173,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     props.updateDisplay?.(undefined)
                 }
             }
+        },
+        setBreakdownLimit: async ({ value }, breakpoint) => {
+            await breakpoint(300)
+
+            props.updateBreakdownFilter?.({
+                breakdown_limit: value,
+            })
         },
         setNormalizeBreakdownURL: ({ normalizeBreakdownURL }) => {
             props.updateBreakdownFilter?.({

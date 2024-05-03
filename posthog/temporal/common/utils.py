@@ -103,7 +103,7 @@ HeartbeatType = typing.TypeVar("HeartbeatType", bound=HeartbeatDetails)
 
 
 async def should_resume_from_activity_heartbeat(
-    activity, heartbeat_type: typing.Type[HeartbeatType], logger
+    activity, heartbeat_type: type[HeartbeatType], logger
 ) -> tuple[bool, HeartbeatType | None]:
     """Check if a batch export should resume from an activity's heartbeat details.
 
@@ -119,10 +119,9 @@ async def should_resume_from_activity_heartbeat(
         heartbeat_details = heartbeat_type.from_activity(activity)
 
     except EmptyHeartbeatError:
-        # We don't log this as a warning/error because it's the expected exception when heartbeat is empty.
+        # We don't log this as it's the expected exception when heartbeat is empty.
         heartbeat_details = None
         received = False
-        logger.debug("Did not receive details from previous activity execution")
 
     except NotEnoughHeartbeatValuesError:
         heartbeat_details = None

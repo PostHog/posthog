@@ -24,6 +24,15 @@ export function BatchExportTag({ batchExportConfig }: { batchExportConfig: Batch
     )
 }
 
+export const combineFailedStatuses = (status: BatchExportRun['status']): BatchExportRun['status'] => {
+    // Eventually we should expose the difference between "Failed" and "FailedRetryable" to the user,
+    // because "Failed" tends to mean their configuration or destination is broken.
+    if (status === 'FailedRetryable') {
+        return 'Failed'
+    }
+    return status
+}
+
 export const colorForStatus = (
     status: BatchExportRun['status']
 ): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
@@ -39,6 +48,7 @@ export const colorForStatus = (
         case 'TimedOut':
             return 'warning'
         case 'Failed':
+        case 'FailedRetryable':
             return 'danger'
         default:
             return 'default'
@@ -55,13 +65,14 @@ export function BatchExportRunIcon({
     // We assume these are pre-sorted
     const latestRun = runs[0]
 
-    const color = colorForStatus(latestRun.status)
+    const status = combineFailedStatuses(latestRun.status)
+    const color = colorForStatus(status)
 
     return (
         <Tooltip
             title={
                 <>
-                    Run status: {latestRun.status}
+                    Run status: {status}
                     {runs.length > 1 && (
                         <>
                             <br />
@@ -78,7 +89,7 @@ export function BatchExportRunIcon({
                     showLabel ? '' : 'w-6'
                 )}
             >
-                {showLabel ? <span className="text-center">{latestRun.status}</span> : runs.length}
+                {showLabel ? <span className="text-center">{status}</span> : runs.length}
             </span>
         </Tooltip>
     )

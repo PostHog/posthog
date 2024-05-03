@@ -1,8 +1,24 @@
-import { NodeType, serializedNodeWithId, wireframeNavigationBar, wireframeStatusBar } from '../mobile.types'
+import {
+    keyboardEvent,
+    NodeType,
+    serializedNodeWithId,
+    wireframeNavigationBar,
+    wireframeStatusBar,
+} from '../mobile.types'
 import { isLight } from './colors'
-import { NAVIGATION_BAR_ID, STATUS_BAR_ID } from './transformers'
+import {
+    _isPositiveInteger,
+    BACKGROUND,
+    KEYBOARD_ID,
+    makePlaceholderElement,
+    NAVIGATION_BAR_ID,
+    STATUS_BAR_ID,
+} from './transformers'
 import { ConversionContext, ConversionResult } from './types'
 import { asStyleString, makeStylesString } from './wireframeStyle'
+
+export let navigationBackgroundColor: string | undefined = undefined
+export let navigationColor: string | undefined = undefined
 
 function spacerDiv(idSequence: Generator<number>): serializedNodeWithId {
     const spacerId = idSequence.next().value
@@ -45,6 +61,9 @@ export function makeNavigationBar(
     const homeCircle = makeFakeNavButton('⚪', context)
     const screenButton = makeFakeNavButton('⬜️', context)
 
+    navigationBackgroundColor = wireframe.style?.backgroundColor
+    navigationColor = isLight(navigationBackgroundColor || BACKGROUND) ? 'black' : 'white'
+
     return {
         result: {
             type: NodeType.Element,
@@ -56,7 +75,7 @@ export function makeNavigationBar(
                     'flex-direction:row',
                     'align-items:center',
                     'justify-content:space-around',
-                    'color:white',
+                    'color:' + navigationColor,
                 ]),
                 'data-rrweb-id': _id,
             },
@@ -117,4 +136,43 @@ export function makeStatusBar(
         },
         context,
     }
+}
+
+export function makeOpenKeyboardPlaceholder(
+    mobileCustomEvent: keyboardEvent & {
+        timestamp: number
+        delay?: number
+    },
+    context: ConversionContext
+): ConversionResult<serializedNodeWithId> | null {
+    if (!mobileCustomEvent.data.payload.open) {
+        return null
+    }
+
+    const shouldAbsolutelyPosition =
+        _isPositiveInteger(mobileCustomEvent.data.payload.x) || _isPositiveInteger(mobileCustomEvent.data.payload.y)
+
+    return makePlaceholderElement(
+        {
+            id: KEYBOARD_ID,
+            type: 'placeholder',
+            label: 'keyboard',
+            height: mobileCustomEvent.data.payload.height,
+            width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
+                ? mobileCustomEvent.data.payload.width
+                : '100vw',
+            style: {
+                backgroundColor: navigationBackgroundColor,
+                color: navigationBackgroundColor ? navigationColor : undefined,
+            },
+        },
+        [],
+        {
+            timestamp: context.timestamp,
+            idSequence: context.idSequence,
+            styleOverride: {
+                ...(shouldAbsolutelyPosition ? {} : { bottom: true }),
+            },
+        }
+    )
 }

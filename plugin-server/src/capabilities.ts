@@ -1,5 +1,5 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
-import { isDevEnv, isTestEnv } from './utils/env-utils'
+import { isTestEnv } from './utils/env-utils'
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
@@ -19,7 +19,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
-                sessionRecordingV3Ingestion: isDevEnv(),
+                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 personOverrides: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
@@ -56,7 +56,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 ...sharedCapabilities,
             }
-
+        case PluginServerMode.recordings_blob_ingestion_overflow:
+            return {
+                sessionRecordingBlobOverflowIngestion: true,
+                ...sharedCapabilities,
+            }
         case PluginServerMode.recordings_ingestion_v3:
             return {
                 sessionRecordingV3Ingestion: true,

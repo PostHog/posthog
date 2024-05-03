@@ -1,5 +1,5 @@
 import time
-from typing import Any, Optional, Dict
+from typing import Any, Optional
 
 from django.db.models import Q, QuerySet
 
@@ -49,7 +49,7 @@ class ActivityLogPagination(pagination.CursorPagination):
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
     # Class level dictionary to store timings
-    timings_dict: Dict[str, float] = {}
+    timings_dict: dict[str, float] = {}
 
     def __call__(self, name):
         self.name = name
@@ -77,11 +77,7 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
 
-    def filter_queryset_by_parents_lookups(self, queryset) -> QuerySet:
-        return queryset.filter(team_id=self.team.id)
-
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+    def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         if params.get("user"):

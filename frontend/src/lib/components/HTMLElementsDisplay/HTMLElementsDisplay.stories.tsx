@@ -16,7 +16,7 @@ export function EmptyDisplay(): JSX.Element {
 
 export const EXAMPLE_ELEMENTS: ElementType[] = [
     {
-        text: 'Insights',
+        text: 'what a potato you have grown',
         tag_name: 'span',
         attr_class: ['text-default'],
         href: '/insights',
@@ -181,8 +181,12 @@ export function ReadOnlyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} />
 }
 
-export function WithoutCentralHghlightDisplay(): JSX.Element {
+export function WithoutCentralHighlightDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} />
+}
+
+export function WithSelectedText(): JSX.Element {
+    return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} selectedText="what a potato" />
 }
 
 export function EditableDisplay(): JSX.Element {

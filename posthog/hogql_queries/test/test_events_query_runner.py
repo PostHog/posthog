@@ -1,10 +1,11 @@
-from typing import Tuple, Any, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
@@ -24,7 +25,7 @@ from posthog.test.base import (
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _create_events(self, data: list[Tuple[str, str, Any]], event="$pageview"):
+    def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):
@@ -84,7 +85,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
 
             runner = EventsQueryRunner(query=query, team=self.team)
-            return runner.run().results
+            response = runner.run()
+            assert isinstance(response, CachedQueryResponse)
+            results = response.results
+            return results
 
     def test_is_not_set_boolean(self):
         # see https://github.com/PostHog/posthog/issues/18030
@@ -98,7 +102,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_notset", "p_null"}, set(row[0]["distinct_id"] for row in results))
+        self.assertEqual({"p_notset", "p_null"}, {row[0]["distinct_id"] for row in results})
 
     def test_is_set_boolean(self):
         self._create_boolean_field_test_events()
@@ -112,7 +116,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual({"p_true", "p_false"}, set(row[0]["distinct_id"] for row in results))
+        self.assertEqual({"p_true", "p_false"}, {row[0]["distinct_id"] for row in results})
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(

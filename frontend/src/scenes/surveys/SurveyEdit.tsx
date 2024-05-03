@@ -2,6 +2,7 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { IconInfo } from '@posthog/icons'
 import { IconLock, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -19,6 +20,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -27,8 +29,9 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { Customization, WidgetCustomization } from './SurveyCustomization'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { SurveyEditSection, surveyLogic } from './surveyLogic'
@@ -37,16 +40,22 @@ import { surveysLogic } from './surveysLogic'
 export default function SurveyEdit(): JSX.Element {
     const {
         survey,
-        hasTargetingFlag,
         urlMatchTypeValidationError,
         writingHTMLDescription,
         hasTargetingSet,
         selectedQuestion,
         selectedSection,
         isEditingSurvey,
+        targetingFlagFilters,
     } = useValues(surveyLogic)
-    const { setSurveyValue, setWritingHTMLDescription, resetTargeting, setSelectedQuestion, setSelectedSection } =
-        useActions(surveyLogic)
+    const {
+        setSurveyValue,
+        setWritingHTMLDescription,
+        resetTargeting,
+        setSelectedQuestion,
+        setSelectedSection,
+        setFlagPropertyErrors,
+    } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
@@ -78,6 +87,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
+                    className="bg-bg-light"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -103,16 +113,10 @@ export default function SurveyEdit(): JSX.Element {
                                                             left: '-1rem',
                                                         }}
                                                     >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            surveyType={survey.type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
+                                                        <SurveyAppearancePreview
+                                                            survey={survey}
+                                                            activePreview="survey"
+                                                            questionIndex={0}
                                                         />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -509,12 +513,17 @@ export default function SurveyEdit(): JSX.Element {
                                                                     type="number"
                                                                     size="small"
                                                                     min={0}
-                                                                    value={value?.seenSurveyWaitPeriodInDays}
+                                                                    value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
                                                                         if (val !== undefined && val > 0) {
                                                                             onChange({
                                                                                 ...value,
                                                                                 seenSurveyWaitPeriodInDays: val,
+                                                                            })
+                                                                        } else {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                seenSurveyWaitPeriodInDays: null,
                                                                             })
                                                                         }
                                                                     }}
@@ -531,22 +540,43 @@ export default function SurveyEdit(): JSX.Element {
                                                     logic={featureFlagLogic}
                                                     props={{ id: survey.targeting_flag?.id || 'new' }}
                                                 >
-                                                    {!hasTargetingFlag && (
+                                                    {!targetingFlagFilters && (
                                                         <LemonButton
                                                             type="secondary"
                                                             className="w-max"
                                                             onClick={() => {
-                                                                setSurveyValue('targeting_flag_filters', { groups: [] })
+                                                                setSurveyValue('targeting_flag_filters', {
+                                                                    groups: [
+                                                                        {
+                                                                            properties: [],
+                                                                            rollout_percentage: undefined,
+                                                                            variant: null,
+                                                                        },
+                                                                    ],
+                                                                    multivariate: null,
+                                                                    payloads: {},
+                                                                })
                                                                 setSurveyValue('remove_targeting_flag', false)
                                                             }}
                                                         >
                                                             Add user targeting
                                                         </LemonButton>
                                                     )}
-                                                    {hasTargetingFlag && (
+                                                    {targetingFlagFilters && (
                                                         <>
                                                             <div className="mt-2">
-                                                                <FeatureFlagReleaseConditions excludeTitle={true} />
+                                                                <FeatureFlagReleaseConditions
+                                                                    id={String(survey.targeting_flag?.id) || 'new'}
+                                                                    excludeTitle={true}
+                                                                    filters={targetingFlagFilters}
+                                                                    onChange={(filters, errors) => {
+                                                                        setFlagPropertyErrors(errors)
+                                                                        setSurveyValue(
+                                                                            'targeting_flag_filters',
+                                                                            filters
+                                                                        )
+                                                                    }}
+                                                                />
                                                             </div>
                                                             <LemonButton
                                                                 type="secondary"
@@ -569,11 +599,52 @@ export default function SurveyEdit(): JSX.Element {
                                 </LemonField.Pure>
                             ),
                         },
+                        {
+                            key: SurveyEditSection.CompletionConditions,
+                            header: 'Completion conditions',
+                            content: (
+                                <LemonField name="responses_limit">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex flex-row gap-2 items-center">
+                                                <LemonCheckbox
+                                                    checked={!!value}
+                                                    onChange={(checked) => {
+                                                        const newResponsesLimit = checked ? 100 : null
+                                                        onChange(newResponsesLimit)
+                                                    }}
+                                                />
+                                                Stop the survey once
+                                                <LemonInput
+                                                    type="number"
+                                                    data-attr="survey-responses-limit-input"
+                                                    size="small"
+                                                    min={1}
+                                                    value={value || NaN}
+                                                    onChange={(newValue) => {
+                                                        if (newValue && newValue > 0) {
+                                                            onChange(newValue)
+                                                        } else {
+                                                            onChange(null)
+                                                        }
+                                                    }}
+                                                    className="w-16"
+                                                />{' '}
+                                                responses are received.
+                                                <Tooltip title="This is a rough guideline, not an absolute one, so the survey might receive slightly more responses than the limit specifies.">
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            </div>
+                                        )
+                                    }}
+                                </LemonField>
+                            ),
+                        },
                     ]}
                 />
             </div>
             <LemonDivider vertical />
-            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-8">
+            <div className="max-w-80 mx-4 flex flex-col items-center h-full w-full sticky top-0 pt-16">
                 <SurveyFormAppearance
                     activePreview={selectedQuestion || 0}
                     survey={survey}

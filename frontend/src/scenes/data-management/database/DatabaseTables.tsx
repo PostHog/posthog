@@ -17,7 +17,7 @@ import { DatabaseTable } from './DatabaseTable'
 
 export function DatabaseTablesContainer(): JSX.Element {
     const { filteredTables, databaseLoading } = useValues(databaseTableListLogic)
-    const { toggleFieldModal, selectTableName } = useActions(viewLinkLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
@@ -31,14 +31,14 @@ export function DatabaseTablesContainer(): JSX.Element {
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
                                 <DatabaseTable table={row.name} tables={filteredTables} />
-                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                                {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                                     <div className="w-full flex justify-end">
                                         <LemonButton
                                             className="mt-2"
                                             type="primary"
                                             onClick={() => {
-                                                selectTableName(row.name)
-                                                toggleFieldModal()
+                                                selectSourceTable(row.name)
+                                                toggleJoinTableModal()
                                             }}
                                         >
                                             Add link to view
@@ -50,7 +50,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                     )
                 }}
             />
-            <ViewLinkModal tableSelectable={false} />
+            <ViewLinkModal />
         </>
     )
 }

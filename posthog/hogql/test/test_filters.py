@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -18,10 +18,10 @@ from posthog.test.base import BaseTest
 class TestFilters(BaseTest):
     maxDiff = None
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
-    def _parse_select(self, select: str, placeholders: Dict[str, Any] = None):
+    def _parse_select(self, select: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_select(select, placeholders=placeholders))
 
     def _print_ast(self, node: ast.Expr):
@@ -61,6 +61,34 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT 10000",
+        )
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT 10000",
+        )
+
+        # now with different team timezone
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        select = replace_filters(
+            self._parse_select("SELECT event FROM events where {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT 10000",
         )
 
     def test_replace_filters_event_property(self):

@@ -1,10 +1,9 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
-import { IconCheckmark } from 'lib/lemon-ui/icons'
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -51,7 +50,7 @@ function WhyCloudModal({ setOpen, open }: { setOpen: (open: boolean) => void; op
                                                 key={feature}
                                                 className="flex items-center space-x-2 text-gray-accent-light align-center"
                                             >
-                                                <IconCheckmark className="w-[20px] flex-shrink-0" />
+                                                <IconCheckCircle className="w-[20px] flex-shrink-0" />
                                                 <span className="text-black font-medium">{feature}</span>
                                             </li>
                                         )
@@ -68,11 +67,12 @@ function WhyCloudModal({ setOpen, open }: { setOpen: (open: boolean) => void; op
 
 const RegionSelect = (): JSX.Element | null => {
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [regionModalOpen, setRegionModalOpen] = useState(false)
-    if (!featureFlags[FEATURE_FLAGS.REGION_SELECT] || !preflight?.cloud || !preflight?.region) {
+
+    if (!preflight?.cloud || !preflight?.region) {
         return null
     }
+
     return (
         <>
             <LemonField.Pure label="Data region" onExplanationClick={() => setRegionModalOpen(true)}>

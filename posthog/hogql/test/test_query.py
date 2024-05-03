@@ -8,7 +8,7 @@ from freezegun import freeze_time
 
 from posthog import datetime
 from posthog.hogql import ast
-from posthog.hogql.errors import SyntaxException, HogQLException
+from posthog.hogql.errors import SyntaxError, QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
@@ -26,7 +26,6 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -412,7 +411,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
                 name="cohort",
             )
-            recalculate_cohortpeople(cohort, pending_version=0)
+            recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
             with override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False):
                 response = execute_hogql_query(
                     "SELECT event, count() FROM events WHERE {cohort_filter} GROUP BY event",
@@ -1013,18 +1012,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0",
             )
-            self.assertEqual(response.results[0], tuple(map(lambda x: random_uuid, alternatives)))
+            self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
 
     def test_property_access_with_arrays_zero_index_error(self):
         query = f"SELECT properties.something[0] FROM events"
-        with self.assertRaises(SyntaxException) as e:
+        with self.assertRaises(SyntaxError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
 
         query = f"SELECT properties.something.0 FROM events"
-        with self.assertRaises(SyntaxException) as e:
+        with self.assertRaises(SyntaxError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "SQL indexes start from one, not from zero. E.g: array[1]")
 
@@ -1273,17 +1272,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         query = f"SELECT number from numbers"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires arguments")
 
         query = f"SELECT number from numbers()"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at least 1 argument")
 
         query = f"SELECT number from numbers(1,2,3)"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
@@ -1323,36 +1322,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_events_table_error_if_function(self):
         query = "SELECT * from events(1, 4)"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(QueryError) as e:
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table 'events' does not accept arguments")
-
-    def test_view_link(self):
-        self._create_random_events()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": f"select distinct_id AS fake from events LIMIT 100",
-                },
-            },
-        )
-        saved_query_response = response.json()
-        saved_query = DataWarehouseSavedQuery.objects.get(pk=saved_query_response["id"])
-
-        DataWarehouseViewLink.objects.create(
-            saved_query=saved_query,
-            table="events",
-            to_join_key="fake",
-            from_join_key="distinct_id",
-            team=self.team,
-        )
-
-        response = execute_hogql_query("SELECT event_view.fake FROM events", team=self.team)
-
-        self.assertEqual(response.results, [("bla",), ("bla",), ("bla",), ("bla",)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
@@ -1408,7 +1380,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(HogQLException) as e:
+        with self.assertRaises(ValueError) as e:
             execute_hogql_query(
                 query,
                 team=self.team,
@@ -1480,7 +1452,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": random_uuid},
             )
 
-        query = "SELECT session.id, session.duration from events WHERE distinct_id={distinct_id} order by timestamp"
+        query = "SELECT session.session_id, session.$session_duration from events WHERE distinct_id={distinct_id} order by timestamp"
         response = execute_hogql_query(
             query, team=self.team, placeholders={"distinct_id": ast.Constant(value=random_uuid)}
         )

@@ -3024,7 +3024,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             try:
                 ClickhouseFunnel(Filter(data=filter_with_breakdown), self.team).run()
             except KeyError as ke:
-                assert False, f"Should not have raised a key error: {ke}"
+                raise AssertionError(f"Should not have raised a key error: {ke}")
 
         @snapshot_clickhouse_queries
         def test_funnel_with_cohorts_step_filter(self):

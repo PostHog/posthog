@@ -3,9 +3,15 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isOtherBreakdown } from 'scenes/insights/utils'
+import {
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    isOtherBreakdown,
+} from 'scenes/insights/utils'
 
-import { EntityNode } from '~/queries/schema'
+import { EntityNode, LifecycleQuery } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -38,6 +44,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         values: [
             insightVizDataLogic(props),
             [
+                'querySource',
                 'insightData',
                 'insightDataLoading',
                 'series',
@@ -46,18 +53,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'compare',
                 'interval',
                 'breakdownFilter',
-                'showValueOnSeries',
+                'showValuesOnSeries',
                 'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
                 'trendsFilter',
                 'lifecycleFilter',
                 'isTrends',
+                'isDataWarehouseSeries',
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'showLegend',
                 'vizSpecificOptions',
             ],
         ],
@@ -84,9 +93,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (insightData: TrendAPIResponse | null): TrendResult[] => {
                 if (insightData?.result && Array.isArray(insightData.result)) {
                     return insightData.result
-                } else {
-                    return []
                 }
+                return []
             },
         ],
 
@@ -117,7 +125,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
-                    indexedResults.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                    indexedResults.sort((a, b) =>
+                        a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
+                            ? BREAKDOWN_OTHER_NUMERIC_LABEL
+                            : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
+                            ? BREAKDOWN_NULL_NUMERIC_LABEL
+                            : b.aggregated_value - a.aggregated_value
+                    )
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>
@@ -136,13 +150,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         labelGroupType: [
-            (s) => [s.series],
-            (series): 'people' | 'none' | number => {
+            (s) => [s.series, s.querySource, s.isLifecycle],
+            (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                const firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
-                return series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)
-                    ? firstAggregationGroupTypeIndex ?? 'people' // if undefined, will resolve to 'people' label
-                    : 'none' // mixed group types
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                if (isLifecycle) {
+                    firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
+                } else {
+                    firstAggregationGroupTypeIndex = series?.[0]?.math_group_type_index
+                    if (!series?.every((eOrA) => eOrA?.math_group_type_index === firstAggregationGroupTypeIndex)) {
+                        return 'none' // mixed group types
+                    }
+                }
+
+                return firstAggregationGroupTypeIndex ?? 'people'
             },
         ],
 
@@ -162,9 +183,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                 if (startIndex !== undefined && startIndex !== -1) {
                     return startIndex - results[0].days.length
-                } else {
-                    return 0
                 }
+                return 0
             },
         ],
 

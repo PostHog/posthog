@@ -1,16 +1,16 @@
 import './SessionRecordingsPlaylist.scss'
 
-import { IconGear } from '@posthog/icons'
+import { IconCollapse, IconFilter, IconGear } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { Resizer } from 'lib/components/Resizer/Resizer'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -28,7 +28,6 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
 import {
     DEFAULT_RECORDING_FILTERS,
-    defaultPageviewPropertyEntityFilter,
     RECORDINGS_LIMIT,
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
@@ -58,27 +57,18 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 <Link to="https://posthog.com/docs/libraries/js" target="_blank">
                     the Web SDK
                 </Link>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
-                    ,{' '}
-                    <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                        the Android SDK
-                    </Link>
-                </FlaggedFeature>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_IOS} match={true}>
-                    and{' '}
-                    <Link to="https://posthog.com/docs/libraries/ios" target="_blank">
-                        the iOS SDK
-                    </Link>
-                    .
-                </FlaggedFeature>
+                ,{' '}
+                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
+                    the Android SDK
+                </Link>
             </p>
         </LemonBanner>
     )
 }
 
 function PinnedRecordingsList(): JSX.Element | null {
-    const { setSelectedRecordingId, setFilters } = useActions(sessionRecordingsPlaylistLogic)
-    const { activeSessionRecordingId, filters, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
+    const { activeSessionRecordingId, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -99,9 +89,6 @@ function PinnedRecordingsList(): JSX.Element | null {
                     <SessionRecordingPreview
                         recording={rec}
                         onClick={() => setSelectedRecordingId(rec.id)}
-                        onPropertyClick={(property, value) =>
-                            setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
-                        }
                         isActive={activeSessionRecordingId === rec.id}
                         pinned={true}
                     />
@@ -114,6 +101,8 @@ function PinnedRecordingsList(): JSX.Element | null {
 function RecordingsLists(): JSX.Element {
     const {
         filters,
+        advancedFilters,
+        simpleFilters,
         hasNext,
         pinnedRecordings,
         otherRecordings,
@@ -124,36 +113,25 @@ function RecordingsLists(): JSX.Element {
         totalFiltersCount,
         sessionRecordingsAPIErrored,
         unusableEventsInFilter,
-        showAdvancedFilters,
-        hasAdvancedFilters,
         logicProps,
         showOtherRecordings,
         recordingsCount,
-        sessionSummaryLoading,
-        sessionBeingSummarized,
+        isRecordingsListCollapsed,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
-        setFilters,
+        setAdvancedFilters,
+        setSimpleFilters,
         maybeLoadSessionRecordings,
         setShowFilters,
         setShowSettings,
         resetFilters,
-        setShowAdvancedFilters,
         toggleShowOtherRecordings,
-        summarizeSession,
+        toggleRecordingsListCollapsed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
-    }
-
-    const onPropertyClick = (property: string, value?: string): void => {
-        setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
-    }
-
-    const onSummarizeClick = (recording: SessionRecordingType): void => {
-        summarizeSession(recording.id)
     }
 
     const lastScrollPositionRef = useRef(0)
@@ -186,11 +164,20 @@ function RecordingsLists(): JSX.Element {
 
     const notebookNode = useNotebookNode()
 
-    return (
-        <div className={clsx('flex flex-col w-full bg-bg-light overflow-hidden border-r h-full')}>
+    return isRecordingsListCollapsed ? (
+        <div className="flex items-start h-full bg-bg-light border-r p-1">
+            <LemonButton size="small" icon={<IconChevronRight />} onClick={() => toggleRecordingsListCollapsed()} />
+        </div>
+    ) : (
+        <div className="flex flex-col w-full bg-bg-light overflow-hidden border-r h-full">
             <DraggableToNotebook href={urls.replay(ReplayTabs.Recent, filters)}>
                 <div className="shrink-0 relative flex justify-between items-center p-1 gap-1 whitespace-nowrap border-b">
-                    <span className="px-2 py-1 flex flex-1 gap-2">
+                    <LemonButton
+                        size="small"
+                        icon={<IconCollapse className="rotate-90" />}
+                        onClick={() => toggleRecordingsListCollapsed()}
+                    />
+                    <span className="py-1 flex flex-1 gap-2">
                         {!notebookNode ? (
                             <span className="font-bold uppercase text-xs my-1 tracking-wide flex gap-1 items-center">
                                 Recordings
@@ -246,13 +233,13 @@ function RecordingsLists(): JSX.Element {
                 {!notebookNode && showFilters ? (
                     <div className="bg-side border-b">
                         <SessionRecordingsFilters
-                            filters={filters}
-                            setFilters={setFilters}
+                            advancedFilters={advancedFilters}
+                            simpleFilters={simpleFilters}
+                            setAdvancedFilters={setAdvancedFilters}
+                            setSimpleFilters={setSimpleFilters}
+                            hideSimpleFilters={logicProps.hideSimpleFilters}
                             showPropertyFilters={!logicProps.personUUID}
-                            onReset={totalFiltersCount ? () => resetFilters() : undefined}
-                            hasAdvancedFilters={hasAdvancedFilters}
-                            showAdvancedFilters={showAdvancedFilters}
-                            setShowAdvancedFilters={setShowAdvancedFilters}
+                            onReset={resetFilters}
                         />
                     </div>
                 ) : showSettings ? (
@@ -279,13 +266,8 @@ function RecordingsLists(): JSX.Element {
                                           <SessionRecordingPreview
                                               recording={rec}
                                               onClick={() => onRecordingClick(rec)}
-                                              onPropertyClick={onPropertyClick}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
-                                              summariseFn={onSummarizeClick}
-                                              sessionSummaryLoading={
-                                                  sessionSummaryLoading && sessionBeingSummarized === rec.id
-                                              }
                                           />
                                       </div>
                                   ))
@@ -329,7 +311,7 @@ function RecordingsLists(): JSX.Element {
                                             type="secondary"
                                             data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
                                             onClick={() => {
-                                                setFilters({
+                                                setAdvancedFilters({
                                                     date_from: '-30d',
                                                 })
                                             }}
@@ -354,9 +336,16 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
+    const playlistRecordingsListRef = useRef<HTMLDivElement>(null)
     const logic = sessionRecordingsPlaylistLogic(logicProps)
-    const { activeSessionRecording, activeSessionRecordingId, matchingEventsMatchType, pinnedRecordings } =
-        useValues(logic)
+    const {
+        activeSessionRecording,
+        activeSessionRecordingId,
+        matchingEventsMatchType,
+        pinnedRecordings,
+        isRecordingsListCollapsed,
+    } = useValues(logic)
+    const { toggleRecordingsListCollapsed } = useActions(logic)
 
     const { ref: playlistRef, size } = useResizeBreakpoints({
         0: 'small',
@@ -376,8 +365,22 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         'SessionRecordingsPlaylist--embedded': notebookNode,
                     })}
                 >
-                    <div className={clsx('SessionRecordingsPlaylist__list space-y-4')}>
+                    <div
+                        ref={playlistRecordingsListRef}
+                        className={clsx(
+                            'SessionRecordingsPlaylist__list',
+                            isRecordingsListCollapsed && 'SessionRecordingsPlaylist__list--collapsed'
+                        )}
+                    >
                         <RecordingsLists />
+                        <Resizer
+                            logicKey="player-recordings-list"
+                            placement="right"
+                            containerRef={playlistRecordingsListRef}
+                            closeThreshold={100}
+                            onToggleClosed={(shouldBeClosed) => toggleRecordingsListCollapsed(shouldBeClosed)}
+                            onDoubleClick={() => toggleRecordingsListCollapsed()}
+                        />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecordingId ? (

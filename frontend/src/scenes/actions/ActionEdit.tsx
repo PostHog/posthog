@@ -11,11 +11,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { compactNumber, uuid } from 'lib/utils'
+import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, AvailableFeature } from '~/types'
@@ -29,10 +27,9 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         action: loadedAction,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
+    const { action, actionLoading } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
@@ -96,7 +93,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         className="action-description"
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
+                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
                                     />
                                 )}
                             </LemonField>
@@ -104,7 +101,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
-                                        onChange={(_, newTags) => onChange(newTags)}
+                                        onChange={(tags) => onChange(tags)}
                                         className="action-tags"
                                         saving={actionLoading}
                                         tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
@@ -151,21 +148,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         </>
                     }
                 />
-                {id && (
-                    <div className="input-set">
-                        <div>
-                            <span className="flex items-center gap-2 text-muted mb-2">
-                                {actionCount !== null && actionCount > -1 && (
-                                    <span>
-                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
-                                        months
-                                    </span>
-                                )}
-                                {actionCountLoading && <Spinner />}
-                            </span>
-                        </div>
-                    </div>
-                )}
 
                 <div>
                     <h2 className="subtitle">Match groups</h2>
@@ -277,7 +259,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                 />
                                                 <small>
                                                     <Link
-                                                        to="https://posthog.com/docs/integrate/webhooks/message-formatting"
+                                                        to="https://posthog.com/docs/webhooks#message-formatting"
                                                         target="_blank"
                                                     >
                                                         See documentation on how to format webhook messages.

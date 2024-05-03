@@ -1,7 +1,8 @@
+import { IconBug } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconBugReport, IconFeedback } from 'lib/lemon-ui/icons'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -21,7 +22,7 @@ export const WebAnalyticsNotice = (): JSX.Element => {
                     <span className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
-                            icon={<IconBugReport />}
+                            icon={<IconBug />}
                             onClick={() => openSupportForm({ kind: 'bug' })}
                         >
                             Report a bug

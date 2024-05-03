@@ -1,6 +1,6 @@
 import secrets
 from datetime import timedelta
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 from django.conf import settings
@@ -44,8 +44,12 @@ class ExportedAsset(models.Model):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
         CSV = "text/csv", "text/csv"
+        XLSX = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
-    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV]
+    SUPPORTED_FORMATS = [ExportFormat.PNG, ExportFormat.CSV, ExportFormat.XLSX]
 
     # Relations
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -53,7 +57,7 @@ class ExportedAsset(models.Model):
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
 
     # Content related fields
-    export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
+    export_format: models.CharField = models.CharField(max_length=100, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     # DateTime after the created_at after which this asset should be deleted
@@ -79,7 +83,7 @@ class ExportedAsset(models.Model):
 
     @property
     def filename(self):
-        ext = self.export_format.split("/")[1]
+        ext = self.ExportFormat(self.export_format).name.lower()
         filename = "export"
 
         if self.export_context and self.export_context.get("filename"):
@@ -174,7 +178,7 @@ def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
-    path_parts: List[str] = [
+    path_parts: list[str] = [
         settings.OBJECT_STORAGE_EXPORTS_FOLDER,
         exported_asset.export_format.split("/")[1],
         f"team-{exported_asset.team.id}",

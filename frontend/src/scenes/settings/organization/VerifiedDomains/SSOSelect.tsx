@@ -1,4 +1,4 @@
-import { Select } from 'antd'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -20,29 +20,35 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
         return null
     }
 
+    const authProviders = Object.keys(preflight.available_social_auth_providers) as SSOProvider[]
+    const options: LemonSelectOptions<SSOProvider | ''> = [{ value: '', label: "Don't enforce" }]
+
+    authProviders.forEach((key) => {
+        options.push({
+            value: key,
+            label: SSO_PROVIDER_NAMES[key],
+            disabledReason: preflight.available_social_auth_providers[key]
+                ? undefined
+                : 'This provider is not configured.',
+            icon: <SocialLoginIcon provider={key} className="w-4 h-4" />,
+        })
+    })
+
+    options.push({
+        value: 'saml',
+        label: SSO_PROVIDER_NAMES['saml'],
+        disabledReason: !samlAvailable ? 'This provider is not configured.' : undefined,
+        icon: <SocialLoginIcon provider="saml" className="w-4 h-4" />,
+    })
+
     return (
-        <Select style={{ width: '100%' }} value={value} loading={loading} disabled={loading} onChange={onChange}>
-            <Select.Option value="">Don't enforce</Select.Option>
-            {Object.keys(preflight.available_social_auth_providers).map((key) => (
-                <Select.Option
-                    value={key}
-                    key={key}
-                    disabled={!preflight.available_social_auth_providers[key]}
-                    title={
-                        preflight.available_social_auth_providers[key] ? undefined : 'This provider is not configured.'
-                    }
-                >
-                    {SocialLoginIcon(key as SSOProvider)} {SSO_PROVIDER_NAMES[key]}
-                </Select.Option>
-            ))}
-            <Select.Option
-                value="saml"
-                key="saml"
-                disabled={!samlAvailable}
-                title={samlAvailable ? undefined : 'This provider is not configured.'}
-            >
-                {SocialLoginIcon('saml')} {SSO_PROVIDER_NAMES['saml']}
-            </Select.Option>
-        </Select>
+        <LemonSelect
+            value={value}
+            options={options}
+            loading={loading}
+            disabledReason={loading ? 'Cannot change while loading' : undefined}
+            fullWidth
+            onChange={onChange}
+        />
     )
 }

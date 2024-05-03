@@ -117,8 +117,6 @@ public:
 
     virtual std::any visitColumnExprAlias(HogQLParser::ColumnExprAliasContext *context) = 0;
 
-    virtual std::any visitColumnExprExtract(HogQLParser::ColumnExprExtractContext *context) = 0;
-
     virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *context) = 0;
 
     virtual std::any visitColumnExprSubquery(HogQLParser::ColumnExprSubqueryContext *context) = 0;

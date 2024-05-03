@@ -1,5 +1,5 @@
 import time
-from typing import Any, Dict, List
+from typing import Any, Optional
 
 import structlog
 from celery import shared_task
@@ -11,6 +11,7 @@ from django.utils import timezone
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -31,12 +32,12 @@ def calculate_cohorts() -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0 : settings.CALCULATE_X_COHORTS_PARALLEL]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        update_cohort(cohort)
+        update_cohort(cohort, initiating_user=None)
 
 
-def update_cohort(cohort: Cohort) -> None:
+def update_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
     pending_version = get_and_update_pending_version(cohort)
-    calculate_cohort_ch.delay(cohort.id, pending_version)
+    calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id if initiating_user else None)
 
 
 @shared_task(ignore_result=True)
@@ -46,13 +47,13 @@ def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
 
 
 @shared_task(ignore_result=True, max_retries=2)
-def calculate_cohort_ch(cohort_id: int, pending_version: int) -> None:
+def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    cohort.calculate_people_ch(pending_version)
+    cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
+def calculate_cohort_from_list(cohort_id: int, items: list[str]) -> None:
     start_time = time.time()
     cohort = Cohort.objects.get(pk=cohort_id)
 
@@ -61,7 +62,7 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any]) -> None:
+def insert_cohort_from_insight_filter(cohort_id: int, filter_data: dict[str, Any]) -> None:
     from posthog.api.cohort import (
         insert_cohort_actors_into_ch,
         insert_cohort_people_into_pg,

@@ -1,9 +1,9 @@
 import './LemonTabs.scss'
 
+import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 
 import { useSliderPositioning } from '../hooks'
-import { IconInfo } from '../icons'
 import { Link } from '../Link'
 import { Tooltip } from '../Tooltip'
 
@@ -28,6 +28,7 @@ export interface LemonTabsProps<T extends string | number> {
     onChange?: (key: T) => void
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
+    size?: 'small' | 'medium'
     'data-attr'?: string
 }
 
@@ -40,6 +41,7 @@ export function LemonTabs<T extends string | number>({
     activeKey,
     onChange,
     tabs,
+    size = 'medium',
     'data-attr': dataAttr,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
@@ -53,7 +55,7 @@ export function LemonTabs<T extends string | number>({
 
     return (
         <div
-            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning')}
+            className={clsx('LemonTabs', transitioning && 'LemonTabs--transitioning', `LemonTabs--${size}`)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {

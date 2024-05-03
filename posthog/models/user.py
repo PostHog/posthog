@@ -1,5 +1,6 @@
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypedDict
+from typing import Any, Optional, TypedDict
+from collections.abc import Callable
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -21,9 +22,10 @@ from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
+    batch_export_run_failure: bool
 
 
-NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
+NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True, "batch_export_run_failure": True}
 
 # We don't ned the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
@@ -35,7 +37,7 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: Type["User"]
+    model: type["User"]
 
     use_in_migrations = True
 
@@ -57,12 +59,12 @@ class UserManager(BaseUserManager):
         email: str,
         password: Optional[str],
         first_name: str = "",
-        organization_fields: Optional[Dict[str, Any]] = None,
-        team_fields: Optional[Dict[str, Any]] = None,
+        organization_fields: Optional[dict[str, Any]] = None,
+        team_fields: Optional[dict[str, Any]] = None,
         create_team: Optional[Callable[["Organization", "User"], "Team"]] = None,
         is_staff: bool = False,
         **user_fields,
-    ) -> Tuple["Organization", "Team", "User"]:
+    ) -> tuple["Organization", "Team", "User"]:
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""
         with transaction.atomic():
             organization_fields = organization_fields or {}
@@ -111,7 +113,7 @@ class UserManager(BaseUserManager):
             return personal_api_key.user
 
 
-def events_column_config_default() -> Dict[str, Any]:
+def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
@@ -123,7 +125,7 @@ class ThemeMode(models.TextChoices):
 
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: List[str] = []
+    REQUIRED_FIELDS: list[str] = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
@@ -305,9 +307,9 @@ class User(AbstractUser, UUIDClassicModel):
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "organization_id": str(self.organization.id) if self.organization else None,
-            "current_organization_membership_level": current_organization_membership.level
-            if current_organization_membership
-            else None,
+            "current_organization_membership_level": (
+                current_organization_membership.level if current_organization_membership else None
+            ),
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,

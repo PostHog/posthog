@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any, Literal
+from typing import Union, cast, Optional, Any, Literal
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -24,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity, EmptyPropertyFilter
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -46,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -87,11 +87,19 @@ class TestProperty(BaseTest):
             self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
         )
 
-        with self.assertRaises(Exception) as e:
-            self._property_to_expr({"type": "group", "key": "a", "value": "b"})
+        self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_booleans(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="boolean_prop",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            property_type=PropertyType.Boolean,
+        )
         self.assertEqual(
-            str(e.exception),
-            "Missing required attr group_type_index for property type group with key a",
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "boolean_prop", "value": ["true"]}),
+            self._parse_expr("group_0.properties.boolean_prop = true"),
         )
 
     def test_property_to_expr_event(self):
@@ -145,15 +153,27 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), false)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("ifNull(not(match(properties.a, '.*')), true)"),
+            self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
             self._parse_expr("true"),
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr({}),  # incomplete event
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
         )
 
     def test_property_to_expr_boolean(self):
@@ -182,17 +202,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.unknown_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
                 {"type": "event", "key": "boolean_prop", "value": "false"},
                 team=self.team,
             ),
             self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": "true"},
+                team=self.team,
+            ),
+            self._parse_expr(
+                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
+            ),
         )
 
     def test_property_to_expr_event_list(self):
@@ -214,7 +236,9 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, 'b'), false) or ifNull(match(properties.a, 'c'), false)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), false) or ifNull(match(toString(properties.a), 'c'), false)"
+            ),
         )
         # negative
         self.assertEqual(
@@ -242,7 +266,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "ifNull(not(match(properties.a, 'b')), true) and ifNull(not(match(properties.a, 'c')), true)"
+                "ifNull(not(match(toString(properties.a), 'b')), true) and ifNull(not(match(toString(properties.a), 'c')), true)"
             ),
         )
 
@@ -392,7 +416,7 @@ class TestProperty(BaseTest):
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=cast(
-                        Union[List[Property], List[PropertyGroup]],
+                        Union[list[Property], list[PropertyGroup]],
                         [
                             Property(type="person", key="a", value="b", operator="exact"),
                             PropertyGroup(
@@ -428,37 +452,39 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match('div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
                 elements_chain_match(
-                    'div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                    '(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr("a[href='boo']"),
             clear_locations(
-                elements_chain_match('a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match('(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(elements_chain_match('.*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("#withid"),
             clear_locations(
-                elements_chain_match('.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match('(^|;).*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
             ),
         )
         self.assertEqual(
             self._selector_to_expr("#with-dashed-id"),
             clear_locations(
                 elements_chain_match(
-                    '.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;).*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -470,7 +496,7 @@ class TestProperty(BaseTest):
             self._selector_to_expr("#with\\slashed\\id"),
             clear_locations(
                 elements_chain_match(
-                    '.*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    '(^|;).*?attr_id="with\\\\slashed\\\\id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -523,7 +549,7 @@ class TestProperty(BaseTest):
                 "event = '$autocapture' and elements_chain =~ {regex1} and elements_chain =~ {regex2}",
                 {
                     "regex1": ast.Constant(
-                        value='a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                     ),
                     "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
                 },
@@ -617,7 +643,7 @@ class TestProperty(BaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "The 'event' property filter only works in 'event' scope, not in 'person' scope",
+            "The 'event' property filter does not work in 'person' scope",
         )
 
     def test_entity_to_expr_actions_type_with_id(self):
@@ -651,3 +677,12 @@ class TestProperty(BaseTest):
             right=ast.Constant(value="default_event"),
         )
         self.assertEqual(result, expected)
+
+    def test_session_duration(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.$session_duration = 10"),
+        )

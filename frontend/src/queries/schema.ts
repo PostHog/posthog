@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
@@ -22,9 +23,12 @@ import {
     PropertyGroupFilter,
     PropertyMathType,
     RetentionFilterType,
+    SessionPropertyFilter,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
+
+export { ChartDisplayCategory }
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -46,12 +50,15 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
+    FunnelsActorsQuery = 'FunnelsActorsQuery',
+    FunnelCorrelationActorsQuery = 'FunnelCorrelationActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -60,7 +67,6 @@ export enum NodeKind {
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
-    // New queries, not yet implemented
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
@@ -69,6 +75,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
+    FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -110,6 +117,7 @@ export type QuerySchema =
     | EventsNode // never queried directly
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
+    | DataWarehouseNode
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
     | ActorsQuery
@@ -136,6 +144,7 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | FunnelCorrelationQuery
 
     // Misc
     | DatabaseSchemaQuery
@@ -166,14 +175,29 @@ export type AnyResponseType =
 export interface DataNode extends Node {
     /** Cached query response */
     response?: Record<string, any>
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
 }
 
 /** HogQL Query Options are automatically set per team. However, they can be overriden in the query. */
 export interface HogQLQueryModifiers {
-    personsOnEventsMode?: 'disabled' | 'v1_enabled' | 'v1_mixed' | 'v2_enabled'
+    personsOnEventsMode?:
+        | 'disabled'
+        | 'person_id_no_override_properties_on_events'
+        | 'person_id_override_properties_on_events'
+        | 'person_id_override_properties_joined'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
+    debug?: boolean
+}
+
+export interface DataWarehouseEventsModifier {
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+    id_field: string
 }
 
 export interface HogQLQueryResponse {
@@ -185,7 +209,7 @@ export interface HogQLQueryResponse {
     clickhouse?: string
     /** Query results */
     results?: any[]
-    /** Query error. Returned only if 'explain' is true. Throws an error otherwise. */
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string
     /** Returned columns */
     columns?: any[]
@@ -217,9 +241,9 @@ export interface HogQLQuery extends DataNode {
     filters?: HogQLFilters
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    modifiers?: HogQLQueryModifiers
-    explain?: boolean
     response?: HogQLQueryResponse
+    /** @deprecated use modifiers.debug instead */
+    explain?: boolean
 }
 
 export interface HogQLNotice {
@@ -364,12 +388,21 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface DataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.DataWarehouseNode
+    id_field: string
+    table_name: string
+    timestamp_field: string
+    distinct_id_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -386,6 +419,7 @@ export interface EventsQueryResponse {
     timings?: QueryTiming[]
     limit?: integer
     offset?: integer
+    modifiers?: HogQLQueryModifiers
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -598,6 +632,8 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: integer
     /** Sampling rate */
     samplingFactor?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
 }
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
@@ -699,8 +735,7 @@ type BinNumber = number
 export type FunnelStepsResults = Record<string, any>[]
 export type FunnelStepsBreakdownResults = Record<string, any>[][]
 export type FunnelTimeToConvertResults = {
-    /** @asType integer */
-    average_conversion_time: number
+    average_conversion_time: number | null
     bins: [BinNumber, BinNumber][]
 }
 export type FunnelTrendsResults = Record<string, any>[]
@@ -763,8 +798,6 @@ export type PathsFilter = {
     localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
     minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
     maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
-    funnelPaths?: PathsFilterLegacy['funnel_paths']
-    funnelFilter?: PathsFilterLegacy['funnel_filter']
 
     /** Relevant only within actors query */
     pathStartKey?: string
@@ -774,11 +807,19 @@ export type PathsFilter = {
     pathDropoffKey?: string
 }
 
+export type FunnelPathsFilter = {
+    funnelPathType: PathsFilterLegacy['funnel_paths']
+    funnelSource: FunnelsQuery
+    funnelStep?: integer
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     response?: PathsQueryResponse
     /** Properties specific to the paths insight */
     pathsFilter: PathsFilter
+    /** Used for displaying paths in relation to funnel steps. */
+    funnelPathsFilter?: FunnelPathsFilter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
@@ -819,6 +860,7 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+    showLegend?: LifecycleFilterLegacy['show_legend']
 }
 
 export interface QueryRequest {
@@ -854,9 +896,12 @@ export interface QueryResponse {
     results: unknown
     timings?: QueryTiming[]
     hogql?: string
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string
     is_cached?: boolean
     last_refresh?: string
     next_allowed_client_refresh?: string
+    modifiers?: HogQLQueryModifiers
 }
 
 export type QueryStatus = {
@@ -868,8 +913,8 @@ export type QueryStatus = {
     error: boolean
     /**  @default false */
     complete: boolean
-    /**  @default "" */
-    error_message: string
+    /**  @default null */
+    error_message: string | null
     results?: any
     /**  @format date-time */
     start_time?: string
@@ -884,7 +929,7 @@ export interface LifecycleQueryResponse extends QueryResponse {
     results: Record<string, any>[]
 }
 
-export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
+export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
@@ -905,11 +950,12 @@ export interface ActorsQueryResponse {
     limit: integer
     offset: integer
     missing_actors_count?: integer
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface ActorsQuery extends DataNode {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -945,7 +991,7 @@ export interface SessionsTimelineQuery extends DataNode {
     before?: string
     response?: SessionsTimelineQueryResponse
 }
-export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter
+export type WebAnalyticsPropertyFilter = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 
 export interface WebAnalyticsQueryBase {
@@ -955,6 +1001,8 @@ export interface WebAnalyticsQueryBase {
         enabled?: boolean
         forceSamplingRate?: SamplingRate
     }
+    useSessionsTable?: boolean
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase {
@@ -996,7 +1044,7 @@ export interface WebTopClicksQueryResponse extends QueryResponse {
 export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
-    // ExitPage = 'ExitPage'
+    ExitPage = 'ExitPage', // not supported in the legacy version
     InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
@@ -1064,6 +1112,7 @@ export type Day = integer
 export interface InsightActorsQueryBase {
     includeRecordings?: boolean
     response?: ActorsQueryResponse
+    modifiers?: HogQLQueryModifiers
 }
 export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySource> extends InsightActorsQueryBase {
     kind: NodeKind.InsightActorsQuery
@@ -1078,7 +1127,7 @@ export interface InsightActorsQuery<T extends InsightsQueryBase = InsightQuerySo
 }
 
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
-    kind: NodeKind.InsightActorsQuery
+    kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
     /** Index of the step for which we want to get the timestamp for, per person.
      * Positive for converted persons, negative for dropped of persons. */
@@ -1093,9 +1142,77 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsEntrancePeriodStart?: string
 }
 
+export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
+    kind: NodeKind.FunnelCorrelationActorsQuery
+    source: FunnelCorrelationQuery
+    funnelCorrelationPersonConverted?: boolean
+    funnelCorrelationPersonEntity?: AnyEntityNode
+    funnelCorrelationPropertyValues?: AnyPropertyFilter[]
+}
+
+export interface EventDefinition {
+    event: string
+    properties: Record<string, any>
+    elements: any[]
+}
+
+export interface EventOddsRatioSerialized {
+    event: EventDefinition
+    success_count: integer
+    failure_count: integer
+    odds_ratio: number
+    correlation_type: 'success' | 'failure'
+}
+
+export interface FunnelCorrelationResult {
+    events: EventOddsRatioSerialized[]
+    skewed: boolean
+}
+
+export interface FunnelCorrelationResponse {
+    results: FunnelCorrelationResult
+    columns?: any[]
+    types?: any[]
+    hogql?: string
+    timings?: QueryTiming[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    modifiers?: HogQLQueryModifiers
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
+export interface FunnelCorrelationQuery {
+    kind: NodeKind.FunnelCorrelationQuery
+    source: FunnelsActorsQuery
+    funnelCorrelationType: FunnelCorrelationResultsType
+
+    /* Events */
+    funnelCorrelationExcludeEventNames?: string[]
+
+    /* Events with properties */
+    funnelCorrelationEventNames?: string[]
+    funnelCorrelationEventExcludePropertyNames?: string[]
+
+    /* Properties */
+    funnelCorrelationNames?: string[]
+    funnelCorrelationExcludeNames?: string[]
+
+    response?: FunnelCorrelationResponse
+}
+
+/**  @format date-time */
+export type DatetimeDay = string
+
 export type BreakdownValueInt = integer
 export interface InsightActorsQueryOptionsResponse {
-    day?: { label: string; value: string | Day }[]
+    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
         label: string
@@ -1121,7 +1238,7 @@ export interface InsightActorsQueryOptionsResponse {
 
 export interface InsightActorsQueryOptions {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
     response?: InsightActorsQueryOptionsResponse
 }
 
@@ -1199,6 +1316,8 @@ export type HogQLExpression = string
 export interface DateRange {
     date_from?: string | null
     date_to?: string | null
+    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    explicitDate?: boolean | null
 }
 
 export interface BreakdownFilter {

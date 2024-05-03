@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -32,12 +32,11 @@ from posthog.schema import (
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
-    query_type = FunnelsQuery
     context: FunnelQueryContext
 
     def __init__(
         self,
-        query: FunnelsQuery | Dict[str, Any],
+        query: FunnelsQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -92,6 +91,7 @@ class FunnelsQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         results = self.funnel_class._format_results(response.results)
@@ -99,7 +99,7 @@ class FunnelsQueryRunner(QueryRunner):
         if response.timings is not None:
             timings.extend(response.timings)
 
-        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql)
+        return FunnelsQueryResponse(results=results, timings=timings, hogql=hogql, modifiers=self.modifiers)
 
     @cached_property
     def funnel_order_class(self):

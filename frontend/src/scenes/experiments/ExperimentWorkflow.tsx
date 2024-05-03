@@ -1,7 +1,8 @@
 import './Experiment.scss'
 
+import { IconCheckCircle } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconCheckmark, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
+import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
 export function ExperimentWorkflow(): JSX.Element {
@@ -16,7 +17,7 @@ export function ExperimentWorkflow(): JSX.Element {
                     <div className="flex">
                         <div className="exp-workflow-step rounded p-2 bg-primary-highlight w-full">
                             <div className="flex items-center">
-                                <IconCheckmark className="text-xl text-primary" />
+                                <IconCheckCircle className="text-xl text-primary" />
                                 <b className="ml-2">Create experiment</b>
                             </div>
                             <div className="ml-8">Set variants, select participants, and add secondary metrics</div>
@@ -32,7 +33,7 @@ export function ExperimentWorkflow(): JSX.Element {
                         >
                             <div className="flex items-center">
                                 {workflowValidateStepCompleted ? (
-                                    <IconCheckmark className="text-xl text-primary" />
+                                    <IconCheckCircle className="text-xl text-primary" />
                                 ) : (
                                     <IconRadioButtonUnchecked className="text-xl" />
                                 )}
@@ -54,7 +55,7 @@ export function ExperimentWorkflow(): JSX.Element {
                         >
                             <div className="flex items-center">
                                 {workflowLaunchStepCompleted ? (
-                                    <IconCheckmark className="text-xl text-primary" />
+                                    <IconCheckCircle className="text-xl text-primary" />
                                 ) : (
                                     <IconRadioButtonUnchecked className="text-xl" />
                                 )}

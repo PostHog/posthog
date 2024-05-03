@@ -33,7 +33,7 @@ beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
     graphileWorker = await makeWorkerUtils({
-        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1),
+        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1, 'functional_tests'),
     })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
@@ -106,6 +106,7 @@ export const capture = async ({
             })
         ),
         key: teamId ? teamId.toString() : '',
+        waitForAck: true,
     })
 }
 
@@ -365,8 +366,18 @@ export const createTeam = async (
     token?: string,
     sessionRecordingOptIn = true
 ) => {
-    const team = await insertRow(postgres, 'posthog_team', {
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(postgres, 'posthog_project', {
+        // Every team (aka environment) must be a child of a project
+        id,
         organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
+    await insertRow(postgres, 'posthog_team', {
+        id,
+        organization_id: organizationId,
+        project_id: id,
         app_urls: [],
         name: 'TEST PROJECT',
         event_names: [],
@@ -392,7 +403,7 @@ export const createTeam = async (
         access_control: false,
         slack_incoming_webhook,
     })
-    return team.id
+    return id
 }
 
 export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {

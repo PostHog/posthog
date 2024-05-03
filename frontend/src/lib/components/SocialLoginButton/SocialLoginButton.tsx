@@ -51,7 +51,7 @@ export function SocialLoginButton({ provider, redirectQueryParams }: SocialLogin
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={redirectQueryParams}>
-            <LemonButton size="medium" icon={SocialLoginIcon(provider)}>
+            <LemonButton size="medium" icon={<SocialLoginIcon provider={provider} />}>
                 <span className="text-default">{SSO_PROVIDER_NAMES[provider]}</span>
             </LemonButton>
         </SocialLoginLink>
@@ -124,7 +124,7 @@ export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButt
                 type="secondary"
                 fullWidth
                 center
-                icon={SocialLoginIcon(provider)}
+                icon={<SocialLoginIcon provider={provider} />}
                 size="large"
             >
                 Log in with {SSO_PROVIDER_NAMES[provider]}

@@ -1,7 +1,9 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaQueryResponseField } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -21,10 +23,12 @@ export interface TaxonomicFilterProps {
     value?: TaxonomicFilterValue
     onChange?: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void
     onClose?: () => void
+    filter?: LocalFilter
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
     eventNames?: string[]
+    schemaColumns?: DatabaseSchemaQueryResponseField[]
     height?: number
     width?: number
     popoverEnabled?: boolean
@@ -79,6 +83,9 @@ export enum TaxonomicFilterGroupType {
     Actions = 'actions',
     Cohorts = 'cohorts',
     CohortsWithAllUsers = 'cohorts_with_all',
+    DataWarehouse = 'data_warehouse',
+    DataWarehouseProperties = 'data_warehouse_properties',
+    DataWarehousePersonProperties = 'data_warehouse_person_properties',
     Elements = 'elements',
     Events = 'events',
     EventProperties = 'event_properties',
@@ -98,7 +105,7 @@ export enum TaxonomicFilterGroupType {
     Plugins = 'plugins',
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
-    Sessions = 'sessions',
+    SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
 }
@@ -126,4 +133,10 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
-export type TaxonomicDefinitionTypes = EventDefinition | PropertyDefinition | CohortType | ActionType | PersonProperty
+export type TaxonomicDefinitionTypes =
+    | EventDefinition
+    | PropertyDefinition
+    | CohortType
+    | ActionType
+    | PersonProperty
+    | DataWarehouseTableType

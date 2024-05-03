@@ -4,15 +4,12 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
-import { ActionsNode, BreakdownFilter, EventsNode, PathsFilter } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, DataWarehouseNode, EventsNode, PathsFilter } from '~/queries/schema'
+import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -23,7 +20,6 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
-    InsightModel,
     InsightShortId,
     InsightType,
     PathType,
@@ -59,7 +55,10 @@ export const getDisplayNameFromEntityFilter = (
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
 }
 
-export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+export const getDisplayNameFromEntityNode = (
+    node: EventsNode | ActionsNode | DataWarehouseNode,
+    isCustom = true
+): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
@@ -70,7 +69,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
         name = 'All events'
     }
 
-    const id = isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -121,35 +120,6 @@ export function extractObjectDiffKeys(
     }
 
     return changedKeys
-}
-
-export function findInsightFromMountedLogic(
-    insightShortId: InsightShortId | string,
-    dashboardId: number | undefined
-): Partial<InsightModel> | null {
-    if (dashboardId) {
-        const insightOnDashboard = dashboardLogic
-            .findMounted({ id: dashboardId })
-            ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-        if (insightOnDashboard) {
-            return insightOnDashboard
-        } else {
-            const dashboards = dashboardsModel.findMounted()?.values.rawDashboards
-            let foundOnModel: Partial<InsightModel> | undefined
-            for (const dashModelId of Object.keys(dashboards || {})) {
-                foundOnModel = dashboardLogic
-                    .findMounted({ id: parseInt(dashModelId) })
-                    ?.values.insightTiles?.find((tile) => tile.insight?.short_id === insightShortId)?.insight
-            }
-            return foundOnModel || null
-        }
-    } else {
-        return (
-            savedInsightsLogic
-                .findMounted()
-                ?.values.insights?.results?.find((item) => item.short_id === insightShortId) || null
-        )
-    }
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
@@ -213,18 +183,28 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
-// NB! Sync this with breakdown.py
+// NB! Sync this with breakdown_values.py
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_OTHER_DISPLAY = 'Other (i.e. all remaining values)'
 export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
 export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+export const BREAKDOWN_NULL_DISPLAY = 'None (i.e. no value)'
 
 export function isOtherBreakdown(breakdown_value: string | number | null | undefined | ReactNode): boolean {
-    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+    return (
+        breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
+        breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL ||
+        String(breakdown_value) === String(BREAKDOWN_OTHER_NUMERIC_LABEL)
+    )
 }
 
 export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
-    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+    return (
+        breakdown_value === BREAKDOWN_NULL_STRING_LABEL ||
+        breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL ||
+        String(breakdown_value) === String(BREAKDOWN_NULL_NUMERIC_LABEL)
+    )
 }
 
 export function formatBreakdownLabel(
@@ -253,6 +233,9 @@ export function formatBreakdownLabel(
             breakdown,
             breakdown_type
         )
+        if (formattedBucketStart === formattedBucketEnd) {
+            return formattedBucketStart
+        }
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
     if (breakdown_type === 'cohort') {
@@ -263,17 +246,17 @@ export function formatBreakdownLabel(
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
         return isOtherBreakdown(breakdown_value)
-            ? 'Other (Groups all remaining values)'
+            ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value)
-            ? 'None'
+            ? BREAKDOWN_NULL_DISPLAY
             : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
-            ? 'Other (Groups all remaining values)'
+            ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? 'None'
+            ? BREAKDOWN_NULL_DISPLAY
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value
@@ -281,17 +264,15 @@ export function formatBreakdownLabel(
                 formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
             )
             .join('::')
-    } else {
-        return ''
     }
+    return ''
 }
 
 export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     if (breakdownFilter.breakdown_type === 'cohort') {
         return 'Cohort'
-    } else {
-        return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
     }
+    return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
 export function sortDates(dates: Array<string | null>): Array<string | null> {
@@ -330,9 +311,8 @@ export function concatWithPunctuation(phrases: string[]): string {
         return phrases[0]
     } else if (phrases.length === 2) {
         return `${phrases[0]} and ${phrases[1]}`
-    } else {
-        return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+    return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
 }
 
 export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
