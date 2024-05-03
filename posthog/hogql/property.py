@@ -70,7 +70,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person", "session"] = "event",
+    scope: Literal["event", "person", "session", "replay"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -148,6 +148,8 @@ def property_to_expr(
 
         if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
+        elif property.type == "event" and scope == "replay":
+            chain = ["events", "properties"]
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
                 table, key = property.key.split(": ")

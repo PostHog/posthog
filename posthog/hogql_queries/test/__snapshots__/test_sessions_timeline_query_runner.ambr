@@ -368,7 +368,7 @@
            WHERE equals(person_distinct_id2.team_id, 2)
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
-        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, 'd63e1ecf-f92f-1e50-71f9-501e16e9aebe'), 0))
+        WHERE and(equals(events.team_id, 2), ifNull(greater(timestamp, toDateTime64('2023-10-01 06:00:00.000000', 6, 'UTC')), 0), ifNull(less(timestamp, toDateTime64('2023-10-02 06:00:00.000000', 6, 'UTC')), 0), ifNull(equals(person_id, '00000000-0000-0000-0000-000000000000'), 0))
         ORDER BY timestamp DESC
         LIMIT 1001)) AS e
   LEFT JOIN
