@@ -16,6 +16,9 @@ pub struct Config {
 
     #[envconfig(default = "100")]
     pub max_pg_connections: u32,
+
+    #[envconfig(default = "5000000")]
+    pub max_body_size: usize,
 }
 
 impl Config {

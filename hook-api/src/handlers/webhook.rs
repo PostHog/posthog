@@ -9,8 +9,6 @@ use hook_common::pgqueue::{NewJob, PgQueue};
 use serde::Serialize;
 use tracing::{debug, error};
 
-pub const MAX_BODY_SIZE: usize = 5_000_000;
-
 #[derive(Serialize, Deserialize)]
 pub struct WebhookPostResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -36,15 +34,6 @@ pub async fn post(
     Json(payload): Json<WebhookPostRequestBody>,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
     debug!("received payload: {:?}", payload);
-
-    if payload.parameters.body.len() > MAX_BODY_SIZE {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(WebhookPostResponse {
-                error: Some("body too large".to_owned()),
-            }),
-        ));
-    }
 
     let url_hostname = get_hostname(&payload.parameters.url)?;
     // We could cast to i32, but this ensures we are not wrapping.
@@ -125,11 +114,13 @@ mod tests {
 
     use crate::handlers::app::add_routes;
 
+    const MAX_BODY_SIZE: usize = 1_000_000;
+
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_success(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
 
-        let app = add_routes(Router::new(), pg_queue);
+        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
 
         let mut headers = collections::HashMap::new();
         headers.insert("Content-Type".to_owned(), "application/json".to_owned());
@@ -171,7 +162,7 @@ mod tests {
     async fn webhook_bad_url(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
 
-        let app = add_routes(Router::new(), pg_queue);
+        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -208,7 +199,7 @@ mod tests {
     async fn webhook_payload_missing_fields(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
 
-        let app = add_routes(Router::new(), pg_queue);
+        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -229,7 +220,7 @@ mod tests {
     async fn webhook_payload_not_json(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
 
-        let app = add_routes(Router::new(), pg_queue);
+        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
 
         let response = app
             .oneshot(
@@ -250,9 +241,9 @@ mod tests {
     async fn webhook_payload_body_too_large(db: PgPool) {
         let pg_queue = PgQueue::new_from_pool("test_index", db).await;
 
-        let app = add_routes(Router::new(), pg_queue);
+        let app = add_routes(Router::new(), pg_queue, MAX_BODY_SIZE);
 
-        let bytes: Vec<u8> = vec![b'a'; 5_000_000 * 2];
+        let bytes: Vec<u8> = vec![b'a'; MAX_BODY_SIZE + 1];
         let long_string = String::from_utf8_lossy(&bytes);
 
         let response = app
@@ -283,6 +274,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

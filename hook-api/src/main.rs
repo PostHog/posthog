@@ -34,7 +34,7 @@ async fn main() {
     .await
     .expect("failed to initialize queue");
 
-    let app = handlers::add_routes(Router::new(), pg_queue);
+    let app = handlers::add_routes(Router::new(), pg_queue, config.max_body_size);
     let app = setup_metrics_routes(app);
 
     match listen(app, config.bind()).await {
