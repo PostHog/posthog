@@ -63,7 +63,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
@@ -130,7 +131,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
@@ -197,7 +199,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
@@ -264,7 +267,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
@@ -331,7 +335,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
@@ -398,7 +403,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
@@ -465,6 +471,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
