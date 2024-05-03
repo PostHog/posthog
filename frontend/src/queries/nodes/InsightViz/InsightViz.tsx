@@ -34,11 +34,12 @@ type InsightVizProps = {
     setQuery?: (node: InsightVizNode) => void
     context?: QueryContext
     readOnly?: boolean
+    embedded?: boolean
 }
 
 let uniqueNode = 0
 
-export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: InsightVizProps): JSX.Element {
+export function InsightViz({ uniqueKey, query, setQuery, context, readOnly, embedded }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps: InsightLogicProps = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
@@ -68,14 +69,14 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
 
     const showIfFull = !!query.full
-    const disableHeader = !(query.showHeader ?? showIfFull)
-    const disableTable = !(query.showTable ?? showIfFull)
-    const disableCorrelationTable = !(query.showCorrelationTable ?? showIfFull)
-    const disableLastComputation = !(query.showLastComputation ?? showIfFull)
-    const disableLastComputationRefresh = !(query.showLastComputationRefresh ?? showIfFull)
+    const disableHeader = embedded || !(query.showHeader ?? showIfFull)
+    const disableTable = embedded || !(query.showTable ?? showIfFull)
+    const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
+    const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
+    const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
     const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
     const showingResults = query.showResults ?? true
-    const embedded = query.embedded ?? false
+    const isEmbedded = embedded || (query.embedded ?? false)
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -87,7 +88,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                         })}
                     >
                         {!readOnly && (
-                            <EditorFilters query={query.source} showing={showingFilters} embedded={embedded} />
+                            <EditorFilters query={query.source} showing={showingFilters} embedded={isEmbedded} />
                         )}
 
                         <div className="flex-1 h-full overflow-x-hidden">
@@ -100,7 +101,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                                 disableLastComputation={disableLastComputation}
                                 disableLastComputationRefresh={disableLastComputationRefresh}
                                 showingResults={showingResults}
-                                embedded={embedded}
+                                embedded={isEmbedded}
                             />
                         </div>
                     </div>
