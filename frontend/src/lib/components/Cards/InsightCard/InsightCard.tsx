@@ -329,8 +329,9 @@ function InsightCardInternal(
                             context={{
                                 insightProps: insightLogicProps,
                             }}
-                            readOnly
                             stale={stale}
+                            readOnly
+                            embedded
                         />
                     </div>
                 ) : insight.filters?.insight ? (
