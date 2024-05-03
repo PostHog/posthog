@@ -86,7 +86,6 @@ async function runSingleTeamPluginComposeWebhook(
     pluginConfig: PluginConfig,
     composeWebhook: VMMethodsConcrete['composeWebhook']
 ): Promise<void> {
-    const event = convertToPostHogEvent(postIngestionEvent)
     // 1. Calls `composeWebhook` for the plugin, send `composeWebhook` appmetric success/fail if applicable.
     // 2. Send via Rusty-Hook if enabled.
     // 3. Send via `fetch` if Rusty-Hook is not enabled.

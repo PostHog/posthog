@@ -105,7 +105,9 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
         }
         return summary
     } else if (isLifecycleFilter(filters)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
+        return `${capitalizeFirstLetter(
+            context.aggregationLabel(filters.aggregation_group_type_index, true).singular
+        )} lifecycle based on ${getDisplayNameFromEntityFilter(localFilters[0])}`
     } else if (isFunnelsFilter(filters)) {
         let summary
         const linkSymbol =
@@ -293,7 +295,9 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                 .join(' & ')
         )
     } else if (isLifecycleQuery(query)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+        return `${capitalizeFirstLetter(
+            context.aggregationLabel(query.aggregation_group_type_index, true).singular
+        )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }
