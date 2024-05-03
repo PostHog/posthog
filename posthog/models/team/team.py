@@ -36,7 +36,8 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from .team_caching import get_team_in_cache, set_team_in_cache
-from ...schema import PathCleaningFilter, PersonsOnEventsMode
+from ...hogql.modifiers import set_default_modifier_values
+from ...schema import PathCleaningFilter, PersonsOnEventsMode, HogQLQueryModifiers
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -164,6 +165,10 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    class Meta:
+        verbose_name = "team (soon to be environment)"
+        verbose_name_plural = "teams (soon to be environments)"
+
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -252,6 +257,9 @@ class Team(UUIDClassicModel):
     # during feature releases.
     extra_settings: models.JSONField = models.JSONField(null=True, blank=True)
 
+    # Project level default HogQL query modifiers
+    modifiers: models.JSONField = models.JSONField(null=True, blank=True)
+
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
@@ -284,6 +292,12 @@ class Team(UUIDClassicModel):
     external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
+
+    @property
+    def default_modifiers(self) -> dict:
+        modifiers = HogQLQueryModifiers()
+        set_default_modifier_values(modifiers, self)
+        return modifiers.model_dump()
 
     @property
     def person_on_events_mode(self) -> PersonsOnEventsMode:

@@ -4,15 +4,17 @@ import { Modifiers } from 'scenes/debug/Modifiers'
 import { QueryTabs } from 'scenes/debug/QueryTabs'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { DataNode, HogQLQuery, Node } from '~/queries/schema'
-import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
+import { Node } from '~/queries/schema'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 
 interface DebugSceneQueryProps {
-    queryKey: string
+    queryKey: `new-${string}`
     query: string
     setQuery: (query: string) => void
 }
+
 export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryProps): JSX.Element {
     let parsed: Record<string, any> | null = null
     try {
@@ -20,12 +22,12 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
     } catch (e) {
         // do nothing
     }
-    const dataNode =
-        parsed && (isInsightVizNode(parsed as Node) || isDataTableNode(parsed as Node)) ? parsed.source : parsed
+    const dataNode = parsed && (isInsightVizNode(parsed) || isDataTableNode(parsed)) ? parsed.source : (parsed as Node)
 
+    const dataNodeKey = insightVizDataNodeKey({ dashboardItemId: queryKey })
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: dataNode as DataNode,
-        key: queryKey,
+        query: dataNode,
+        key: dataNodeKey,
         dataNodeCollectionId: queryKey,
         modifiers: { debug: true },
     }
@@ -33,10 +35,10 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
 
     return (
         <>
-            {parsed && parsed?.kind === 'HogQLQuery' ? (
+            {isHogQLQuery(parsed) ? (
                 <HogQLDebug
                     queryKey={queryKey}
-                    query={parsed as HogQLQuery}
+                    query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                 />
             ) : (
