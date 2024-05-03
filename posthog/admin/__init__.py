@@ -1,44 +1,46 @@
 from django.contrib import admin
 
 from posthog.admin.admins import (
-    OrganizationAdmin,
-    UserAdmin,
-    TeamAdmin,
+    AsyncDeletionAdmin,
+    CohortAdmin,
     DashboardAdmin,
-    InsightAdmin,
+    DataWarehouseTableAdmin,
     ExperimentAdmin,
     FeatureFlagAdmin,
-    AsyncDeletionAdmin,
+    InsightAdmin,
     InstanceSettingAdmin,
-    PluginConfigAdmin,
-    PluginAdmin,
-    TextAdmin,
-    CohortAdmin,
+    OrganizationAdmin,
     PersonAdmin,
     PersonDistinctIdAdmin,
-    SurveyAdmin,
-    DataWarehouseTableAdmin,
+    PluginAdmin,
+    PluginConfigAdmin,
     ProjectAdmin,
+    RedisAdmin,
+    SurveyAdmin,
+    TeamAdmin,
+    TextAdmin,
+    UserAdmin,
 )
 from posthog.models import (
-    Organization,
-    User,
-    Team,
+    AsyncDeletion,
+    Cohort,
     Dashboard,
-    Insight,
+    DataWarehouseTable,
     Experiment,
     FeatureFlag,
-    AsyncDeletion,
+    Insight,
     InstanceSetting,
-    PluginConfig,
-    Plugin,
-    Text,
-    Project,
-    Cohort,
+    Organization,
     Person,
     PersonDistinctId,
+    Plugin,
+    PluginConfig,
+    Project,
+    RedisMutation,
     Survey,
-    DataWarehouseTable,
+    Team,
+    Text,
+    User,
 )
 
 admin.site.register(Organization, OrganizationAdmin)
@@ -65,3 +67,5 @@ admin.site.register(PersonDistinctId, PersonDistinctIdAdmin)
 admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
+
+admin.site.register(RedisMutation, RedisAdmin)

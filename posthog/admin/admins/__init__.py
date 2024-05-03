@@ -11,8 +11,9 @@ from .person_admin import PersonAdmin
 from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin
+from .project_admin import ProjectAdmin
+from .redis_admin import RedisAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
 from .text_admin import TextAdmin
 from .user_admin import UserAdmin
-from .project_admin import ProjectAdmin

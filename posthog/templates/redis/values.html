@@ -21,7 +21,9 @@
 <div id="content-main">
     <div id="changelist" class="module filtered">
         <div class="changelist-form-container">
-            {% block search %} {% load i18n static %}
+
+            {% block search %}
+            {% load i18n static %}
             <div id="toolbar">
                 <form id="changelist-search" method="get" role="search">
                     <div>
@@ -33,9 +35,9 @@
                 </form>
             </div>
             {% endblock %}
+
             <div class="results">
                 {% if redis_keys %}
-
                 <table id="results_list">
                     <thead>
                         <tr>
@@ -56,10 +58,9 @@
                     <tbody>
                         {% for key, tuple in redis_keys.items %}
                         <tr>
-                            <td class="field-key">{{ key }}</td>
-                            {% for item in tuple %}
-                            <td>{{ item }}</td>
-                            {% endfor %}
+                            <td class="field-key"><a href="{% url 'admin:posthog_redismutation_add' %}?redis_key={{ key|urlencode }}&value={{ tuple.1|urlencode }}">{{ key }}</a></td>
+                            <td class="field-type">{{ tuple.0 }}</td>
+                            <td class="field-value">{{ tuple.1 }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
