@@ -61,7 +61,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
-    "entry_current_url": StringDatabaseField(name="entry_current_url"),
+    "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
     "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
@@ -134,7 +134,7 @@ def select_from_sessions_table(
                 )
             ],
         ),
-        "entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
+        "$entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
         "$entry_pathname": ast.Call(
             name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
         ),
@@ -326,7 +326,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
-    "entry_current_url": "finalizeAggregation(entry_url)",
+    "$entry_current_url": "finalizeAggregation(entry_url)",
     "$exit_current_url": "finalizeAggregation(exit_url)",
 }
 

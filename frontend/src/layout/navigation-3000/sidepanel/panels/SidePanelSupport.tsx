@@ -51,7 +51,7 @@ const PRODUCTS = [
     },
     {
         name: 'A/B testing',
-        slug: 'ab-testing',
+        slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
     {
@@ -218,7 +218,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             </Section>
                             <Section title="Ask the community">
                                 <p>
-                                    Questions about features, how to's, or use cases? There are thousands of discussions
+                                    Questions about features, how-tos, or use cases? There are thousands of discussions
                                     in our community forums.{' '}
                                     <Link to="https://posthog.com/questions">Ask a question</Link>
                                 </p>

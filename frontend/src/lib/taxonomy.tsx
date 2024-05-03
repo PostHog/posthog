@@ -1016,7 +1016,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: <span>The timestamp of the last event from this session</span>,
             examples: [new Date().toISOString()],
         },
-        entry_current_url: {
+        $entry_current_url: {
             label: 'Entry URL',
             description: <span>The first URL visited in this session</span>,
             examples: ['https://example.com/interesting-article?parameter=true'],
