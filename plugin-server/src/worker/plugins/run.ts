@@ -14,6 +14,8 @@ import { IllegalOperationError } from '../../utils/utils'
 import { ActionWebhookFormatter } from '../ingestion/action-webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
     event: PostIngestionEvent,
@@ -401,7 +403,7 @@ async function getLegacyActionWebhookPluginsForTeam(
         pluginConfigs
             // TODO: We probably want a stronger check than just the plugin name...
             .map(async (pluginConfig) => {
-                if (pluginConfig.plugin?.name !== 'Action Webhook' || !pluginConfig.match_action_id) {
+                if (pluginConfig.plugin?.url !== PLUGIN_URL_LEGACY_ACTION_WEBHOOK || !pluginConfig.match_action_id) {
                     return
                 }
 
