@@ -1,24 +1,10 @@
-import { buildStringMatcher } from '../../../src/config/config'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
-import {
-    eachBatchParallelIngestion,
-    IngestionOverflowMode,
-    splitIngestionBatch,
-} from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { eachBatchAppsOnEventHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
-import {
-    eachBatchWebhooksHandlers,
-    eachMessageWebhooksHandlers,
-    groupIntoBatchesByUsage,
-} from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
-import * as batchProcessingMetrics from '../../../src/main/ingestion-queues/batch-processing/metrics'
+import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     Hub,
     ISOTimestamp,
     PostIngestionEvent,
-    PropertyOperator,
     RawClickHouseEvent,
 } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -27,42 +13,22 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { runOnEvent } from '../../../src/worker/plugins/run'
-import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/worker/plugins/run')
-
-jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
-    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
-    return {
-        ...originalModule,
-        processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
-    }
-})
 jest.mock('../../../src/utils/status')
-jest.mock('./../../../src/worker/ingestion/utils')
 
-const runEventPipeline = jest.fn().mockResolvedValue('default value')
-
-jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
-    EventPipelineRunner: jest.fn().mockImplementation(() => ({
-        runEventPipeline: runEventPipeline,
-    })),
-}))
-
-const event: PostIngestionEvent = {
-    eventUuid: 'uuid1',
-    distinctId: 'my_id',
-    teamId: 2,
-    timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
-    event: '$pageview',
-    properties: {},
-    elementsList: undefined,
-    person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
-    person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
-    person_properties: {},
-}
+// const event: PostIngestionEvent = {
+//     eventUuid: 'uuid1',
+//     distinctId: 'my_id',
+//     teamId: 2,
+//     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
+//     event: '$pageview',
+//     properties: {},
+//     elementsList: undefined,
+//     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
+//     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
+//     person_properties: {},
+// }
 
 const clickhouseEvent: RawClickHouseEvent = {
     event: '$pageview',
@@ -82,6 +48,7 @@ const clickhouseEvent: RawClickHouseEvent = {
     person_created_at: '2020-02-20 02:15:00' as ClickHouseTimestampSecondPrecision, // Match createEvent ts format
     person_properties: '{}',
     group0_properties: JSON.stringify({ name: 'PostHog' }),
+    person_mode: 'full',
 }
 
 describe('eachMessageWebhooksHandlers', () => {
@@ -166,23 +133,35 @@ describe('eachMessageWebhooksHandlers', () => {
         // NOTE: really it would be nice to verify that fire has been called
         // on hookCannon, but that would require a little more setup, and it
         // is at the least testing a little bit more than we were before.
-        expect(matchSpy).toHaveBeenCalledWith({
-            ...event,
-            groups: {
-                organization: {
-                    index: 0,
-                    type: 'organization',
-                    key: 'org_posthog',
-                    properties: { name: 'PostHog' },
+        expect(matchSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
+            Object {
+              "distinctId": "my_id",
+              "elementsList": undefined,
+              "event": "$pageview",
+              "eventUuid": "uuid1",
+              "groups": Object {
+                "organization": Object {
+                  "index": 0,
+                  "key": "org_posthog",
+                  "properties": Object {
+                    "name": "PostHog",
+                  },
+                  "type": "organization",
                 },
-            },
-            properties: {
-                $ip: '127.0.0.1',
-                $groups: {
-                    organization: 'org_posthog',
+              },
+              "person_created_at": "2020-02-20T02:15:00.000Z",
+              "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
+              "person_properties": Object {},
+              "properties": Object {
+                "$groups": Object {
+                  "organization": "org_posthog",
                 },
-            },
-        })
+                "$ip": "127.0.0.1",
+              },
+              "teamId": 2,
+              "timestamp": "2020-02-23T02:15:00.000Z",
+            }
+        `)
 
         expect(postWebhookSpy).toHaveBeenCalledTimes(1)
         expect(JSON.parse(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
