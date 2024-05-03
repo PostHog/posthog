@@ -809,10 +809,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert sorted(
-            [s["session_id"] for s in session_recordings],
-            key=lambda x: x[0],
-        ) == sorted(
+        assert sorted([s["session_id"] for s in session_recordings]) == sorted(
             [
                 first_session_id,
                 second_session_id,
@@ -1655,7 +1652,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    @skip("TODO: Not implemented in HogQL")
     def test_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -1732,7 +1728,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    @skip("TODO: Not implemented in HogQL")
     def test_filter_with_events_and_cohorts(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
