@@ -8,14 +8,14 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { DataNode, HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
 
 import { QueryTabs } from './QueryTabs'
 
 interface HogQLDebugProps {
-    queryKey: string
+    queryKey: `new-${string}`
     query: HogQLQuery
-    setQuery: (query: DataNode) => void
+    setQuery: (query: HogQLQuery) => void
 }
 
 export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.Element {
