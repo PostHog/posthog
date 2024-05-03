@@ -90,7 +90,6 @@ let uniqueNode = 0
 export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
-    //const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
     const insightProps: InsightLogicProps = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${dataKey}`,
         dataNodeCollectionId: dataKey,
