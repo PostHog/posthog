@@ -92,10 +92,11 @@ const teamActionsMapping: Record<
         return { description: descriptions }
     },
     session_recording_linked_flag(change: ActivityChange | undefined): ChangeMapping | null {
+        const key = (change?.after as any)?.key ?? (change?.before as any)?.key ?? String(change?.after)
         return {
             description: [
                 <>
-                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {change?.after}
+                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {key}
                 </>,
             ],
         }

@@ -11,6 +11,8 @@ from posthog.models import PropertyDefinition, GroupTypeMapping
 from posthog.models.group.util import create_group
 from posthog.test.base import BaseTest
 
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
+
 
 class TestPropertyTypes(BaseTest):
     snapshot: Any
@@ -111,6 +113,39 @@ class TestPropertyTypes(BaseTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_group_property_types(self):
         printed = self._print_select("select organization.properties.inty from events")
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_data_warehouse_person_property_types(self):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="extended_properties",
+            columns={
+                "string_prop": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+                "int_prop": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)"},
+                "bool_prop": {"hogql": "BooleanDatabaseField", "clickhouse": "Nullable(Bool)"},
+            },
+            credential=credential,
+            url_pattern="",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="extended_properties",
+            joining_table_key="string_prop",
+            field_name="extended_properties",
+        )
+
+        printed = self._print_select(
+            "select persons.extended_properties.string_prop, persons.extended_properties.int_prop, persons.extended_properties.bool_prop AS bool_prop from persons WHERE bool_prop = true"
+        )
+
         assert printed == self.snapshot
 
     def _print_select(self, select: str):

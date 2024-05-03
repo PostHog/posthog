@@ -33,7 +33,7 @@ class TestSessionsAPI(APIBaseTest):
             "$autocapture_count",
             "$channel_type",
             "$end_timestamp",
-            "entry_current_url",
+            "$entry_current_url",
             "$entry_pathname",
             "$exit_current_url",
             "$exit_pathname",

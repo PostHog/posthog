@@ -395,7 +395,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         }
 
         response = self.client.get(
-            "/e/?data=%s" % quote(json.dumps(data)),
+            "/e/?data={}".format(quote(json.dumps(data))),
             HTTP_ORIGIN="https://localhost",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
