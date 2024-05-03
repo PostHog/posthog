@@ -5,8 +5,6 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     BooleanDatabaseField,
-    IntegerDatabaseField,
-    FloatDatabaseField,
 )
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -152,8 +150,6 @@ class PropertySwapper(CloningVisitor):
                 field_type = node.type.table_type.lazy_join.join_table.fields.get(str(field), None)
                 prop_type = "String"
 
-                if isinstance(field_type, IntegerDatabaseField) or isinstance(field_type, FloatDatabaseField):
-                    prop_type = "Float"
                 if isinstance(field_type, DateTimeDatabaseField):
                     prop_type = "DateTime"
                 if isinstance(field_type, BooleanDatabaseField):
