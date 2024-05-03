@@ -14,9 +14,9 @@ from posthog.schema import (
     EventsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
-    CachedHogQLQueryResponse,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -556,7 +556,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            response = CachedHogQLQueryResponse.model_validate(api_response)
+            response = HogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(response.results and len(response.results), 4)
             self.assertEqual(
@@ -784,7 +784,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = HogQLQuery(query="select * from event_view")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()})
-            response = CachedHogQLQueryResponse.model_validate(api_response.json())
+            response = HogQLQueryResponse.model_validate(api_response.json())
 
             self.assertEqual(api_response.status_code, 200)
             self.assertEqual(response.results and len(response.results), 4)
