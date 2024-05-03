@@ -5,11 +5,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import {
-    convertDatabaseElementsToRawElements,
-    convertToPostIngestionEvent,
-    mutatePostIngestionEventWithElementsList,
-} from '../../../utils/event'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -150,13 +146,6 @@ export async function eachMessageWebhooksHandlers(
         return
     }
     const event = convertToPostIngestionEvent(clickHouseEvent)
-    mutatePostIngestionEventWithElementsList(event)
-
-    // NOTE: This was previously done via some side effect mutations. as it is possible that the webhooks sent are depending on the
-    // format, we do it here again for legacy support.
-    event.elementsList = convertDatabaseElementsToRawElements(event.elementsList ?? [])
-
-    // TODO: What do? The elements list isn't built here anymore where it _used_ to be
 
     await runInstrumentedFunction({
         func: () => runWebhooks(actionMatcher, hookCannon, event),
