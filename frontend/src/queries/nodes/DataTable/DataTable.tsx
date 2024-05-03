@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, key, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -38,6 +38,7 @@ import {
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -62,8 +63,6 @@ import {
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
-import { insightVizDataNodeKey } from "~/queries/nodes/InsightViz/InsightViz";
-import { keyForInsightLogicProps } from "scenes/insights/sharedUtils";
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -88,14 +87,7 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({
-    uniqueKey,
-    query,
-    setQuery,
-    context,
-    cachedResults,
-    dataNodeLogicKey,
-}: DataTableProps): JSX.Element {
+export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     //const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
