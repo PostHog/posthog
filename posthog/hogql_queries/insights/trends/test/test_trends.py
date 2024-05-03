@@ -4371,9 +4371,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_property_pie(self):
         with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
-            person1 = self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
-            person2 = self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
-            person3 = self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
 
         self._create_event(
             team=self.team,
@@ -4443,15 +4443,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             people_value_1 = get_actors(data, self.team, series=0, breakdown="value_1", includeRecordings=True)
             # Persons with higher value come first
-            self.assertEqual(people_value_1[0][0], person2.uuid)
+            self.assertEqual(people_value_1[0][1]["distinct_ids"][0], "person2")
             self.assertEqual(people_value_1[0][3], 2)  # 2 events with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[1][0], person3.uuid)
+            self.assertEqual(people_value_1[1][1]["distinct_ids"][0], "person3")
             self.assertEqual(people_value_1[1][3], 1)  # 1 event with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[2][0], person1.uuid)
+            self.assertEqual(people_value_1[2][1]["distinct_ids"][0], "person1")
             self.assertEqual(people_value_1[2][3], 1)  # 1 event with fake_prop="value_1" in the time range
 
             people_value_2 = get_actors(data, self.team, series=0, breakdown="value_2", includeRecordings=True)
-            self.assertEqual(people_value_2[0][0], person2.uuid)
+            self.assertEqual(people_value_2[0][1]["distinct_ids"][0], "person2")
             self.assertEqual(people_value_2[0][3], 1)  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])

@@ -39,6 +39,7 @@ def get_actors(
             "event_count",
             *(["matched_recordings"] if includeRecordings else []),
         ],
+        orderBy=["event_count DESC"],
     )
     response = ActorsQueryRunner(query=actors_query, team=team).calculate()
     return response.results
