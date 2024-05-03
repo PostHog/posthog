@@ -66,7 +66,7 @@ class TestDatabase(BaseTest):
                         pretty=False,
                     )
 
-    @patch("posthog.hogql.query.sync_execute", return_value=(None, None))
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_with_warehouse_tables(self, patch_execute):
         credential = DataWarehouseCredential.objects.create(

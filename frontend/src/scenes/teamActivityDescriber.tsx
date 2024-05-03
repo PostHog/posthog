@@ -204,6 +204,22 @@ const teamActionsMapping: Record<
         }
         return { description: descriptions }
     },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,

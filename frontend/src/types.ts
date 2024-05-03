@@ -36,6 +36,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
+    HogQLQueryModifiers,
     InsightVizNode,
     Node,
 } from './queries/schema'
@@ -471,6 +472,8 @@ export interface TeamType extends TeamBasicType {
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
+    modifiers?: HogQLQueryModifiers
+    default_modifiers?: HogQLQueryModifiers
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
