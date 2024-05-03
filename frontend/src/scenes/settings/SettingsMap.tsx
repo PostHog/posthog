@@ -123,7 +123,7 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'persons-on-events',
-                title: 'Persons on Events',
+                title: 'Event person filtering behavior',
                 component: <PersonsOnEvents />,
             },
             {

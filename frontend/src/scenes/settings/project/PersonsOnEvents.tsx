@@ -12,15 +12,38 @@ type PoEMode = NonNullable<HogQLQueryModifiers['personsOnEventsMode']>
 const poeOptions: LemonRadioOption<PoEMode>[] = [
     {
         value: 'person_id_no_override_properties_on_events',
-        label: 'Deprecated old PoE setting. May incorrectly aggregate users. You probably want one of the other options.',
+        label: (
+            <>
+                <div>Deprecated: Use person ids and properties from the time of the event.</div>
+                <div className="text-muted">
+                    May show higher unique user counts due to not using latest person ids. You probably want one of the
+                    other options.
+                </div>
+            </>
+        ),
     },
     {
         value: 'person_id_override_properties_on_events',
-        label: 'Use ingestion-time person properties from the events table (faster)',
+        label: (
+            <>
+                <div>Use person properties from the time of the event.</div>
+                <div className="text-muted">
+                    Faster queries. If person property is updated, then query results on past data won't change.
+                </div>
+            </>
+        ),
     },
     {
         value: 'person_id_override_properties_joined',
-        label: 'Use current person properties from the persons table (slower)',
+        label: (
+            <>
+                <div>Use latest person properties.</div>
+                <div className="text-muted">
+                    Slower queries. If person property is updated, then query results on past data will change to
+                    reflect it.
+                </div>
+            </>
+        ),
     },
 ]
 
@@ -46,19 +69,7 @@ export function PersonsOnEvents(): JSX.Element {
 
     return (
         <>
-            <p>
-                PostHog keeps track of two types of data: persons and events. Persons have properties that change over
-                time, while all events have a fixed timestamp, and can't change retroactively.
-            </p>
-            <p>
-                This setting affects query performance. We save a copy of the event's person's properties on the event
-                itself, making it possible to query person properties either as they were during ingestion, or as they
-                are now.
-            </p>
-            <p>
-                Querying for person properties as they are now on the persons table takes more compute and memory, as we
-                need to merge two large datasets.
-            </p>
+            <p>Choose how to query your event data with person filters.</p>
             <LemonRadio value={poeMode} onChange={setPoeMode} options={visibleOptions} />
             <div className="mt-4">
                 <LemonButton
