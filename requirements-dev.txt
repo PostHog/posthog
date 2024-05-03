@@ -100,7 +100,7 @@ multidict==6.0.2
     # via
     #   aiohttp
     #   yarl
-mypy==1.8.0
+mypy==1.10.0
     # via djangorestframework-stubs
 mypy-baseline==0.6.1
 mypy-boto3-s3==1.34.65
@@ -186,7 +186,7 @@ ruamel-yaml==0.18.6
     # via prance
 ruamel-yaml-clib==0.2.8
     # via ruamel-yaml
-ruff==0.3.7
+ruff==0.4.2
 six==1.16.0
     # via
     #   prance

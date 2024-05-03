@@ -1,16 +1,12 @@
 import datetime as dt
 import json
 import uuid
-from typing import Any, Dict, List, Literal, Optional, Set, Union
-from zoneinfo import ZoneInfo
-from typing import Any, Dict, List, Literal, Optional, Set, Union
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
-from zoneinfo import ZoneInfo
 
 from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer

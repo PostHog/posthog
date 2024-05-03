@@ -24,6 +24,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from nanoid import generate
 
 from typing import Any
 
@@ -252,7 +253,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
             elif name and filters:
-                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
+                random_id = generate("1234567890abcdef", 10)
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}")
                 feature_flag_serializer = FeatureFlagSerializer(
                     data={
                         "key": feature_flag_key,
