@@ -58,6 +58,13 @@ export class HedgehogActor {
         this.setAnimation('fall')
     }
 
+    private log(message: string): void {
+        if ((window as any)._posthogDebugHedgehog) {
+            // eslint-disable-next-line no-console
+            console.log(`[HedgehogActor] ${message}`)
+        }
+    }
+
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
             if (shouldIgnoreInput(e)) {
@@ -145,8 +152,8 @@ export class HedgehogActor {
             const duration = this.animationIterations
                 ? this.animationIterations * this.animation.frames * (1000 / FPS)
                 : '∞'
-            // eslint-disable-next-line no-console
-            console.log(`Hedgehog: Will '${this.animationName}' for ${duration}ms`)
+
+            this.log(`Will '${this.animationName}' for ${duration}ms`)
         }
     }
 
