@@ -83,6 +83,7 @@ class QueryResponse(BaseModel, Generic[DataT]):
     timings: Optional[list[QueryTiming]] = None
     types: Optional[list[Union[tuple[str, str], str]]] = None
     columns: Optional[list[str]] = None
+    error: Optional[str] = None
     hogql: Optional[str] = None
     hasMore: Optional[bool] = None
     limit: Optional[int] = None
@@ -397,7 +398,12 @@ class QueryRunner(ABC, Generic[Q, R]):
         fresh_response_dict["cache_key"] = cache_key
         fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedQueryResponse(**fresh_response_dict)
-        cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+
+        # Dont cache debug queries with errors
+        has_error = fresh_response_dict.get("error", None)
+        if has_error is None or len(has_error) == 0:
+            cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
 

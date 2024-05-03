@@ -35,7 +35,7 @@ function toColumn(hogql: string, position: number): number {
 }
 interface QueryTabsProps {
     query: Node
-    queryKey: string
+    queryKey: `new-${string}`
     response?: Record<string, any> | null
     setQuery: (query: DataNode) => void
 }
@@ -62,7 +62,21 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
               isInsightVizNode(query) && {
                   key: 'viz',
                   label: 'Visualization',
-                  content: <Query uniqueKey={queryKey} query={query} setQuery={(query) => setQuery(query)} />,
+                  content: (
+                      <Query
+                          uniqueKey={queryKey}
+                          query={query}
+                          setQuery={(query) => setQuery(query)}
+                          context={{
+                              insightProps: {
+                                  dashboardItemId: queryKey,
+                                  query,
+                                  setQuery: (query) => setQuery(query),
+                                  dataNodeCollectionId: queryKey,
+                              },
+                          }}
+                      />
+                  ),
               },
               isInsightQueryNode(query) && {
                   key: 'insight',

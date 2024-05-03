@@ -69,6 +69,11 @@ export function Heatmap(): JSX.Element | null {
         }
     }, [heatmapColorPalette])
 
+    const heatmapConfig = {
+        minOpacity: 0,
+        maxOpacity: 0.8,
+    }
+
     const updateHeatmapData = useCallback((): void => {
         try {
             heatmapsJsRef.current?.setData(heatmapJsData)
@@ -84,6 +89,7 @@ export function Heatmap(): JSX.Element | null {
         }
 
         heatmapsJsRef.current = heatmapsJs.create({
+            ...heatmapConfig,
             container,
             gradient: heatmapJSColorGradient,
         })
@@ -101,6 +107,7 @@ export function Heatmap(): JSX.Element | null {
         }
 
         heatmapsJsRef.current?.configure({
+            ...heatmapConfig,
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
