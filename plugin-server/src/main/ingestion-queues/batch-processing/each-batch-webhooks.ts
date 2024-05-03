@@ -148,9 +148,9 @@ export async function eachMessageWebhooksHandlers(
         // exit early if no webhooks nor resthooks
         return
     }
-    
+
     const groupTypes = await groupTypeManager.fetchGroupTypes(clickHouseEvent.team_id)
-    const event = convertToPostIngestionEvent(clickHouseEvent)
+    const event = convertToPostIngestionEvent(clickHouseEvent, groupTypes)
 
     await runInstrumentedFunction({
         func: () => runWebhooks(actionMatcher, hookCannon, event),

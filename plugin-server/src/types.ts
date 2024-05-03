@@ -687,6 +687,16 @@ export interface PostIngestionEvent extends PreIngestionEvent {
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
+
+    groups?: Record<
+        string,
+        {
+            key: string
+            type: string
+            index: number
+            properties: Properties
+        }
+    >
 }
 
 export interface DeadLetterQueueEvent {

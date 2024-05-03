@@ -1,7 +1,13 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 
-import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import {
+    ClickHouseEvent,
+    GroupTypeToColumnIndex,
+    PipelineEvent,
+    PostIngestionEvent,
+    RawClickHouseEvent,
+} from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
 import {
@@ -70,10 +76,34 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     }
 }
 
-export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostIngestionEvent {
+export function convertToPostIngestionEvent(
+    event: RawClickHouseEvent,
+    groupTypes?: GroupTypeToColumnIndex
+): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     if (event.elements_chain) {
         properties['$elements_chain'] = event.elements_chain
+    }
+
+    let groups: PostIngestionEvent['groups'] = undefined
+
+    if (groupTypes) {
+        groups = {}
+
+        for (const [groupType, columnIndex] of Object.entries(groupTypes)) {
+            const groupKey = (properties[`$groups`] || {})[groupType]
+            const groupProperties = event[`group${columnIndex}_properties`]
+
+            // TODO: Check that groupProperties always exist if the person is in that group
+            if (groupKey && groupProperties) {
+                groups[groupType] = {
+                    index: columnIndex,
+                    key: groupKey,
+                    type: groupType,
+                    properties: JSON.parse(groupProperties),
+                }
+            }
+        }
     }
 
     return {
@@ -89,6 +119,7 @@ export function convertToPostIngestionEvent(event: RawClickHouseEvent): PostInge
             ? clickHouseTimestampSecondPrecisionToISO(event.person_created_at)
             : null,
         person_properties: event.person_properties ? JSON.parse(event.person_properties) : {},
+        groups,
     }
 }
 
