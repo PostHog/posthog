@@ -49,10 +49,9 @@ export function ExperimentDates(): JSX.Element {
                             }}
                             onClose={() => setIsStartDatePickerOpen(false)}
                             onClickOutside={() => setIsStartDatePickerOpen(false)}
-                            data-attr="experiment-start-date-picker"
                             clearable={false}
                             selectionPeriod="past"
-                            buttonProps={{ size: 'xsmall' }}
+                            buttonProps={{ size: 'xsmall', 'data-attr': 'experiment-start-date-picker' }}
                         />
                     ) : (
                         <>
