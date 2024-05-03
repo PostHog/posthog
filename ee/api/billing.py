@@ -12,7 +12,11 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.billing.billing_manager import BillingManager, build_billing_token
+from ee.billing.billing_manager import (  # BillingAPIErrorCodes,
+    BillingAPIErrorCodes,
+    BillingManager,
+    build_billing_token,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -131,12 +135,52 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if len(e.args) > 2:
                 detail_object = e.args[2]
                 return Response(
-                    {"statusText": e.args[0], "detail": detail_object.get("error_message", detail_object)},
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             else:
                 raise e
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def get_open_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        license = get_cached_instance_license()
+        if not license:
+            return Response(
+                {"sucess": True},
+                status=status.HTTP_200_OK,
+            )
+
+        organization = self._get_org_required()
+
+        try:
+            res = BillingManager(license).get_invoices(organization, status="open")
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise e
+
+        return Response(
+            {
+                "link": res["portal_url"],
+                "count": res["count"],
+                "code": BillingAPIErrorCodes.OPEN_INVOICES_ERROR,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(methods=["PATCH"], detail=False)
     def license(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:

@@ -128,12 +128,16 @@ export class ApiError extends Error {
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
 
+    /** Link to external resources, e.g. stripe invoices */
+    link: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
+        this.link = data?.link || null
     }
 }
 

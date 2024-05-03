@@ -40,7 +40,7 @@ export const getTierDescription = (
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, billingError, redirectPath } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -135,6 +135,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 onClick={() => {
                                     setBillingProductLoading(addon.type)
                                 }}
+                                disabledReason={billingError.message}
                             >
                                 Add
                             </LemonButton>
@@ -181,7 +182,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -686,6 +687,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
                                                 loading={billingProductLoading === product.type}
+                                                disabledReason={billingError.message}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
                                                     setBillingProductLoading(product.type)

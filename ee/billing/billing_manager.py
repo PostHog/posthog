@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any, Optional, cast
 
 import jwt
@@ -18,6 +19,10 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
+
+
+class BillingAPIErrorCodes(Enum):
+    OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -65,6 +70,7 @@ class BillingManager:
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)
+
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
@@ -292,3 +298,16 @@ class BillingManager:
             raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
         return {"Authorization": f"Bearer {billing_service_token}"}
+
+    def get_invoices(self, organization: Organization, status: Optional[str]):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
+            params={"status": status},
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data
