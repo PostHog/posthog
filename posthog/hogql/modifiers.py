@@ -20,6 +20,17 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
+    if isinstance(team.modifiers, dict):
+        for key, value in team.modifiers.items():
+            if getattr(modifiers, key) is None:
+                setattr(modifiers, key, value)
+
+    set_default_modifier_values(modifiers, team)
+
+    return modifiers
+
+
+def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.personsOnEventsMode is None:
         modifiers.personsOnEventsMode = team.person_on_events_mode or PersonsOnEventsMode.disabled
 
@@ -31,8 +42,6 @@ def create_default_modifiers_for_team(
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null
-
-    return modifiers
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

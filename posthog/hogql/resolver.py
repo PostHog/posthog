@@ -101,8 +101,18 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_union_query(self, node: ast.SelectUnionQuery):
+        # all expressions combined by UNION ALL can use CTEs from the first expression
+        # so we put these CTEs to the scope
+        default_ctes = node.select_queries[0].ctes if node.select_queries else None
+        if default_ctes:
+            self.scopes.append(ast.SelectQueryType(ctes=default_ctes))
+
         node = super().visit_select_union_query(node)
         node.type = ast.SelectUnionQueryType(types=[expr.type for expr in node.select_queries])
+
+        if default_ctes:
+            self.scopes.pop()
+
         return node
 
     def visit_select_query(self, node: ast.SelectQuery):
