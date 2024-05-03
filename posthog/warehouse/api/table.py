@@ -59,7 +59,7 @@ class TableSerializer(serializers.ModelSerializer):
         if not hogql_context:
             hogql_context = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        return serialize_fields(table.hogql_definition().fields, hogql_context, table.columns)
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -78,6 +78,8 @@ class TableSerializer(serializers.ModelSerializer):
         table = DataWarehouseTable(**validated_data)
         try:
             table.columns = table.get_columns()
+            for column in table.columns.keys():
+                table.columns[column]["valid"] = table.validate_column_type(column)
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
@@ -168,6 +170,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
             columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+
+        table.columns = columns
+        table.save()
+
+        # Gotta update
+        for key in updates.keys():
+            columns[key]["valid"] = table.validate_column_type(key)
 
         table.columns = columns
         table.save()
