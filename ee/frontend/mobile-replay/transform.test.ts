@@ -59,6 +59,76 @@ describe('replay/transform', () => {
             posthogEEModule = await posthogEE()
         })
 
+        test('can process top level screenshot', () => {
+            expect(
+                posthogEEModule.mobileReplay?.transformToWeb([
+                    {
+                        data: { width: 300, height: 600 },
+                        timestamp: 1,
+                        type: 4,
+                    },
+                    {
+                        windowId: '5173a13e-abac-4def-b227-2f81dc2808b6',
+                        data: {
+                            wireframes: [
+                                {
+                                    base64: 'image-content',
+                                    height: 914,
+                                    id: 151700670,
+                                    style: {
+                                        backgroundColor: '#F3EFF7',
+                                    },
+                                    type: 'screenshot',
+                                    width: 411,
+                                    x: 0,
+                                    y: 0,
+                                },
+                            ],
+                        },
+                        timestamp: 1714397321578,
+                        type: 2,
+                    },
+                ])
+            ).toMatchSnapshot()
+        })
+
+        test('can process screenshot mutation', () => {
+            expect(
+                posthogEEModule.mobileReplay?.transformToWeb([
+                    {
+                        data: { width: 300, height: 600 },
+                        timestamp: 1,
+                        type: 4,
+                    },
+                    {
+                        windowId: '5173a13e-abac-4def-b227-2f81dc2808b6',
+                        data: {
+                            source: 0,
+                            updates: [
+                                {
+                                    wireframe: {
+                                        base64: 'mutated-image-content',
+                                        height: 914,
+                                        id: 151700670,
+                                        style: {
+                                            backgroundColor: '#F3EFF7',
+                                        },
+                                        type: 'screenshot',
+                                        width: 411,
+                                        x: 0,
+                                        y: 0,
+                                    },
+                                },
+                            ],
+                        },
+                        timestamp: 1714397336836,
+                        type: 3,
+                        seen: 3551987272322930,
+                    },
+                ])
+            ).toMatchSnapshot()
+        })
+
         test('can process unknown types without error', () => {
             expect(
                 posthogEEModule.mobileReplay?.transformToWeb([

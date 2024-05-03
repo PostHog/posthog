@@ -14,7 +14,7 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, BillingV2PlanType, BillingV2Type, ProductKey } from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 
@@ -240,6 +240,31 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing) => {
                 return billing?.billing_period?.interval === 'year'
+            },
+        ],
+        supportPlans: [
+            (s) => [s.billing],
+            (billing: BillingV2Type): BillingV2PlanType[] => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type == ProductKey.PLATFORM_AND_SUPPORT
+                )
+                if (!platformAndSupportProduct?.plans) {
+                    return []
+                }
+
+                const addonPlans = platformAndSupportProduct?.addons?.map((addon) => addon.plans).flat()
+                const insertionIndex = Math.max(0, (platformAndSupportProduct?.plans?.length ?? 1) - 1)
+                const allPlans = platformAndSupportProduct?.plans?.slice(0) || []
+                allPlans.splice(insertionIndex, 0, ...addonPlans)
+                return allPlans
+            },
+        ],
+        hasSupportAddonPlan: [
+            (s) => [s.billing],
+            (billing: BillingV2Type): boolean => {
+                return !!billing?.products
+                    ?.find((product) => product.type == ProductKey.PLATFORM_AND_SUPPORT)
+                    ?.addons.find((addon) => addon.plans.find((plan) => plan.current_plan))
             },
         ],
     }),

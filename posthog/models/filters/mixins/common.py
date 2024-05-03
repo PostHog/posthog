@@ -557,7 +557,7 @@ class EntityMathMixin(BaseParamMixin):
 class EntityOrderMixin(BaseParamMixin):
     @cached_property
     def target_entity_order(self) -> Optional[str]:
-        return self._data.get("entity_order", None) or self._data.get("entity_order", None)
+        return self._data.get("entity_order", None) or self._data.get("target_entity_order", None)
 
     @include_dict
     def entity_order_to_dict(self):

@@ -19,7 +19,7 @@ from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse
+from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -37,7 +37,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
-    query_type = EventsQuery
+    response: EventsQueryResponse
+    cached_response: CachedEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

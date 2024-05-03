@@ -100,7 +100,7 @@ def engine_from_credentials(credentials: Union[ConnectionStringCredentials, Engi
         return credentials
     if isinstance(credentials, ConnectionStringCredentials):
         credentials = credentials.to_native_representation()
-    return create_engine(credentials)
+    return create_engine(credentials, pool_pre_ping=True)
 
 
 def get_primary_key(table: Table) -> list[str]:

@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
+from sentry_sdk import capture_exception, set_tag
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -53,8 +54,11 @@ from posthog.helpers.multi_property_breakdown import (
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.apply_dashboard_filters import DATA_TABLE_LIKE_NODE_KINDS
-from posthog.hogql_queries.legacy_compatibility.feature_flag import should_use_hogql_backend_in_insight_serialization
+from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
+from posthog.hogql_queries.legacy_compatibility.feature_flag import (
+    hogql_insights_replace_filters,
+    should_use_hogql_backend_in_insight_serialization,
+)
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
@@ -205,11 +209,17 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
         representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
-        filters = instance.dashboard_filters()
+        if hogql_insights_replace_filters(instance.team) and (
+            instance.query is not None or instance.query_from_filters is not None
+        ):
+            representation["filters"] = {}
+            representation["query"] = instance.query or instance.query_from_filters
+        else:
+            filters = instance.dashboard_filters()
 
-        if not filters.get("date_from") and not instance.query:
-            filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
-        representation["filters"] = filters
+            if not filters.get("date_from") and not instance.query:
+                filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
+            representation["filters"] = filters
 
         return representation
 
@@ -505,11 +515,22 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        representation["query"] = instance.get_effective_query(dashboard=dashboard)
+        if hogql_insights_replace_filters(instance.team) and (
+            instance.query is not None or instance.query_from_filters is not None
+        ):
+            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
 
-        if "insight" not in representation["filters"] and not representation["query"]:
-            representation["filters"]["insight"] = "TRENDS"
+            query = instance.query or instance.query_from_filters
+            if dashboard:
+                query = apply_dashboard_filters(query, dashboard.filters, instance.team)
+            representation["filters"] = {}
+            representation["query"] = query
+        else:
+            representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
+            representation["query"] = instance.get_effective_query(dashboard=dashboard)
+
+            if "insight" not in representation["filters"] and not representation["query"]:
+                representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
 
@@ -536,15 +557,23 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
             # we fake the insight being properly `query`-based.
             # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
-            insight.query = filter_to_query(insight.filters).model_dump()
             try:
-                return calculate_for_query_based_insight(
-                    insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])
-                )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
-            finally:
-                insight.query = None
+                insight.query = filter_to_query(insight.filters).model_dump()
+            except:
+                # If `filter_to_query` failed, let's capture this and proceed with legacy filters
+                set_tag("filter_to_query_todo", True)
+                capture_exception()
+            else:
+                try:
+                    return calculate_for_query_based_insight(
+                        insight,
+                        dashboard=dashboard,
+                        refresh_requested=refresh_requested_by_client(self.context["request"]),
+                    )
+                except ExposedHogQLError as e:
+                    raise ValidationError(str(e))
+                finally:
+                    insight.query = None
 
         is_shared = self.context.get("is_shared", False)
         refresh_insight_now, refresh_frequency = should_refresh_insight(
@@ -704,14 +733,10 @@ class InsightViewSet(
                 insight = request.GET[INSIGHT]
                 if insight == "JSON":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.exclude(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.exclude(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 elif insight == "SQL":
                     queryset = queryset.filter(query__isnull=False)
-                    queryset = queryset.filter(
-                        query__kind__in=DATA_TABLE_LIKE_NODE_KINDS, query__source__kind="HogQLQuery"
-                    )
+                    queryset = queryset.filter(query__kind__in=WRAPPER_NODE_KINDS, query__source__kind="HogQLQuery")
                 else:
                     queryset = queryset.filter(query__isnull=True)
                     queryset = queryset.filter(filters__insight=insight)

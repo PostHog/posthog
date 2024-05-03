@@ -48,9 +48,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self) -> dict[str, str]:
         from posthog.api.services.query import process_query
+        from posthog.hogql_queries.query_runner import ExecutionMode
 
-        # TODO: catch and raise error
-        response = process_query(self.team, self.query)
+        response = process_query(self.team, self.query, execution_mode=ExecutionMode.CALCULATION_ALWAYS)
         types = response.get("types", {})
         return dict(types)
 
@@ -80,11 +80,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     def hogql_definition(self) -> SavedQuery:
         from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
 
-        if not self.columns:
-            raise Exception("Columns must be fetched and saved to use in HogQL.")
+        columns = self.columns or {}
 
         fields = {}
-        for column, type in self.columns.items():
+        for column, type in columns.items():
             if type.startswith("Nullable("):
                 type = type.replace("Nullable(", "")[:-1]
 
