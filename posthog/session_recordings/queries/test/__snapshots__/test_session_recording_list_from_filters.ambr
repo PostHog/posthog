@@ -21,12 +21,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions
@@ -51,12 +53,14 @@
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(duration, 60), 0)
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.1
@@ -81,12 +85,14 @@
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(active_seconds, 60), 0)
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_active_sessions.2
@@ -111,12 +117,14 @@
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(inactive_seconds, 60), 0)
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering
@@ -141,12 +149,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY active_seconds DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 4
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.1
@@ -171,12 +181,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY console_error_count DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 4
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_basic_query_with_ordering.2
@@ -201,12 +213,110 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 4
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.1
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 1 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
+  '''
+# ---
+# name: TestSessionRecordingsListFromFilters.test_basic_query_with_paging.2
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id),
+         any(s.distinct_id),
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count),
+         sum(s.keypress_count),
+         sum(s.mouse_activity_count),
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 2), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-11 13:46:23.000000', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2020-12-25 00:00:00.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(s.max_last_timestamp, 'UTC'), toDateTime64('2021-01-01 13:46:23.000000', 6, 'UTC')), 0), true)
+  GROUP BY s.session_id
+  HAVING true
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 2 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter
@@ -231,12 +341,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter.1
@@ -261,12 +373,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl
@@ -291,12 +405,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.1
@@ -321,12 +437,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_from_filter_cannot_search_before_ttl.2
@@ -351,12 +469,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter
@@ -381,12 +501,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_date_to_filter.1
@@ -411,12 +533,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter
@@ -441,12 +565,14 @@
   GROUP BY s.session_id
   HAVING ifNull(greaterOrEquals(duration, 60), 0)
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_duration_filter.1
@@ -471,12 +597,14 @@
   GROUP BY s.session_id
   HAVING ifNull(lessOrEquals(duration, 60), 0)
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter
@@ -506,12 +634,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter.1
@@ -541,12 +671,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions
@@ -576,12 +708,14 @@
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(duration, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_active_sessions.1
@@ -611,12 +745,14 @@
   GROUP BY s.session_id
   HAVING and(ifNull(greaterOrEquals(active_seconds, 60), 0), hasAll(groupUniqArray(s__events.event), ['$pageview']))
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties
@@ -647,12 +783,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties.1
@@ -683,12 +821,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized
@@ -719,12 +859,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_hogql_properties_materialized.1
@@ -755,12 +897,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id
@@ -790,12 +934,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_matching_on_session_id.1
@@ -825,12 +971,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$autocapture'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_person_properties
@@ -873,12 +1021,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties
@@ -909,12 +1059,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.1
@@ -945,12 +1097,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.2
@@ -981,12 +1135,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties.3
@@ -1017,12 +1173,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized
@@ -1053,12 +1211,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.1
@@ -1089,12 +1249,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.2
@@ -1125,12 +1287,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_event_filter_with_properties_materialized.3
@@ -1161,12 +1325,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['a_different_event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text
@@ -1197,12 +1363,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.1
@@ -1233,12 +1401,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.2
@@ -1269,12 +1439,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_by_console_text.3
@@ -1305,12 +1477,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors
@@ -1341,12 +1515,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_errors.1
@@ -1377,12 +1553,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs
@@ -1413,12 +1591,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_logs.1
@@ -1449,12 +1629,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns
@@ -1485,12 +1667,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_console_warns.1
@@ -1521,12 +1705,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts
@@ -1557,12 +1743,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_for_recordings_with_mixed_console_counts.1
@@ -1593,12 +1781,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids
@@ -1629,12 +1819,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_on_session_ids.1
@@ -1665,12 +1857,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_cohort_properties
@@ -1725,10 +1919,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts
@@ -1788,10 +1986,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_filter_with_events_and_cohorts.3
@@ -1831,10 +2033,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['custom_event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters
@@ -1864,12 +2070,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_multiple_event_filters.1
@@ -1899,12 +2107,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview', 'new-event2'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_person_id_filter
@@ -1936,12 +2146,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter
@@ -1971,12 +2183,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter.1
@@ -2006,12 +2220,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -2041,12 +2257,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -2076,12 +2294,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter
@@ -2111,12 +2331,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter.1
@@ -2159,12 +2381,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -2194,12 +2418,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -2242,12 +2468,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter
@@ -2277,12 +2505,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter.1
@@ -2325,12 +2555,14 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized
@@ -2360,12 +2592,14 @@
   GROUP BY s.session_id
   HAVING hasAll(groupUniqArray(s__events.event), ['$pageview'])
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestSessionRecordingsListFromFilters.test_top_level_person_property_test_account_filter_materialized.1
@@ -2408,11 +2642,13 @@
   GROUP BY s.session_id
   HAVING true
   ORDER BY start_time DESC
-  LIMIT 10 SETTINGS readonly=2,
+  LIMIT 51
+  OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
