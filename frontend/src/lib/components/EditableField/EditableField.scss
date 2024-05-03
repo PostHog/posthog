@@ -77,12 +77,12 @@
     }
 
     .EditableField__actions {
-        overflow: hidden;
         display: flex;
         flex-shrink: 0;
         gap: 0.5rem;
         align-items: center;
         margin-left: 0.5rem;
+        overflow: hidden;
     }
 
     input,
