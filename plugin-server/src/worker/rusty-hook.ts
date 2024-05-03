@@ -92,6 +92,17 @@ export class RustyHook {
                         .observe(new Date().getTime() - timer.getTime())
 
                     break
+                } else if (response.status === 413) {
+                    // HACK: Temporarily relief for 413 issue with rusty-hook.
+                    const bodySize = body.length
+                    status.error('🔴', 'Dropping Webhook because payload is too large', {
+                        teamId,
+                        pluginId,
+                        pluginConfigId,
+                        bodySize,
+                    })
+
+                    break
                 }
 
                 // Throw to unify error handling below.
