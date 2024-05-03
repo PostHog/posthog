@@ -16,7 +16,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_event_property_filter.1
@@ -36,7 +37,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_event_property_filter.2
@@ -56,7 +58,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -76,7 +79,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -96,7 +100,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -116,7 +121,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date
@@ -132,7 +138,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -148,7 +155,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -164,7 +172,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_full_hogql_query
@@ -182,7 +191,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_async
@@ -225,7 +235,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view
@@ -243,7 +254,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view.1
@@ -265,7 +277,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter
@@ -285,7 +298,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -305,7 +319,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -325,7 +340,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -345,7 +361,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -365,7 +382,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -385,7 +403,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -405,7 +424,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -425,7 +445,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_person_property_filter
@@ -463,7 +484,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -501,7 +523,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations
@@ -519,7 +542,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -538,7 +562,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -556,7 +581,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -575,7 +601,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_select_event_person
@@ -593,7 +620,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions
@@ -612,7 +640,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -629,7 +658,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -647,7 +677,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -665,6 +696,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
