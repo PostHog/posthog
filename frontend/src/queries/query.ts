@@ -43,7 +43,7 @@ const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
-export function queryExportContext<N extends DataNode = DataNode>(
+export function queryExportContext<N extends DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -103,7 +103,7 @@ const SYNC_ONLY_QUERY_KINDS = [
 /**
  * Execute a query node and return the response, use async query if enabled
  */
-async function executeQuery<N extends DataNode = DataNode>(
+async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -136,7 +136,7 @@ async function executeQuery<N extends DataNode = DataNode>(
 }
 
 // Return data for a given query
-export async function query<N extends DataNode = DataNode>(
+export async function query<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,

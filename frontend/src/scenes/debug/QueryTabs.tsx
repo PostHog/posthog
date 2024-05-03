@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Query } from '~/queries/Query/Query'
-import { DataNode, HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema'
+import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema'
 import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 function toLineColumn(hogql: string, position: number): { line: number; column: number } {
@@ -33,13 +33,13 @@ function toLine(hogql: string, position: number): number {
 function toColumn(hogql: string, position: number): number {
     return toLineColumn(hogql, position).column
 }
-interface QueryTabsProps {
-    query: Node
-    queryKey: string
-    response?: Record<string, any> | null
-    setQuery: (query: DataNode) => void
+interface QueryTabsProps<Q extends Node> {
+    query: Q
+    queryKey: `new-${string}`
+    response?: Q['response'] | null
+    setQuery: (query: Q) => void
 }
-export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProps): JSX.Element {
+export function QueryTabs<Q extends Node>({ query, queryKey, setQuery, response }: QueryTabsProps<Q>): JSX.Element {
     const [tab, setTab] = useState<string | null>(null)
     const clickHouseTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './clickhouse_execute')?.t ?? 0
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
@@ -62,7 +62,22 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
               isInsightVizNode(query) && {
                   key: 'viz',
                   label: 'Visualization',
-                  content: <Query uniqueKey={queryKey} query={query} setQuery={(query) => setQuery(query)} />,
+                  content: (
+                      <Query
+                          uniqueKey={queryKey}
+                          query={query}
+                          setQuery={(query) => setQuery(query)}
+                          context={{
+                              insightProps: {
+                                  dashboardItemId: queryKey,
+                                  query,
+                                  // @ts-expect-error - TS is wary of `setQuery` being different later, but we're OK
+                                  setQuery: (query) => setQuery(query),
+                                  dataNodeCollectionId: queryKey,
+                              },
+                          }}
+                      />
+                  ),
               },
               isInsightQueryNode(query) && {
                   key: 'insight',
@@ -71,6 +86,7 @@ export function QueryTabs({ query, queryKey, setQuery, response }: QueryTabsProp
                       <Query
                           uniqueKey={queryKey}
                           query={{ kind: NodeKind.InsightVizNode, source: query, full: true } as InsightVizNode}
+                          // @ts-expect-error - TS is wary of `setQuery` being different later, but we're OK
                           setQuery={(query) => setQuery(query)}
                       />
                   ),
