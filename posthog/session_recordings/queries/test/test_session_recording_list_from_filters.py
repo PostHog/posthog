@@ -808,10 +808,7 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert sorted(
-            [s["session_id"] for s in session_recordings],
-            key=lambda x: x[0],
-        ) == sorted(
+        assert sorted([s["session_id"] for s in session_recordings]) == sorted(
             [
                 first_session_id,
                 second_session_id,
@@ -1653,7 +1650,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    @skip("TODO: Not implemented in HogQL")
     def test_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -1730,7 +1726,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(person_properties=["$some_prop"])
-    @skip("TODO: Not implemented in HogQL")
     def test_filter_with_events_and_cohorts(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -2133,7 +2128,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
@@ -2164,7 +2158,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             page_view_session_id,
@@ -2322,7 +2315,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: implemented in HogQL, works in the actual API, fails in this test 🙈")
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_mixed_console_counts(self):
@@ -2369,6 +2361,14 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.base_time,
             team_id=self.team.id,
             console_error_count=4,
+            log_messages={
+                "error": [
+                    "error",
+                    "error",
+                    "error",
+                    "error",
+                ],
+            },
         )
         produce_replay_summary(
             distinct_id="user",

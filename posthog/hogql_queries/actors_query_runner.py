@@ -9,11 +9,13 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse
+from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse
 
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
+    response: ActorsQueryResponse
+    cached_response: CachedActorsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
