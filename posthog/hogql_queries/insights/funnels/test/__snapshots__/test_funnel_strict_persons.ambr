@@ -127,7 +127,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
@@ -144,7 +145,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.2
@@ -275,7 +277,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
@@ -292,7 +295,8 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.4
@@ -423,7 +427,8 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
@@ -440,6 +445,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
