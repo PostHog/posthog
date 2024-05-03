@@ -2,6 +2,7 @@ import os
 from functools import partial, wraps
 from typing import Union
 
+import redis
 import sentry_sdk
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
@@ -140,7 +141,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
     return JsonResponse(response)
 
 
-def get_redis_key_type_value_tuple(key: bytes, redis_client):
+def get_redis_key_type_value_tuple(key: bytes, redis_client: redis.Redis):
     """Get a tuple with a Redis key, type, and value from a Redis key."""
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")

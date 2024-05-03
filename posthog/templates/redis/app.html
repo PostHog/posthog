@@ -1,20 +1,33 @@
 {% load i18n %}
 <!-- In case there are no apps, we also don't want to appear -->
-{% if app_list %}
+{% if app_list %} {% load admin_urls %}
 <div class="app-redis module">
-  <table>
-    <caption>
-      Redis
-    </caption>
-    <tr class="model-values">
-      <th scope="row">
-        <a href="{% url 'redis_values' %}" aria-current="page">Values</a>
-      </th>
+    <table>
+        <caption>
+            Redis
+        </caption>
+        <tr class="model-values">
+            <th scope="row">
+                <a href="{% url 'redis_values' %}" aria-current="page">Values</a>
+            </th>
 
-      <td>
-        <a href="{% url 'redis_values' %}" class="viewlink">{% translate 'View' %}</a>
-      </td>
-    </tr>
-  </table>
+            <td>
+                <a href="{% url 'redis_values' %}" class="viewlink">{% translate 'View' %}</a>
+            </td>
+        </tr>
+        <tr class="model-mutations">
+            <th scope="row">
+                <a href="{% url 'admin:posthog_redismutation_changelist' %}" aria-current="page">Mutations</a>
+            </th>
+            <td>
+                <a href="{% url 'admin:posthog_redismutation_add' %}" class="addlink">{% translate 'Add' %}</a>
+            </td>
+            <td>
+                <a href="{% url 'admin:posthog_redismutation_changelist' %}" class="changelink"
+                    >{% translate 'Change' %}</a
+                >
+            </td>
+        </tr>
+    </table>
 </div>
 {% endif %}
