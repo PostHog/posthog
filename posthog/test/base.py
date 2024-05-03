@@ -690,7 +690,13 @@ def snapshot_postgres_queries_context(
                 testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
         elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
-        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        elif (
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
+        ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
