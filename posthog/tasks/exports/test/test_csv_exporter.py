@@ -547,14 +547,15 @@ class TestCSVExporter(APIBaseTest):
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)
-            lines = (content or "").split("\r\n")
-            self.assertEqual(len(lines), 3)
+            lines = (content or "").strip().split("\r\n")
             self.assertEqual(
-                lines[0],
-                "column_0.action_id,column_0.name,column_0.custom_name,column_0.order,column_0.count,column_0.type,column_0.average_conversion_time,column_0.median_conversion_time,column_0.breakdown.0,column_0.breakdown_value.0,column_1.action_id,column_1.name,column_1.custom_name,column_1.order,column_1.count,column_1.type,column_1.average_conversion_time,column_1.median_conversion_time,column_1.breakdown.0,column_1.breakdown_value.0",
+                lines,
+                [
+                    "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+                    "$pageview,test'123,$pageview,1,,",
+                    "$pageview,test'123,$pageview,1,60.0,60.0",
+                ],
             )
-            first_row = lines[1].split(",")
-            self.assertEqual(first_row[0], "$pageview")
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_empty_result(self, mocked_uuidt: Any) -> None:

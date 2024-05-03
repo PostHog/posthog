@@ -197,22 +197,23 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
     )
 
     batch_export_id = str(batch_export.id)
-    failure_threshold = 10
+    failure_threshold = 1
 
-    for _ in range(1, failure_threshold * 2):
-        run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
+    run_id, _ = await activity_environment.run(start_batch_export_run, inputs)
 
-        finish_inputs = FinishBatchExportRunInputs(
-            id=str(run_id),
-            batch_export_id=batch_export_id,
-            status=BatchExportRun.Status.FAILED,
-            team_id=inputs.team_id,
-            latest_error="Oh No!",
-            failure_threshold=failure_threshold,
-            failure_check_window=failure_threshold - 1,
-        )
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=batch_export_id,
+        status=BatchExportRun.Status.FAILED,
+        team_id=inputs.team_id,
+        latest_error="Oh No!",
+        failure_threshold=failure_threshold,
+        failure_check_window=failure_threshold - 1,
+    )
 
+    with pytest.raises(ValueError):
         await activity_environment.run(finish_batch_export_run, finish_inputs)
-        await sync_to_async(batch_export.refresh_from_db)()
 
-        assert batch_export.paused is False
+    await sync_to_async(batch_export.refresh_from_db)()
+
+    assert batch_export.paused is False

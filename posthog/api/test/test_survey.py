@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from unittest.mock import ANY
 import pytest
-
+import re
 from rest_framework import status
 from django.core.cache import cache
 from django.test.client import Client
@@ -93,9 +93,13 @@ class TestSurvey(APIBaseTest):
         )
 
         response_data = response.json()
+
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["linked_flag"]["id"] == notebooks_flag.id
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+        self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
+        assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
+
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
                 {
