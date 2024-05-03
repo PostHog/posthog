@@ -155,6 +155,7 @@ def execute_hogql_query(
                 settings=settings,
                 pretty=pretty if pretty is not None else True,
             )
+            print(clickhouse_sql % clickhouse_context.values)
         except Exception as e:
             if debug:
                 clickhouse_sql = None
