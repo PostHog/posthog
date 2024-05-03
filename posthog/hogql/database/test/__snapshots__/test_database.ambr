@@ -223,7 +223,7 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "entry_current_url",
+                  "$entry_current_url",
                   "$entry_pathname",
                   "$exit_current_url",
                   "$exit_pathname",
@@ -632,7 +632,7 @@
               "type": "array"
           },
           {
-              "key": "entry_current_url",
+              "key": "$entry_current_url",
               "type": "string"
           },
           {
@@ -1294,7 +1294,7 @@
                   "$start_timestamp",
                   "$end_timestamp",
                   "$urls",
-                  "entry_current_url",
+                  "$entry_current_url",
                   "$entry_pathname",
                   "$exit_current_url",
                   "$exit_pathname",
@@ -1703,7 +1703,7 @@
               "type": "array"
           },
           {
-              "key": "entry_current_url",
+              "key": "$entry_current_url",
               "type": "string"
           },
           {
