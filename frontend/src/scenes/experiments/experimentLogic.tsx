@@ -34,6 +34,8 @@ import {
     CohortType,
     CountPerActorMathType,
     Experiment,
+    ExperimentFinishActionType,
+    ExperimentFinishSendEmailType,
     ExperimentResults,
     FilterType,
     FunnelExperimentVariant,
@@ -69,6 +71,7 @@ const NEW_EXPERIMENT: Experiment = {
     created_at: null,
     created_by: null,
     updated_at: null,
+    finish_actions: [],
 }
 
 export interface ExperimentLogicProps {
@@ -151,6 +154,9 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
+        addOnFinishExperimentAction: true,
+        removeOnFinishExperimentAction: (action: ExperimentFinishActionType) => ({ action }),
+        addOnFinishActionEmails: (subAction: ExperimentFinishSendEmailType, value: string[]) => ({ subAction, value }),
         archiveExperiment: true,
         resetRunningExperiment: true,
         checkFlagImplementationWarning: true,
@@ -205,6 +211,54 @@ export const experimentLogic = kea<experimentLogicType>([
                         }
                     }
                     return state
+                },
+                addOnFinishExperimentAction: (state) => {
+                    const existingActions = state.finish_actions || []
+
+                    return {
+                        ...state,
+                        finish_actions: [
+                            ...existingActions,
+                            {
+                                action: ExperimentFinishActionType.SEND_EMAIL,
+                                subAction: ExperimentFinishSendEmailType.ALL,
+                            },
+                        ],
+                    }
+                },
+                removeOnFinishExperimentAction: (state, { action }) => {
+                    const actions = [...(state.finish_actions || [])]
+
+                    actions.splice(
+                        actions.findIndex((a) => a.action === action),
+                        1
+                    )
+
+                    return {
+                        ...state,
+                        finish_actions: actions,
+                    }
+                },
+                addOnFinishActionEmails: (state, { subAction, value }) => {
+                    const newFinishActions = [...(state.finish_actions || [])]
+
+                    const actionIndex = newFinishActions.findIndex(
+                        (a) => a.action === ExperimentFinishActionType.SEND_EMAIL
+                    )
+
+                    if (actionIndex === -1) {
+                        return state
+                    }
+
+                    newFinishActions[actionIndex].value = {
+                        ...(newFinishActions[actionIndex].value || {}),
+                        [subAction]: value,
+                    }
+
+                    return {
+                        ...state,
+                        finish_actions: newFinishActions,
+                    }
                 },
                 removeExperimentGroup: (state, { idx }) => {
                     if (!state) {

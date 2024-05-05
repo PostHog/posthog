@@ -10,10 +10,10 @@ import {
     ExperimentFinishAction,
     ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
-    ExperimentFinishEmailTypes,
+    ExperimentFinishSendEmailType,
 } from '~/types'
 
-import { ON_FINISH_EXPERIMENT_ACTIONS } from './constants'
+import { FINISH_EXPERIMENT_ACTIONS } from './constants'
 import { experimentLogic } from './experimentLogic'
 
 export function AddNewExperimentFinishAction(): JSX.Element {
@@ -29,7 +29,7 @@ export function AddNewExperimentFinishAction(): JSX.Element {
                     addOnFinishExperimentAction()
                 }}
                 disabledReason={
-                    experiment.finish_actions?.length === ON_FINISH_EXPERIMENT_ACTIONS.length
+                    experiment.finish_actions?.length === FINISH_EXPERIMENT_ACTIONS.length
                         ? 'There are no more supported actions at present.'
                         : false
                 }
@@ -64,7 +64,7 @@ function ExperimentFinishEmailRenderer({
                     label: email,
                 }))}
                 value={emailParticipants}
-                className="LemonInputSelect input-width"
+                // className="LemonInputSelect input-width"
             />
             <Tooltip title={tooltip}>
                 <IconInfo className="ml-1 text-muted text-xl" />
@@ -123,7 +123,6 @@ function ExperimentSendEmailToLemonInput({
                 label: member.user.email,
             }))}
             value={value}
-            allowCustomValues
         />
     )
 }
@@ -145,12 +144,12 @@ export function ExperimentFinishEmailActionTypeRenderer({
     return (
         <div>
             <div className="flex items-center mb-4">
-                <LemonSelect options={ON_FINISH_EXPERIMENT_ACTIONS} value={finishAction.action} />
+                <LemonSelect options={FINISH_EXPERIMENT_ACTIONS} value={finishAction.action} />
                 <span className="ml-2 mr-2">to </span>
                 <LemonField name="experiment-finish-email-to">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishEmailTypes.ALL, newValue)
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.ALL, newValue)
                         }}
                         value={values?.ALL}
                     />
@@ -163,7 +162,7 @@ export function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-success">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishEmailTypes.SUCCESS, newValue)
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.SUCCESS, newValue)
                         }}
                         value={values?.SUCCESS}
                     />
@@ -174,7 +173,7 @@ export function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-failure">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishEmailTypes.FAILURE, newValue)
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.FAILURE, newValue)
                         }}
                         value={values?.FAILURE}
                     />
