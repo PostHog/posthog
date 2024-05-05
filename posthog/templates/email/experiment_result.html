@@ -1,0 +1,80 @@
+{% extends "email/base.html" %} 
+{% load posthog_assets %} 
+{% load posthog_filters %} 
+{% load posthog_utils %} 
+
+{% block section %}
+
+<div class="preheader">{% block preheader %}{% endblock %}</div>
+
+<h2>{{ experiment.name }}</h2>
+<p>
+    {% if experiment.description %} 
+        {{ experiment.description }} 
+    {% else %} 
+        No description provided for this experiment. 
+    {% endif %}
+</p>
+
+<h2 class="mt">Results overview</h2>
+<ul>
+    <li>{{ significance_message }}</li>
+    <li>
+        The experiment ran for
+        ~{{ experiment_ran_from|humanize_time_diff:experiment_ran_to }}.
+    </li>
+    {% if is_success %}
+        <li>
+            The test variant(s) have a combined win probability of {{ test_probability }}, 
+            while control lagged behind with {{ control_probability }}.
+        </li>
+    {% else %}
+        <li>
+            The control variant had a {{ control_probability }} of success, while the test variant(s)
+            had {{ test_probability }}.
+        </li>
+    {% endif %}
+</ul>
+
+<div class="mb mt text-center">
+  <a
+    class="button"
+    href="{% absolute_uri '/project' %}/{{ experiment.team.id }}/experiments/{{ experiment.pk }}"
+    target="_blank"
+    >Check the results</a
+  >
+</div>
+
+{% if is_success %}
+<div>
+  <p>
+    Congratulations! Your experiment was a success! Here are a few next steps
+    you can consider:
+  </p>
+  <ul>
+    <li>
+      Roll out the winning variant of your experiment by setting the feature
+      flag conditions accordingly. This ensures that your users see the winning
+      variant without needing to make any code changes.
+    </li>
+    <li>
+      Remove the experiment and losing variant's code to launch the winning
+      variant to all your users.
+    </li>
+    <li>
+      Document conclusions and findings in the "description" field your PostHog
+      experiment. This will help preserve historical context for future team
+      members.
+    </li>
+    <li>Archive the experiment.</li>
+  </ul>
+</div>
+{% else %}
+<div class="mt">
+  <h2>What's next?</h2>
+  <b class="mt">{{ next_steps.0 }}</b>
+  <p>{{ next_steps.1 }}</p>
+</div>
+{% endif %} 
+
+{% endblock %} <!-- end section -->
