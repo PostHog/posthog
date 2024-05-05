@@ -40,19 +40,13 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import {
-    Experiment as ExperimentType,
-    ExperimentFinishActionType,
-    FunnelStep,
-    InsightType,
-    ProgressStatus,
-} from '~/types'
+import { Experiment as ExperimentType, FunnelStep, InsightType, ProgressStatus } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from './constants'
 import {
     AddNewExperimentFinishAction,
+    ExperimentFinishActionDisplayTypeRenderer,
     ExperimentFinishActionTypeRenderer,
-    ExperimentFinishEmailOverviewRenderer,
 } from './ExperimentFinishActions'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
@@ -849,18 +843,20 @@ export function Experiment(): JSX.Element {
                                                 />
                                             </div>
                                             <div>
-                                                <div className="card-secondary mt-4 mb-1">
-                                                    Once the experiment is finished
-                                                </div>
+                                                {experiment.finish_actions?.length && (
+                                                    <div className="card-secondary mt-4 mb-1">
+                                                        Once the experiment is finished
+                                                    </div>
+                                                )}
                                                 {experiment.finish_actions?.map((finishAction) => {
-                                                    if (finishAction.action === ExperimentFinishActionType.SEND_EMAIL) {
-                                                        return (
-                                                            <ExperimentFinishEmailOverviewRenderer
+                                                    return (
+                                                        <div key={finishAction.action} className="flex mt-2">
+                                                            <ExperimentFinishActionDisplayTypeRenderer
                                                                 key={finishAction.action}
                                                                 finishAction={finishAction}
                                                             />
-                                                        )
-                                                    }
+                                                        </div>
+                                                    )
                                                 })}
                                             </div>
                                         </div>

@@ -73,7 +73,7 @@ function ExperimentFinishEmailRenderer({
     )
 }
 
-export function ExperimentFinishEmailOverviewRenderer({
+function ExperimentFinishEmailOverviewRenderer({
     finishAction,
 }: {
     finishAction: ExperimentFinishAction
@@ -91,13 +91,13 @@ export function ExperimentFinishEmailOverviewRenderer({
                 emailParticipants={allEmailParticipants}
             />
             <ExperimentFinishEmailRenderer
-                tooltip="If the experiment results are statistically significant, & the experiment succeeded, these members will receive the email"
                 label="If it was successful:"
+                tooltip="If the experiment results are statistically significant, and the experiment succeeded, these members will receive the email"
                 emailParticipants={successEmailParticipants}
             />
             <ExperimentFinishEmailRenderer
                 label="If it failed:"
-                tooltip="If the experiment results are NOT statistically significant, or the experiment failed, these members will receive the email"
+                tooltip="If the experiment results are NOT statistically significant, and the experiment failed, these members will receive the email"
                 emailParticipants={failureEmailParticipants}
             />
         </div>
@@ -108,7 +108,7 @@ function ExperimentSendEmailToLemonInput({
     onChange,
     value,
 }: {
-    onChange: (newValue: string[]) => void
+    onChange: (newValues: string[]) => void
     value: string[] | undefined
 }): JSX.Element {
     const { members } = useValues(membersLogic)
@@ -127,7 +127,7 @@ function ExperimentSendEmailToLemonInput({
     )
 }
 
-export function ExperimentFinishEmailActionTypeRenderer({
+function ExperimentFinishEmailActionTypeRenderer({
     finishAction,
 }: {
     finishAction: ExperimentFinishAction
@@ -144,12 +144,12 @@ export function ExperimentFinishEmailActionTypeRenderer({
     return (
         <div>
             <div className="flex items-center mb-4">
-                <LemonSelect options={FINISH_EXPERIMENT_ACTIONS} value={finishAction.action} />
+                <LemonSelect options={FINISH_EXPERIMENT_ACTIONS} value={action} />
                 <span className="ml-2 mr-2">to </span>
                 <LemonField name="experiment-finish-email-to">
                     <ExperimentSendEmailToLemonInput
-                        onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.ALL, newValue)
+                        onChange={(newValues: string[]) => {
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.ALL, newValues)
                         }}
                         value={values?.ALL}
                     />
@@ -161,8 +161,8 @@ export function ExperimentFinishEmailActionTypeRenderer({
                 <span>If the experiment is a success, send this to: </span>
                 <LemonField name="experiment-finish-email-success">
                     <ExperimentSendEmailToLemonInput
-                        onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.SUCCESS, newValue)
+                        onChange={(newValues: string[]) => {
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.SUCCESS, newValues)
                         }}
                         value={values?.SUCCESS}
                     />
@@ -172,8 +172,8 @@ export function ExperimentFinishEmailActionTypeRenderer({
                 <span>If the experiment is a failure, send this to: </span>
                 <LemonField name="experiment-finish-email-failure">
                     <ExperimentSendEmailToLemonInput
-                        onChange={(newValue: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.FAILURE, newValue)
+                        onChange={(newValues: string[]) => {
+                            addOnFinishActionEmails(ExperimentFinishSendEmailType.FAILURE, newValues)
                         }}
                         value={values?.FAILURE}
                     />
@@ -191,6 +191,19 @@ export function ExperimentFinishActionTypeRenderer({
     switch (finishAction.action) {
         case ExperimentFinishActionType.SEND_EMAIL:
             return <ExperimentFinishEmailActionTypeRenderer finishAction={finishAction} />
+        default:
+            return <div>Unknown action type</div>
+    }
+}
+
+export function ExperimentFinishActionDisplayTypeRenderer({
+    finishAction,
+}: {
+    finishAction: ExperimentFinishAction
+}): JSX.Element {
+    switch (finishAction.action) {
+        case ExperimentFinishActionType.SEND_EMAIL:
+            return <ExperimentFinishEmailOverviewRenderer finishAction={finishAction} />
         default:
             return <div>Unknown action type</div>
     }
