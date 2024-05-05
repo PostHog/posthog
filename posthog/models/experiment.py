@@ -32,6 +32,8 @@ class Experiment(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     archived: models.BooleanField = models.BooleanField(default=False)
 
+    finish_actions: models.JSONField = models.JSONField(default=list, null=True)
+
     def get_feature_flag_key(self):
         return self.feature_flag.key
 
