@@ -94,6 +94,7 @@ class Action(models.Model):
 
     @steps.setter
     def steps(self, value: list[dict]):
+        # TRICKY: This is a little tricky as DRF will deserialize this here as a dict but typing wise we would expect an ActionStepJSON
         self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
 
     def get_step_events(self) -> list[str]:
