@@ -25,7 +25,6 @@ def copy_action_steps_to_json(apps, schema_editor):
             }
             for step in action.action_steps.all()
         ]
-        print(action.steps, action.steps_json)
         action.save()
 
 
