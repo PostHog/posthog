@@ -30,6 +30,8 @@ import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 
 window.process = MOCK_NODE_PROCESS
 
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
 function EnabledDisabledSwitch({
     value,
     onChange,
@@ -90,7 +92,8 @@ export function PluginDrawer(): JSX.Element {
     const actionMatchingFlag = !!useFeatureFlag('PLUGINS_ACTION_MATCHING')
     const actionMatchingEnabled =
         (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) &&
-        (editingPlugin?.capabilities?.methods?.includes('composeWebhook') || editingPlugin?.name === 'Action Webhook')
+        (editingPlugin?.capabilities?.methods?.includes('composeWebhook') ||
+            editingPlugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK)
 
     return (
         <>
