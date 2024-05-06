@@ -51,7 +51,7 @@ exports[`ActionWebhookFormatter webhook formatting options { messageFormat: '[ev
 
 exports[`ActionWebhookFormatter webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"[text\\\\]\\\\(yes\\\\!\\\\), \\\\[new link](http://localhost:8000/project/123/events/\\\\*\\\\*\\\\)/2021-10-31T00%253A44%253A00.000Z)"`;
 
-exports[`ActionWebhookFormatter webhook formatting options { messageFormat: '[groups.missing]' } 1`] = `"(no group)"`;
+exports[`ActionWebhookFormatter webhook formatting options { messageFormat: '[groups.missing]' } 1`] = `"(event without 'missing')"`;
 
 exports[`ActionWebhookFormatter webhook formatting options { messageFormat: '[groups.organization.properties.plan]' } 1`] = `"paid"`;
 

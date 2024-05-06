@@ -231,7 +231,8 @@ export class ActionWebhookFormatter {
 
                 if (!relatedGroup) {
                     // What to return if no matching group?
-                    return ['(no group)', '(no group)']
+                    const message = `(event without '${tokenParts[1]}')`
+                    return [message, message]
                 }
 
                 if (tokenParts.length === 2) {
