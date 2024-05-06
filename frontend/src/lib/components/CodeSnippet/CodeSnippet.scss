@@ -17,7 +17,7 @@
 
     .CodeSnippet__actions {
         position: absolute;
-        top: 0.5rem;
+        top: 0.75rem;
         right: 0.5rem;
         display: flex;
         gap: 0.5rem;
@@ -25,7 +25,7 @@
     }
 
     pre {
-        padding: 0.5rem 1rem;
+        padding: 0.75rem 1rem;
         margin: 0; // Reset
         background: var(--accent-3000) !important;
         border: solid 1px var(--border-3000) !important;
