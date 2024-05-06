@@ -2,10 +2,12 @@ import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType } from '@p
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
+import {
+    NavigationItem,
+    performanceSummaryCards,
+} from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { Body, PerformanceEvent } from '~/types'
@@ -63,64 +65,6 @@ export interface ItemPerformanceEvent {
     setExpanded: (expanded: boolean) => void
     finalTimestamp?: Dayjs
 }
-
-const performanceSummaryCards = [
-    {
-        label: 'First Contentful Paint',
-        description: (
-            <div>
-                The First Contentful Paint (FCP) metric measures the time from when the page starts loading to when any
-                part of the page's content is rendered on the screen.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'first_contentful_paint',
-        scoreBenchmarks: [1800, 3000],
-    },
-    {
-        label: 'DOM Interactive',
-        description: (
-            <div>
-                The document has finished loading and the document has been parsed but sub-resources such as scripts,
-                images, stylesheets and frames are still loading.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Web/API/Document/readyState"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'dom_interactive',
-        scoreBenchmarks: [3800, 7300],
-    },
-    {
-        label: 'Page Loaded',
-        description: (
-            <div>
-                The load event is fired when the whole page has loaded, including all dependent resources such as
-                stylesheets and images. This is in contrast to DOMContentLoaded, which is fired as soon as the page DOM
-                has been loaded, without waiting for resources to finish loading.{' '}
-                <Link
-                    disableClientSideRouting
-                    to="https://developer.mozilla.org/en-US/docs/Web/API/Window/load_event"
-                    target="_blank"
-                >
-                    Read more on developer.mozilla.org
-                </Link>
-            </div>
-        ),
-        key: 'load_event_end',
-        scoreBenchmarks: [3800, 7300],
-    },
-]
 
 function renderTimeBenchmark(milliseconds: number): JSX.Element {
     return (
@@ -243,7 +187,7 @@ export function ItemPerformanceEvent({
                         }}
                     />
                     {item.entry_type === 'navigation' ? (
-                        <NavigationItem item={item} expanded={expanded} shortEventName={shortEventName} />
+                        <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
@@ -526,52 +470,4 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
             <LemonDivider dashed />
         </p>
     ) : null
-}
-
-function NavigationItem({
-    item,
-    expanded,
-    shortEventName,
-}: {
-    item: PerformanceEvent
-    expanded: boolean
-    shortEventName: string
-}): JSX.Element | null {
-    return (
-        <>
-            <div className="flex gap-2 items-start p-2 text-xs">
-                <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                    Navigated to {shortEventName}
-                </span>
-            </div>
-            <LemonDivider className="my-0" />
-            <div className="flex items-center p-2">
-                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
-                    <Fragment key={key}>
-                        {index !== 0 && <LemonDivider vertical dashed />}
-                        <Tooltip title={description}>
-                            <div className="flex-1 p-2 text-center">
-                                <div className="text-sm">{label}</div>
-                                <div className="text-lg font-semibold">
-                                    {item?.[key] === undefined ? (
-                                        '-'
-                                    ) : (
-                                        <span
-                                            className={clsx({
-                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                'text-warning-dark':
-                                                    item[key] >= scoreBenchmarks[0] && item[key] < scoreBenchmarks[1],
-                                            })}
-                                        >
-                                            {humanFriendlyMilliseconds(item[key])}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        </Tooltip>
-                    </Fragment>
-                ))}
-            </div>
-        </>
-    )
 }
