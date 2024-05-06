@@ -12,6 +12,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     Compare,
     CountPerActorMathType,
     DateRange,
@@ -62,15 +63,6 @@ def get_actors(
     return response.results
 
 
-# def _create_action(**kwargs):
-#     team = kwargs.pop("team")
-#     name = kwargs.pop("name")
-#     properties = kwargs.pop("properties", {})
-#     action = Action.objects.create(team=team, name=name)
-#     ActionStep.objects.create(action=action, event=name, properties=properties)
-#     return action
-
-
 def _create_cohort(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
@@ -99,120 +91,45 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def _get_actors(self, trends_query: TrendsQuery, **kwargs):
         return get_actors(trends_query=trends_query, team=self.team, **kwargs, includeRecordings=True)
 
-    def _create_event(self, **kwargs):
-        _create_event(**kwargs)
-
-    #     props = kwargs.get("properties")
-    #     if props is not None:
-    #         for key, value in props.items():
-    #             prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
-    #             if prop_def_exists is False:
-    #                 if isinstance(value, str):
-    #                     type = "String"
-    #                 elif isinstance(value, bool):
-    #                     type = "Boolean"
-    #                 elif isinstance(value, int):
-    #                     type = "Numeric"
-    #                 else:
-    #                     type = "String"
-
-    #                 PropertyDefinition.objects.create(
-    #                     team=self.team,
-    #                     name=key,
-    #                     property_type=type,
-    #                     type=PropertyDefinition.Type.EVENT,
-    #                 )
-
-    def _create_person(self, **kwargs):
-        person = _create_person(**kwargs)
-        #     props = kwargs.get("properties")
-        #     if props is not None:
-        #         for key, value in props.items():
-        #             prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
-        #             if prop_def_exists is False:
-        #                 if isinstance(value, str):
-        #                     type = "String"
-        #                 elif isinstance(value, bool):
-        #                     type = "Boolean"
-        #                 elif isinstance(value, int):
-        #                     type = "Numeric"
-        #                 else:
-        #                     type = "String"
-
-        #                 PropertyDefinition.objects.create(
-        #                     team=self.team,
-        #                     name=key,
-        #                     property_type=type,
-        #                     type=PropertyDefinition.Type.PERSON,
-        #                 )
-        return person
-
-    def _create_group(self, **kwargs):
-        create_group(**kwargs)
-
-    #     props = kwargs.get("properties")
-    #     index = kwargs.get("group_type_index")
-
-    #     if props is not None:
-    #         for key, value in props.items():
-    #             prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
-    #             if prop_def_exists is False:
-    #                 if isinstance(value, str):
-    #                     type = "String"
-    #                 elif isinstance(value, bool):
-    #                     type = "Boolean"
-    #                 elif isinstance(value, int):
-    #                     type = "Numeric"
-    #                 else:
-    #                     type = "String"
-
-    #                 PropertyDefinition.objects.create(
-    #                     team=self.team,
-    #                     name=key,
-    #                     property_type=type,
-    #                     group_type_index=index,
-    #                     type=PropertyDefinition.Type.GROUP,
-    #                 )
-
     def _create_events(self):
-        self._create_person(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["person1"],
             properties={"$geoip_country_code": "US"},
         )
-        self._create_person(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["person2"],
             properties={"$geoip_country_code": "DE"},
         )
-        self._create_person(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["person3"],
             properties={"$geoip_country_code": "DE"},
         )
 
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-04-29 16:00",
             properties={"$browser": "Chrome"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageleave",
             distinct_id="person1",
             timestamp="2024-04-29 17:00",
             properties={"$browser": "Chrome"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person2",
             timestamp="2024-04-29 17:00",
             properties={"$browser": "Safari"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person2",
             timestamp="2024-04-29 18:00",
@@ -220,46 +137,54 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 16:00",
             properties={"$browser": "Chrome", "some_property": 20},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 17:00",
             properties={"$browser": "Chrome"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 18:00",
             properties={"$browser": "Chrome"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person2",
             timestamp="2024-05-01 16:00",
             properties={"$browser": "Safari", "some_property": 22},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person2",
             timestamp="2024-05-01 17:00",
             properties={"$browser": "Safari"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person3",
             timestamp="2024-05-01 16:00",
             properties={"$browser": "Safari"},
+            team=self.team,
+        )
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2024-05-06 16:00",
+            properties={"$browser": "Chrome", "some_property": 20},
             team=self.team,
         )
 
@@ -480,24 +405,24 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_math_group_persons(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="Company", group_type_index=0)
-        self._create_group(team_id=self.team.pk, group_type_index=0, group_key="Hooli")
-        self._create_group(team_id=self.team.pk, group_type_index=0, group_key="Pied Piper")
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="Hooli")
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="Pied Piper")
 
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 16:00",
             properties={"$group_0": "Hooli"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 17:00",
             properties={"$group_0": "Hooli"},
             team=self.team,
         )
-        self._create_event(
+        _create_event(
             event="$pageview",
             distinct_id="person1",
             timestamp="2024-05-01 18:00",
@@ -519,18 +444,43 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_group_name(result[1]), "Pied Piper")
         self.assertEqual(get_event_count(result[1]), 1)
 
-    def test_trends_formula_persons(self):
+    def test_trends_total_value_persons(self):
         self._create_events()
         source_query = TrendsQuery(
-            series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="-7d"),
-            trendsFilter=TrendsFilter(formula="A+B"),
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BoldNumber),
         )
 
-        result = self._get_actors(trends_query=source_query, day="2024-04-29")
+        # note: total value actors should be called without day
+        result = self._get_actors(trends_query=source_query)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 4)
+        self.assertEqual(get_distinct_id(result[1]), "person1")
+        self.assertEqual(get_event_count(result[1]), 4)
+        self.assertEqual(get_distinct_id(result[2]), "person3")
+        self.assertEqual(get_event_count(result[2]), 1)
+
+    def test_trends_compare_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d"),
+            trendsFilter=TrendsFilter(compare=True),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2024-05-06", compare=Compare.current)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2024-05-06", compare=Compare.previous)
 
         self.assertEqual(len(result), 2)
         self.assertEqual(get_distinct_id(result[0]), "person2")
         self.assertEqual(get_event_count(result[0]), 2)
         self.assertEqual(get_distinct_id(result[1]), "person1")
-        self.assertEqual(get_event_count(result[1]), 2)
+        self.assertEqual(get_event_count(result[1]), 1)
