@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -31,9 +31,8 @@ function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginIn
         ...pluginConfig.config,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
-        // plugin_info shouldn't ever be null, but I saw an error, so added a check
-        name: pluginConfig.name || pluginConfig.plugin_info ? pluginConfig.plugin_info.name : '',
-        description: pluginConfig.description || pluginConfig.plugin_info ? pluginConfig.plugin_info.description : '',
+        name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
+        description: pluginConfig.description ? pluginConfig.description : pluginConfig.plugin_info.description || '',
     }
 }
 
@@ -56,9 +55,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         return `NEW:${pluginId}`
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
-    actions({
-        setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
-    }),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
     })),
@@ -87,14 +83,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     if (!values.plugin || !props.stage) {
                         return null
                     }
-                    const { enabled, order, ...config } = formdata
-                    // if enabling a transformation we need to set the order to be last
-                    // if already enabled we don't want to change the order
-                    // it doesn't matter for other stages so we can use any value
-                    const orderFixed =
-                        enabled && values.pluginConfig && !values.pluginConfig.enabled
-                            ? values.nextAvailableOrder
-                            : order || 0
+                    const { enabled, order, name, description, ...config } = formdata
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
                         defaultConfigForPlugin(values.plugin),
@@ -104,6 +93,15 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         formData.append(key, formdata[key])
                     }
                     formData.append('enabled', enabled)
+                    formData.append('name', name)
+                    formData.append('description', description)
+                    // if enabling a transformation we need to set the order to be last
+                    // if already enabled we don't want to change the order
+                    // it doesn't matter for other stages so we can use any value
+                    const orderFixed =
+                        enabled && values.pluginConfig && !values.pluginConfig.enabled
+                            ? values.nextAvailableOrder
+                            : order || 0
                     formData.append('order', orderFixed)
                     if (props.pluginConfigId) {
                         return await api.pluginConfigs.update(props.pluginConfigId, formData)
@@ -116,7 +114,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             },
         ],
     })),
-    listeners(({ props, values, actions }) => ({
+    listeners(({ props }) => ({
         updatePluginConfigSuccess: ({ pluginConfig }) => {
             if (!pluginConfig) {
                 return
@@ -130,31 +128,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 frontendAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
             } else if (props.stage === PipelineStage.ImportApp) {
                 importAppsLogic.findMounted()?.actions.updatePluginConfig(pluginConfig)
-            }
-        },
-        setConfigurationValue: async ({ name, value }) => {
-            if (name[0] === 'json_config_file' && value) {
-                try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => resolve(e.target?.result as string)
-                        filereader.onerror = (e) => reject(e)
-                        filereader.readAsText(value[0])
-                    })
-                    const jsonConfig = JSON.parse(loadedFile)
-                    actions.setConfigurationValues({
-                        ...values.configuration,
-                        project_id: jsonConfig.project_id,
-                        private_key: jsonConfig.private_key,
-                        private_key_id: jsonConfig.private_key_id,
-                        client_email: jsonConfig.client_email,
-                        token_uri: jsonConfig.token_uri,
-                    })
-                } catch (e) {
-                    actions.setConfigurationManualErrors({
-                        json_config_file: 'The config file is not valid',
-                    })
-                }
             }
         },
     })),
@@ -172,7 +145,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 },
                 loadPluginConfigSuccess: (state, { pluginConfig }) => {
                     if (!pluginConfig) {
-                        // if no props.id given loaded null, keep the default configuration
                         return state
                     }
                     return getConfigurationFromPluginConfig(pluginConfig)

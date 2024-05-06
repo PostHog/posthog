@@ -6,7 +6,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { BatchExportGeneralEditFields } from 'scenes/batch_exports/BatchExportEditForm'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 
 import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
@@ -50,7 +50,10 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                             <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
                         )}
                     </LemonField>
-                    <BatchExportConfigurationFields isNew={isNew} formValues={configuration} />
+                    <BatchExportConfigurationFields
+                        isNew={isNew}
+                        formValues={configuration as BatchExportConfigurationForm}
+                    />
                     <div className="flex gap-2">
                         <LemonButton
                             type="secondary"
@@ -80,13 +83,12 @@ function BatchExportConfigurationFields({
     formValues,
 }: {
     isNew: boolean
-    formValues: Record<string, any>
+    formValues: BatchExportConfigurationForm
 }): JSX.Element {
     return (
-        <BatchExportGeneralEditFields
-            isNew={isNew}
-            isPipeline
-            batchExportConfigForm={formValues as BatchExportConfigurationForm}
-        />
+        <>
+            <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
+            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
+        </>
     )
 }
