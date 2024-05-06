@@ -325,7 +325,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CR | CacheMissResponse:
         # TODO: `self.limit_context` should probably just be in get_cache_key()
-        cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
+        cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}_v2"
         tag_queries(cache_key=cache_key)
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
