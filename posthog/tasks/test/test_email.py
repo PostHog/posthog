@@ -1,10 +1,13 @@
-from typing import Tuple
+import datetime as dt
 from unittest.mock import MagicMock, patch
 
+import pytest
+from asgiref.sync import sync_to_async
 from freezegun import freeze_time
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
@@ -12,6 +15,7 @@ from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
     send_async_migration_complete_email,
     send_async_migration_errored_email,
+    send_batch_export_run_failure,
     send_canary_email,
     send_email_verification,
     send_fatal_plugin_error,
@@ -23,7 +27,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> Tuple[Organization, User]:
+def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
     with freeze_time(creation_date):
         org = Organization.objects.create(name="too_late_org")
         Team.objects.create(organization=org, name="Default Project", ingested_event=ingested_event)
@@ -141,6 +145,62 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
         send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+        # should be sent to both
+        assert len(mocked_email_messages[1].to) == 2
+
+    @pytest.mark.asyncio
+    async def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _, user = await sync_to_async(create_org_team_and_user)("2022-01-02 00:00:00", "admin@posthog.com")
+        batch_export_destination = await sync_to_async(BatchExportDestination.objects.create)(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = await sync_to_async(BatchExport.objects.create)(
+            team=user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = await sync_to_async(BatchExportRun.objects.create)(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        await send_batch_export_run_failure(batch_export_run.id)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    @pytest.mark.asyncio
+    async def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = await sync_to_async(BatchExportDestination.objects.create)(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = await sync_to_async(BatchExport.objects.create)(
+            team=self.user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = await sync_to_async(BatchExportRun.objects.create)(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+        await sync_to_async(self._create_user)("test2@posthog.com")
+        self.user.partial_notification_settings = {"batch_export_run_failure": False}
+        await sync_to_async(self.user.save)()
+
+        await send_batch_export_run_failure(batch_export_run.id)
+        # Should only be sent to user2
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        self.user.partial_notification_settings = {"batch_export_run_failure": True}
+        await sync_to_async(self.user.save)()
+
+        await send_batch_export_run_failure(batch_export_run.id)
         # should be sent to both
         assert len(mocked_email_messages[1].to) == 2
 

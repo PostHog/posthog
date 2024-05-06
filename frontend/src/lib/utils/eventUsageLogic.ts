@@ -43,6 +43,7 @@ import {
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
+    SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
 } from '~/types'
@@ -100,7 +101,7 @@ interface RecordingViewedProps {
     page_change_events_length: number
     recording_width?: number
     loadedFromBlobStorage: boolean
-
+    snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
@@ -342,6 +343,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
+        reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -355,8 +357,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
+            metadata: SessionRecordingType | null,
             delay?: number
-        ) => ({ playerData, durations, type, delay }),
+        ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
         reportRecordingsListFetched: (loadTime: number) => ({
@@ -386,6 +389,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
+        reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
+            experiment,
+            newStartDate,
+        }),
         reportExperimentCompleted: (
             experiment: Experiment,
             endDate: Dayjs,
@@ -402,6 +409,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             existingCohort,
             newCohort,
         }),
+        reportExperimentInsightLoadFailed: true,
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -450,6 +458,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportIngestionContinueWithoutVerifying: true,
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
+        reportHeatmapsToggled: (heatmaps_opt_in: boolean) => ({ heatmaps_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
@@ -484,7 +493,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey) => ({ survey }),
+        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
         reportSurveyEdited: (survey: Survey) => ({ survey }),
         reportSurveyLaunched: (survey: Survey) => ({ survey }),
         reportSurveyStopped: (survey: Survey) => ({ survey }),
@@ -803,7 +812,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('test account filters updated', payload)
         },
-
+        reportPoEModeUpdated: async ({ mode }) => {
+            posthog.capture('persons on events mode updated', { mode })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -843,7 +854,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, metadata }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -858,6 +869,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                // older recordings did not store this and so "null" is equivalent to web
+                // but for reporting we want to distinguish between not loaded and no value to load
+                snapshot_source: metadata?.snapshot_source || 'unknown',
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -978,6 +992,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 launch_date: launchDate.toISOString(),
             })
         },
+        reportExperimentStartDateChange: ({ experiment, newStartDate }) => {
+            posthog.capture('experiment start date changed', {
+                name: experiment.name,
+                id: experiment.id,
+                old_start_date: experiment.start_date,
+                new_start_date: newStartDate,
+            })
+        },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
                 name: experiment.name,
@@ -1002,6 +1024,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 new_filters: newCohort.filters,
                 id: newCohort.id,
             })
+        },
+        reportExperimentInsightLoadFailed: () => {
+            posthog.capture('experiment load insight failed')
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
@@ -1082,6 +1107,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 autocapture_opt_in,
             })
         },
+        reportHeatmapsToggled: ({ heatmaps_opt_in }) => {
+            posthog.capture('heatmaps toggled', {
+                heatmaps_opt_in,
+            })
+        },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
@@ -1144,13 +1174,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey }) => {
+        reportSurveyCreated: ({ survey, isDuplicate }) => {
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
                 survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
+                is_duplicate: isDuplicate ?? false,
             })
         },
         reportSurveyLaunched: ({ survey }) => {

@@ -1,10 +1,10 @@
-import { IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
+import { IconNotebook, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconComment, IconLink } from 'lib/lemon-ui/icons'
+import { IconComment } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Fragment } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import {
@@ -19,7 +19,13 @@ import { NotebookNodeType } from '~/types'
 import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
-function PinToPlaylistButton(): JSX.Element {
+function PinToPlaylistButton({
+    buttonContent,
+    ...buttonProps
+}: {
+    buttonContent: (label: string) => JSX.Element
+    buttonProps?: Partial<LemonButtonProps>
+}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
@@ -35,6 +41,7 @@ function PinToPlaylistButton(): JSX.Element {
 
     return logicProps.setPinned ? (
         <LemonButton
+            {...buttonProps}
             onClick={() => {
                 if (nodeLogic && !logicProps.pinned) {
                     // If we are in a node, then pinning should persist the recording
@@ -43,21 +50,18 @@ function PinToPlaylistButton(): JSX.Element {
 
                 logicProps.setPinned?.(!logicProps.pinned)
             }}
-            size="small"
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
             icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
         />
     ) : (
-        <PlaylistPopoverButton size="small">
-            <span>{description}</span>
-        </PlaylistPopoverButton>
+        <PlaylistPopoverButton {...buttonProps}>{buttonContent(description)}</PlaylistPopoverButton>
     )
 }
 
-export function PlayerMetaLinks(): JSX.Element {
+export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { setPause, deleteRecording, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
 
@@ -76,34 +80,22 @@ export function PlayerMetaLinks(): JSX.Element {
         })
     }
 
-    const onDelete = (): void => {
-        setIsFullScreen(false)
-        LemonDialog.open({
-            title: 'Delete recording',
-            description: 'Are you sure you want to delete this recording? This cannot be undone.',
-            secondaryButton: {
-                children: 'Cancel',
-            },
-            primaryButton: {
-                children: 'Delete',
-                status: 'danger',
-                onClick: deleteRecording,
-            },
-        })
-    }
-
     const commonProps: Partial<LemonButtonProps> = {
         size: 'small',
+    }
+
+    const buttonContent = (label: string): JSX.Element => {
+        return !iconsOnly ? <span>{label}</span> : <Fragment />
     }
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     return (
-        <div className="flex flex-row gap-1 items-center justify-end">
+        <>
             {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
                 <>
                     <NotebookSelectButton
-                        size="small"
+                        {...commonProps}
                         icon={<IconComment />}
                         resource={{
                             type: NotebookNodeType.Recording,
@@ -117,28 +109,27 @@ export function PlayerMetaLinks(): JSX.Element {
                                 // Node already exists, we just add a comment
                                 theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
                                 return
-                            } else {
-                                theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                                    timestamp: time,
-                                    sessionRecordingId,
-                                })
                             }
+                            theNotebookLogic.actions.insertReplayCommentByTimestamp({
+                                timestamp: time,
+                                sessionRecordingId,
+                            })
 
                             closeSessionPlayer()
                             personsModalLogic.findMounted()?.actions.closeModal()
                         }}
                     >
-                        Comment
+                        {buttonContent('Comment')}
                     </NotebookSelectButton>
 
-                    <LemonButton icon={<IconLink />} onClick={onShare} {...commonProps}>
-                        <span>Share</span>
+                    <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps}>
+                        {buttonContent('Share')}
                     </LemonButton>
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton
+                            {...commonProps}
                             icon={<IconNotebook />}
-                            size="small"
                             onClick={() => {
                                 nodeLogic.actions.insertAfter({
                                     type: NotebookNodeType.Recording,
@@ -148,19 +139,9 @@ export function PlayerMetaLinks(): JSX.Element {
                         />
                     ) : null}
 
-                    <PinToPlaylistButton />
-
-                    {logicProps.playerKey !== 'modal' && (
-                        <LemonButton
-                            tooltip="Delete"
-                            icon={<IconTrash />}
-                            onClick={onDelete}
-                            {...commonProps}
-                            status="danger"
-                        />
-                    )}
+                    <PinToPlaylistButton buttonContent={buttonContent} {...commonProps} />
                 </>
             ) : null}
-        </div>
+        </>
     )
 }

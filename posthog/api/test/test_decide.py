@@ -73,12 +73,14 @@ class TestDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
         disable_flags=False,
         user_agent: Optional[str] = None,
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -453,6 +455,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["autocapture_opt_out"], True)
+
+    def test_user_heatmaps_opt_in(self, *args):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["heatmaps"], False)
+
+        self._update_team({"heatmaps_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(response["heatmaps"], True)
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
@@ -3336,10 +3348,12 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         origin="http://127.0.0.1:8000",
         api_version=1,
         distinct_id="example_id",
-        groups={},
+        groups=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3453,9 +3467,11 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         # remove database check cache values
         postgres_healthcheck.cache_clear()
 
-        with connection.execute_wrapper(QueryTimeoutWrapper()), snapshot_postgres_queries_context(
-            self
-        ), self.assertNumQueries(1):
+        with (
+            connection.execute_wrapper(QueryTimeoutWrapper()),
+            snapshot_postgres_queries_context(self),
+            self.assertNumQueries(1),
+        ):
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
             response = self._post_decide(api_version=3, origin="https://random.example.com").json()
@@ -3571,11 +3587,15 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         origin="http://127.0.0.1:8000",
         api_version=3,
         distinct_id="example_id",
-        groups={},
-        person_props={},
+        groups=None,
+        person_props=None,
         geoip_disable=False,
         ip="127.0.0.1",
     ):
+        if person_props is None:
+            person_props = {}
+        if groups is None:
+            groups = {}
         return self.client.post(
             f"/decide/?v={api_version}",
             {
@@ -3599,8 +3619,10 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         self.organization, self.team, self.user = org, team, user
         # this create fills up team cache^
 
-        with freeze_time("2021-01-01T00:00:00Z"), self.assertNumQueries(1, using="replica"), self.assertNumQueries(
-            1, using="default"
+        with (
+            freeze_time("2021-01-01T00:00:00Z"),
+            self.assertNumQueries(1, using="replica"),
+            self.assertNumQueries(1, using="default"),
         ):
             response = self._post_decide()
             # Replica queries:
@@ -4023,9 +4045,11 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         # now main database is down, but does not affect replica
 
-        with connections["default"].execute_wrapper(QueryTimeoutWrapper()), self.assertNumQueries(
-            13, using="replica"
-        ), self.assertNumQueries(0, using="default"):
+        with (
+            connections["default"].execute_wrapper(QueryTimeoutWrapper()),
+            self.assertNumQueries(13, using="replica"),
+            self.assertNumQueries(0, using="default"),
+        ):
             # Replica queries:
             # E   1. SET LOCAL statement_timeout = 300
             # E   2. WITH some CTEs,

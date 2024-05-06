@@ -1,4 +1,5 @@
-from typing import Dict, List, Literal, Optional, cast, Callable
+from typing import Literal, Optional, cast
+from collections.abc import Callable
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
 from antlr4.error.ErrorListener import ErrorListener
@@ -19,7 +20,7 @@ from hogql_parser import (
     parse_select as _parse_select_cpp,
 )
 
-RULE_TO_PARSE_FUNCTION: Dict[Literal["python", "cpp"], Dict[Literal["expr", "order_expr", "select"], Callable]] = {
+RULE_TO_PARSE_FUNCTION: dict[Literal["python", "cpp"], dict[Literal["expr", "order_expr", "select"], Callable]] = {
     "python": {
         "expr": lambda string, start: HogQLParseTreeConverter(start=start).visit(get_parser(string).expr()),
         "order_expr": lambda string: HogQLParseTreeConverter().visit(get_parser(string).orderExpr()),
@@ -32,7 +33,7 @@ RULE_TO_PARSE_FUNCTION: Dict[Literal["python", "cpp"], Dict[Literal["expr", "ord
     },
 }
 
-RULE_TO_HISTOGRAM: Dict[Literal["expr", "order_expr", "select"], Histogram] = {
+RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select"], Histogram] = {
     rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
@@ -44,7 +45,7 @@ RULE_TO_HISTOGRAM: Dict[Literal["expr", "order_expr", "select"], Histogram] = {
 
 def parse_expr(
     expr: str,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     start: Optional[int] = 0,
     timings: Optional[HogQLTimings] = None,
     *,
@@ -65,7 +66,7 @@ def parse_expr(
 
 def parse_order_expr(
     order_expr: str,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
@@ -85,7 +86,7 @@ def parse_order_expr(
 
 def parse_select(
     statement: str,
-    placeholders: Optional[Dict[str, ast.Expr]] = None,
+    placeholders: Optional[dict[str, ast.Expr]] = None,
     timings: Optional[HogQLTimings] = None,
     *,
     backend: Optional[Literal["python", "cpp"]] = None,
@@ -159,10 +160,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: List[ast.SelectQuery | ast.SelectUnionQuery] = [
+        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
-        flattened_queries: List[ast.SelectQuery] = []
+        flattened_queries: list[ast.SelectQuery] = []
         for query in select_queries:
             if isinstance(query, ast.SelectQuery):
                 flattened_queries.append(query)
@@ -752,7 +753,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         if ctx.tableIdentifier():
             table = self.visit(ctx.tableIdentifier())
-            return ast.Field(chain=table + ["*"])
+            return ast.Field(chain=[*table, "*"])
         return ast.Field(chain=["*"])
 
     def visitColumnExprTagElement(self, ctx: HogQLParser.ColumnExprTagElementContext):
@@ -771,7 +772,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         )
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
-        ctes: Dict[str, ast.CTE] = {}
+        ctes: dict[str, ast.CTE] = {}
         for expr in ctx.withExpr():
             cte = self.visit(expr)
             ctes[cte.name] = cte

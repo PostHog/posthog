@@ -7,14 +7,13 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { AnyResponseType, Node, QuerySchema } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 import {
-    isDataNode,
     isDataTableNode,
     isDataVisualizationNode,
     isInsightVizNode,
@@ -23,13 +22,13 @@ import {
     isWebOverviewQuery,
 } from '../utils'
 
-export interface QueryProps<T extends Node = QuerySchema | Node> {
+export interface QueryProps<Q extends Node> {
     /** An optional key to identify the query */
     uniqueKey?: string | number
     /** The query to render */
-    query: T | string | null
+    query: Q | string | null
     /** Set this if you're controlling the query parameter */
-    setQuery?: (query: T) => void
+    setQuery?: (query: Q) => void
 
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
     context?: QueryContext
@@ -40,7 +39,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     readOnly?: boolean
 }
 
-export function Query(props: QueryProps): JSX.Element | null {
+export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
     const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -72,7 +71,7 @@ export function Query(props: QueryProps): JSX.Element | null {
         component = (
             <DataTable
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: DataTableNode) => void) | undefined}
                 context={queryContext}
                 cachedResults={props.cachedResults}
                 uniqueKey={props.uniqueKey}
@@ -82,21 +81,19 @@ export function Query(props: QueryProps): JSX.Element | null {
         component = (
             <DataTableVisualization
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: DataVisualizationNode) => void) | undefined}
                 cachedResults={props.cachedResults}
                 uniqueKey={props.uniqueKey}
                 context={queryContext}
             />
         )
-    } else if (isDataNode(query)) {
-        component = <DataNode query={query} cachedResults={props.cachedResults} />
     } else if (isSavedInsightNode(query)) {
         component = <SavedInsight query={query} context={queryContext} />
     } else if (isInsightVizNode(query)) {
         component = (
             <InsightViz
                 query={query}
-                setQuery={setQuery}
+                setQuery={setQuery as ((query: InsightVizNode) => void) | undefined}
                 context={queryContext}
                 readOnly={readOnly}
                 uniqueKey={props.uniqueKey}
@@ -106,6 +103,8 @@ export function Query(props: QueryProps): JSX.Element | null {
         component = <TimeToSeeData query={query} cachedResults={props.cachedResults} />
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else {
+        component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
     if (component) {

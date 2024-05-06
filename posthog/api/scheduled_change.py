@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 from rest_framework import (
     serializers,
     viewsets,
@@ -29,7 +29,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ScheduledChange:
+    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
@@ -46,9 +46,7 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ScheduledChangeSerializer
     queryset = ScheduledChange.objects.all()
 
-    def get_queryset(self):
-        queryset = ScheduledChange.objects.all()
-
+    def safely_get_queryset(self, queryset):
         model_name = self.request.query_params.get("model_name")
         record_id = self.request.query_params.get("record_id")
 

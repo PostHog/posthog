@@ -171,9 +171,8 @@ export function DataTable({
                             children: label,
                             props: { colSpan: columnsInLemonTable.length + (eventActionsColumnShown ? 1 : 0) },
                         }
-                    } else {
-                        return { props: { colSpan: 0 } }
                     }
+                    return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
@@ -402,7 +401,7 @@ export function DataTable({
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
+            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />
@@ -510,6 +509,7 @@ export function DataTable({
                                 responseError ? (
                                     sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                         <InsightErrorState
+                                            query={query}
                                             excludeDetail
                                             title={
                                                 queryCancelled
@@ -520,7 +520,7 @@ export function DataTable({
                                             }
                                         />
                                     ) : (
-                                        <InsightErrorState />
+                                        <InsightErrorState query={query} />
                                     )
                                 ) : (
                                     <InsightEmptyState

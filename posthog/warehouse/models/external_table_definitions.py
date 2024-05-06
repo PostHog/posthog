@@ -1,4 +1,3 @@
-from typing import Dict
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -10,7 +9,7 @@ from posthog.hogql.database.models import (
 )
 
 
-external_tables: Dict[str, Dict[str, FieldOrTable]] = {
+external_tables: dict[str, dict[str, FieldOrTable]] = {
     "*": {
         "__dlt_id": StringDatabaseField(name="_dlt_id", hidden=True),
         "__dlt_load_id": StringDatabaseField(name="_dlt_load_id", hidden=True),
@@ -25,7 +24,16 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "balance": IntegerDatabaseField(name="balance"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "currency": StringDatabaseField(name="currency"),
         "discount": StringJSONDatabaseField(name="discount"),
@@ -54,7 +62,16 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "currency": StringDatabaseField(name="currency"),
         "customer_id": StringDatabaseField(name="customer"),
@@ -69,11 +86,29 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "amount_due": IntegerDatabaseField(name="amount_due"),
         "__period_start": IntegerDatabaseField(name="period_start", hidden=True),
         "period_start_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_start"])]), name="period_start_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_start"])])],
+                    )
+                ],
+            ),
+            name="period_start_at",
         ),
         "__period_end": IntegerDatabaseField(name="period_end", hidden=True),
         "period_end_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_end"])]), name="period_end_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__period_end"])])],
+                    )
+                ],
+            ),
+            name="period_end_at",
         ),
         "amount_paid": IntegerDatabaseField(name="amount_paid"),
         "description": StringDatabaseField(name="description"),
@@ -82,7 +117,16 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "auto_advance": BooleanDatabaseField(name="auto_advance"),
         "__effective_at": IntegerDatabaseField(name="effective_at", hidden=True),
         "effective_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__effective_at"])]), name="effective_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__effective_at"])])],
+                    )
+                ],
+            ),
+            name="effective_at",
         ),
         "subscription_id": StringDatabaseField(name="subscription"),
         "attempt_count": IntegerDatabaseField(name="attempt_count"),
@@ -110,7 +154,15 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "subscription_details": StringJSONDatabaseField(name="subscription_details"),
         "__webhooks_delivered_at": IntegerDatabaseField(name="webhooks_delivered_at", hidden=True),
         "webhooks_delivered_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__webhooks_delivered_at"])]),
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__webhooks_delivered_at"])])],
+                    )
+                ],
+            ),
             name="webhooks_delivered_at",
         ),
         "subtotal_excluding_tax": IntegerDatabaseField(name="subtotal_excluding_tax"),
@@ -127,7 +179,16 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "invoice_id": StringDatabaseField(name="invoice"),
         "outcome": StringJSONDatabaseField(name="outcome"),
@@ -162,7 +223,16 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "product_id": StringDatabaseField(name="product"),
         "currency": StringDatabaseField(name="currency"),
@@ -185,11 +255,29 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "object": StringDatabaseField(name="object"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "__updated": IntegerDatabaseField(name="updated", hidden=True),
         "updated_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__updated"])]), name="updated_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__updated"])])],
+                    )
+                ],
+            ),
+            name="updated_at",
         ),
         "features": StringJSONDatabaseField(name="features"),
         "livemode": BooleanDatabaseField(name="livemode"),
@@ -207,24 +295,60 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "currency": StringDatabaseField(name="currency"),
         "customer_id": StringDatabaseField(name="customer"),
         "__ended_at": IntegerDatabaseField(name="ended_at", hidden=True),
         "ended_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__ended_at"])]), name="ended_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__ended_at"])])],
+                    )
+                ],
+            ),
+            name="ended_at",
         ),
         "livemode": BooleanDatabaseField(name="livemode"),
         "metadata": StringJSONDatabaseField(name="metadata"),
         "quantity": IntegerDatabaseField(name="quantity"),
         "__start_date": IntegerDatabaseField(name="start_date", hidden=True),
         "start_date": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__start_date"])]), name="start_date"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__start_date"])])],
+                    )
+                ],
+            ),
+            name="start_date",
         ),
         "__canceled_at": IntegerDatabaseField(name="canceled_at", hidden=True),
         "canceled_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__canceled_at"])]), name="canceled_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__canceled_at"])])],
+                    )
+                ],
+            ),
+            name="canceled_at",
         ),
         "automatic_tax": StringJSONDatabaseField(name="automatic_tax"),
         "latest_invoice_id": StringDatabaseField(name="latest_invoice"),
@@ -235,17 +359,41 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "default_tax_rates": StringJSONDatabaseField(name="default_tax_rates"),
         "__current_period_start": IntegerDatabaseField(name="current_period_start", hidden=True),
         "current_period_start": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_start"])]),
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_start"])])],
+                    )
+                ],
+            ),
             name="current_period_start",
         ),
         "__current_period_end": IntegerDatabaseField(name="current_period_end", hidden=True),
         "current_period_end": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_end"])]),
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__current_period_end"])])],
+                    )
+                ],
+            ),
             name="current_period_end",
         ),
         "__billing_cycle_anchor": IntegerDatabaseField(name="billing_cycle_anchor", hidden=True),
         "billing_cycle_anchor": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__billing_cycle_anchor"])]),
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__billing_cycle_anchor"])])],
+                    )
+                ],
+            ),
             name="billing_cycle_anchor",
         ),
         "cancel_at_period_end": BooleanDatabaseField(name="cancel_at_period_end"),
@@ -262,14 +410,32 @@ external_tables: Dict[str, Dict[str, FieldOrTable]] = {
         "status": StringDatabaseField(name="status"),
         "__created": IntegerDatabaseField(name="created", hidden=True),
         "created_at": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])]), name="created_at"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__created"])])],
+                    )
+                ],
+            ),
+            name="created_at",
         ),
         "currency": StringDatabaseField(name="currency"),
         "description": StringDatabaseField(name="description"),
         "fee_details": StringJSONDatabaseField(name="fee_details"),
         "__available_on": IntegerDatabaseField(name="available_on", hidden=True),
         "available_on": ast.ExpressionField(
-            expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__available_on"])]), name="available_on"
+            expr=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Call(
+                        name="toString",
+                        args=[ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["__available_on"])])],
+                    )
+                ],
+            ),
+            name="available_on",
         ),
         "reporting_category": StringDatabaseField(name="reporting_category"),
     },

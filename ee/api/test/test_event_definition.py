@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import cast, Optional, List, Dict, Any
+from typing import cast, Optional, Any
 
 import dateutil.parser
 from django.utils import timezone
@@ -26,7 +26,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
     Ignoring the verified field we'd expect ordering purchase, watched_movie, entered_free_trial, $pageview
     With it we expect watched_movie, entered_free_trial, purchase, $pageview
     """
-    EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
+    EXPECTED_EVENT_DEFINITIONS: list[dict[str, Any]] = [
         {"name": "purchase", "verified": None},
         {"name": "entered_free_trial", "verified": True},
         {"name": "watched_movie", "verified": True},

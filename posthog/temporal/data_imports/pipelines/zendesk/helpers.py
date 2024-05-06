@@ -1,4 +1,5 @@
-from typing import Iterator, Optional, Iterable, Tuple
+from typing import Optional
+from collections.abc import Iterator, Iterable
 from itertools import chain
 
 import dlt
@@ -211,7 +212,7 @@ def chats_table_resource(
 def zendesk_support(
     team_id: int,
     credentials: TZendeskCredentials = dlt.secrets.value,
-    endpoints: Tuple[str, ...] = (),
+    endpoints: tuple[str, ...] = (),
     pivot_ticket_fields: bool = True,
     start_date: Optional[TAnyDateTime] = DEFAULT_START_DATE,
     end_date: Optional[TAnyDateTime] = None,

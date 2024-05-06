@@ -64,9 +64,8 @@ export const formatPercentStackAxisValue = (
     if (isPercentStackView) {
         value = Number(value)
         return percentage(value / 100)
-    } else {
-        return formatAggregationAxisValue(trendsFilter, value)
     }
+    return formatAggregationAxisValue(trendsFilter, value)
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {

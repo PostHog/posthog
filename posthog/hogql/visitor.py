@@ -231,6 +231,12 @@ class TraversingVisitor(Visitor[None]):
     def visit_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
+    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
+        pass
+
+    def visit_unresolved_field_type(self, node: ast.UnresolvedFieldType):
+        pass
+
     def visit_window_expr(self, node: ast.WindowExpr):
         for expr in node.partition_by or []:
             self.visit(expr)
@@ -249,9 +255,6 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         self.visit(node.expr)
-
-    def visit_expression_field_type(self, node: ast.ExpressionFieldType):
-        pass
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         for attribute in node.attributes:

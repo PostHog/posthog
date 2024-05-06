@@ -139,9 +139,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 lastResult = result
                             }
                             return newResults
-                        } else {
-                            return results.map((result) => ({ result }))
                         }
+                        return results.map((result) => ({ result }))
                     }
                 }
 
@@ -164,7 +163,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],
-            (query: DataTableNode, columnsInQuery, featureFlags, context): Required<DataTableNode> => {
+            (
+                query: DataTableNode,
+                columnsInQuery,
+                featureFlags,
+                context
+            ): Required<Omit<DataTableNode, 'response'>> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]

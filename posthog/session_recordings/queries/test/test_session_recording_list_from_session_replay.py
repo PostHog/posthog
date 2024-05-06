@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Dict
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -76,7 +75,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             properties=properties,
         )
 
-    def _filter_recordings_by(self, recordings_filter: Dict) -> SessionRecordingQueryResult:
+    def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
         the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=the_filter, team=self.team)
         return session_recording_list_instance.run()
@@ -1993,7 +1992,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
@@ -2024,7 +2022,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             page_view_session_id,

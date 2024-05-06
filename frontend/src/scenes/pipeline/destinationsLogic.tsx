@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -16,7 +17,7 @@ import {
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { pipelineLogic } from './pipelineLogic'
-import { convertToPipelineNode, Destination } from './types'
+import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
 import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
@@ -32,7 +33,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     }),
     actions({
-        toggleEnabled: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
+        toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
+        deleteNode: (destination: Destination) => ({ destination }),
+        deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -70,7 +73,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     }
                     return pluginConfigs
                 },
-                toggleEnabledWebhook: async ({ destination, enabled }) => {
+                toggleNodeWebhook: async ({ destination, enabled }) => {
                     const { pluginConfigs, plugins } = values
                     const pluginConfig = pluginConfigs[destination.id]
                     const plugin = plugins[pluginConfig.plugin]
@@ -91,7 +94,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     )
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
-                toggleEnabledBatchExport: async ({ destination, enabled }) => {
+                toggleNodeBatchExport: async ({ destination, enabled }) => {
                     const batchExport = values.batchExportConfigs[destination.id]
                     if (enabled) {
                         await api.batchExports.unpause(destination.id)
@@ -100,6 +103,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     }
                     captureBatchExportEvent(`batch export ${enabled ? 'enabled' : 'disabled'}`, batchExport)
                     return { ...values.batchExportConfigs, [destination.id]: { ...batchExport, paused: !enabled } }
+                },
+                deleteNodeBatchExport: async ({ destination }) => {
+                    await api.batchExports.delete(destination.id)
+                    return Object.fromEntries(
+                        Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
+                    )
                 },
             },
         ],
@@ -139,8 +148,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        toggleEnabled: async ({ destination, enabled }) => {
+    listeners(({ actions, asyncActions, values }) => ({
+        toggleNode: ({ destination, enabled }) => {
             if (!values.canConfigurePlugins) {
                 lemonToast.error("You don't have permission to enable or disable destinations")
                 return
@@ -150,9 +159,23 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 return
             }
             if (destination.backend === 'plugin') {
-                actions.toggleEnabledWebhook({ destination: destination, enabled: enabled })
+                actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else {
-                actions.toggleEnabledBatchExport({ destination: destination, enabled: enabled })
+                actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })
+            }
+        },
+        deleteNode: async ({ destination }) => {
+            if (destination.backend === PipelineBackend.BatchExport) {
+                await asyncActions.deleteNodeBatchExport(destination)
+            } else {
+                await deleteWithUndo({
+                    endpoint: `projects/${teamLogic.values.currentTeamId}/plugin_configs`,
+                    object: {
+                        id: destination.id,
+                        name: destination.name,
+                    },
+                    callback: actions.loadPluginConfigs,
+                })
             }
         },
     })),

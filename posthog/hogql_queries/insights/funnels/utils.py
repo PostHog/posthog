@@ -1,4 +1,3 @@
-from typing import List
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -61,7 +60,7 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: List[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
 ) -> ast.Expr:
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(

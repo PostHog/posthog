@@ -1,4 +1,4 @@
-from typing import List, Optional, Union, Any
+from typing import Optional, Union, Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql.parser import parse_expr, parse_select
@@ -30,7 +30,7 @@ BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
 class BreakdownValues:
     team: Team
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
-    breakdown_field: Union[str, float, List[Union[str, float]]]
+    breakdown_field: Union[str, float, list[Union[str, float]]]
     breakdown_type: BreakdownType
     events_filter: ast.Expr
     chart_display_type: ChartDisplayType
@@ -76,12 +76,12 @@ class BreakdownValues:
         self.query_date_range = query_date_range
         self.modifiers = modifiers
 
-    def get_breakdown_values(self) -> List[str | int]:
+    def get_breakdown_values(self) -> list[str | int]:
         if self.breakdown_type == "cohort":
             if self.breakdown_field == "all":
                 return [0]
 
-            if isinstance(self.breakdown_field, List):
+            if isinstance(self.breakdown_field, list):
                 return [value if isinstance(value, str) else int(value) for value in self.breakdown_field]
 
             return [self.breakdown_field if isinstance(self.breakdown_field, str) else int(self.breakdown_field)]
@@ -119,7 +119,7 @@ class BreakdownValues:
 
         aggregation_expression: ast.Expr
         if self._aggregation_operation.aggregating_on_session_duration():
-            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "duration"])])
+            aggregation_expression = ast.Call(name="max", args=[ast.Field(chain=["session", "$session_duration"])])
         elif self.series.math == "dau":
             # When aggregating by (daily) unique users, run the breakdown aggregation on count(e.uuid).
             # This retains legacy compatibility and should be removed once we have the new trends in production.
@@ -186,7 +186,7 @@ class BreakdownValues:
             ):
                 inner_events_query.order_by[0].order = "ASC"
 
-        values: List[Any]
+        values: list[Any]
         if self.histogram_bin_count is not None:
             query = parse_select(
                 """
@@ -228,7 +228,7 @@ class BreakdownValues:
             if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
                 values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
                 if needs_other:
-                    values = [BREAKDOWN_OTHER_STRING_LABEL] + values
+                    values = [BREAKDOWN_OTHER_STRING_LABEL, *values]
 
         if len(values) == 0:
             values.insert(0, None)
@@ -270,6 +270,7 @@ class BreakdownValues:
         return AggregationOperations(
             self.team,
             self.series,
+            self.chart_display_type,
             self.query_date_range,
             should_aggregate_values=True,  # doesn't matter in this case
         )

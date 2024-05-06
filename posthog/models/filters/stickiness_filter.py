@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
+from collections.abc import Callable
 
 from django.db.models.functions.datetime import (
     TruncDay,
@@ -62,7 +63,7 @@ class StickinessFilter(
 
     def __init__(
         self,
-        data: Optional[Dict[str, Any]] = None,
+        data: Optional[dict[str, Any]] = None,
         request: Optional[Request] = None,
         **kwargs,
     ) -> None:

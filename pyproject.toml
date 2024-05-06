@@ -1,3 +1,6 @@
+[project]
+requires-python = ">=3.10"
+
 [tool.black]
 line-length = 120
 target-version = ['py310']
@@ -14,8 +17,9 @@ exclude = [
     "./env",
     "./posthog/hogql/grammar",
 ]
+
+[tool.ruff.lint]
 ignore = [
-    "B006",
     "B017",
     "B019",
     "B904",
@@ -27,6 +31,8 @@ ignore = [
     "F403",
     "F541",
     "F601",
+    "UP007",
+    "UP032",
 ]
 select = [
     "B",
@@ -34,14 +40,19 @@ select = [
     "C9",
     "E",
     "F",
+    "RUF005",
+    "RUF013",
+    "RUF015",
+    "RUF019",
     "T2",
+    "UP",
     "W",
 ]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 10
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
 "./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
 "./posthog/queries/cohort_query.py" = ["F401"]

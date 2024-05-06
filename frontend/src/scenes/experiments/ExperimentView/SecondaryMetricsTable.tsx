@@ -1,7 +1,7 @@
 import '../Experiment.scss'
 
-import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconInfo, IconPencil, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -286,11 +286,15 @@ export function SecondaryMetricsTable({
         <>
             <div>
                 <div className="flex">
-                    <div className="w-1/2">
-                        <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
-                        {metrics.length > 0 && (
-                            <div className="text-muted text-xs mb-2">Monitor side effects of your experiment.</div>
-                        )}
+                    <div className="w-1/2 pt-5">
+                        <div className="inline-flex space-x-2 mb-0">
+                            <h2 className="mb-0 font-semibold text-lg">Secondary metrics</h2>
+                            {metrics.length > 0 && (
+                                <Tooltip title="Monitor side effects of your experiment.">
+                                    <IconInfo className="text-muted-alt text-base" />
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
 
                     <div className="w-1/2 flex flex-col justify-end">
@@ -321,7 +325,7 @@ export function SecondaryMetricsTable({
                         <div className="flex flex-col items-center mx-auto space-y-3">
                             <IconAreaChart fontSize="30" />
                             <div className="text-sm text-center text-balance">
-                                Add up to 3 secondary metrics to gauge side effects of your experiment.
+                                Add up to 3 secondary metrics to monitor side effects of your experiment.
                             </div>
                             <LemonButton
                                 icon={<IconPlus />}

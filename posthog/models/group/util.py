@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Dict, Optional, Union
+from typing import Optional, Union
 
 from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
@@ -17,7 +17,7 @@ def raw_create_group_ch(
     team_id: int,
     group_type_index: GroupTypeIndex,
     group_key: str,
-    properties: Dict,
+    properties: dict,
     created_at: datetime.datetime,
     timestamp: Optional[datetime.datetime] = None,
     sync: bool = False,
@@ -44,7 +44,7 @@ def create_group(
     team_id: int,
     group_type_index: GroupTypeIndex,
     group_key: str,
-    properties: Optional[Dict] = None,
+    properties: Optional[dict] = None,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
     sync: bool = False,
 ) -> Group:

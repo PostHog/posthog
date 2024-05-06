@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Union
 from unittest.mock import patch
 
 from zoneinfo import ZoneInfo
@@ -12,13 +12,12 @@ import pytest
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_BAR_VALUE,
     TRENDS_LINEAR,
     TRENDS_TABLE,
 )
+from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
     clean_entity_properties,
@@ -68,8 +67,8 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
-def breakdown_label(entity: Entity, value: Union[str, int]) -> Dict[str, Optional[Union[str, int]]]:
-    ret_dict: Dict[str, Optional[Union[str, int]]] = {}
+def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
+    ret_dict: dict[str, Optional[Union[str, int]]] = {}
     if not value or not isinstance(value, str) or "cohort_" not in value:
         label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
         ret_dict["label"] = f"{entity.name} - {label}"
@@ -103,7 +102,7 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def _props(dict: Dict):
+def _props(dict: dict):
     props = dict.get("properties", None)
     if not props:
         return None
@@ -125,11 +124,11 @@ def _props(dict: Dict):
 def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
     filter_as_dict = filter.to_dict()
 
-    events: List[EventsNode] = []
-    actions: List[ActionsNode] = []
+    events: list[EventsNode] = []
+    actions: list[ActionsNode] = []
 
     for event in filter.events:
-        if isinstance(event._data.get("properties", None), List):
+        if isinstance(event._data.get("properties", None), list):
             properties = clean_entity_properties(event._data.get("properties", None))
         elif event._data.get("properties", None) is not None:
             values = event._data.get("properties", None).get("values", None)
@@ -151,7 +150,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         )
 
     for action in filter.actions:
-        if isinstance(action._data.get("properties", None), List):
+        if isinstance(action._data.get("properties", None), list):
             properties = clean_entity_properties(action._data.get("properties", None))
         elif action._data.get("properties", None) is not None:
             values = action._data.get("properties", None).get("values", None)
@@ -172,7 +171,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             )
         )
 
-    series: List[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
+    series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = [*events, *actions]
 
     tq = TrendsQuery(
         series=series,
@@ -215,21 +214,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         trend_query = convert_filter_to_trends_query(filter)
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
-
-    def _get_trend_people(self, filter: Filter, entity: Entity):
-        data = filter.to_dict()
-        # The test client doesn't serialize nested objects into JSON, so we need to do it ourselves
-        if data.get("events", None):
-            data["events"] = json.dumps(data["events"])
-        if data.get("properties", None):
-            data["properties"] = json.dumps(data["properties"])
-        with self.settings(DEBUG=True):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/persons/trends/",
-                data={**data, ENTITY_TYPE: entity.type, ENTITY_ID: entity.id},
-                content_type="application/json",
-            ).json()
-        return response["results"][0]["people"]
 
     def _create_event(self, **kwargs):
         _create_event(**kwargs)
@@ -304,7 +288,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         type=PropertyDefinition.Type.GROUP,
                     )
 
-    def _create_events(self, use_time=False) -> Tuple[Action, Person]:
+    def _create_events(self, use_time=False) -> tuple[Action, Person]:
         person = self._create_person(
             team_id=self.team.pk,
             distinct_ids=["blabla", "anonymous_id"],
@@ -2080,7 +2064,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def _test_events_with_dates(self, dates: List[str], result, query_time=None, **filter_params):
+    def _test_events_with_dates(self, dates: list[str], result, query_time=None, **filter_params):
         self._create_person(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
         for time in dates:
             with freeze_time(time):
@@ -4387,9 +4371,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_breakdown_by_property_pie(self):
         with freeze_time("2020-01-01T12:00:00Z"):  # Fake created_at for easier assertions
-            person1 = self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
-            person2 = self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
-            person3 = self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person2"], immediate=True)
+            self._create_person(team_id=self.team.pk, distinct_ids=["person3"], immediate=True)
 
         self._create_event(
             team=self.team,
@@ -4457,70 +4441,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event_response = self._run(Filter(team=self.team, data=data), self.team)
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
 
-            entity = Entity({"id": "watched movie", "type": "events", "math": "dau"})
+            people_value_1 = get_actors(data, self.team, series=0, breakdown="value_1", includeRecordings=True)
+            # Persons with higher value come first
+            self.assertEqual(people_value_1[0][1]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_1[0][3], 2)  # 2 events with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[1][3], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[2][3], 1)  # 1 event with fake_prop="value_1" in the time range
 
-            people_value_1 = self._get_trend_people(
-                Filter(team=self.team, data={**data, "breakdown_value": "value_1"}),
-                entity,
-            )
-            assert people_value_1 == [
-                # Persons with higher value come first
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person2"],
-                    "id": str(person2.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person2",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person2.uuid),
-                    "value_at_data_point": 2,  # 2 events with fake_prop="value_1" in the time range
-                },
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person1"],
-                    "id": str(person1.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person1",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person1.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
-                },
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person3"],
-                    "id": str(person3.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person3",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person3.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_1" in the time range
-                },
-            ]
-
-            people_value_2 = self._get_trend_people(
-                Filter(team=self.team, data={**data, "breakdown_value": "value_2"}),
-                entity,
-            )
-            assert people_value_2 == [
-                {
-                    "created_at": "2020-01-01T12:00:00Z",
-                    "distinct_ids": ["person2"],
-                    "id": str(person2.uuid),
-                    "is_identified": False,
-                    "matched_recordings": [],
-                    "name": "person2",
-                    "properties": {},
-                    "type": "person",
-                    "uuid": str(person2.uuid),
-                    "value_at_data_point": 1,  # 1 event with fake_prop="value_2" in the time range
-                }
-            ]
+            people_value_2 = get_actors(data, self.team, series=0, breakdown="value_2", includeRecordings=True)
+            self.assertEqual(people_value_2[0][1]["distinct_ids"][0], "person2")
+            self.assertEqual(people_value_2[0][3], 1)  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
@@ -5948,7 +5878,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         data = {
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5962,7 +5892,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -5972,7 +5902,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         data = {
             "sampling_factor": 1,
             "date_from": "2020-01-01",
-            "date_to": "2020-01-08",
+            "date_to": "2020-01-18",
             "display": TRENDS_TABLE,
             "events": [
                 {
@@ -5986,7 +5916,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
-        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        # Only p0 was active on 2020-01-18 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 1)
 
     @snapshot_clickhouse_queries
@@ -8143,17 +8073,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.shallow_clone(
-            {
-                "breakdown_value": "technology",
-                "date_from": "2020-01-02T00:00:00Z",
-                "date_to": "2020-01-03",
-            }
+        res = get_actors(
+            filter.to_dict(), self.team, series=0, breakdown="technology", day="2020-01-02", includeRecordings=True
         )
-        entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-        res = self._get_trend_people(filter, entity)
 
-        self.assertEqual(res[0]["distinct_ids"], ["person1"])
+        self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
 
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry")], materialize_only_with_person_on_events=True
@@ -8209,17 +8133,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            filter = filter.shallow_clone(
-                {
-                    "breakdown_value": "technology",
-                    "date_from": "2020-01-02T00:00:00Z",
-                    "date_to": "2020-01-02",
-                }
+            res = get_actors(
+                filter.to_dict(), self.team, series=0, breakdown="technology", day="2020-01-02", includeRecordings=True
             )
-            entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-            res = self._get_trend_people(filter, entity)
 
-            self.assertEqual(res[0]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
 
     # TODO: Delete this test when moved to person-on-events
     def test_breakdown_by_group_props_with_person_filter(self):
@@ -8578,11 +8496,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             )
 
-            filter = filter.shallow_clone({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
-            entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
-            res = self._get_trend_people(filter, entity)
+            res = get_actors(filter.to_dict(), self.team, series=0, day="2020-01-02", includeRecordings=True)
 
-            self.assertEqual(res[0]["distinct_ids"], ["person1"])
+            self.assertEqual(res[0][1]["distinct_ids"], ["person1"])
 
     def test_yesterday_with_hourly_interval(self):
         journey = {

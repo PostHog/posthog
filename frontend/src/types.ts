@@ -1,3 +1,4 @@
+import { LemonInputProps } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -35,6 +36,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
+    HogQLQueryModifiers,
     InsightVizNode,
     Node,
 } from './queries/schema'
@@ -148,6 +150,7 @@ export enum AvailableFeature {
     TWOFA = '2fa',
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
+    DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -159,6 +162,7 @@ export enum ProductKey {
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
     HISTORY = 'history',
+    HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
@@ -247,6 +251,7 @@ export interface UserType extends UserBaseType {
     has_password: boolean
     is_staff: boolean
     is_impersonated: boolean
+    is_impersonated_until?: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -442,6 +447,7 @@ export interface TeamType extends TeamBasicType {
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
+    heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -466,6 +472,8 @@ export interface TeamType extends TeamBasicType {
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
+    modifiers?: HogQLQueryModifiers
+    default_modifiers?: HogQLQueryModifiers
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -533,7 +541,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -615,7 +623,6 @@ export enum PipelineTab {
 }
 
 export enum PipelineStage {
-    Filter = 'filter',
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',
@@ -665,6 +672,7 @@ interface BasePropertyFilter {
 /** Sync with plugin-server/src/types.ts */
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
+    /** @default 'exact' */
     operator: PropertyOperator
 }
 
@@ -813,6 +821,18 @@ export interface SessionRecordingSnapshotSource {
     end_timestamp?: string
     blob_key?: string
 }
+
+export type SessionRecordingSnapshotParams =
+    | {
+          source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'realtime'
+          // originally realtime snapshots were returned in a different format than blob snapshots
+          // since version 2024-04-30 they are returned in the same format
+          version: '2024-04-30'
+      }
 
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
@@ -1248,6 +1268,7 @@ export interface SessionRecordingType {
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
+    snapshot_source: 'web' | 'mobile' | 'unknown'
 }
 
 export interface SessionRecordingPropertiesType {
@@ -1493,6 +1514,7 @@ export interface BillingV2PlanType {
     docs_url: string | null
     note: string | null
     unit: string | null
+    flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
@@ -2092,6 +2114,7 @@ export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 
     // frontend only
+    show_legend?: boolean
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }
@@ -2431,6 +2454,7 @@ export interface Survey {
     end_date: string | null
     archived: boolean
     remove_targeting_flag?: boolean
+    responses_limit: number | null
 }
 
 export enum SurveyUrlMatchType {
@@ -2811,6 +2835,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     Person = 'person',
     Group = 'group',
+    Session = 'session',
 }
 
 export interface PropertyDefinition {
@@ -3112,11 +3137,13 @@ export type GraphDataset = ChartDataset<ChartType> &
         id: number
         /** Toggled on to draw incompleteness lines in LineGraph.tsx */
         dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
         breakdownValues?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar.tsx data */
+        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+        breakdownLabels?: (string | number | undefined)[]
+        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
         compareLabels?: (CompareLabelType | undefined)[]
-        /** Array of persons ussed only in (ActionsHorizontalBar|ActionsPie).tsx */
+        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
         personsValues?: (Person | undefined)[]
         index?: number
         /** Value (count) for specific data point; only valid in the context of an xy intercept */
@@ -3597,6 +3624,8 @@ export interface ExternalDataSourceSyncSchema {
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    incremental?: boolean
+    status?: string
 }
 
 export interface SimpleDataWarehouseTable {
@@ -3606,7 +3635,7 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportDestinationS3 = {
+export type BatchExportServiceS3 = {
     type: 'S3'
     config: {
         bucket_name: string
@@ -3624,7 +3653,7 @@ export type BatchExportDestinationS3 = {
     }
 }
 
-export type BatchExportDestinationPostgres = {
+export type BatchExportServicePostgres = {
     type: 'Postgres'
     config: {
         user: string
@@ -3640,7 +3669,7 @@ export type BatchExportDestinationPostgres = {
     }
 }
 
-export type BatchExportDestinationSnowflake = {
+export type BatchExportServiceSnowflake = {
     type: 'Snowflake'
     config: {
         account: string
@@ -3656,7 +3685,7 @@ export type BatchExportDestinationSnowflake = {
     }
 }
 
-export type BatchExportDestinationBigQuery = {
+export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     config: {
         project_id: string
@@ -3672,7 +3701,7 @@ export type BatchExportDestinationBigQuery = {
     }
 }
 
-export type BatchExportDestinationHTTP = {
+export type BatchExportServiceHTTP = {
     type: 'HTTP'
     config: {
         url: string
@@ -3682,7 +3711,7 @@ export type BatchExportDestinationHTTP = {
     }
 }
 
-export type BatchExportDestinationRedshift = {
+export type BatchExportServiceRedshift = {
     type: 'Redshift'
     config: {
         user: string
@@ -3701,13 +3730,13 @@ export type BatchExportDestinationRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-export type BatchExportDestination =
-    | BatchExportDestinationS3
-    | BatchExportDestinationSnowflake
-    | BatchExportDestinationPostgres
-    | BatchExportDestinationBigQuery
-    | BatchExportDestinationRedshift
-    | BatchExportDestinationHTTP
+export type BatchExportService =
+    | BatchExportServiceS3
+    | BatchExportServiceSnowflake
+    | BatchExportServicePostgres
+    | BatchExportServiceBigQuery
+    | BatchExportServiceRedshift
+    | BatchExportServiceHTTP
 
 export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
@@ -3715,7 +3744,7 @@ export type BatchExportConfiguration = {
     id: string
     team_id: number
     name: string
-    destination: BatchExportDestination
+    destination: BatchExportService
     interval: 'hour' | 'day' | 'every 5 minutes'
     created_at: string
     start_at: string | null
@@ -3848,7 +3877,7 @@ export enum SidePanelTab {
 export interface SourceFieldConfig {
     name: string
     label: string
-    type: string
+    type: LemonInputProps['type']
     required: boolean
     placeholder: string
 }

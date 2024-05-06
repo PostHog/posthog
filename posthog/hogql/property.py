@@ -1,5 +1,5 @@
 import re
-from typing import List, Optional, Union, cast, Literal
+from typing import Optional, Union, cast, Literal
 
 from pydantic import BaseModel
 
@@ -34,7 +34,9 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
     RetentionEntity,
+    EmptyPropertyFilter,
 )
+from posthog.utils import get_from_dict_or_attr
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -69,7 +71,7 @@ class AggregationFinder(TraversingVisitor):
 def property_to_expr(
     property: Union[BaseModel, PropertyGroup, Property, dict, list, ast.Expr],
     team: Team,
-    scope: Literal["event", "person"] = "event",
+    scope: Literal["event", "person", "session", "replay"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -118,12 +120,13 @@ def property_to_expr(
             return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
         else:
             return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
+    elif isinstance(property, EmptyPropertyFilter):
+        return ast.Constant(value=True)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
-            # TODO: revert this when removing legacy insights?
             return ast.Constant(value=True)
     else:
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
@@ -139,33 +142,35 @@ def property_to_expr(
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
     ):
-        if scope == "person" and property.type != "person":
-            raise NotImplementedError(
-                f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
-            )
+        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+            raise NotImplementedError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
+
         if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
+        elif property.type == "event" and scope == "replay":
+            chain = ["events", "properties"]
         elif property.type == "data_warehouse_person_property":
-            if isinstance(property.value, str):
-                table, value = property.value.split(": ")
+            if isinstance(property.key, str):
+                table, key = property.key.split(": ")
                 chain = ["person", table]
+                property.key = key
             else:
                 raise NotImplementedError("Data warehouse person property filter value must be a string")
         elif property.type == "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "data_warehouse":
             chain = []
+        elif property.type == "session" and scope == "event":
+            chain = ["session"]
+        elif property.type == "session" and scope == "session":
+            chain = ["sessions"]
         else:
             chain = ["properties"]
 
         properties_field = ast.Field(chain=chain)
-        field = ast.Field(chain=chain + [property.key])
-
-        if property.type == "session" and property.key == "$session_duration":
-            field = ast.Field(chain=["session", "duration"])
-            properties_field = field
+        field = ast.Field(chain=[*chain, property.key])
 
         if isinstance(value, list):
             if len(value) == 0:
@@ -239,7 +244,10 @@ def property_to_expr(
         elif operator == PropertyOperator.regex:
             return ast.Call(
                 name="ifNull",
-                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)]), ast.Constant(value=False)],
+                args=[
+                    ast.Call(name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]),
+                    ast.Constant(value=False),
+                ],
             )
         elif operator == PropertyOperator.not_regex:
             return ast.Call(
@@ -247,7 +255,11 @@ def property_to_expr(
                 args=[
                     ast.Call(
                         name="not",
-                        args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                        args=[
+                            ast.Call(
+                                name="match", args=[ast.Call(name="toString", args=[field]), ast.Constant(value=value)]
+                            )
+                        ],
                     ),
                     ast.Constant(value=True),
                 ],
@@ -269,19 +281,32 @@ def property_to_expr(
 
         # For Boolean and untyped properties, treat "true" and "false" as boolean values
         if (
-            op == ast.CompareOperationOp.Eq
-            or op == ast.CompareOperationOp.NotEq
+            (op == ast.CompareOperationOp.Eq or op == ast.CompareOperationOp.NotEq)
             and team is not None
             and (value == "true" or value == "false")
         ):
-            property_types = PropertyDefinition.objects.filter(
-                team=team,
-                name=property.key,
-                type=PropertyDefinition.Type.PERSON if property.type == "person" else PropertyDefinition.Type.EVENT,
-            )[0:1].values_list("property_type", flat=True)
-            property_type = property_types[0] if property_types else None
+            if property.type == "person":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.PERSON,
+                )
+            elif property.type == "group":
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=property.group_type_index,
+                )
+            else:
+                property_types = PropertyDefinition.objects.filter(
+                    team=team,
+                    name=property.key,
+                    type=PropertyDefinition.Type.EVENT,
+                )
+            property_type = property_types[0].property_type if len(property_types) > 0 else None
 
-            if not property_type or property_type == PropertyType.Boolean:
+            if property_type == PropertyType.Boolean:
                 if value == "true":
                     value = True
                 if value == "false":
@@ -362,7 +387,7 @@ def action_to_expr(action: Action) -> ast.Expr:
 
     or_queries = []
     for step in steps:
-        exprs: List[ast.Expr] = []
+        exprs: list[ast.Expr] = []
         if step.event:
             exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=step.event)}))
 
@@ -482,3 +507,19 @@ def selector_to_expr(selector: str):
     regex = build_selector_regex(Selector(selector, escape_slashes=False))
     expr = parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=regex)})
     return expr
+
+
+def get_property_type(property):
+    return get_from_dict_or_attr(property, "type")
+
+
+def get_property_key(property):
+    return get_from_dict_or_attr(property, "key")
+
+
+def get_property_value(property):
+    return get_from_dict_or_attr(property, "value")
+
+
+def get_property_operator(property):
+    return get_from_dict_or_attr(property, "operator")

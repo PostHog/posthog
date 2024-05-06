@@ -1,4 +1,5 @@
-from typing import Dict, Optional
+import re
+from typing import Optional
 from django.db import models
 
 from posthog.client import sync_execute
@@ -69,6 +70,17 @@ STR_TO_HOGQL_MAPPING = {
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
+    "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    "Could not list objects in bucket": "Access was denied to the provided bucket",
+    "file is empty": "The provided file contains no data",
+    "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
+    "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
+    "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "Rows have different amount of values": "The provided file has rows with different amount of values",
 }
 
 
@@ -111,7 +123,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             prefix = ""
         return self.name[len(prefix) :]
 
-    def get_columns(self, safe_expose_ch_error=True) -> Dict[str, str]:
+    def get_columns(self, safe_expose_ch_error=True) -> dict[str, dict[str, str]]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -133,15 +145,57 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 raise err
 
-        return {item[0]: item[1] for item in result}
+        if result is None or isinstance(result, int):
+            raise Exception("No columns types provided by clickhouse in get_columns")
+
+        def clean_type(column_type: str) -> str:
+            if column_type.startswith("Nullable("):
+                column_type = column_type.replace("Nullable(", "")[:-1]
+
+            if column_type.startswith("Array("):
+                column_type = remove_named_tuples(column_type)
+
+            column_type = re.sub(r"\(.+?\)", "", column_type)
+
+            return column_type
+
+        columns = {
+            str(item[0]): {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "clickhouse": item[1],
+            }
+            for item in result
+        }
+
+        return columns
+
+    def get_count(self, safe_expose_ch_error=True) -> int:
+        try:
+            result = sync_execute(
+                """SELECT count() FROM
+                s3(%(url_pattern)s, %(access_key)s, %(access_secret)s, %(format)s)""",
+                {
+                    "url_pattern": self.url_pattern,
+                    "access_key": self.credential.access_key,
+                    "access_secret": self.credential.access_secret,
+                    "format": self.format,
+                },
+            )
+        except Exception as err:
+            capture_exception(err)
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise err
+
+        return result[0][0]
 
     def hogql_definition(self) -> S3Table:
-        if not self.columns:
-            raise Exception("Columns must be fetched and saved to use in HogQL.")
+        columns = self.columns or {}
 
-        fields: Dict[str, FieldOrTable] = {}
+        fields: dict[str, FieldOrTable] = {}
         structure = []
-        for column, type in self.columns.items():
+        for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

@@ -106,19 +106,14 @@ class OrganizationMemberViewSet(
     )
     lookup_field = "user__uuid"
 
-    def get_object(self):
-        queryset = self.filter_queryset(self.get_queryset())
+    def safely_get_object(self, queryset):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return queryset.get(user=self.request.user)
         filter_kwargs = {self.lookup_field: lookup_value}
-        obj = get_object_or_404(queryset, **filter_kwargs)
-        self.check_object_permissions(self.request, obj)
-        return obj
+        return get_object_or_404(queryset, **filter_kwargs)
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             params = self.request.GET.dict()
 

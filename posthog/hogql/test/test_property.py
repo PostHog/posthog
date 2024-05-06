@@ -1,4 +1,4 @@
-from typing import List, Union, cast, Optional, Dict, Any, Literal
+from typing import Union, cast, Optional, Any, Literal
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
@@ -24,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity, EmptyPropertyFilter
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -46,7 +46,7 @@ class TestProperty(BaseTest):
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
 
-    def _parse_expr(self, expr: str, placeholders: Dict[str, Any] = None):
+    def _parse_expr(self, expr: str, placeholders: Optional[dict[str, Any]] = None):
         return clear_locations(parse_expr(expr, placeholders=placeholders))
 
     def test_has_aggregation(self):
@@ -88,6 +88,19 @@ class TestProperty(BaseTest):
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_booleans(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="boolean_prop",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            property_type=PropertyType.Boolean,
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "boolean_prop", "value": ["true"]}),
+            self._parse_expr("group_0.properties.boolean_prop = true"),
+        )
 
     def test_property_to_expr_event(self):
         self.assertEqual(
@@ -140,11 +153,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, '.*'), false)"),
+            self._parse_expr("ifNull(match(toString(properties.a), '.*'), false)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("ifNull(not(match(properties.a, '.*')), true)"),
+            self._parse_expr("ifNull(not(match(toString(properties.a), '.*')), true)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),
@@ -157,6 +170,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._parse_expr("1"),
             self._property_to_expr({}),  # incomplete event
+        )
+        self.assertEqual(
+            self._parse_expr("1"),
+            self._property_to_expr(EmptyPropertyFilter()),  # type: ignore
         )
 
     def test_property_to_expr_boolean(self):
@@ -185,17 +202,19 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(
-                {"type": "event", "key": "unknown_prop", "value": "true"},
-                team=self.team,
-            ),
-            self._parse_expr("properties.unknown_prop = true"),
-        )
-        self.assertEqual(
-            self._property_to_expr(
                 {"type": "event", "key": "boolean_prop", "value": "false"},
                 team=self.team,
             ),
             self._parse_expr("properties.boolean_prop = false"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event", "key": "unknown_prop", "value": "true"},
+                team=self.team,
+            ),
+            self._parse_expr(
+                "properties.unknown_prop = 'true'"  # We don't have a type for unknown_prop, so string comparison it is
+            ),
         )
 
     def test_property_to_expr_event_list(self):
@@ -217,7 +236,9 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr("ifNull(match(properties.a, 'b'), false) or ifNull(match(properties.a, 'c'), false)"),
+            self._parse_expr(
+                "ifNull(match(toString(properties.a), 'b'), false) or ifNull(match(toString(properties.a), 'c'), false)"
+            ),
         )
         # negative
         self.assertEqual(
@@ -245,7 +266,7 @@ class TestProperty(BaseTest):
                 }
             ),
             self._parse_expr(
-                "ifNull(not(match(properties.a, 'b')), true) and ifNull(not(match(properties.a, 'c')), true)"
+                "ifNull(not(match(toString(properties.a), 'b')), true) and ifNull(not(match(toString(properties.a), 'c')), true)"
             ),
         )
 
@@ -395,7 +416,7 @@ class TestProperty(BaseTest):
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
                     values=cast(
-                        Union[List[Property], List[PropertyGroup]],
+                        Union[list[Property], list[PropertyGroup]],
                         [
                             Property(type="person", key="a", value="b", operator="exact"),
                             PropertyGroup(
@@ -622,7 +643,7 @@ class TestProperty(BaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "The 'event' property filter only works in 'event' scope, not in 'person' scope",
+            "The 'event' property filter does not work in 'person' scope",
         )
 
     def test_entity_to_expr_actions_type_with_id(self):
@@ -663,5 +684,5 @@ class TestProperty(BaseTest):
                 {"type": "session", "key": "$session_duration", "value": 10, "operator": "exact"},
                 scope="event",
             ),
-            self._parse_expr("session.duration = 10"),
+            self._parse_expr("session.$session_duration = 10"),
         )

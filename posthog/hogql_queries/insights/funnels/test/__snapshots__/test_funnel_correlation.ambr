@@ -2,8 +2,8 @@
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '''
   SELECT event.event AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   INNER JOIN
     (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
@@ -79,8 +79,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -145,14 +145,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -237,8 +241,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -303,7 +307,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
@@ -432,7 +440,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
@@ -446,7 +458,11 @@
   WHERE ifNull(in(session_replay_events.session_id, ['']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
@@ -575,7 +591,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
@@ -589,7 +609,11 @@
   WHERE ifNull(in(session_replay_events.session_id, ['']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.5
@@ -718,7 +742,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.6
@@ -732,7 +760,11 @@
   WHERE ifNull(in(session_replay_events.session_id, ['']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.7
@@ -861,7 +893,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.8
@@ -875,14 +911,18 @@
   WHERE ifNull(in(session_replay_events.session_id, ['']), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
   '''
   SELECT concat(ifNull(toString(event_name), ''), '::', ifNull(toString((prop).1), ''), '::', ifNull(toString((prop).2), '')) AS name,
-         countIf(actor_id, ifNull(equals(steps, 2), 0)) AS success_count,
-         countIf(actor_id, ifNull(notEquals(steps, 2), 1)) AS failure_count
+         countDistinctIf(actor_id, ifNull(equals(steps, 2), 0)) AS success_count,
+         countDistinctIf(actor_id, ifNull(notEquals(steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -950,8 +990,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -1009,14 +1049,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
   '''
   SELECT concat(ifNull(toString(event_name), ''), '::', ifNull(toString((prop).1), ''), '::', ifNull(toString((prop).2), '')) AS name,
-         countIf(actor_id, ifNull(equals(steps, 2), 0)) AS success_count,
-         countIf(actor_id, ifNull(notEquals(steps, 2), 1)) AS failure_count
+         countDistinctIf(actor_id, ifNull(equals(steps, 2), 0)) AS success_count,
+         countDistinctIf(actor_id, ifNull(notEquals(steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -1084,8 +1128,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -1143,14 +1187,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
   '''
   SELECT event.event AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
@@ -1212,8 +1260,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -1271,7 +1319,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
@@ -1382,7 +1434,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
@@ -1493,7 +1549,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
@@ -1604,7 +1664,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
@@ -1715,14 +1779,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
   '''
   SELECT event.event AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
@@ -1792,8 +1860,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -1859,7 +1927,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
@@ -1970,7 +2042,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
@@ -2081,14 +2157,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
   '''
   SELECT event.event AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
@@ -2150,8 +2230,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -2209,7 +2289,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2320,7 +2404,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2431,7 +2519,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2542,7 +2634,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2653,14 +2749,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
   '''
   SELECT event.event AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM events AS event
   JOIN
     (SELECT aggregation_target AS actor_id,
@@ -2730,8 +2830,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -2797,7 +2897,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2908,7 +3012,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -3019,14 +3127,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -3103,8 +3215,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -3162,7 +3274,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
@@ -3280,7 +3396,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
@@ -3398,7 +3518,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
@@ -3516,7 +3640,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
@@ -3634,14 +3762,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -3718,8 +3850,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -3777,14 +3909,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -3861,8 +3997,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -3920,7 +4056,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -4038,7 +4178,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -4156,7 +4300,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -4274,7 +4422,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -4392,14 +4544,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -4476,8 +4632,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -4535,14 +4691,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -4619,8 +4779,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -4678,7 +4838,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -4796,7 +4960,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -4914,7 +5082,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -5032,7 +5204,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -5150,14 +5326,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -5234,8 +5414,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -5293,14 +5473,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -5377,8 +5561,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -5436,7 +5620,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -5554,7 +5742,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -5672,7 +5864,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -5790,7 +5986,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -5908,14 +6108,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -5992,8 +6196,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -6051,14 +6255,18 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -6135,8 +6343,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -6194,7 +6402,11 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -6312,7 +6524,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -6430,7 +6646,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -6548,7 +6768,11 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -6666,14 +6890,18 @@
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
-                    allow_experimental_object_type=1
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
   '''
   SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
-         countIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
-         countIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, 2), 0)) AS success_count,
+         countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, 2), 1)) AS failure_count
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
@@ -6750,8 +6978,8 @@
   LIMIT 100
   UNION ALL
   SELECT 'Total_Values_In_Query' AS name,
-         countIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
-         countIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
+         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, 2), 0)) AS success_count,
+         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, 2), 1)) AS failure_count
   FROM
     (SELECT aggregation_target AS actor_id,
             timestamp AS timestamp,
@@ -6809,6 +7037,10 @@
      ORDER BY aggregation_target ASC) AS funnel_actors
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     allow_experimental_object_type=1
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---

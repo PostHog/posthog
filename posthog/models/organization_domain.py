@@ -1,5 +1,5 @@
 import secrets
-from typing import Optional, Tuple
+from typing import Optional
 
 import dns.resolver
 import structlog
@@ -151,13 +151,13 @@ class OrganizationDomain(UUIDModel):
         """
         return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
 
-    def _complete_verification(self) -> Tuple["OrganizationDomain", bool]:
+    def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None
         self.verified_at = timezone.now()
         self.save()
         return (self, True)
 
-    def attempt_verification(self) -> Tuple["OrganizationDomain", bool]:
+    def attempt_verification(self) -> tuple["OrganizationDomain", bool]:
         """
         Performs a DNS verification for a specific domain.
         """
