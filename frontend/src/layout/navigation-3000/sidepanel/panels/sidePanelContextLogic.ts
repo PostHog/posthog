@@ -43,7 +43,7 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
                             activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
                     }
-                    return activityFiltersForScene(sceneConfig)
+                    return null
                 },
             ],
             (sceneConfig, context): SidePanelSceneContext => {
