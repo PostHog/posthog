@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use super::serialize_datetime;
 
-#[allow(dead_code)]
 #[derive(Serialize)]
 pub enum PluginLogEntrySource {
     System,
@@ -12,7 +11,6 @@ pub enum PluginLogEntrySource {
     Console,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize)]
 pub enum PluginLogEntryType {
     Debug,

@@ -7,9 +7,7 @@ use futures::future::join_all;
 use health::HealthHandle;
 use hook_common::pgqueue::PgTransactionBatch;
 use hook_common::{
-    pgqueue::{
-        DatabaseError, Job, PgQueue, PgQueueJob, PgTransactionJob, RetryError, RetryInvalidError,
-    },
+    pgqueue::{Job, PgQueue, PgQueueJob, PgTransactionJob, RetryError, RetryInvalidError},
     retry::RetryPolicy,
     webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
 };
@@ -489,32 +487,27 @@ fn parse_retry_after_header(header_map: &reqwest::header::HeaderMap) -> Option<t
     None
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::time::Duration;
     // Note we are ignoring some warnings in this module.
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
-    #[allow(unused_imports)]
     use health::HealthRegistry;
-    #[allow(unused_imports)]
-    use hook_common::pgqueue::{JobStatus, NewJob};
-    #[allow(unused_imports)]
+    use hook_common::pgqueue::{DatabaseError, NewJob};
     use sqlx::PgPool;
 
     /// Use process id as a worker id for tests.
-    #[allow(dead_code)]
     fn worker_id() -> String {
         std::process::id().to_string()
     }
 
     /// Get a request client or panic
-    #[allow(dead_code)]
     fn localhost_client() -> Client {
         build_http_client(Duration::from_secs(1), true).expect("failed to create client")
     }
 
-    #[allow(dead_code)]
     async fn enqueue_job(
         queue: &PgQueue,
         max_attempts: i32,
