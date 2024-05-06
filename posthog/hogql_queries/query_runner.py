@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from sentry_sdk import capture_exception, push_scope
 import structlog
 
+from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -336,6 +337,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Let's look in the cache first
             cached_response: CR | CacheMissResponse
             cached_response_candidate = get_safe_cache(cache_key)
+            cached_response_candidate = (
+                OrjsonJsonSerializer({}).loads(cached_response_candidate) if cached_response_candidate else None
+            )
             if self.is_cached_response(cached_response_candidate):
                 cached_response_candidate["is_cached"] = True
                 cached_response = CachedResponse(**cached_response_candidate)
@@ -381,7 +385,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Dont cache debug queries with errors
         has_error = fresh_response_dict.get("error", None)
         if has_error is None or len(has_error) == 0:
-            cache.set(cache_key, fresh_response.model_dump(), settings.CACHED_RESULTS_TTL)
+            # TODO: Use JSON serializer in general for redis cache
+            fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
+            cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
 
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response
