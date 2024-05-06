@@ -3,7 +3,7 @@ import json
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Action, ActionStep, Filter
+from posthog.models import Action, Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.trends.trends import Trends
@@ -20,8 +20,7 @@ def create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=event_name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
     return action
 
 
