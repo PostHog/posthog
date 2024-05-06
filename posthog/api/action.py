@@ -128,8 +128,10 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         if validated_data.get("deleted"):
-            # Check it isn't used by any pipeline things
-            raise serializers.ValidationError("NOPE!")
+            if instance.plugin_configs.count():
+                raise serializers.ValidationError(
+                    "Actions with plugins cannot be deleted. Remove it or disable the plugin first."
+                )
 
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
