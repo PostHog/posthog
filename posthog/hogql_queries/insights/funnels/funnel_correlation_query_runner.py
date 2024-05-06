@@ -33,6 +33,7 @@ from posthog.schema import (
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
+    CachedFunnelCorrelationResponse,
     FunnelCorrelationResult,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
@@ -86,6 +87,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
+    response: FunnelCorrelationResponse
+    cached_response: CachedFunnelCorrelationResponse
+
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
