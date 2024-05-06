@@ -38,6 +38,7 @@ from posthog.schema import (
 )
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.utils import get_from_dict_or_attr
+from django.db.models import Q
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -299,45 +300,44 @@ def property_to_expr(
                 )
             elif property.type == "data_warehouse_person_property":
                 key = chain[-1]
-                # handle deleted and first
-                current_join: DataWarehouseJoin = DataWarehouseJoin.objects.filter(
-                    team=team,
-                    source_table_name="persons",
-                    field_name=key,
-                    deleted__isnull=True,
-                ).first()
+
+                # TODO: pass id of table item being filtered on instead of searching through joins
+                current_join: DataWarehouseJoin = (
+                    DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, source_table_name="persons", field_name=key)
+                    .first()
+                )
 
                 prop_type = None
 
-                maybe_view = DataWarehouseSavedQuery.objects.filter(
-                    team=team,
-                    name=current_join.joining_table_name,
-                    deleted__isnull=True,
-                ).first()
+                maybe_view = (
+                    DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
 
                 if maybe_view:
-                    prop_type_dict = maybe_table.columns.get(property.key, None)
-                    prop_type = prop_type_dict.get('hogql')
+                    prop_type_dict = maybe_view.columns.get(property.key, None)
+                    prop_type = prop_type_dict.get("hogql")
 
-                maybe_table = DataWarehouseTable.objects.filter(
-                    team=team,
-                    name=current_join.joining_table_name,
-                    deleted__isnull=True,
-                ).first()
-
+                maybe_table = (
+                    DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
 
                 if maybe_table:
                     prop_type_dict = maybe_table.columns.get(property.key, None)
-                    prop_type = prop_type_dict.get('hogql')
+                    prop_type = prop_type_dict.get("hogql")
 
                 if prop_type == "BooleanDatabaseField":
                     if value == "true":
                         value = True
                     if value == "false":
                         value = False
-                
+
                 return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
-            
+
             else:
                 property_types = PropertyDefinition.objects.filter(
                     team=team,
