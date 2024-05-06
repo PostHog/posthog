@@ -66,6 +66,28 @@ export const performanceSummaryCards = [
     },
 ]
 
+function PerformanceDuration({
+    value,
+    scoreBenchmarks,
+}: {
+    scoreBenchmarks: number[]
+    value: number | undefined
+}): JSX.Element {
+    return value === undefined ? (
+        <>-</>
+    ) : (
+        <span
+            className={clsx({
+                'text-danger-dark': value >= scoreBenchmarks[1],
+                'text-warning-dark': value >= scoreBenchmarks[0] && value < scoreBenchmarks[1],
+                'text-success-dark': value < scoreBenchmarks[0],
+            })}
+        >
+            {humanFriendlyMilliseconds(value)}
+        </span>
+    )
+}
+
 function PerformanceCard({
     description,
     label,
@@ -82,19 +104,7 @@ function PerformanceCard({
             <div className="flex-1 p-2 text-center">
                 <div className="text-sm">{label}</div>
                 <div className="text-lg font-semibold">
-                    {value === undefined ? (
-                        '-'
-                    ) : (
-                        <span
-                            className={clsx({
-                                'text-danger-dark': value >= scoreBenchmarks[1],
-                                'text-warning-dark': value >= scoreBenchmarks[0] && value < scoreBenchmarks[1],
-                                'text-success-dark': value < scoreBenchmarks[0],
-                            })}
-                        >
-                            {humanFriendlyMilliseconds(value)}
-                        </span>
-                    )}
+                    <PerformanceDuration value={value} scoreBenchmarks={scoreBenchmarks} />
                 </div>
             </div>
         </Tooltip>
@@ -137,32 +147,16 @@ export function NavigationItem({ item, expanded, navigationURL }: NavigationItem
                 ))}
             </div>
             <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
-                <>
-                    {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
-                        <div key={key}>
-                            <div className="flex gap-2 font-semibold my-1">
-                                <span>{label}</span>
-                                <span>
-                                    {item?.[key] === undefined ? (
-                                        '-'
-                                    ) : (
-                                        <span
-                                            className={clsx({
-                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                'text-warning-dark':
-                                                    item[key] >= scoreBenchmarks[0] && item[key] < scoreBenchmarks[1],
-                                            })}
-                                        >
-                                            {humanFriendlyMilliseconds(item[key])}
-                                        </span>
-                                    )}
-                                </span>
-                            </div>
-
-                            <p>{description}</p>
+                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
+                    <div key={key}>
+                        <div className="flex gap-2 font-semibold my-1">
+                            <span>{label}</span>
+                            <PerformanceDuration scoreBenchmarks={scoreBenchmarks} value={item?.[key]} />
                         </div>
-                    ))}
-                </>
+
+                        <p>{description}</p>
+                    </div>
+                ))}
             </div>
         </>
     )
