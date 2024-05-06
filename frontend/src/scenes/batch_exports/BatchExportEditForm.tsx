@@ -39,6 +39,7 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                         formKey="batchExportConfigForm"
                         className="space-y-4"
                     >
+                        <BatchExportGeneralEditFields isNew={isNew} batchExportConfigForm={batchExportConfigForm} />
                         <div className="space-y-4 max-w-200 w-full ">
                             <LemonDivider />
                             <LemonField name="destination" label="Destination">
