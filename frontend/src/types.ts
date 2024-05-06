@@ -3730,7 +3730,7 @@ export type BatchExportServiceRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
-export const BatchExportServiceNames = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
+// and update batchExportServiceNames in pipelineNodeNewLogic
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake

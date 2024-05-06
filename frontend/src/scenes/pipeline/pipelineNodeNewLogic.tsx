@@ -58,7 +58,7 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
             (s) => [s.user],
             (user): BatchExportService['type'][] => {
                 const services: BatchExportService['type'][] = ['BigQuery', 'Postgres', 'Redshift', 'Snowflake', 'S3']
-                if (user?.is_impersonated) {
+                if (user?.is_impersonated || user?.is_staff) {
                     services.push('HTTP')
                 }
                 return services
