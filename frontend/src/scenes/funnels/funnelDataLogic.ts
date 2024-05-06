@@ -23,6 +23,7 @@ import {
     FunnelVizType,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightType,
     StepOrderValue,
     TrendResult,
 } from '~/types'
@@ -163,10 +164,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.funnelsFilter, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
-            (funnelsFilter, breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
-                if (!funnelsFilter) {
-                    return false
+            (s) => [s.insightData, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (insightData, breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
+                    return []
                 }
 
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
@@ -174,7 +175,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
-                            ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
+                            ? breakdownFilter?.breakdowns.map((b: { property: any }) => b.property).join('::')
                             : breakdownFilter?.breakdown ?? undefined
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
@@ -264,9 +265,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
-            (funnelsFilter, steps, histogramGraphData) => {
-                if (!funnelsFilter) {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData],
+            (insightData, funnelsFilter, steps, histogramGraphData) => {
+                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
                     return false
                 }
 
