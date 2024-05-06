@@ -134,14 +134,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
-            await deleteWithUndo({
-                endpoint: api.actions.determineDeleteEndpoint(),
-                object: values.action,
-                callback: () => {
-                    router.actions.push(urls.actions())
-                    actions.loadActions()
-                },
-            })
+            try {
+                await deleteWithUndo({
+                    endpoint: api.actions.determineDeleteEndpoint(),
+                    object: values.action,
+                    callback: () => {
+                        router.actions.push(urls.actions())
+                        actions.loadActions()
+                    },
+                })
+            } catch (e: any) {
+                lemonToast.error(`Error deleting action: ${e.detail}`)
+            }
         },
     })),
 

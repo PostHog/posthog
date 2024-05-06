@@ -1,4 +1,6 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -9,6 +11,7 @@ import { NodeKind } from '~/queries/schema'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
+import { ActionPlugins } from './ActionPlugins'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -17,11 +20,32 @@ export const scene: SceneExport = {
 }
 
 export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
-    const { action, isComplete } = useValues(actionLogic)
+    const { action, actionLoading, isComplete } = useValues(actionLogic)
+
+    if (actionLoading) {
+        return (
+            <div className="space-y-2">
+                <LemonSkeleton className="w-1/4 h-6" />
+
+                <LemonSkeleton className="w-1/3 h-10" />
+                <LemonSkeleton className="w-1/2 h-6" />
+
+                <div className="flex gap-2">
+                    <LemonSkeleton className="w-1/2 h-120" />
+                    <LemonSkeleton className="w-1/2 h-120" />
+                </div>
+            </div>
+        )
+    }
+
+    if (!action) {
+        return <NotFound object="action" />
+    }
 
     return (
         <>
             {(!id || action) && <ActionEdit id={id} action={action} />}
+            {id && <ActionPlugins />}
             {id &&
                 (isComplete ? (
                     <div>
