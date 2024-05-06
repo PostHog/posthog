@@ -370,13 +370,19 @@ dependencies = [
  "bytes",
  "envconfig",
  "flate2",
+ "futures",
  "governor",
  "health",
  "metrics",
  "metrics-exporter-prometheus",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "rand",
  "rdkafka",
  "redis",
+ "reqwest 0.12.3",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -385,30 +391,9 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
- "uuid",
-]
-
-[[package]]
-name = "capture-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert-json-diff",
- "capture",
- "envconfig",
- "futures",
- "once_cell",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "rand",
- "rdkafka",
- "reqwest 0.12.3",
- "serde_json",
- "tokio",
- "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
