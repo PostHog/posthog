@@ -1,19 +1,22 @@
 import '../Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
-import { InsightType } from '~/types'
+import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { formatUnitByQuantity } from '../utils'
+import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 export function ProgressBar(): JSX.Element {
-    const { experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
+    const { experimentId, experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
         useValues(experimentLogic)
+
+    const { openMdeModal } = useActions(experimentLogic)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
@@ -31,8 +34,11 @@ export function ProgressBar(): JSX.Element {
 
     return (
         <div>
-            <div className="inline-flex space-x-2">
+            <div className="inline-flex items-center space-x-2">
                 <h2 className="font-semibold text-lg mb-0">Data collection</h2>
+                <LemonButton size="xsmall" type="secondary" onClick={openMdeModal}>
+                    Recalculate
+                </LemonButton>
                 <Tooltip
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
@@ -104,6 +110,38 @@ export function ProgressBar(): JSX.Element {
                     </Tooltip>
                 </div>
             )}
+            <MdeModal experimentId={experimentId} />
         </div>
+    )
+}
+
+export function MdeModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+    const { isMdeModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeMdeModal, updateExperimentCollectionGoal } = useActions(experimentLogic({ experimentId }))
+
+    return (
+        <LemonModal
+            isOpen={isMdeModalOpen}
+            onClose={closeMdeModal}
+            width={1000}
+            title="Recalculate sample size/running time"
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton form="edit-experiment-exposure-form" type="secondary" onClick={closeMdeModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="edit-experiment-exposure-form"
+                        onClick={() => updateExperimentCollectionGoal()}
+                        type="primary"
+                        data-attr="create-annotation-submit"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <DataCollectionCalculator experimentId={experimentId} />
+        </LemonModal>
     )
 }

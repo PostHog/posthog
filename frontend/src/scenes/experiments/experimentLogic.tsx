@@ -125,7 +125,7 @@ export const experimentLogic = kea<experimentLogicType>([
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['updateQuerySource'],
+            ['loadData', 'updateQuerySource'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
             ['setQuery as setExposureQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
@@ -144,6 +144,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentCollectionGoal: true,
         updateExperimentExposure: (filters: Partial<FilterType> | null) => ({ filters }),
         updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
@@ -157,8 +158,11 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
+        openMdeModal: true,
+        closeMdeModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
+        setTruthMinimumDetectableChange: (minimumDetectableChange: number) => ({ minimumDetectableChange }),
     }),
     reducers({
         experiment: [
@@ -288,6 +292,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeExperimentExposureModal: () => false,
             },
         ],
+        isMdeModalOpen: [
+            false,
+            {
+                openMdeModal: () => true,
+                closeMdeModal: () => false,
+            },
+        ],
         experimentValuesChangedLocally: [
             false,
             {
@@ -300,6 +311,12 @@ export const experimentLogic = kea<experimentLogicType>([
             0,
             {
                 setCurrentFormStep: (_, { stepIndex }) => stepIndex,
+            },
+        ],
+        truthMinimumDetectableChange: [
+            0,
+            {
+                setTruthMinimumDetectableChange: (_, { minimumDetectableChange }) => minimumDetectableChange,
             },
         ],
     }),
@@ -427,6 +444,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (isFunnelsQuery(newQuery)) {
                 newQuery.aggregation_group_type_index = aggregationGroupTypeIndex
             }
+            console.log('setting new query', newQuery)
             actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
@@ -501,6 +519,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
                     minimum_detectable_effect: minimumDetectableChange,
+                },
+            })
+            actions.closeExperimentGoalModal()
+        },
+        updateExperimentCollectionGoal: async () => {
+            const { recommendedRunningTime, recommendedSampleSize, truthMinimumDetectableChange } = values
+            // The following is irrelevant, because a user will set it to something?
+            // OR - we can even default to some stupid value???
+
+            // if (!truthMinimumDetectableChange) {
+            //     eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+            //     return lemonToast.error(
+            //         'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+            //     )
+            // }
+
+            actions.updateExperiment({
+                parameters: {
+                    ...values.experiment?.parameters,
+                    recommended_running_time: recommendedRunningTime,
+                    recommended_sample_size: recommendedSampleSize,
+                    minimum_detectable_effect: truthMinimumDetectableChange,
                 },
             })
             actions.closeExperimentGoalModal()
@@ -621,6 +661,12 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
+        },
+        openMdeModal: async () => {
+            actions.setNewExperimentInsight(values.experiment?.filters)
+            setTimeout(() => {
+                actions.loadData()
+            }, 1000)
         },
         moveToNextFormStep: async () => {
             const { currentFormStep } = values
@@ -821,10 +867,14 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
         // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableChange: [
-            (s) => [s.experimentInsightType, s.conversionMetrics, s.trendResults],
-            (experimentInsightType, conversionMetrics, trendResults): number | null => {
-                // :KLUDGE: extracted the method due to difficulties with logic tests
-                return getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults)
+            (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
+            (newExperiment, experimentInsightType, conversionMetrics, trendResults): number | null => {
+                return (
+                    newExperiment?.parameters?.minimum_detectable_effect ||
+                    // :KLUDGE: extracted the method due to difficulties with logic tests
+                    getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults) || // TODO RENAME METHOD "recommended*" ||
+                    0 // TODO: does 0 make sense here?
+                )
             },
         ],
         minimumSampleSizePerVariant: [

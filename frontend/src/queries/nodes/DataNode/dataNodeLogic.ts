@@ -178,6 +178,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.query === undefined || Object.keys(props.query).length === 0) {
+                        console.log(props)
+                        // TODO QUERY NOT PRESENT
                         // no need to try and load a query before properly initialized
                         return null
                     }

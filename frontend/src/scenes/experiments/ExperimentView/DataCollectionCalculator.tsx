@@ -2,8 +2,6 @@ import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -11,31 +9,20 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { urls } from 'scenes/urls'
 
-import {
-    ActionFilter as ActionFilterType,
-    AnyPropertyFilter,
-    FilterType,
-    InsightType,
-    MultivariateFlagVariant,
-} from '~/types'
+import { InsightType, MultivariateFlagVariant } from '~/types'
 
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
-import { experimentLogic } from './experimentLogic'
-import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { MetricSelector } from './MetricSelector'
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from '../constants'
+import { experimentLogic } from '../experimentLogic'
+import { MetricSelector } from '../MetricSelector'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
-    trendCount: number
     trendExposure?: number
-    funnelConversionRate: number
     funnelEntrants?: number
 }
 
-export function ExperimentPreview({
+export function DataCollectionCalculator({
     experimentId,
-    trendCount,
-    funnelConversionRate,
     trendExposure,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
@@ -49,22 +36,24 @@ export function ExperimentPreview({
         isExperimentGoalModalOpen,
         isExperimentExposureModalOpen,
         experimentLoading,
-        experimentMathAggregationForTrends,
+        trendResults,
         conversionMetrics,
         minimumSampleSizePerVariant,
         variants,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
-        openExperimentGoalModal,
         closeExperimentGoalModal,
         updateExperimentGoal,
-        openExperimentExposureModal,
         closeExperimentExposureModal,
         updateExperimentExposure,
         setNewExperimentInsight,
         setExperimentExposureInsight,
     } = useActions(experimentLogic({ experimentId }))
+
+    const trendCount = trendResults[0]?.count || 0
+    const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
+
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50
@@ -76,6 +65,7 @@ export function ExperimentPreview({
 
     // SAMPLE SIZE & RUNNING TIME
     const conversionRate = conversionMetrics.totalRate * 100
+    console.log(conversionMetrics)
     const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
     let runningTime = 0
@@ -90,17 +80,9 @@ export function ExperimentPreview({
 
     const targetingProperties = experiment.feature_flag?.filters
 
-    // const trendCount = trendResults[0]?.count
-    // const entrants = results?.[0]?.count
-    // const exposure = recommendedExposureForCountData(trendCount)
-
     return (
         <div className="flex">
-            <div
-                className={
-                    !experiment?.start_date && experimentId !== 'new' && !editingExistingExperiment ? 'w-1/2' : 'w-full'
-                }
-            >
+            <div className="w-full">
                 {experimentId === 'new' && (
                     <div>
                         <div>
@@ -113,50 +95,58 @@ export function ExperimentPreview({
                         <LemonDivider className="my-4" />
                     </div>
                 )}
-                {(experimentId === 'new' || editingExistingExperiment) && (
-                    <div className="mb-4 experiment-preview-row">
-                        <div className="flex items-center">
-                            <b>Minimum acceptable improvement</b>
-                            <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
-                                <IconInfo className="ml-1 text-muted text-xl" />
-                            </Tooltip>
-                        </div>
-                        <div className="flex gap-2">
-                            <LemonSlider
-                                value={experiment.parameters.minimum_detectable_effect ?? 5}
-                                min={1}
-                                max={sliderMaxValue}
-                                step={1}
-                                onChange={(value) => {
+                <div className="mb-4 experiment-preview-row">
+                    <div className="flex items-center">
+                        <b>Minimum acceptable improvement</b>
+                        <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
+                            <IconInfo className="ml-1 text-muted text-xl" />
+                        </Tooltip>
+                    </div>
+                    <div className="flex gap-2">
+                        <LemonSlider
+                            value={minimumDetectableChange}
+                            min={1}
+                            max={sliderMaxValue}
+                            step={1}
+                            onChange={(value) => {
+                                // setTruthMinimumDetectableChange(value)
+
+                                setExperiment({
+                                    parameters: {
+                                        ...experiment.parameters,
+                                        minimum_detectable_effect: value,
+                                    },
+                                })
+                                // setTimeout(() => {
+                                //     console.log(experiment.parameters)
+                                // }, 500)
+                            }}
+                            className="w-1/3"
+                        />
+                        <LemonInput
+                            data-attr="min-acceptable-improvement"
+                            type="number"
+                            min={1}
+                            max={sliderMaxValue}
+                            defaultValue={5}
+                            suffix={<span>%</span>}
+                            value={minimumDetectableChange}
+                            onChange={(value) => {
+                                // if (value) {
+                                //     setTruthMinimumDetectableChange(value)
+                                // }
+                                if (value) {
                                     setExperiment({
                                         parameters: {
                                             ...experiment.parameters,
                                             minimum_detectable_effect: value,
                                         },
                                     })
-                                }}
-                                className="w-1/3"
-                            />
-                            <LemonInput
-                                data-attr="min-acceptable-improvement"
-                                type="number"
-                                min={1}
-                                max={sliderMaxValue}
-                                defaultValue={5}
-                                suffix={<span>%</span>}
-                                value={experiment.parameters.minimum_detectable_effect || 5}
-                                onChange={(value) => {
-                                    setExperiment({
-                                        parameters: {
-                                            ...experiment.parameters,
-                                            minimum_detectable_effect: value ?? undefined,
-                                        },
-                                    })
-                                }}
-                            />
-                        </div>
+                                }
+                            }}
+                        />
                     </div>
-                )}
+                </div>
                 <div className="flex flex-col experiment-preview-row">
                     {experimentInsightType === InsightType.TRENDS ? (
                         <div className="flex">
@@ -283,73 +273,7 @@ export function ExperimentPreview({
                         )}
                     </div>
                 </div>
-                {experimentId !== 'new' && !editingExistingExperiment && (
-                    <div className="experiment-preview-row">
-                        <div className="card-secondary mb-2">
-                            {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
-                        </div>
-                        <MetricDisplay filters={experiment.filters} />
-                        {experiment?.start_date && (
-                            <>
-                                <div className="mb-2 mt-4">
-                                    <LemonButton type="secondary" onClick={openExperimentGoalModal}>
-                                        Change experiment goal
-                                    </LemonButton>
-                                </div>
-                                {experimentInsightType === InsightType.TRENDS &&
-                                    !experimentMathAggregationForTrends(experiment.filters) && (
-                                        <>
-                                            <div className="card-secondary mb-2 mt-4">
-                                                Exposure metric
-                                                <Tooltip
-                                                    title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in exposure calculations.`}
-                                                >
-                                                    <IconInfo className="ml-1 text-muted text-sm" />
-                                                </Tooltip>
-                                            </div>
-                                            {experiment.parameters?.custom_exposure_filter ? (
-                                                <MetricDisplay filters={experiment.parameters.custom_exposure_filter} />
-                                            ) : (
-                                                <span className="description">
-                                                    Default via $feature_flag_called events
-                                                </span>
-                                            )}
-                                            <div className="mb-2 mt-2">
-                                                <span className="flex">
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        size="small"
-                                                        onClick={openExperimentExposureModal}
-                                                        className="mr-2"
-                                                    >
-                                                        Change exposure metric
-                                                    </LemonButton>
-                                                    {experiment.parameters?.custom_exposure_filter && (
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            status="danger"
-                                                            size="small"
-                                                            className="mr-2"
-                                                            onClick={() => updateExperimentExposure(null)}
-                                                        >
-                                                            Reset exposure
-                                                        </LemonButton>
-                                                    )}
-                                                </span>
-                                            </div>
-                                        </>
-                                    )}
-                            </>
-                        )}
-                    </div>
-                )}
             </div>
-
-            {experimentId !== 'new' && !editingExistingExperiment && !experiment?.start_date && (
-                <div className="w-1/2 pl-4">
-                    <ExperimentWorkflow />
-                </div>
-            )}
             <LemonModal
                 isOpen={isExperimentGoalModalOpen}
                 onClose={closeExperimentGoalModal}
@@ -441,38 +365,5 @@ export function ExperimentPreview({
                 </Form>
             </LemonModal>
         </div>
-    )
-}
-
-export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Element {
-    const experimentInsightType = filters?.insight || InsightType.TRENDS
-
-    return (
-        <>
-            {([...(filters?.events || []), ...(filters?.actions || [])] as ActionFilterType[])
-                .sort((a, b) => (a.order || 0) - (b.order || 0))
-                .map((event: ActionFilterType, idx: number) => (
-                    <div key={idx} className="mb-2">
-                        <div className="flex mb-1">
-                            <div className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt bg-light border rounded">
-                                {experimentInsightType === InsightType.FUNNELS ? (event.order || 0) + 1 : idx + 1}
-                            </div>
-                            <b>
-                                <InsightLabel
-                                    action={event}
-                                    showCountedByTag={experimentInsightType === InsightType.TRENDS}
-                                    hideIcon
-                                    showEventName
-                                />
-                            </b>
-                        </div>
-                        <div className="space-y-1">
-                            {event.properties?.map((prop: AnyPropertyFilter) => (
-                                <PropertyFilterButton key={prop.key} item={prop} />
-                            ))}
-                        </div>
-                    </div>
-                ))}
-        </>
     )
 }
