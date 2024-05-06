@@ -153,7 +153,7 @@ export function PipelineNodeConfiguration404(): JSX.Element {
 export function PipelineNodeMetrics(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Metrics))
-        pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
+        pipelineNodeMetricsLogic({ id: geoIpConfigId }).mount()
     }, [])
     return <App />
 }
@@ -161,7 +161,7 @@ export function PipelineNodeMetrics(): JSX.Element {
 export function PipelineNodeMetricsErrorModal(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Metrics))
-        const logic = pipelineNodeMetricsLogic({ pluginConfigId: geoIpConfigId })
+        const logic = pipelineNodeMetricsLogic({ id: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
     }, [])
