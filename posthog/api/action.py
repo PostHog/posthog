@@ -184,7 +184,7 @@ class ActionViewSet(
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-        queryset = queryset.prefetch_related("plugin_configs").prefetch_related(
-            Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
+        queryset = queryset.prefetch_related(
+            "plugin_configs", Prefetch("steps", queryset=ActionStep.objects.order_by("id"))
         )
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
