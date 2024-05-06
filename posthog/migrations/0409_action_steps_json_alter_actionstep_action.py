@@ -5,7 +5,7 @@ import django.db.models.deletion
 
 
 def copy_action_steps_to_json(apps, schema_editor):
-    Action = apps.get_model("posthog", "Action")
+    from posthog.models import Action
 
     all_actions_with_steps = Action.objects.prefetch_related("action_steps").all()
 
@@ -25,6 +25,7 @@ def copy_action_steps_to_json(apps, schema_editor):
             }
             for step in action.action_steps.all()
         ]
+        print(action.steps, action.steps_json)
         action.save()
 
 

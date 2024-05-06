@@ -20,7 +20,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
 )
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
+from posthog.models.action.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
