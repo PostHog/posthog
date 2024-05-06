@@ -652,8 +652,7 @@ class InsightViewSet(
             queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
-
-        if self.action == "partial_update" and self.request.data.get("deleted") is False:
+        elif self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
             include_deleted = True
 
