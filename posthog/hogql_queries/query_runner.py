@@ -315,7 +315,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return isinstance(data, self.query_type)
 
     def is_cached_response(self, data) -> TypeGuard[CR]:
-        return hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
+        return (
+            hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
+            or (isinstance(data, dict) and "is_cached" in data)
+        )
 
     @abstractmethod
     def calculate(self) -> R:
@@ -327,14 +330,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # TODO: `self.limit_context` should probably just be in get_cache_key()
         cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
+        CachedResponse = self.cached_response_type
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
             cached_response: CR | CacheMissResponse
             cached_response_candidate = get_safe_cache(cache_key)
             if self.is_cached_response(cached_response_candidate):
-                cached_response = cached_response_candidate
-                cached_response_candidate.is_cached = True
+                cached_response_candidate["is_cached"] = True
+                cached_response = CachedResponse(**cached_response_candidate)
             elif cached_response_candidate is None:
                 cached_response = CacheMissResponse(cache_key=cache_key)
             else:
@@ -372,13 +376,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
         fresh_response_dict["cache_key"] = cache_key
         fresh_response_dict["timezone"] = self.team.timezone
-        CachedResponse = self.cached_response_type
         fresh_response = CachedResponse(**fresh_response_dict)
 
         # Dont cache debug queries with errors
         has_error = fresh_response_dict.get("error", None)
         if has_error is None or len(has_error) == 0:
-            cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
+            cache.set(cache_key, fresh_response.model_dump(), settings.CACHED_RESULTS_TTL)
 
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
         return fresh_response

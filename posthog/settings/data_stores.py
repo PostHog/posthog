@@ -295,10 +295,9 @@ CACHES = {
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+            # Use orjson cache serializer for better performance
+            "SERIALIZER": "posthog.cache_utils.OrjsonJsonSerializer",
         },
         "KEY_PREFIX": "posthog",
     }
 }
-
-if TEST:
-    CACHES["default"] = {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
