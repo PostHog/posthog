@@ -1,4 +1,4 @@
-name: Build hook-janitor docker image
+name: Build container images
 
 on:
   workflow_dispatch:
@@ -6,12 +6,16 @@ on:
     branches:
       - "main"
 
-permissions:
-  packages: write
-
 jobs:
   build:
-    name: build and publish hook-janitor image
+    name: Build and publish container image
+    strategy:
+      matrix:
+        image:
+          - capture
+          - hook-api
+          - hook-janitor
+          - hook-worker
     runs-on: depot-ubuntu-22.04-4
     permissions:
       id-token: write # allow issuing OIDC tokens for this workflow run
@@ -45,7 +49,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/posthog/hog-rs/hook-janitor
+          images: ghcr.io/posthog/hog-rs/${{ matrix.image }}
           tags: |
             type=ref,event=pr
             type=ref,event=branch
@@ -57,8 +61,8 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v2
 
-      - name: Build and push janitor
-        id: docker_build_hook_janitor
+      - name: Build and push image
+        id: docker_build
         uses: depot/build-push-action@v1
         with:
           context: ./
@@ -69,7 +73,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: BIN=hook-janitor
+          build-args: BIN=${{ matrix.image }}
 
-      - name: Hook-janitor image digest
-        run: echo ${{ steps.docker_build_hook_janitor.outputs.digest }}
+      - name: Container image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
