@@ -23,7 +23,6 @@ import {
     FunnelVizType,
     HistogramGraphDatum,
     InsightLogicProps,
-    InsightType,
     StepOrderValue,
     TrendResult,
 } from '~/types'
@@ -164,12 +163,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.insightData, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
-            (insightData, breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
-                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
-                    return []
-                }
-
+            (s) => [s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results)) {
@@ -265,12 +260,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData],
-            (insightData, funnelsFilter, steps, histogramGraphData) => {
-                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
-                    return false
-                }
-
+            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
+            (funnelsFilter, steps, histogramGraphData) => {
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Steps || !funnelsFilter?.funnelVizType) {
                     return !!(steps && steps[0] && steps[0].count > -1)
                 } else if (funnelsFilter.funnelVizType === FunnelVizType.TimeToConvert) {
