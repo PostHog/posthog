@@ -91,8 +91,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
@@ -197,8 +196,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
@@ -306,8 +304,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
@@ -1018,8 +1015,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
@@ -1108,8 +1104,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -1134,8 +1129,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
@@ -1231,8 +1225,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1256,8 +1249,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
@@ -1345,8 +1337,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1371,8 +1362,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events.1
@@ -1500,8 +1490,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1532,8 +1521,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2.1
@@ -1661,8 +1649,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1694,8 +1681,7 @@
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
-                    max_expanded_ast_elements=1000000,
-                    max_query_size=524288
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
@@ -1830,8 +1816,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2

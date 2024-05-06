@@ -18,8 +18,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text_and_level
@@ -43,8 +42,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_log_text
@@ -68,8 +66,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event
@@ -88,8 +85,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_by_event_property
@@ -108,8 +104,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByEvents.test_select_event_property
@@ -130,8 +125,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_event_person
@@ -168,8 +162,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_person_distinct_id
@@ -190,8 +183,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_by_replay_person
@@ -219,8 +211,7 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFilterSessionReplaysByPerson.test_select_person_property
@@ -254,7 +245,6 @@
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
+                     max_expanded_ast_elements=1000000
   '''
 # ---
