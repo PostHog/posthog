@@ -28,7 +28,6 @@ class InsightResult:
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
     timings: Optional[list[QueryTiming]] = None
-    columns: Optional[list] = None
 
 
 @dataclass(frozen=True)
@@ -39,7 +38,6 @@ class NothingInCacheResult(InsightResult):
     is_cached: bool = False
     timezone: Optional[str] = None
     next_allowed_client_refresh: Optional[datetime] = None
-    columns: Optional[list] = None
 
 
 def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_frequency: timedelta) -> InsightResult:

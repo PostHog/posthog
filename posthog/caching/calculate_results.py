@@ -135,7 +135,6 @@ def calculate_for_query_based_insight(
         # Translating `QueryResponse` to legacy insights shape
         # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`
         result=response["results"],
-        columns=response.get("columns"),
         last_refresh=response.get("last_refresh"),
         cache_key=response.get("cache_key"),
         is_cached=response.get("is_cached", False),
