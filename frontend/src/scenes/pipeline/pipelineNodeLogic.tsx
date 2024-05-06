@@ -294,7 +294,11 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             (node, maybeNodePlugin): Record<string, any> | null => {
                 if (node) {
                     return node.backend === PipelineBackend.Plugin
-                        ? node.config || defaultConfigForPlugin(node.plugin)
+                        ? {
+                              name: node.name,
+                              description: node.description,
+                              ...(node.config || defaultConfigForPlugin(node.plugin)),
+                          }
                         : { interval: node.interval, destination: node.service.type, ...node.service.config }
                 }
                 if (maybeNodePlugin) {
