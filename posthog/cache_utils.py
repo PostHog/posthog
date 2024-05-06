@@ -1,4 +1,3 @@
-import pickle
 import threading
 from datetime import timedelta
 from functools import wraps
@@ -73,7 +72,4 @@ class OrjsonJsonSerializer(BaseSerializer):
         return orjson.dumps(value, default=JSONEncoder().default, option=option)
 
     def loads(self, value: bytes) -> Any:
-        try:
-            return orjson.loads(value)
-        except:
-            return pickle.loads(value)
+        return orjson.loads(value)
