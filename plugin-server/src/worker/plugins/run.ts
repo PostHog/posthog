@@ -1,6 +1,6 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
 
-import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethods } from '../../types'
+import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToPostHogEvent,
@@ -16,7 +16,7 @@ async function runSingleTeamPluginOnEvent(
     hub: Hub,
     event: PostIngestionEvent,
     pluginConfig: PluginConfig,
-    onEvent: any
+    onEvent: VMMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
         status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
@@ -33,7 +33,8 @@ async function runSingleTeamPluginOnEvent(
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent!(processedPluginEvent)
+            await onEvent(processedPluginEvent)
+
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
                 .observe(new Date().getTime() - timer.getTime())
@@ -71,9 +72,9 @@ export async function runOnEvent(hub: Hub, event: PostIngestionEvent): Promise<v
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'onEvent')
 
     await Promise.all(
-        pluginMethodsToRun
-            .filter(([, method]) => !!method)
-            .map(([pluginConfig, onEvent]) => runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent))
+        pluginMethodsToRun.map(([pluginConfig, onEvent]) =>
+            runSingleTeamPluginOnEvent(hub, event, pluginConfig, onEvent)
+        )
     )
 }
 
@@ -81,17 +82,16 @@ async function runSingleTeamPluginComposeWebhook(
     hub: Hub,
     postIngestionEvent: PostIngestionEvent,
     pluginConfig: PluginConfig,
-    composeWebhook: any
+    composeWebhook: VMMethodsConcrete['composeWebhook']
 ): Promise<void> {
     // 1. Calls `composeWebhook` for the plugin, send `composeWebhook` appmetric success/fail if applicable.
     // 2. Send via Rusty-Hook if enabled.
     // 3. Send via `fetch` if Rusty-Hook is not enabled.
 
     const event = convertToPostHogEvent(postIngestionEvent)
-
     let maybeWebhook: Webhook | null = null
     try {
-        maybeWebhook = await composeWebhook!(event)
+        maybeWebhook = composeWebhook(event)
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
             status.debug('Skipping composeWebhook returned null', {
@@ -215,85 +215,77 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
 
     await Promise.all(
-        pluginMethodsToRun
-            .filter(([, method]) => !!method)
-            .map(([pluginConfig, composeWebhook]) =>
-                runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
-            )
+        pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
+            runSingleTeamPluginComposeWebhook(hub, event, pluginConfig, composeWebhook)
+        )
     )
 }
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
+
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
+
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
     const pluginsFailed = event.properties?.$plugins_failed || []
-    const pluginsDeferred = []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
+
     for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
-        if (processEvent) {
-            const timer = new Date()
-            const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
+        const timer = new Date()
+        const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
 
-            if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
-                continue
+        if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
+            continue
+        }
+
+        try {
+            returnedEvent = (await processEvent(returnedEvent!)) || null
+            if (returnedEvent && returnedEvent.team_id !== teamId) {
+                returnedEvent.team_id = teamId
+                throw new IllegalOperationError('Plugin tried to change event.team_id')
             }
-
-            try {
-                returnedEvent = (await processEvent(returnedEvent!)) || null
-                if (returnedEvent && returnedEvent.team_id !== teamId) {
-                    returnedEvent.team_id = teamId
-                    throw new IllegalOperationError('Plugin tried to change event.team_id')
-                }
-                pluginsSucceeded.push(pluginIdentifier)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
-                    .observe(new Date().getTime() - timer.getTime())
-                await hub.appMetrics.queueMetric({
+            pluginsSucceeded.push(pluginIdentifier)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'success')
+                .observe(new Date().getTime() - timer.getTime())
+            await hub.appMetrics.queueMetric({
+                teamId,
+                pluginConfigId: pluginConfig.id,
+                category: 'processEvent',
+                successes: 1,
+            })
+        } catch (error) {
+            await processError(hub, pluginConfig, error, returnedEvent)
+            pluginActionMsSummary
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
+                .observe(new Date().getTime() - timer.getTime())
+            pluginsFailed.push(pluginIdentifier)
+            await hub.appMetrics.queueError(
+                {
                     teamId,
                     pluginConfigId: pluginConfig.id,
                     category: 'processEvent',
-                    successes: 1,
-                })
-            } catch (error) {
-                await processError(hub, pluginConfig, error, returnedEvent)
-                pluginActionMsSummary
-                    .labels(pluginConfig.plugin?.id.toString() ?? '?', 'processEvent', 'error')
-                    .observe(new Date().getTime() - timer.getTime())
-                pluginsFailed.push(pluginIdentifier)
-                await hub.appMetrics.queueError(
-                    {
-                        teamId,
-                        pluginConfigId: pluginConfig.id,
-                        category: 'processEvent',
-                        failures: 1,
-                    },
-                    {
-                        error,
-                        event,
-                    }
-                )
-            }
-
-            if (!returnedEvent) {
-                return null
-            }
+                    failures: 1,
+                },
+                {
+                    error,
+                    event,
+                }
+            )
         }
 
-        const onEvent = await pluginConfig.vm?.getOnEvent()
-        if (onEvent) {
-            pluginsDeferred.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+        if (!returnedEvent) {
+            return null
         }
     }
 
-    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0 || pluginsDeferred.length > 0) {
+    if (pluginsSucceeded.length > 0 || pluginsFailed.length > 0) {
         event.properties = {
             ...event.properties,
             $plugins_succeeded: pluginsSucceeded,
             $plugins_failed: pluginsFailed,
-            $plugins_deferred: pluginsDeferred,
         }
     }
 
@@ -366,17 +358,24 @@ export async function runPluginTask(
     return response
 }
 
-async function getPluginMethodsForTeam<M extends keyof VMMethods>(
+async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
     hub: Hub,
     teamId: number,
     method: M
-): Promise<[PluginConfig, VMMethods[M]][]> {
+): Promise<[PluginConfig, VMMethodsConcrete[M]][]> {
     const pluginConfigs = hub.pluginConfigsPerTeam.get(teamId) || []
     if (pluginConfigs.length === 0) {
         return []
     }
+
     const methodsObtained = await Promise.all(
         pluginConfigs.map(async (pluginConfig) => [pluginConfig, await pluginConfig?.vm?.getVmMethod(method)])
     )
-    return methodsObtained as [PluginConfig, VMMethods[M]][]
+
+    const methodsObtainedFiltered = methodsObtained.filter(([_, method]) => !!method) as [
+        PluginConfig,
+        VMMethodsConcrete[M]
+    ][]
+
+    return methodsObtainedFiltered
 }

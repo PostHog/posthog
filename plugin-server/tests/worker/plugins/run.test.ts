@@ -131,7 +131,6 @@ describe('runOnEvent', () => {
     })
 
     beforeEach(() => {
-        exec = jest.fn()
         onEvent = jest.fn()
         mockHub = {
             pluginConfigsPerTeam: new Map([
