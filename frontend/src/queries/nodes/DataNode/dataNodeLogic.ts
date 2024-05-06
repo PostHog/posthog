@@ -163,11 +163,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        if (
-                            props.cachedResults['result'] ||
-                            props.cachedResults['results'] ||
-                            !isInsightQueryNode(props.query)
-                        ) {
+                        if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
                     }
