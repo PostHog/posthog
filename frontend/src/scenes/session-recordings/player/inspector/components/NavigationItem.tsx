@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -111,7 +112,14 @@ export function NavigationItem({ item, expanded, navigationURL }: NavigationItem
         <>
             <div className="flex gap-2 items-start p-2 text-xs">
                 <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                    Navigated to {navigationURL}
+                    Navigated to{' '}
+                    {expanded ? (
+                        <CodeSnippet language={Language.Markup} wrap thing="performance event name">
+                            {item.name}
+                        </CodeSnippet>
+                    ) : (
+                        navigationURL
+                    )}
                 </span>
             </div>
             <LemonDivider className="my-0" />
@@ -127,6 +135,34 @@ export function NavigationItem({ item, expanded, navigationURL }: NavigationItem
                         />
                     </Fragment>
                 ))}
+            </div>
+            <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
+                <>
+                    {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
+                        <div key={key}>
+                            <div className="flex gap-2 font-semibold my-1">
+                                <span>{label}</span>
+                                <span>
+                                    {item?.[key] === undefined ? (
+                                        '-'
+                                    ) : (
+                                        <span
+                                            className={clsx({
+                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
+                                                'text-warning-dark':
+                                                    item[key] >= scoreBenchmarks[0] && item[key] < scoreBenchmarks[1],
+                                            })}
+                                        >
+                                            {humanFriendlyMilliseconds(item[key])}
+                                        </span>
+                                    )}
+                                </span>
+                            </div>
+
+                            <p>{description}</p>
+                        </div>
+                    ))}
+                </>
             </div>
         </>
     )

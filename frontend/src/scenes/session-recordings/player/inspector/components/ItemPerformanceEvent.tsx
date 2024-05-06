@@ -4,10 +4,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
 import { useState } from 'react'
-import {
-    NavigationItem,
-    performanceSummaryCards,
-} from 'scenes/session-recordings/player/inspector/components/NavigationItem'
+import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { Body, PerformanceEvent } from '~/types'
@@ -216,69 +213,32 @@ export function ItemPerformanceEvent({
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    {item.name && (
-                        <CodeSnippet language={Language.Markup} wrap thing="performance event name">
-                            {item.name}
-                        </CodeSnippet>
-                    )}
-
-                    {item.entry_type === 'navigation' ? (
-                        <>
-                            {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
-                                <div key={key}>
-                                    <div className="flex gap-2 font-semibold my-1">
-                                        <span>{label}</span>
-                                        <span>
-                                            {item?.[key] === undefined ? (
-                                                '-'
-                                            ) : (
-                                                <span
-                                                    className={clsx({
-                                                        'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                        'text-warning-dark':
-                                                            item[key] >= scoreBenchmarks[0] &&
-                                                            item[key] < scoreBenchmarks[1],
-                                                    })}
-                                                >
-                                                    {humanFriendlyMilliseconds(item[key])}
-                                                </span>
-                                            )}
-                                        </span>
-                                    </div>
-
-                                    <p>{description}</p>
-                                </div>
-                            ))}
-                        </>
-                    ) : (
-                        <>
-                            <StatusRow item={item} />
-                            <p>
-                                Request started at{' '}
-                                <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
-                                <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                                {sizeInfo.decodedBodySize ? (
-                                    <>
-                                        {' '}
-                                        to load <b>{sizeInfo.decodedBodySize}</b> of data
-                                    </>
-                                ) : null}
-                                {sizeInfo.isFromLocalCache ? (
-                                    <>
-                                        {' '}
-                                        <span className="text-muted">(from local cache)</span>
-                                    </>
-                                ) : null}
-                                {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
-                                    <>
-                                        , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
-                                        <b>{sizeInfo.formattedCompressionPercentage}</b>
-                                    </>
-                                ) : null}
-                                .
-                            </p>
-                        </>
-                    )}
+                    <>
+                        <StatusRow item={item} />
+                        <p>
+                            Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b>{' '}
+                            and took <b>{humanFriendlyMilliseconds(item.duration)}</b>
+                            {sizeInfo.decodedBodySize ? (
+                                <>
+                                    {' '}
+                                    to load <b>{sizeInfo.decodedBodySize}</b> of data
+                                </>
+                            ) : null}
+                            {sizeInfo.isFromLocalCache ? (
+                                <>
+                                    {' '}
+                                    <span className="text-muted">(from local cache)</span>
+                                </>
+                            ) : null}
+                            {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
+                                <>
+                                    , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
+                                    <b>{sizeInfo.formattedCompressionPercentage}</b>
+                                </>
+                            ) : null}
+                            .
+                        </p>
+                    </>
                     <LemonDivider dashed />
                     {['fetch', 'xmlhttprequest'].includes(item.initiator_type || '') ? (
                         <>
@@ -340,8 +300,6 @@ export function ItemPerformanceEvent({
                                               ),
                                           }
                                         : false,
-                                    // raw is only available if the feature flag is enabled
-                                    // TODO before proper release we should put raw behind its own flag
                                     {
                                         key: 'raw',
                                         label: 'Json',

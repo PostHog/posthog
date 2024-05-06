@@ -58,6 +58,7 @@ SlowFCP.args = {
         dom_interactive: 70,
         first_contentful_paint: 1900,
     } as PerformanceEvent,
+    expanded: false,
 }
 
 export const ReallySlowFCP: Story = BasicTemplate.bind({})
@@ -67,6 +68,7 @@ ReallySlowFCP.args = {
         dom_interactive: 70,
         first_contentful_paint: 3100,
     } as PerformanceEvent,
+    expanded: false,
 }
 
 /**
@@ -79,6 +81,7 @@ SlowDOMInteractive.args = {
         dom_interactive: 3900,
         first_contentful_paint: 10,
     } as PerformanceEvent,
+    expanded: false,
 }
 
 export const ReallySlowDOMInteractive: Story = BasicTemplate.bind({})
@@ -88,6 +91,7 @@ ReallySlowDOMInteractive.args = {
         dom_interactive: 7400,
         first_contentful_paint: 10,
     } as PerformanceEvent,
+    expanded: false,
 }
 
 /**
@@ -100,6 +104,7 @@ SlowLoadEvent.args = {
         dom_interactive: 70,
         first_contentful_paint: 10,
     } as PerformanceEvent,
+    expanded: false,
 }
 
 export const ReallySlowLoadEvent: Story = BasicTemplate.bind({})
@@ -109,4 +114,20 @@ ReallySlowLoadEvent.args = {
         dom_interactive: 70,
         first_contentful_paint: 10,
     } as PerformanceEvent,
+    expanded: false,
+}
+
+export const AllSlow: Story = BasicTemplate.bind({})
+AllSlow.args = {
+    item: {
+        load_event_end: 7400,
+        dom_interactive: 7400,
+        first_contentful_paint: 3100,
+    } as PerformanceEvent,
+    expanded: false,
+}
+
+export const Expanded: Story = BasicTemplate.bind({})
+Expanded.args = {
+    expanded: true,
 }
