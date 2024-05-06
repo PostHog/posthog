@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.db.models import Count, Prefetch
 from rest_framework import request, serializers, viewsets
@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.api.plugin import PluginConfigSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import (
@@ -52,6 +53,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
+    plugin_configs = PluginConfigSerializer(many=True, read_only=True)
 
     class Meta:
         model = Action
@@ -71,6 +73,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "team_id",
             "is_action",
             "bytecode_error",
+            "plugin_configs",
         ]
         read_only_fields = [
             "team_id",
@@ -124,6 +127,10 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
+        if validated_data.get("deleted"):
+            # Check it isn't used by any pipeline things
+            raise serializers.ValidationError("NOPE!")
+
         steps = validated_data.pop("steps", None)
         # If there's no steps property at all we just ignore it
         # If there is a step property but it's an empty array [], we'll delete all the steps

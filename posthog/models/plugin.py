@@ -258,6 +258,7 @@ class PluginConfig(models.Model):
     match_action = models.ForeignKey(
         "posthog.Action",
         on_delete=models.SET_NULL,
+        related_name="plugin_configs",
         blank=True,
         null=True,
     )
