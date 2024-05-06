@@ -151,6 +151,7 @@ export enum AvailableFeature {
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
+    AUTOMATIC_PROVISIONING = 'automatic_provisioning',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
