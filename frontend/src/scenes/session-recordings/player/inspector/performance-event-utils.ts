@@ -161,6 +161,7 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
                 const data: Partial<PerformanceEvent> = {
                     timestamp: snapshot.timestamp,
                     window_id: windowId,
+                    raw: properties,
                 }
 
                 Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
