@@ -1,4 +1,4 @@
-from posthog.models import Action, ActionStep, Element, Organization
+from posthog.models import Action, Element, Organization
 from posthog.models.event import Selector
 from posthog.test.base import BaseTest
 
@@ -507,7 +507,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     {
                         "event": "$autocapture",
                         "url": "123",
-                        "url_matching": ActionStep.CONTAINS,
+                        "url_matching": "contains",
                     }
                 ],
             )
@@ -518,7 +518,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                     {
                         "event": "$autocapture",
                         "url": "https://posthog.com/%/123",
-                        "url_matching": ActionStep.CONTAINS,
+                        "url_matching": "contains",
                     }
                 ],
             )
