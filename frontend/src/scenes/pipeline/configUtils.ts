@@ -46,20 +46,16 @@ export function getPluginConfigFormData(
     existingConfig: Record<string, any> | undefined,
     updatedConfig: Record<string, any>
 ): FormData {
-    const { __enabled: enabled, name, description, ...config } = updatedConfig
+    const { __enabled: enabled, ...config } = updatedConfig
 
     const configSchema = getConfigSchemaObject(rawConfigSchema)
 
     const formData = new FormData()
     const otherConfig: Record<string, any> = {}
-    formData.append('enabled', Boolean(enabled).toString())
+    if (enabled !== undefined) {
+        formData.append('enabled', Boolean(enabled).toString())
+    }
 
-    if (name) {
-        formData.append('name', name)
-    }
-    if (description) {
-        formData.append('description', description)
-    }
     for (const [key, value] of Object.entries(config)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {
@@ -89,9 +85,12 @@ const doFieldRequirementsMatch = (
     return (targetAnyValue && formValueSet) || targetFieldValue === formActualValue
 }
 
-export const determineInvisibleFields = (getFieldValue: (fieldName: string) => any, plugin: PluginType): string[] => {
+export const determineInvisibleFields = (
+    getFieldValue: (fieldName: string) => any,
+    schema: PluginType['config_schema']
+): string[] => {
     const fieldsToSetAsInvisible = []
-    for (const field of Object.values(getConfigSchemaArray(plugin.config_schema || {}))) {
+    for (const field of Object.values(getConfigSchemaArray(schema || {}))) {
         if (!field.visible_if || !field.key) {
             continue
         }
@@ -107,9 +106,12 @@ export const determineInvisibleFields = (getFieldValue: (fieldName: string) => a
     return fieldsToSetAsInvisible
 }
 
-export const determineRequiredFields = (getFieldValue: (fieldName: string) => any, plugin: PluginType): string[] => {
+export const determineRequiredFields = (
+    getFieldValue: (fieldName: string) => any,
+    schema: PluginType['config_schema']
+): string[] => {
     const fieldsToSetAsRequired = []
-    for (const field of Object.values(getConfigSchemaArray(plugin.config_schema || {}))) {
+    for (const field of Object.values(getConfigSchemaArray(schema || {}))) {
         if (!field.key) {
             continue
         }

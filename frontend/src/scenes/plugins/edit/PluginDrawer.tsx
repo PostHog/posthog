@@ -66,8 +66,10 @@ export function PluginDrawer(): JSX.Element {
     const [requiredFields, setRequiredFields] = useState<string[]>([])
 
     const updateInvisibleAndRequiredFields = (): void => {
-        setInvisibleFields(editingPlugin ? determineInvisibleFields(form.getFieldValue, editingPlugin) : [])
-        setRequiredFields(editingPlugin ? determineRequiredFields(form.getFieldValue, editingPlugin) : [])
+        setInvisibleFields(
+            editingPlugin ? determineInvisibleFields(form.getFieldValue, editingPlugin.config_schema) : []
+        )
+        setRequiredFields(editingPlugin ? determineRequiredFields(form.getFieldValue, editingPlugin.config_schema) : [])
     }
 
     useEffect(() => {

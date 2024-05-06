@@ -1,3 +1,4 @@
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -36,6 +37,13 @@ export type BatchExportUpdatePayload = Pick<
     BatchExportBasedNode,
     'name' | 'description' | 'enabled' | 'service' | 'interval'
 >
+
+const prefixConfigOptions = (options: Record<string, string>): Record<string, string> => {
+    return Object.entries(options).reduce((acc, [key, value]) => {
+        acc[`config_${key}`] = value
+        return acc
+    }, {} as Record<string, string>)
+}
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -121,11 +129,17 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         return convertToPipelineNode(batchExport, values.stage)
                     } else if (values.maybeNodePlugin) {
                         payload = payload as PluginUpdatePayload
+
                         const formdata = getPluginConfigFormData(
                             values.maybeNodePlugin.config_schema,
                             defaultConfigForPlugin(values.maybeNodePlugin),
-                            { ...payload, enabled: true } // Default enable on creation
+                            { ...payload.config, enabled: true } // Default enable on creation
                         )
+                        formdata.append('name', payload.name)
+                        if (payload.description) {
+                            formdata.append('description', payload.description)
+                        }
+
                         formdata.append('plugin', values.maybeNodePlugin.id.toString())
                         formdata.append('order', '99') // TODO: fix this should be at the end of latest here for transformations
                         const pluginConfig = await api.pluginConfigs.create(formdata)
@@ -148,10 +162,18 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         return convertToPipelineNode(batchExport, values.node.stage)
                     }
                     payload = payload as PluginUpdatePayload
-                    const pluginConfig = await api.pluginConfigs.update(
-                        props.id as number,
-                        getPluginConfigFormData(values.node.plugin.config_schema, values.node.config, payload)
+
+                    const formdata = getPluginConfigFormData(
+                        values.node.plugin.config_schema,
+                        values.node.config,
+                        payload.config
                     )
+                    formdata.append('name', payload.name)
+                    if (payload.description) {
+                        formdata.append('description', payload.description)
+                    }
+
+                    const pluginConfig = await api.pluginConfigs.update(props.id as number, formdata)
                     return convertToPipelineNode(pluginConfig, values.node.stage)
                 },
             },
@@ -169,12 +191,28 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 )
             },
             submit: async (formValues) => {
+                let payload = formValues
+
+                if (values.nodeBackend === PipelineBackend.Plugin) {
+                    payload = {
+                        config: {},
+                    }
+                    // We parse out the config fields from the form values
+                    Object.entries(formValues).forEach(([key, value]) => {
+                        if (key.startsWith('config_')) {
+                            payload.config[key.replace('config_', '')] = value
+                        } else {
+                            payload[key] = value
+                        }
+                    })
+                }
+
                 if (values.isNew) {
                     // @ts-expect-error - Sadly Kea logics can't be generic based on props, so TS complains here
-                    return await asyncActions.createNode(formValues)
+                    return await asyncActions.createNode(payload)
                 }
                 // @ts-expect-error - Sadly Kea logics can't be generic based on props, so TS complains here
-                await asyncActions.updateNode(formValues)
+                await asyncActions.updateNode(payload)
             },
         },
     })),
@@ -297,21 +335,36 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         ? {
                               name: node.name,
                               description: node.description,
-                              ...(node.config || defaultConfigForPlugin(node.plugin)),
+                              ...prefixConfigOptions(node.config || defaultConfigForPlugin(node.plugin)),
                           }
                         : { interval: node.interval, destination: node.service.type, ...node.service.config }
                 }
                 if (maybeNodePlugin) {
-                    return defaultConfigForPlugin(maybeNodePlugin)
+                    return prefixConfigOptions(defaultConfigForPlugin(maybeNodePlugin))
                 }
                 return null
+            },
+        ],
+        pluginConfigFields: [
+            (s) => [s.maybeNodePlugin],
+            (maybeNodePlugin): PluginConfigSchema[] => {
+                if (maybeNodePlugin) {
+                    return getConfigSchemaArray(maybeNodePlugin.config_schema).map((field) => ({
+                        ...field,
+                        key: `config_${field.key}`,
+                    }))
+                }
+                return []
             },
         ],
         hiddenFields: [
             (s) => [s.maybeNodePlugin, s.configuration],
             (maybeNodePlugin, configuration): string[] => {
                 if (maybeNodePlugin) {
-                    return determineInvisibleFields((fieldName) => configuration[fieldName], maybeNodePlugin)
+                    return determineInvisibleFields(
+                        (fieldName) => configuration[fieldName],
+                        maybeNodePlugin.config_schema
+                    ).map((field) => `config_${field}`)
                 }
                 return []
             },
@@ -320,7 +373,10 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             (s) => [s.maybeNodePlugin, s.configuration],
             (maybeNodePlugin, configuration): string[] => {
                 if (maybeNodePlugin) {
-                    return determineRequiredFields((fieldName) => configuration[fieldName], maybeNodePlugin)
+                    return determineRequiredFields(
+                        (fieldName) => configuration[fieldName],
+                        maybeNodePlugin.config_schema
+                    ).map((field) => `config_${field}`)
                 }
                 return []
             },

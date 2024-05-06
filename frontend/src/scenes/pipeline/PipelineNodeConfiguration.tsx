@@ -9,10 +9,10 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
 import { BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
-import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
+import { isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
-import { AvailableFeature, PipelineStage, PluginType } from '~/types'
+import { AvailableFeature, PipelineStage } from '~/types'
 
 import { pipelineLogic } from './pipelineLogic'
 import { pipelineNodeLogic } from './pipelineNodeLogic'
@@ -100,7 +100,7 @@ export function PipelineNodeConfiguration(): JSX.Element {
                         {!isConfigurable ? (
                             <span>This {stage} isn't configurable.</span>
                         ) : maybeNodePlugin ? (
-                            <PluginConfigurationFields plugin={maybeNodePlugin} formValues={configuration} />
+                            <PluginConfigurationFields />
                         ) : (
                             <BatchExportConfigurationFields isNew={isNew} formValues={configuration} />
                         )}
@@ -129,11 +129,10 @@ export function PipelineNodeConfiguration(): JSX.Element {
     )
 }
 
-function PluginConfigurationFields({ plugin }: { plugin: PluginType; formValues: Record<string, any> }): JSX.Element {
-    const { hiddenFields, requiredFields } = useValues(pipelineNodeLogic)
+function PluginConfigurationFields(): JSX.Element {
+    const { hiddenFields, requiredFields, pluginConfigFields } = useValues(pipelineNodeLogic)
 
-    const configSchemaArray = getConfigSchemaArray(plugin.config_schema)
-    const fields = configSchemaArray.map((fieldConfig, index) => (
+    const fields = pluginConfigFields.map((fieldConfig, index) => (
         <React.Fragment key={fieldConfig.key || `__key__${index}`}>
             {fieldConfig.key &&
             fieldConfig.type &&
