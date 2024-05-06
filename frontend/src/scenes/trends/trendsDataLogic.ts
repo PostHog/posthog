@@ -11,7 +11,7 @@ import {
     isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { EntityNode, LifecycleQuery } from '~/queries/schema'
+import { LifecycleQuery, MathType } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -25,8 +25,6 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-
-type MathType = Required<EntityNode>['math']
 
 /** All math types that can result in non-whole numbers. */
 const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(

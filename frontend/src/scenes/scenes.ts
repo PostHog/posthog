@@ -399,6 +399,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Move to PostHog Cloud',
         hideProjectNotice: true,
     },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+        hideProjectNotice: true,
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -583,4 +588,5 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
+    [urls.heatmaps()]: Scene.Heatmaps,
 }

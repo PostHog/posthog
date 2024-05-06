@@ -7,7 +7,6 @@ import { Counter } from 'prom-client'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
 import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../utils/status'
-import { cloneObject } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'
 import { TeamIDWithConfig } from './session-recordings-consumer'
@@ -357,52 +356,6 @@ export const parseKafkaBatch = async (
         sessions: Array.from(parsedSessions.values()),
         partitionStats: Array.from(lastMessageForPartition.values()), // Just cast the last message into the small BatchStats interface
     }
-}
-
-/**
- * @deprecated Delete when removing session-recordings-consumer-v3
- */
-export const reduceRecordingMessages = (messages: IncomingRecordingMessage[]): IncomingRecordingMessage[] => {
-    /**
-     * It can happen that a single batch contains all messages for the same session.
-     * A big perf win here is to group everything up front and then reduce the messages
-     * to a single message per session.
-     */
-    const reducedMessages: Record<string, IncomingRecordingMessage> = {}
-
-    for (const message of messages) {
-        const key = `${message.team_id}-${message.session_id}`
-        if (!reducedMessages[key]) {
-            reducedMessages[key] = cloneObject(message)
-        } else {
-            const existingMessage = reducedMessages[key]
-            for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
-                if (existingMessage.eventsByWindowId[windowId]) {
-                    existingMessage.eventsByWindowId[windowId].push(...events)
-                } else {
-                    existingMessage.eventsByWindowId[windowId] = events
-                }
-            }
-            existingMessage.metadata.rawSize += message.metadata.rawSize
-
-            // Update the events ranges
-            existingMessage.metadata.lowOffset = Math.min(
-                existingMessage.metadata.lowOffset,
-                message.metadata.lowOffset
-            )
-
-            existingMessage.metadata.highOffset = Math.max(
-                existingMessage.metadata.highOffset,
-                message.metadata.highOffset
-            )
-
-            // Update the events ranges
-            existingMessage.eventsRange.start = Math.min(existingMessage.eventsRange.start, message.eventsRange.start)
-            existingMessage.eventsRange.end = Math.max(existingMessage.eventsRange.end, message.eventsRange.end)
-        }
-    }
-
-    return Object.values(reducedMessages)
 }
 
 export const convertForPersistence = (

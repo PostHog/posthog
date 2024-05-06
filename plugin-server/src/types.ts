@@ -78,7 +78,6 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
 
@@ -311,7 +310,6 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
-    sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -509,6 +507,9 @@ export type VMMethods = {
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
+// Helper when ensuring that a required method is implemented
+export type VMMethodsConcrete = Required<VMMethods>
+
 export enum AlertLevel {
     P0 = 0,
     P1 = 1,
@@ -663,20 +664,9 @@ export interface ClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-/** Event in a database-agnostic shape, AKA an ingestion event.
- * This is what should be passed around most of the time in the plugin server.
+/** Event structure before initial ingestion.
+ * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
  */
-interface BaseIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-    elementsList: Element[]
-}
-
-/** Ingestion event before saving, BaseIngestionEvent without elementsList */
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -686,8 +676,12 @@ export interface PreIngestionEvent {
     timestamp: ISOTimestamp
 }
 
-/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+/** Parsed event structure after initial ingestion.
+ * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
+ */
+
+export interface PostIngestionEvent extends PreIngestionEvent {
+    elementsList?: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
