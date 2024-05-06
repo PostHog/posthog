@@ -51,7 +51,7 @@ const PRODUCTS = [
     },
     {
         name: 'A/B testing',
-        slug: 'ab-testing',
+        slug: 'experiments',
         icon: <IconFlask className="text-purple h-5 w-5" />,
     },
     {

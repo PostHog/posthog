@@ -323,7 +323,14 @@ function InsightCardInternal(
                 />
                 {insight.query ? (
                     <div className="InsightCard__viz">
-                        <Query query={insight.query} cachedResults={insight.result} readOnly />
+                        <Query
+                            query={insight.query}
+                            cachedResults={insight}
+                            context={{
+                                insightProps: insightLogicProps,
+                            }}
+                            readOnly
+                        />
                     </div>
                 ) : insight.filters?.insight ? (
                     <FilterBasedCardContent

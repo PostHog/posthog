@@ -76,7 +76,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_end.1
@@ -156,7 +159,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_end_materialized
@@ -236,7 +242,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_end_materialized.1
@@ -316,7 +325,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_exclusion_filters_with_wildcard_groups
@@ -395,7 +407,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_exclusion_filters_with_wildcard_groups.1
@@ -474,7 +489,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters
@@ -553,7 +571,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.1
@@ -632,7 +653,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.2
@@ -711,7 +735,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_inclusion_exclusion_filters.3
@@ -790,7 +817,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_event_ordering
@@ -869,7 +899,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events
@@ -956,7 +989,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events.1
@@ -1036,7 +1072,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_groups_filtering_person_on_events.2
@@ -1116,7 +1155,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs
@@ -1233,7 +1275,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.1
@@ -1349,7 +1394,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.2
@@ -1465,7 +1513,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.3
@@ -1582,7 +1633,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.4
@@ -1698,7 +1752,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.5
@@ -1814,7 +1871,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.6
@@ -1931,7 +1991,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.7
@@ -2047,7 +2110,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_dropoffs.8
@@ -2163,7 +2229,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_person_on_events_v2
@@ -2255,7 +2324,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording
@@ -2375,7 +2447,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording.1
@@ -2390,7 +2465,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff
@@ -2511,7 +2589,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff.1
@@ -2526,7 +2607,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff.2
@@ -2647,7 +2731,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_for_dropoff.3
@@ -2662,7 +2749,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id
@@ -2782,7 +2872,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_no_window_or_session_id.1
@@ -2797,7 +2890,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_start_and_end
@@ -2926,7 +3022,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_recording_with_start_and_end.1
@@ -2941,7 +3040,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=1000000,
+                     max_expanded_ast_elements=1000000,
+                     max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_respect_session_limits
@@ -3020,7 +3122,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end
@@ -3104,7 +3209,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end.1
@@ -3229,7 +3337,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end.2
@@ -3313,7 +3424,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end.3
@@ -3438,7 +3552,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end_materialized
@@ -3522,7 +3639,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end_materialized.1
@@ -3647,7 +3767,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end_materialized.2
@@ -3731,7 +3854,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_and_end_materialized.3
@@ -3856,7 +3982,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_start_dropping_orphaned_edges
@@ -3936,7 +4065,10 @@
   LIMIT 6 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
-                   format_csv_allow_double_quotes=0
+                   format_csv_allow_double_quotes=0,
+                   max_ast_elements=1000000,
+                   max_expanded_ast_elements=1000000,
+                   max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_conversion_times
@@ -4015,7 +4147,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit
@@ -4094,7 +4229,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.1
@@ -4210,7 +4348,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.2
@@ -4326,7 +4467,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.3
@@ -4405,7 +4549,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.4
@@ -4521,7 +4668,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.5
@@ -4600,7 +4750,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.6
@@ -4716,7 +4869,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.7
@@ -4832,7 +4988,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_step_limit.8
@@ -4948,7 +5107,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_wildcard_groups_across_people
@@ -5027,7 +5189,10 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---
 # name: TestClickhousePaths.test_wildcard_groups_evil_input
@@ -5111,6 +5276,9 @@
   LIMIT 50 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000,
+                    max_query_size=524288
   '''
 # ---

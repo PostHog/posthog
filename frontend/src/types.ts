@@ -36,6 +36,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
+    HogQLQueryModifiers,
     InsightVizNode,
     Node,
 } from './queries/schema'
@@ -161,6 +162,7 @@ export enum ProductKey {
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
     HISTORY = 'history',
+    HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
@@ -470,6 +472,8 @@ export interface TeamType extends TeamBasicType {
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
+    modifiers?: HogQLQueryModifiers
+    default_modifiers?: HogQLQueryModifiers
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -537,7 +541,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 

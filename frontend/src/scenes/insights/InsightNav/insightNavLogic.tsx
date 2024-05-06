@@ -64,11 +64,11 @@ export interface CommonInsightFilter
 
 export interface QueryPropertyCache
     extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
-        Omit<Partial<FunnelsQuery>, 'kind'>,
+        Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
         Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
-        Omit<Partial<PathsQuery>, 'kind'>,
-        Omit<Partial<StickinessQuery>, 'kind'>,
-        Omit<Partial<LifecycleQuery>, 'kind'> {
+        Omit<Partial<PathsQuery>, 'kind' | 'response'>,
+        Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
+        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
 }
 
