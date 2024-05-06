@@ -9,7 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { allDateMapping } from 'lib/utils'
+import { allDateMapping, realTimeDateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -565,6 +565,66 @@ const handleQuerySourceUpdateSideEffects = (
         ((mergedUpdate as Partial<TrendsQuery>)?.interval || interval) == 'minute'
     ) {
         ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+    }
+
+    if (
+        kind == NodeKind.TrendsQuery &&
+        (mergedUpdate as Partial<TrendsQuery>)?.interval == 'minute' &&
+        interval !== 'minute'
+    ) {
+        const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+        console.log('DATE RANGE', mergedUpdate, interval, date_from, date_to)
+        // Current bug is that neither of these has dateRange in it
+        console.log(currentState, update)
+
+        // Change the date range to be the last 3 hours if it was longer
+        const dateMapping = realTimeDateMapping[1]
+        if (!date_from && !date_to) {
+            // When insights are created, they might not have an explicit dateRange set. This defaults to 7 days.
+            // Change it to 3 hours if they pick hour.
+            ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+                date_from: dateMapping.values[0],
+                date_to: dateMapping.values[1],
+            }
+        }
+        if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
+            // Custom date mapping
+            if (dayjs(date_to).diff(dayjs(date_from), 'day') >= 1) {
+                ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+                    date_from: dateMapping.values[0],
+                    date_to: dateMapping.values[1],
+                }
+            }
+        } else {
+            // Dropdown date mapping. Change the date range if the defaultInterval isn't minute.
+            for (const { key, values, defaultInterval } of allDateMapping) {
+                if (
+                    values[0] === date_from &&
+                    values[1] === (date_to || undefined) &&
+                    key !== 'Custom' &&
+                    defaultInterval &&
+                    defaultInterval !== 'minute'
+                ) {
+                    ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+                        date_from: dateMapping.values[0],
+                        date_to: dateMapping.values[1],
+                    }
+                }
+            }
+        }
+    }
+    console.log('MERGED UPDATE', mergedUpdate)
+
+    // If we've changed interval, clear smoothings
+    if (
+        kind == NodeKind.TrendsQuery &&
+        (mergedUpdate as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
+        (mergedUpdate as Partial<TrendsQuery>)?.interval !== undefined &&
+        interval !== undefined &&
+        (mergedUpdate as Partial<TrendsQuery>)?.interval !== interval
+    ) {
+        // @ts-ignore
+        ;(mergedUpdate as TrendsQuery).trendsFilter.smoothingIntervals = undefined
     }
     return mergedUpdate
 }
