@@ -20,8 +20,10 @@ import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import {
+    ActivityScope,
     AvailableFeature,
     Breadcrumb,
     CohortType,
@@ -88,6 +90,7 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
+    user_access_level: 'editor',
     tags: [],
 }
 const NEW_VARIANT = {
@@ -805,6 +808,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
+                    ? {
+                          activity_scope: ActivityScope.DASHBOARD,
+                          activity_item_id: `${featureFlag.id}`,
+                          access_control_resource: 'feature_flag',
+                          access_control_resource_id: `${featureFlag.id}`,
+                      }
+                    : null
+            },
         ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],

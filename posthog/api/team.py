@@ -32,20 +32,23 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project, UUIDT
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
+    AccessControlPermission,
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.demo_create_data import create_data_for_demo_team
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_ip_address, get_week_start_for_country_code
@@ -57,7 +60,7 @@ class PremiumMultiProjectPermissions(BasePermission):
     message = "You must upgrade your PostHog plan to be able to create and manage multiple projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
-        if request.method in CREATE_METHODS:
+        if view.action in CREATE_ACTIONS:
             try:
                 organization = get_organization_from_view(view)
             except ValueError:
@@ -115,7 +118,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
@@ -169,6 +172,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
+            "user_access_level",
             "heatmaps_opt_in",
         )
         read_only_fields = (
@@ -184,9 +188,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
+            "user_access_level",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+        # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
@@ -397,7 +403,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return updated_team
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -427,6 +433,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
+            AccessControlPermission,
             PremiumMultiProjectPermissions,
             *self.permission_classes,
         ]

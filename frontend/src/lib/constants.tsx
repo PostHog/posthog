@@ -204,6 +204,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
+    ACCESS_CONTROL: 'access-control', // owner: @benjackwhite
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay

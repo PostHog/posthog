@@ -1286,7 +1286,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(5, 6)):
+        with self.assertNumQueries(FuzzyInt(7, 8)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1301,7 +1301,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(5, 6)):
+        with self.assertNumQueries(FuzzyInt(7, 8)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1316,7 +1316,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1331,7 +1331,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1355,7 +1355,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(11, 12)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -2265,19 +2265,21 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.client.logout()
 
-        with self.assertNumQueries(12):
-            # E   1. SAVEPOINT
-            # E   2. SELECT "posthog_personalapikey"."id"
-            # E   3. RELEASE SAVEPOINT
-            # E   4. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
-            # E   5. SELECT "posthog_team"."id", "posthog_team"."uuid"
-            # E   6. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
-            # E   7. SELECT "posthog_cohort"."id"  -- all cohorts
-            # E   8. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
-            # E   9. SELECT "posthog_cohort". id = 99999
-            # E  10. SELECT "posthog_cohort". id = deleted cohort
-            # E  11. SELECT "posthog_cohort". id = cohort from other team
-            # E  12. SELECT "posthog_grouptypemapping"."id", -- group type mapping
+        with self.assertNumQueries(14):
+            # E  1. SAVEPOINT
+            # E  2. SELECT "posthog_personalapikey"."id"
+            # E  3. RELEASE SAVEPOINT
+            # E  4. UPDATE "posthog_personalapikey" SET "last_used_at" = '2024-01-31T13:01:37.394080+00:00'
+            # E  5. SELECT "posthog_team"."id", "posthog_team"."uuid"
+            # E  6. SELECT "posthog_organizationmembership"."id"
+            # E  7. SELECT "ee_accesscontrol"."id"
+            # E  8. SELECT "posthog_organizationmembership"."id", "posthog_organizationmembership"."organization_id"
+            # E  9. SELECT "posthog_cohort"."id"  -- all cohorts
+            # E  10. SELECT "posthog_featureflag"."id", "posthog_featureflag"."key", -- all flags
+            # E  11. SELECT "posthog_cohort". id = 99999
+            # E  12. SELECT "posthog_cohort". id = deleted cohort
+            # E  13. SELECT "posthog_cohort". id = cohort from other team
+            # E  14. SELECT "posthog_grouptypemapping"."id", -- group type mapping
 
             response = self.client.get(
                 f"/api/feature_flag/local_evaluation?token={self.team.api_token}&send_cohorts",

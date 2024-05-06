@@ -3,7 +3,6 @@ from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
@@ -19,11 +18,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     extract_organization,
 )
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
@@ -37,7 +37,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
             not is_cloud()
-            and request.method in CREATE_METHODS
+            and view.action in CREATE_ACTIONS
             and (
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
@@ -49,7 +49,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
@@ -63,7 +63,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class OrganizationSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -120,7 +122,15 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        # Support new access control system
+
+        visible_teams = (
+            self.user_access_control.filter_queryset_by_access_level(instance.teams, include_all_if_admin=True)
+            if self.user_access_control
+            else instance.teams.none()
+        )
+        # Support old access control system
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:

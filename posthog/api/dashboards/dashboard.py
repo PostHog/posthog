@@ -28,6 +28,8 @@ from posthog.models import Dashboard, DashboardTile, Insight, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissionsSerializerMixin
 
 logger = structlog.get_logger(__name__)
@@ -85,6 +87,7 @@ class DashboardBasicSerializer(
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
     UserPermissionsSerializerMixin,
+    UserAccessControlSerializerMixin,
 ):
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
@@ -107,6 +110,7 @@ class DashboardBasicSerializer(
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
         read_only_fields = fields
 
@@ -152,8 +156,14 @@ class DashboardSerializer(DashboardBasicSerializer):
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
+            "user_access_level",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+        ]
 
     def validate_filters(self, value) -> dict:
         if not isinstance(value, dict):
@@ -392,10 +402,7 @@ class DashboardSerializer(DashboardBasicSerializer):
 
 
 class DashboardsViewSet(
-    TeamAndOrgViewSetMixin,
-    TaggedItemViewSetMixin,
-    ForbidDestroyModel,
-    viewsets.ModelViewSet,
+    TeamAndOrgViewSetMixin, TaggedItemViewSetMixin, ForbidDestroyModel, AccessControlViewSetMixin, viewsets.ModelViewSet
 ):
     scope_object = "dashboard"
     queryset = Dashboard.objects_including_soft_deleted.order_by("name")

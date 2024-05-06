@@ -127,6 +127,8 @@ posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived 
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+posthog/permissions.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: List item 1 has incompatible type "str | None"; expected "str"  [list-item]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql_queries/insights/trends/aggregation_operations.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
@@ -482,7 +484,7 @@ posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachab
 posthog/api/test/test_utils.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/organization_member.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
-ee/api/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
+ee/api/rbac/role.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 ee/clickhouse/views/insights.py:0: error: Metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases  [misc]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Unused "type: ignore" comment  [unused-ignore]

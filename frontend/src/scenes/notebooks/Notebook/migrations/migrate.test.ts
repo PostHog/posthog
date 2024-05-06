@@ -808,10 +808,12 @@ describe('migrate()', () => {
         it(name, () => {
             const prevNotebook: NotebookType = {
                 ...mockNotebook,
+                user_access_level: 'editor' as const,
                 content: { type: 'doc', content: prevContent },
             }
             const nextNotebook: NotebookType = {
                 ...mockNotebook,
+                user_access_level: 'editor' as const,
                 content: { type: 'doc', content: nextContent },
             }
 

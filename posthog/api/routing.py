@@ -16,15 +16,17 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     APIScopePermission,
+    AccessControlPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -56,7 +58,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     authentication_classes = []
     permission_classes = []
 
-    # NOTE: Could we type this? Would be pretty cool as a helper
     scope_object: Optional[APIScopeObjectOrNotSupported] = None
     required_scopes: Optional[list[str]] = None
     sharing_enabled_actions: list[str] = []
@@ -98,7 +99,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission]
+        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
         if self.is_team_view:
             permission_classes.append(TeamMemberAccessPermission)
@@ -154,7 +155,25 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
 
-        return self._filter_queryset_by_parents_lookups(queryset)
+        queryset = self._filter_queryset_by_parents_lookups(queryset)
+
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=include_all_if_admin
+        )
+
+        return queryset
 
     def dangerously_get_object(self) -> Any:
         """
@@ -327,6 +346,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def user_permissions(self) -> "UserPermissions":
         return UserPermissions(user=cast(User, self.request.user), team=self.team)
+
+    @cached_property
+    def user_access_control(self) -> "UserAccessControl":
+        team: Optional[Team] = None
+        try:
+            team = self.team
+        except (Team.DoesNotExist, KeyError):
+            pass
+
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore

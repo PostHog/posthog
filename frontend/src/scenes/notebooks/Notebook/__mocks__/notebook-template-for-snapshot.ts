@@ -15,6 +15,7 @@ export const notebookTestTemplate = (
     created_by: MOCK_DEFAULT_BASIC_USER,
     last_modified_by: MOCK_DEFAULT_BASIC_USER,
     version: 1,
+    user_access_level: 'editor' as const,
     content: {
         type: 'doc',
         content: [
