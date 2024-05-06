@@ -94,7 +94,7 @@ export function convertToPostIngestionEvent(
             const groupKey = (properties[`$groups`] || {})[groupType]
             const groupProperties = event[`group${columnIndex}_properties`]
 
-            // TODO: Check that groupProperties always exist if the person is in that group
+            // TODO: Check that groupProperties always exist if the event is in that group
             if (groupKey && groupProperties) {
                 groups[groupType] = {
                     index: columnIndex,
