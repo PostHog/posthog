@@ -315,7 +315,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def is_query_node(self, data) -> TypeGuard[Q]:
         return isinstance(data, self.query_type)
 
-    def is_cached_response(self, data) -> TypeGuard[CR]:
+    def is_cached_response(self, data) -> TypeGuard[dict]:
         return (
             hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
             or (isinstance(data, dict) and "is_cached" in data)
@@ -329,16 +329,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CR | CacheMissResponse:
         # TODO: `self.limit_context` should probably just be in get_cache_key()
-        cache_key = cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
+        cache_key = f"{self.get_cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
-        CachedResponse = self.cached_response_type
+        CachedResponse: type[CR] = self.cached_response_type
 
         if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
             cached_response: CR | CacheMissResponse
-            cached_response_candidate = get_safe_cache(cache_key)
-            cached_response_candidate = (
-                OrjsonJsonSerializer({}).loads(cached_response_candidate) if cached_response_candidate else None
+            cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
+            cached_response_candidate: Optional[dict] = (
+                OrjsonJsonSerializer({}).loads(cached_response_candidate_bytes)
+                if cached_response_candidate_bytes
+                else None
             )
             if self.is_cached_response(cached_response_candidate):
                 cached_response_candidate["is_cached"] = True
@@ -383,7 +385,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response = CachedResponse(**fresh_response_dict)
 
         # Dont cache debug queries with errors
-        has_error = fresh_response_dict.get("error", None)
+        has_error: Optional[list] = fresh_response_dict.get("error", None)
         if has_error is None or len(has_error) == 0:
             # TODO: Use JSON serializer in general for redis cache
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
