@@ -23,6 +23,7 @@ from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     ActionsNode,
+    CachedStickinessQueryResponse,
     DataWarehouseNode,
     EventsNode,
     StickinessQuery,
@@ -46,6 +47,8 @@ class SeriesWithExtras:
 
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
+    response: StickinessQueryResponse
+    cached_response: CachedStickinessQueryResponse
     series: list[SeriesWithExtras]
 
     def __init__(

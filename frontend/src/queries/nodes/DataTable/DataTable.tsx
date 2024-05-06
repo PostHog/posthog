@@ -398,7 +398,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
             />
         ) : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
-            <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
+            <DateRange key="date-range" query={query.source as HogQLQuery | EventsQuery} setQuery={setQuerySource} />
         ) : null,
         showEventFilter && sourceFeatures.has(QueryFeature.eventNameFilter) ? (
             <EventName key="event-name" query={query.source as EventsQuery} setQuery={setQuerySource} />

@@ -100,3 +100,6 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
+    max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
+    max_expanded_ast_elements: Optional[int] = 1000000
+    max_query_size: Optional[int] = 262144 * 2  # default value 262144 (= 256 KiB)
