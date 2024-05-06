@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -342,12 +342,29 @@ export function BodyDisplay({
     let displayContent = content
     if (typeof displayContent !== 'string') {
         displayContent = JSON.stringify(displayContent, null, 2)
+    } else if (displayContent.trim() === '') {
+        displayContent = '(empty string)'
     }
     if (headerContentType === 'application/json') {
         language = Language.JSON
     }
 
-    return (
+    const isAutoRedaction = /(\[SessionRecording\].*redacted)/.test(displayContent)
+
+    return isAutoRedaction ? (
+        <>
+            <p>
+                This content was redacted by PostHog to protect sensitive data.{' '}
+                <Link
+                    to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
+                    target="_blank"
+                >
+                    Learn how to provide your own redaction code.
+                </Link>
+            </p>
+            <pre>received: {displayContent}</pre>
+        </>
+    ) : (
         <CodeSnippet language={language} wrap={true} thing="request body" compact={false}>
             {displayContent}
         </CodeSnippet>
