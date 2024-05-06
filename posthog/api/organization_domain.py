@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
@@ -40,7 +40,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_saml": {"read_only": True},
         }
 
-    def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:
+    def create(self, validated_data: dict[str, Any]) -> OrganizationDomain:
         organization: Organization = self.context["view"].organization
         if is_cloud() and not organization.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
             raise exceptions.PermissionDenied("Automatic provisioning is not enabled for this organization.")
