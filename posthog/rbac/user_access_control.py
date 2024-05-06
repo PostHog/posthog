@@ -3,7 +3,7 @@ import json
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Model, Q, QuerySet
 from rest_framework import serializers
-from typing import TYPE_CHECKING, Any, List, Literal, Optional, Tuple, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
 from posthog.constants import AvailableFeature
 from posthog.models import (
@@ -34,8 +34,8 @@ AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
-ACCESS_CONTROL_LEVELS_MEMBER: Tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
-ACCESS_CONTROL_LEVELS_RESOURCE: Tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
+ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
+ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_args(AccessControlLevelResource)
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:
@@ -103,7 +103,7 @@ class UserAccessControl:
             raise ValueError("Organization ID must be provided either directly or via the team")
 
         self._organization_id = organization_id
-        self._cache: dict[str, "List[AccessControl]"] = {}
+        self._cache: dict[str, "list[AccessControl]"] = {}
 
     def _clear_cache(self):
         # Primarily intended for tests
@@ -170,7 +170,7 @@ class UserAccessControl:
             )
         )
 
-    def _get_access_controls(self, filters: dict) -> List[_AccessControl]:
+    def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
@@ -203,7 +203,7 @@ class UserAccessControl:
 
         return common_filters
 
-    def _fill_filters_cache(self, filter_groups: List[dict], access_controls: List[_AccessControl]) -> None:
+    def _fill_filters_cache(self, filter_groups: list[dict], access_controls: list[_AccessControl]) -> None:
         for filters in filter_groups:
             key = json.dumps(filters, sort_keys=True)
 
@@ -229,12 +229,12 @@ class UserAccessControl:
 
             self._cache[key] = matching_access_controls
 
-    def preload_object_access_controls(self, objects: List[Model]) -> None:
+    def preload_object_access_controls(self, objects: list[Model]) -> None:
         """
         Preload access controls for a list of objects
         """
 
-        filter_groups: List[dict] = []
+        filter_groups: list[dict] = []
 
         for obj in objects:
             resource = model_to_resource(obj)
@@ -258,7 +258,7 @@ class UserAccessControl:
         # Question - are we fundamentally loading every access control for the given resource? If so should we accept that fact and just load them all?
         # doing all additional filtering in memory?
 
-        filter_groups: List[dict] = []
+        filter_groups: list[dict] = []
 
         filter_groups.append(self._access_controls_filters_for_object(resource="project", resource_id=str(team.id)))
         filter_groups.append(self._access_controls_filters_for_resource(resource))

@@ -101,4 +101,4 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
                 Q(template_name__search=search) | Q(dashboard_description__search=search) | Q(tags__contains=[search])
             )
 
-        return queryset.filter(query_condition)
+        return DashboardTemplate.objects.filter(query_condition)
