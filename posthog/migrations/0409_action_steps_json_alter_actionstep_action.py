@@ -25,7 +25,8 @@ def copy_action_steps_to_json(apps, schema_editor):
             }
             for step in action.action_steps.all()
         ]
-        action.save()
+
+    Action.objects.bulk_update(all_actions_with_steps, ["steps_json"], batch_size=500)
 
 
 class Migration(migrations.Migration):
