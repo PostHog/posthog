@@ -72,24 +72,8 @@ class Action(models.Model):
 
     @property
     def steps(self) -> list[ActionStepJSON]:
-        if self.steps_json is None:
-            db_steps = self.action_steps.all()
-            return [
-                ActionStepJSON(
-                    tag_name=step.tag_name,
-                    text=step.text,
-                    text_matching=step.text_matching,
-                    href=step.href,
-                    href_matching=step.href_matching,
-                    selector=step.selector,
-                    url=step.url,
-                    url_matching=step.url_matching,
-                    event=step.event,
-                    properties=step.properties,
-                )
-                for step in db_steps
-            ]
-
+        if not self.steps_json:
+            return []
         return [ActionStepJSON(**step) for step in self.steps_json]
 
     @steps.setter

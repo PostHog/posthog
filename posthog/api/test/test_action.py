@@ -3,7 +3,7 @@ from unittest.mock import ANY, patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Tag, User
+from posthog.models import Action, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -63,13 +63,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "tags": [],
         }
 
-        created_steps = list(ActionStep.objects.filter(action_id=response.json()["id"]).all())
-
-        assert len(created_steps) == 1
-        assert created_steps[0].text == "sign up"
-        assert created_steps[0].selector == "div > button"
-        assert created_steps[0].url == "/signup"
-
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
             self.user,
@@ -115,7 +108,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.force_login(user2)
 
         count = Action.objects.count()
-        steps_count = ActionStep.objects.count()
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -135,7 +127,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(Action.objects.count(), count)
-        self.assertEqual(ActionStep.objects.count(), steps_count)
 
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
@@ -243,7 +234,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["steps"]), 0)
-        self.assertEqual(ActionStep.objects.count(), 0)
 
     # When we send a user to their own site, we give them a token.
     # Make sure you can only create actions if that token is set,
@@ -440,28 +430,3 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
         self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-
-    def test_supports_only_action_steps_model(self):
-        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
-        ActionStep.objects.create(action=action, text="sign up")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
-        assert response.status_code == status.HTTP_200_OK, response.json()
-
-        assert response.json()["steps"] == [
-            {
-                "event": None,
-                "properties": [],
-                "selector": None,
-                "tag_name": None,
-                "text": "sign up",
-                "text_matching": None,
-                "href": None,
-                "href_matching": None,
-                "url": None,
-                "url_matching": "contains",
-            }
-        ]
-
-        action.refresh_from_db()
-        assert not action.steps_json
