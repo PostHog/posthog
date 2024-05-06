@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db.models import Count, Prefetch
 from rest_framework import request, serializers, viewsets
@@ -175,7 +175,7 @@ class ActionViewSet(
 ):
     scope_object = "action"
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
-    queryset = Action.objects.select_related("created_by").all()
+    queryset = Action.objects.prefetch_related("plugin_configs").select_related("created_by").all()
     serializer_class = ActionSerializer
     authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
@@ -187,10 +187,3 @@ class ActionViewSet(
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
-
-    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        actions = self.filter_queryset(self.get_queryset())
-        actions_list: list[dict[Any, Any]] = self.serializer_class(
-            actions, many=True, context={"request": request}
-        ).data  # type: ignore
-        return Response({"results": actions_list})
