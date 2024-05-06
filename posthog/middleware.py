@@ -264,8 +264,6 @@ class AutoProjectMiddleware:
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
-
-        user_permissions = UserPermissions(user)
         user_access_control = UserAccessControl(user=user, team=new_team)
 
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
