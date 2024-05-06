@@ -26,6 +26,8 @@ class DummyViewSet(GenericViewSet):
 
 
 class TestCachedByFiltersDecorator(APIBaseTest):
+    maxDiff = None
+
     def setUp(self) -> None:
         cache.clear()
 
@@ -36,6 +38,7 @@ class TestCachedByFiltersDecorator(APIBaseTest):
     def test_returns_fresh_result(self) -> None:
         response = self.client.get(f"/api/dummy").json()
 
+        assert response is {}
         assert response["result"] == "bla"
         assert response["is_cached"] is False
         assert isinstance(response["last_refresh"], str)
