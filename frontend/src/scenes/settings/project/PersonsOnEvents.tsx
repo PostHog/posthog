@@ -14,10 +14,10 @@ const poeOptions: LemonRadioOption<PoEMode>[] = [
         value: 'person_id_no_override_properties_on_events',
         label: (
             <>
-                <div>Deprecated: Use person ids and properties from the time of the event.</div>
+                <div>Use person ids and properties from the time of the event.</div>
                 <div className="text-muted">
                     May show higher unique user counts due to not using latest person ids. You probably want one of the
-                    other options.
+                    other options. Fastest queries.
                 </div>
             </>
         ),
@@ -28,7 +28,7 @@ const poeOptions: LemonRadioOption<PoEMode>[] = [
             <>
                 <div>Use person properties from the time of the event.</div>
                 <div className="text-muted">
-                    Faster queries. If person property is updated, then query results on past data won't change.
+                    Fast queries. If person property is updated, then query results on past data won't change.
                 </div>
             </>
         ),
@@ -47,8 +47,6 @@ const poeOptions: LemonRadioOption<PoEMode>[] = [
     },
 ]
 
-const deprecatedOption: PoEMode = 'person_id_no_override_properties_on_events'
-
 export function PersonsOnEvents(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportPoEModeUpdated } = useActions(eventUsageLogic)
@@ -56,11 +54,6 @@ export function PersonsOnEvents(): JSX.Element {
     const savedPoEMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
     const [poeMode, setPoeMode] = useState<PoEMode>(savedPoEMode)
-
-    const visibleOptions =
-        savedPoEMode === deprecatedOption
-            ? poeOptions
-            : poeOptions.filter((option) => option.value !== deprecatedOption)
 
     const handleChange = (mode: PoEMode): void => {
         updateCurrentTeam({ modifiers: { ...currentTeam?.modifiers, personsOnEventsMode: mode } })
@@ -70,7 +63,7 @@ export function PersonsOnEvents(): JSX.Element {
     return (
         <>
             <p>Choose how to query your event data with person filters.</p>
-            <LemonRadio value={poeMode} onChange={setPoeMode} options={visibleOptions} />
+            <LemonRadio value={poeMode} onChange={setPoeMode} options={poeOptions} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"

@@ -31,6 +31,7 @@ from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import User
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
+from posthog.schema import QueryTiming
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -40,7 +41,9 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionRecordingListFromReplaySummary,
     SessionIdEventsQuery,
 )
-from posthog.session_recordings.queries.session_recording_list_from_filters import SessionRecordingListFromFilters
+from posthog.session_recordings.queries.session_recording_list_from_filters import (
+    SessionRecordingListFromFilters,
+)
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
@@ -732,6 +735,7 @@ def list_recordings(
     recordings: list[SessionRecording] = []
     more_recordings_available = False
     team = context["get_team"]()
+    hogql_timings: list[QueryTiming] | None = None
 
     timer = ServerTimingsGathered()
 
@@ -755,10 +759,9 @@ def list_recordings(
             has_hog_ql_filtering = request.GET.get("hog_ql_filtering", "false") == "true"
 
             if has_hog_ql_filtering:
-                (
-                    ch_session_recordings,
-                    more_recordings_available,
-                ) = SessionRecordingListFromFilters(filter=filter, team=team).run()
+                (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromFilters(
+                    filter=filter, team=team
+                ).run()
             else:
                 # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
                 (
@@ -810,7 +813,19 @@ def list_recordings(
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
+    all_timings = _generate_timings(hogql_timings, timer)
     return (
         {"results": results, "has_next": more_recordings_available, "version": 3},
-        timer.get_all_timings(),
+        all_timings,
     )
+
+
+def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimingsGathered) -> dict[str, float]:
+    timings_dict = timer.get_all_timings()
+    hogql_timings_dict = {}
+    for key, value in hogql_timings or {}:
+        new_key = f"hogql_{key[1].lstrip('./')}"
+        # HogQL query timings are in seconds, convert to milliseconds
+        hogql_timings_dict[new_key] = value[1] * 1000
+    all_timings = {**timings_dict, **hogql_timings_dict}
+    return all_timings
