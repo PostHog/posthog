@@ -12,6 +12,7 @@ from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
 
 from posthog.api.services.query import process_query
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -249,7 +250,10 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
     while True:
         try:
             query_response = process_query(
-                team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT
+                team=exported_asset.team,
+                query_json=query,
+                limit_context=LimitContext.EXPORT,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
             )
         except QuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
