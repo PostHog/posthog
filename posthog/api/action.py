@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.db.models import Count, Prefetch
 from rest_framework import request, serializers, viewsets
