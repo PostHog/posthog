@@ -10,7 +10,7 @@ def copy_action_steps_to_json(apps, schema_editor):
     all_actions_with_steps = Action.objects.prefetch_related("action_steps").all()
 
     for action in all_actions_with_steps:
-        action.steps = [
+        new_steps = [
             {
                 "tag_name": step.tag_name,
                 "text": step.text,
@@ -25,6 +25,7 @@ def copy_action_steps_to_json(apps, schema_editor):
             }
             for step in action.action_steps.all()
         ]
+        action.steps = new_steps  # type: ignore
 
     Action.objects.bulk_update(all_actions_with_steps, ["steps_json"], batch_size=500)
 
