@@ -37,6 +37,9 @@ pub struct Config {
 
     #[envconfig(default = "1")]
     pub dequeue_batch_size: u32,
+
+    #[envconfig(default = "false")]
+    pub allow_internal_ips: bool,
 }
 
 impl Config {

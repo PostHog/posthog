@@ -52,6 +52,7 @@ async fn main() -> Result<(), WorkerError> {
         config.request_timeout.0,
         config.max_concurrent_jobs,
         retry_policy_builder.provide(),
+        config.allow_internal_ips,
         worker_liveness,
     );
 
