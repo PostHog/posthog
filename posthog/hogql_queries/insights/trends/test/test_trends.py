@@ -4451,13 +4451,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             # Persons with higher value come first
             self.assertEqual(people_value_1[0][0]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_1[0][3], 2)  # 2 events with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[1][3], 1)  # 1 event with fake_prop="value_1" in the time range
-            self.assertEqual(people_value_1[2][3], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[0][2], 2)  # 2 events with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[1][2], 1)  # 1 event with fake_prop="value_1" in the time range
+            self.assertEqual(people_value_1[2][2], 1)  # 1 event with fake_prop="value_1" in the time range
 
-            people_value_2 = self._get_actors(filters, self.team, series=0, breakdown="value_2", includeRecordings=True)
+            people_value_2 = self._get_actors(
+                filters=filters, team=self.team, series=0, breakdown="value_2", includeRecordings=True
+            )
             self.assertEqual(people_value_2[0][0]["distinct_ids"][0], "person2")
-            self.assertEqual(people_value_2[0][3], 1)  # 1 event with fake_prop="value_2" in the time range
+            self.assertEqual(people_value_2[0][2], 1)  # 1 event with fake_prop="value_2" in the time range
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie(self):
