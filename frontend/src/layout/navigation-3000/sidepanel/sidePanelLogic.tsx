@@ -37,6 +37,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['unreadCount'],
             sidePanelStatusLogic,
             ['status'],
+            userLogic,
+            ['hasAvailableFeature'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -72,8 +74,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status],
-            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -82,7 +84,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     if (
                         tab === SidePanelTab.Activity &&
                         unreadCount &&
-                        userLogic.values.hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
                     ) {
                         return true
                     }
