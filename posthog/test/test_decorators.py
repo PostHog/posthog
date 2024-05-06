@@ -25,13 +25,14 @@ class DummyViewSet(GenericViewSet):
         return {"result": "bla"}
 
 
+router.register(r"dummy", DummyViewSet, "dummy")
+
+
 class TestCachedByFiltersDecorator(APIBaseTest):
     maxDiff = None
 
     def setUp(self) -> None:
         cache.clear()
-
-        router.register(r"dummy", DummyViewSet, "dummy")
 
         super().setUp()
 
