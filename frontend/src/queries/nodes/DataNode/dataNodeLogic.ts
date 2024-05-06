@@ -123,7 +123,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (!props.query) {
             return // Can't do anything without a query
         }
-        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
+        if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
         if (
@@ -163,11 +163,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        if (
-                            props.cachedResults['result'] ||
-                            props.cachedResults['results'] ||
-                            !isInsightQueryNode(props.query)
-                        ) {
+                        if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
                     }
@@ -647,6 +643,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Attention: When on dashboard we don't want to load data on mount
             // as it will have be loaded by some other logic
             actions.loadData()
+        } else if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again.
+            // We need to set them here, as the propsChanged listener will not trigger on mount
+            // and if we never change the props, the cached results will never be used.
+            actions.setResponse(props.cachedResults)
         }
 
         actions.mountDataNode(props.key, {

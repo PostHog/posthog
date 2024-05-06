@@ -1256,6 +1256,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "color": None,
                 "id": ANY,
                 "insight": {
+                    "columns": None,
                     "created_at": ANY,
                     "created_by": None,
                     "dashboard_tiles": [
