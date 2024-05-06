@@ -58,8 +58,34 @@ describe('GroupTypeManager()', () => {
             expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
         })
 
-        it('returns empty object if no groups are set up yet', async () => {
+        it('fetches group types that have been inserted', async () => {
             expect(await groupTypeManager.fetchGroupTypes(2)).toEqual({})
+            expect(await groupTypeManager.insertGroupType(2, 'g0', 0)).toEqual([0, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g1', 1)).toEqual([1, true])
+            groupTypeManager['groupTypesCache'].clear() // Clear cache
+            expect(await groupTypeManager.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1 })
+        })
+
+        it('handles conflicting by index when inserting and limits', async () => {
+            expect(await groupTypeManager.insertGroupType(2, 'g0', 0)).toEqual([0, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g1', 0)).toEqual([1, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g2', 0)).toEqual([2, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g3', 1)).toEqual([3, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g4', 0)).toEqual([4, true])
+            expect(await groupTypeManager.insertGroupType(2, 'g5', 0)).toEqual([null, false])
+            expect(await groupTypeManager.insertGroupType(2, 'g6', 0)).toEqual([null, false])
+
+            expect(await groupTypeManager.fetchGroupTypes(2)).toEqual({ g0: 0, g1: 1, g2: 2, g3: 3, g4: 4 })
+        })
+
+        it('handles conflict by name when inserting', async () => {
+            expect(await groupTypeManager.insertGroupType(2, 'group_name', 0)).toEqual([0, true])
+            expect(await groupTypeManager.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
+            expect(await groupTypeManager.insertGroupType(2, 'group_name', 0)).toEqual([0, false])
+            expect(await groupTypeManager.insertGroupType(2, 'foo', 0)).toEqual([1, true])
+            expect(await groupTypeManager.insertGroupType(2, 'foo', 0)).toEqual([1, false])
+
+            expect(await groupTypeManager.fetchGroupTypes(2)).toEqual({ group_name: 0, foo: 1 })
         })
     })
 
