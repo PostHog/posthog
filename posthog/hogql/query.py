@@ -217,7 +217,7 @@ def execute_hogql_query(
         clickhouse=clickhouse_sql,
         error=error,
         timings=timings.to_list(),
-        results=results,
+        results=results or [],
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
