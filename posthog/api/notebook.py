@@ -247,9 +247,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
             # Soft-deleted notebooks can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
@@ -257,7 +255,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
-            queryset = self._filter_request(self.request, queryset)
+            queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)
         if order:
@@ -267,7 +265,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return queryset
 
-    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
         for key in filters:

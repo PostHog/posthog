@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
+from collections.abc import Callable
 from collections.abc import Generator
 from unittest.mock import patch
 
@@ -515,6 +516,22 @@ class QueryMatchingTest:
             query,
         )
 
+        # replace survey uuids
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        # replace session uuids
+        # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
+        query = re.sub(
+            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
         #### Cohort replacements
         # replace cohort id lists in queries too
         query = re.sub(
@@ -558,6 +575,14 @@ class QueryMatchingTest:
             r"AND person_id = '00000000-0000-0000-0000-000000000000'",
             query,
             flags=re.IGNORECASE,
+        )
+
+        # HogQL person id in session recording queries
+        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        query = re.sub(
+            r"ifNull\(equals\(([^.]+\.)?person_id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            query,
         )
 
         query = re.sub(
@@ -627,6 +652,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -659,9 +685,18 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if capture_all_queries:
+        if custom_query_matcher:
+            if query and custom_query_matcher(query):
+                testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
-        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        elif (
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
+        ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 

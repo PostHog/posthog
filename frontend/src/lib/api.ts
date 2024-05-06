@@ -71,6 +71,7 @@ import {
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -1671,16 +1672,19 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(
+        async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
+            if (params.source) {
+                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
+            }
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(
+        async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any>
+            params: SessionRecordingSnapshotParams
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
@@ -1700,16 +1704,10 @@ const api = {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
 
+            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
-        async updateRecording(
-            recordingId: SessionRecordingType['id'],
-            recording: Partial<SessionRecordingType>,
-            params?: string
-        ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
-        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },

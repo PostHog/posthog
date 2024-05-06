@@ -81,9 +81,8 @@ class RoleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [RolePermissions, PremiumFeaturePermission]
     premium_feature = AvailableFeature.ROLE_BASED_ACCESS
 
-    def get_queryset(self):
-        filters = self.request.GET.dict()
-        return super().get_queryset().filter(**filters)
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(**self.request.GET.dict())
 
 
 class RoleMembershipSerializer(serializers.ModelSerializer):

@@ -92,10 +92,11 @@ const teamActionsMapping: Record<
         return { description: descriptions }
     },
     session_recording_linked_flag(change: ActivityChange | undefined): ChangeMapping | null {
+        const key = (change?.after as any)?.key ?? (change?.before as any)?.key ?? String(change?.after)
         return {
             description: [
                 <>
-                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {change?.after}
+                    {change?.after ? 'linked' : 'unlinked'} session recording to feature flag {key}
                 </>,
             ],
         }
@@ -203,6 +204,22 @@ const teamActionsMapping: Record<
         }
         return { description: descriptions }
     },
+    modifiers: (change: ActivityChange | undefined): ChangeMapping | null => {
+        const after = change?.after
+        if (typeof after !== 'object') {
+            return null
+        }
+        const descriptions = []
+        for (const key in after) {
+            descriptions.push(
+                <>
+                    set <em>{key}</em> to "{String(after[key])}"
+                </>
+            )
+        }
+        return { description: descriptions }
+    },
+    default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
     // should never come from the backend
     created_at: () => null,

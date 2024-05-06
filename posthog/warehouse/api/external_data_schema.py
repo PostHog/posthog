@@ -6,10 +6,8 @@ from typing import Optional, Any
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.models import User
 from posthog.hogql.database.database import create_hogql_database
 
 from posthog.warehouse.data_load.service import (
@@ -82,14 +80,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context["database"] = create_hogql_database(team_id=self.team_id)
         return context
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
-
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by").order_by(self.ordering)
 
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):

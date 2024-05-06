@@ -2,9 +2,9 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { Survey, SurveyType } from '~/types'
 
-import { defaultSurveyAppearance, NewSurvey } from './constants'
+import { NewSurvey } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { SurveyAppearance, SurveyThankYou } from './SurveyAppearance'
+import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 interface SurveyFormAppearanceProps {
     activePreview: number
@@ -17,25 +17,16 @@ export function SurveyFormAppearance({
     activePreview,
     survey,
     setActivePreview,
-    isEditingSurvey,
 }: SurveyFormAppearanceProps): JSX.Element {
     const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
 
     return survey.type !== SurveyType.API ? (
-        <>
-            {showThankYou ? (
-                <SurveyThankYou appearance={survey.appearance} />
-            ) : (
-                <SurveyAppearance
-                    surveyType={survey.type}
-                    surveyQuestionItem={survey.questions[activePreview]}
-                    appearance={{
-                        ...(survey.appearance || defaultSurveyAppearance),
-                        ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
-                    }}
-                    isEditingSurvey={isEditingSurvey}
-                />
-            )}
+        <div className="survey-view max-w-72">
+            <SurveyAppearancePreview
+                survey={survey as Survey}
+                activePreview={showThankYou ? 'confirmation' : 'survey'}
+                questionIndex={activePreview}
+            />
             <LemonSelect
                 onChange={(activePreview) => {
                     setActivePreview(activePreview)
@@ -58,7 +49,7 @@ export function SurveyFormAppearance({
                         : []),
                 ]}
             />
-        </>
+        </div>
     ) : (
         <div className="flex flex-col">
             <h4 className="text-center">API survey response</h4>

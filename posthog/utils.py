@@ -620,7 +620,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -658,9 +658,9 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data
@@ -1356,3 +1356,12 @@ def multisort(xs: list, specs: tuple[tuple[str, bool], ...]):
     for key, reverse in reversed(specs):
         xs.sort(key=itemgetter(key), reverse=reverse)
     return xs
+
+
+def get_from_dict_or_attr(obj: Any, key: str):
+    if isinstance(obj, dict):
+        return obj.get(key, None)
+    elif hasattr(obj, key):
+        return getattr(obj, key, None)
+    else:
+        raise AttributeError(f"Object {obj} has no key {key}")

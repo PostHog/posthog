@@ -36,6 +36,7 @@ export enum SurveyEditSection {
     Appearance = 'appearance',
     Customization = 'customization',
     Targeting = 'targeting',
+    CompletionConditions = 'CompletionConditions',
 }
 export interface SurveyLogicProps {
     /** Either a UUID or 'new'. */
@@ -163,9 +164,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 if (props.id === 'new' && router.values.hashParams.fromTemplate) {
                     return values.survey
-                } else {
-                    return { ...NEW_SURVEY }
                 }
+                return { ...NEW_SURVEY }
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
@@ -242,9 +242,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     const [totalSeen, dismissed, sent] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
                     return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
-                } else {
-                    return { seen: 0, dismissed: 0, sent: 0 }
                 }
+                return { seen: 0, dismissed: 0, sent: 0 }
             },
         },
         surveyRatingResults: {
@@ -475,6 +474,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('targeting_flag', NEW_SURVEY.targeting_flag)
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
+            actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first

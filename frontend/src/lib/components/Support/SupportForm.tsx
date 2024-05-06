@@ -19,8 +19,6 @@ import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
-
 import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
@@ -58,7 +56,7 @@ export function SupportForm(): JSX.Element | null {
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     // the support model can be shown when logged out, file upload is not offered to anonymous users
-    const { user, hasAvailableFeature } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
@@ -72,32 +70,7 @@ export function SupportForm(): JSX.Element | null {
         },
     })
 
-    const handleReportTypeChange = (kind: string = supportLogic.values.sendSupportRequest.kind ?? ''): void => {
-        const message = supportLogic.values.sendSupportRequest.message
-
-        // do not overwrite modified message
-        if (
-            !(
-                message === SUPPORT_TICKET_TEMPLATES.bug ||
-                message === SUPPORT_TICKET_TEMPLATES.feedback ||
-                message === SUPPORT_TICKET_TEMPLATES.support ||
-                !message
-            )
-        ) {
-            return
-        }
-
-        if (kind === 'bug') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.bug
-        } else if (kind === 'feedback') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.feedback
-        } else if (kind === 'support') {
-            supportLogic.values.sendSupportRequest.message = SUPPORT_TICKET_TEMPLATES.support
-        }
-    }
-
     useEffect(() => {
-        handleReportTypeChange()
         if (sendSupportRequest.kind === 'bug') {
             setSendSupportRequestValue('severity_level', 'medium')
         } else {
@@ -131,8 +104,6 @@ export function SupportForm(): JSX.Element | null {
                     disabledReason={
                         !user
                             ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                            : !hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                            ? 'You can only create billing related issues while viewing the billing page.'
                             : null
                     }
                     fullWidth
@@ -146,7 +117,7 @@ export function SupportForm(): JSX.Element | null {
                 {(props) => (
                     <div ref={dropRef} className="flex flex-col gap-2">
                         <LemonTextArea
-                            placeholder="Type your message here"
+                            placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
                             {...props}
                         />

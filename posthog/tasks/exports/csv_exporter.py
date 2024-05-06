@@ -86,7 +86,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
     if isinstance(data.get("results"), list):
         # query like
-        if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and "types" in data:
+        if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
             for row in results:
@@ -100,16 +100,17 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
             return
 
     if isinstance(results, list):
-        first_result = results[0]
+        first_result = next(iter(results), None)
 
-        # persons modal like
-        if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+        if not first_result:
+            return
+        elif len(results) == 1 and isinstance(first_result, dict) and set(first_result.keys()) == {"people", "count"}:
+            # persons modal like
             yield from results[0].get("people")
             return
         elif isinstance(first_result, list) or first_result.get("action_id"):
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
-
             for items in multiple_items:
                 yield from (
                     {

@@ -46,6 +46,7 @@ from posthog.models.feature_flag import (
     get_user_blast_radius,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -273,6 +274,17 @@ class FeatureFlagSerializer(
 
         return filters
 
+    def check_flag_evaluation(self, data):
+        # TODO: Once we move to no DB level evaluation, can get rid of this.
+
+        temporary_flag = FeatureFlag(**data)
+        team_id = self.context["team_id"]
+
+        try:
+            check_flag_evaluation_query_is_ok(temporary_flag, team_id)
+        except Exception:
+            raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -299,6 +311,9 @@ class FeatureFlagSerializer(
             raise exceptions.ValidationError(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
+
+        self.check_flag_evaluation(validated_data)
+
         instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
@@ -398,9 +413,7 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
-    def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
+    def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)

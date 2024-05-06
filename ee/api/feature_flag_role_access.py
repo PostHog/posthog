@@ -79,6 +79,6 @@ class FeatureFlagRoleAccessViewSet(
     queryset = FeatureFlagRoleAccess.objects.select_related("feature_flag")
     filter_rewrite_rules = {"team_id": "feature_flag__team_id"}
 
-    def get_queryset(self):
+    def safely_get_queryset(self, queryset):
         filters = self.request.GET.dict()
-        return super().get_queryset().filter(**filters)
+        return queryset.filter(**filters)

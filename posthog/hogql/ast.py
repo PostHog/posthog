@@ -399,6 +399,17 @@ class FieldType(Type):
 
 
 @dataclass(kw_only=True)
+class UnresolvedFieldType(Type):
+    name: str
+
+    def get_child(self, name: str | int, context: HogQLContext) -> "Type":
+        raise QueryError(f"Unable to resolve field: {self.name}")
+
+    def has_child(self, name: str | int, context: HogQLContext) -> bool:
+        return False
+
+
+@dataclass(kw_only=True)
 class PropertyType(Type):
     chain: list[str | int]
     field_type: FieldType

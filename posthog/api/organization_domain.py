@@ -74,10 +74,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions]
-    queryset = OrganizationDomain.objects.all()
-
-    def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by("domain")
+    queryset = OrganizationDomain.objects.order_by("domain").all()
 
     @action(methods=["POST"], detail=True)
     def verify(self, request: request.Request, **kw) -> response.Response:

@@ -80,9 +80,8 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)
 
-    def filter_queryset(self, queryset):
-        # NOTE: We override the default filtering as we don't want parent based filtering here
-
+    def dangerously_get_queryset(self):
+        # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
         filters = self.request.GET.dict()
         scope = filters.pop("scope", None)
         search = filters.pop("search", None)

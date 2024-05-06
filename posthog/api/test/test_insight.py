@@ -11,6 +11,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
@@ -35,8 +36,11 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     EventsQuery,
+    FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
 )
 from posthog.test.base import (
@@ -280,6 +284,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             filters=Filter(data=filter_dict).to_dict(),
             team=self.team,
             short_id="12345678",
+        )
+
+        # We need at least one more insight to make sure we're not just getting the first one
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id="not-that-one",
         )
 
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
@@ -1132,8 +1143,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            [  # Property group filter, which is what's actually used these days
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR,
+                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                        )
+                    ],
+                )
+            ],
+            [  # Classic list of filters
+                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
+            ],
+        ]
+    )
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    def test_insight_refreshing_query(self, spy_execute_hogql_query) -> None:
+    def test_insight_refreshing_query(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -1160,9 +1189,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             series=[
                 EventsNode(
                     event="$pageview",
-                    properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                 )
-            ]
+            ],
+            properties=properties_filter,
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -1246,12 +1275,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         #  Test property filter
 
-        dashboard = Dashboard.objects.get(pk=dashboard_id)
-        dashboard.filters = {
-            "properties": [{"key": "prop", "value": "val"}],
-            "date_from": "-14d",
-        }
-        dashboard.save()
+        Dashboard.objects.update(
+            id=dashboard_id,
+            filters={
+                "properties": [{"key": "prop", "value": "val"}],
+                "date_from": "-14d",
+            },
+        )
         with freeze_time("2012-01-16T05:01:34.000Z"):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
