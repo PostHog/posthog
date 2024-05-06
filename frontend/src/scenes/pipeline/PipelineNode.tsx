@@ -70,7 +70,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     const tabToContent: Record<PipelineNodeTab, JSX.Element> = {
         [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics pluginConfigId={id as number} />,
+        [PipelineNodeTab.Metrics]: <PipelineNodeMetrics id={id} />,
         [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
         [PipelineNodeTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
