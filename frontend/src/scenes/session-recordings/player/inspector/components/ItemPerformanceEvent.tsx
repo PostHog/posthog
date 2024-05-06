@@ -5,6 +5,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
 import { useState } from 'react'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
+import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 
 import { Body, PerformanceEvent } from '~/types'
@@ -187,9 +188,7 @@ export function ItemPerformanceEvent({
                         <NavigationItem item={item} expanded={expanded} navigationURL={shortEventName} />
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                                {shortEventName}
-                            </span>
+                            <PerformanceEventLabel expanded={expanded} name={item.name} />
                             {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
                                 <span

@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { Fragment } from 'react'
+import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 
 import { PerformanceEvent } from '~/types'
 
@@ -121,16 +121,7 @@ export function NavigationItem({ item, expanded, navigationURL }: NavigationItem
     return (
         <>
             <div className="flex gap-2 items-start p-2 text-xs">
-                <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                    Navigated to{' '}
-                    {expanded ? (
-                        <CodeSnippet language={Language.Markup} wrap thing="performance event name">
-                            {item.name}
-                        </CodeSnippet>
-                    ) : (
-                        navigationURL
-                    )}
-                </span>
+                <PerformanceEventLabel label="navigated to " expanded={expanded} name={navigationURL} />
             </div>
             <LemonDivider className="my-0" />
             <div className="flex items-center p-2">
