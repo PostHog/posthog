@@ -652,14 +652,7 @@ class InsightViewSet(
             queryset = queryset.filter(
                 id__in=self.request.successful_authenticator.sharing_configuration.get_connected_insight_ids()
             )
-            # Disallow access to other teams' insights (this would normally done by the super function)
-            queryset = self._filter_queryset_by_parents_lookups(queryset)
-            return queryset
 
-        return super().filter_queryset(queryset)
-
-    def get_queryset(self) -> QuerySet:
-        queryset: QuerySet
         if self.action == "partial_update" and self.request.data.get("deleted") is False:
             # an insight can be un-deleted by patching {"deleted": False}
             include_deleted = True
