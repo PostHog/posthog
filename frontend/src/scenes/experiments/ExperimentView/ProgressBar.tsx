@@ -28,7 +28,7 @@ export function ProgressBar(): JSX.Element {
 
     const goalTooltipText =
         experiment?.parameters?.minimum_detectable_effect &&
-        `Based on the recommended Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%`
+        `Based on the Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%`
 
     const hasHighRunningTime = recommendedRunningTime > 62
 
@@ -36,9 +36,6 @@ export function ProgressBar(): JSX.Element {
         <div>
             <div className="inline-flex items-center space-x-2">
                 <h2 className="font-semibold text-lg mb-0">Data collection</h2>
-                <LemonButton size="xsmall" type="secondary" onClick={openExperimentCollectionGoalModal}>
-                    Recalculate
-                </LemonButton>
                 <Tooltip
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
@@ -67,20 +64,21 @@ export function ProgressBar(): JSX.Element {
                         </div>
                     )}
                     <span className="inline-flex space-x-1">
-                        <Tooltip title={goalTooltipText}>
-                            <div className="cursor-pointer">
-                                {hasHighRunningTime ? (
-                                    <>
-                                        Goal: <b> &gt; 2</b> months
-                                    </>
-                                ) : (
-                                    <>
-                                        Goal: <b>{recommendedRunningTime}</b>{' '}
-                                        {formatUnitByQuantity(recommendedRunningTime, 'day')}
-                                    </>
-                                )}
-                            </div>
-                        </Tooltip>
+                        <div className="cursor-pointer">
+                            {hasHighRunningTime ? (
+                                <>
+                                    Goal: <b> &gt; 2</b> months
+                                </>
+                            ) : (
+                                <>
+                                    Goal: <b>{recommendedRunningTime}</b>{' '}
+                                    {formatUnitByQuantity(recommendedRunningTime, 'day')}
+                                </>
+                            )}
+                            <Tooltip title={goalTooltipText}>
+                                <IconInfo className="text-muted-alt text-base" />
+                            </Tooltip>
+                        </div>
                         {hasHighRunningTime && (
                             <Tooltip title="Based on the current data, this experiment might take a while to reach statistical significance. Please make sure events are being tracked correctly and consider if this timeline works for you.">
                                 <IconInfo className="text-muted-alt text-lg" />
@@ -102,14 +100,20 @@ export function ProgressBar(): JSX.Element {
                             {formatUnitByQuantity(funnelResultsPersonsTotal, 'participant')} seen
                         </div>
                     )}
-                    <Tooltip title={goalTooltipText}>
-                        <div className="cursor-pointer">
+                    <div className="space-x-1 flex items-center">
+                        <span>
                             Goal: <b>{humanFriendlyNumber(recommendedSampleSize)}</b>{' '}
                             {formatUnitByQuantity(recommendedSampleSize, 'participant')}
-                        </div>
-                    </Tooltip>
+                        </span>
+                        <Tooltip title={goalTooltipText}>
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </div>
                 </div>
             )}
+            <LemonButton className="mt-3" size="small" type="secondary" onClick={openExperimentCollectionGoalModal}>
+                Recalculate
+            </LemonButton>
             <DataCollectionGoalModal experimentId={experimentId} />
         </div>
     )
