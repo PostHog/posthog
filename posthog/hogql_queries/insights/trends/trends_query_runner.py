@@ -32,6 +32,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.query_runner import QueryRunner, RunnableQueryNode
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -154,32 +155,17 @@ class TrendsQueryRunner(QueryRunner):
         compare: Optional[Compare] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
-            series = self.query.series[series_index]
-
-            # TODO: Add support for DataWarehouseNode
-            if isinstance(series, DataWarehouseNode):
-                raise Exception("DataWarehouseNode is not supported for actors query")
-
-            if compare == Compare.previous:
-                query_date_range = self.query_previous_date_range
-
-                delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
-                if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-                    relative_delta = relativedelta(**delta_mappings)
-                    parsed_dt = parser.isoparse(time_frame)
-                    parse_dt_with_relative_delta = parsed_dt - relative_delta
-                    time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-            else:
-                query_date_range = self.query_date_range
-
-            query_builder = TrendsQueryBuilder(
+            query_builder = TrendsActorsQueryBuilder(
                 trends_query=self.query,
                 team=self.team,
-                query_date_range=query_date_range,
-                series=series,
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
+                # actors related args
+                time_frame=time_frame,
+                series_index=series_index,
+                breakdown_value=breakdown_value,
+                compare=compare,
             )
 
             query = query_builder.build_actors_query(time_frame=time_frame, breakdown_filter=str(breakdown_value))

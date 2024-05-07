@@ -407,7 +407,6 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[2]), "person3")
         self.assertEqual(get_event_count(result[2]), 1)
 
-    @skip("fails in resolver")
     def test_trends_math_monthly_active_persons(self):
         self._create_events()
         source_query = TrendsQuery(
