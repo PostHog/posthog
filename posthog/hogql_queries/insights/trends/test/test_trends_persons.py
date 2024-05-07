@@ -304,6 +304,24 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[0]), "person1")
         self.assertEqual(get_event_count(result[0]), 1)
 
+    def test_trends_breakdown_hogql_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="properties.some_property", breakdown_type=BreakdownType.hogql),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2024-05-01", breakdown=20)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 1)
+
+        result = self._get_actors(trends_query=source_query, day="2024-05-01", breakdown=10)
+
+        self.assertEqual(len(result), 0)
+
     def test_trends_cohort_breakdown_persons(self):
         self._create_events()
         cohort = _create_cohort(
