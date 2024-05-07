@@ -207,7 +207,7 @@ export function PipelineNodeEditConfiguration(): JSX.Element {
     return <App />
 }
 
-export function PipelineNodeConfigurationEmpty(): JSX.Element {
+export function PipelineNodeEditConfigurationStatelessPlugin(): JSX.Element {
     useEffect(() => {
         router.actions.push(
             urls.pipelineNode(PipelineStage.Transformation, geoIpConfigId, PipelineNodeTab.Configuration)
