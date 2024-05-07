@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Optional
 
 from dateutil.parser import parse
@@ -8,9 +9,19 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Action, Team
-from posthog.schema import ActionsNode, Compare, DataWarehouseNode, EventsNode, HogQLQueryModifiers, TrendsQuery
+from posthog.schema import (
+    ActionsNode,
+    BreakdownFilter,
+    BreakdownType,
+    Compare,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLQueryModifiers,
+    TrendsQuery,
+)
 
 
 class TrendsActorsQueryBuilder:
@@ -55,6 +66,15 @@ class TrendsActorsQueryBuilder:
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
 
+    @cached_property
+    def trends_date_range(self) -> QueryDateRange:
+        return QueryDateRange(
+            date_range=self.trends_query.dateRange,
+            team=self.team,
+            interval=self.trends_query.interval,
+            now=datetime.now(),
+        )
+
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add matching_events only when including recordings
         return parse_select(
@@ -97,7 +117,7 @@ class TrendsActorsQueryBuilder:
                 alias="e",
                 sample=(ast.SampleExpr(sample_value=self._sample_value_expr())),
             ),
-            where=ast.And(exprs=[*self._entity_where_expr(), *self._prop_where_expr(), *self._date_where_expr()]),
+            where=self._events_where_expr(),
         )
         return query
 
@@ -143,6 +163,16 @@ class TrendsActorsQueryBuilder:
         #                 right=ast.Constant(value=""),
         #             )
         #         )
+
+    def _events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
+        return ast.And(
+            exprs=[
+                *self._entity_where_expr(),
+                *self._prop_where_expr(),
+                *self._date_where_expr(),
+                *(self._breakdown_where_expr() if with_breakdown_expr else []),
+            ]
+        )
 
     def _sample_value_expr(self) -> ast.RatioExpr:
         if self.trends_query.samplingFactor is None:
@@ -213,17 +243,11 @@ class TrendsActorsQueryBuilder:
         #         parse_dt_with_relative_delta = parsed_dt - relative_delta
         #         time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
         # else:
-        date_range = QueryDateRange(
-            date_range=self.trends_query.dateRange,
-            team=self.team,
-            interval=self.trends_query.interval,
-            now=datetime.now(),
-        )
 
         actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
-        actors_to = actors_from + date_range.interval_relativedelta()
+        actors_to = actors_from + self.trends_date_range.interval_relativedelta()
 
-        # query_from, query_to = date_range.date_from(), date_range.date_to()
+        # query_from, query_to = self.trends_date_range.date_from(), self.trends_date_range.date_to()
 
         # # exclude events before the query start
         # if query_from > actors_from:
@@ -258,4 +282,105 @@ class TrendsActorsQueryBuilder:
         #                 parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
         #             ]
         #         )
+        return conditions
+
+    def _breakdown_where_expr(self) -> list[ast.Expr]:
+        conditions: list[ast.Expr] = []
+
+        # breakdownFilter = self.trends_query.breakdownFilter or BreakdownFilter()
+        # breakdown, breakdown_type = breakdownFilter.breakdown, breakdownFilter.breakdown_type
+        # breakdown_value = self.breakdown_value
+
+        # if breakdown_type is None or breakdown is None or breakdown_value is None:
+        #     return conditions
+
+        # conditions.append(
+        #     ast.CompareOperation(
+        #         left=ast.Field(chain=["e", breakdown]),
+        #         op=ast.CompareOperationOp.Eq,
+        #         right=ast.Constant(value=breakdown_value),
+        #     )
+        # )
+
+        b = Breakdown(
+            team=self.team,
+            query=self.trends_query,
+            series=self.entity,
+            query_date_range=self.trends_date_range,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            events_filter=self._events_filter(
+                breakdown=None,  # Passing in None because we know we dont actually need it
+                ignore_breakdowns=True,
+                is_actors_query=is_actors_query,
+                breakdown_values_override=breakdown_values_override,
+            ),
+            breakdown_values_override=[breakdown_values_override] if breakdown_values_override is not None else None,
+            limit_context=self.limit_context,
+        )
+
+        # Breakdown
+        if breakdown is not None:
+            if breakdown.enabled and not breakdown.is_histogram_breakdown:
+                breakdown_filter = breakdown.events_where_filter()
+                if breakdown_filter is not None:
+                    filters.append(breakdown_filter)
+
+        #         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
+        #     cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
+        #     self._filter = self._filter.shallow_clone(
+        #         {
+        #             "properties": self._filter.property_groups.combine_properties(
+        #                 PropertyOperatorType.AND,
+        #                 [Property(key="id", value=cohort.pk, type="cohort")],
+        #             ).to_dict()
+        #         }
+        #     )
+        # elif (
+        #     self._filter.breakdown_type
+        #     and isinstance(self._filter.breakdown, str)
+        #     and isinstance(self._filter.breakdown_value, str)
+        # ):
+        #     if self._filter.using_histogram:
+        #         lower_bound, upper_bound = json.loads(self._filter.breakdown_value)
+        #         breakdown_props = [
+        #             Property(
+        #                 key=self._filter.breakdown,
+        #                 value=lower_bound,
+        #                 operator="gte",
+        #                 type=self._filter.breakdown_type,
+        #                 group_type_index=self._filter.breakdown_group_type_index
+        #                 if self._filter.breakdown_type == "group"
+        #                 else None,
+        #             ),
+        #             Property(
+        #                 key=self._filter.breakdown,
+        #                 value=upper_bound,
+        #                 operator="lt",
+        #                 type=self._filter.breakdown_type,
+        #                 group_type_index=self._filter.breakdown_group_type_index
+        #                 if self._filter.breakdown_type == "group"
+        #                 else None,
+        #             ),
+        #         ]
+        #     else:
+        #         breakdown_props = [
+        #             Property(
+        #                 key=self._filter.breakdown,
+        #                 value=self._filter.breakdown_value,
+        #                 type=self._filter.breakdown_type,
+        #                 group_type_index=self._filter.breakdown_group_type_index
+        #                 if self._filter.breakdown_type == "group"
+        #                 else None,
+        #             )
+        #         ]
+
+        #     self._filter = self._filter.shallow_clone(
+        #         {
+        #             "properties": self._filter.property_groups.combine_properties(
+        #                 PropertyOperatorType.AND, breakdown_props
+        #             ).to_dict()
+        #         }
+        #     )
+
         return conditions
