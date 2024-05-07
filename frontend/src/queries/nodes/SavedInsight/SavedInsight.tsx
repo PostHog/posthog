@@ -33,5 +33,5 @@ export function SavedInsight({ query: propsQuery, context }: InsightProps): JSX.
 
     const query = { ...propsQuery, ...dataQuery, full: propsQuery.full }
 
-    return <Query query={query} cachedResults={insight.result} context={{ ...context, insightProps }} />
+    return <Query query={query} cachedResults={insight} context={{ ...context, insightProps }} />
 }
