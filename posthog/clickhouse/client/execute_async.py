@@ -4,7 +4,7 @@ from functools import partial
 from typing import Optional
 import uuid
 
-from sentry_sdk import push_scope
+import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
@@ -91,53 +91,50 @@ def execute_process_query(
     team = Team.objects.get(pk=team_id)
     user = User.objects.get(pk=user_id)
 
-    with push_scope() as scope:
-        scope.set_user({"email": user.email, "id": user_id, "username": user.email})
-        scope.set_tag("team_id", team_id)
+    sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
+    sentry_sdk.set_tag("team_id", team_id)
 
-        query_status = manager.get_query_status()
+    query_status = manager.get_query_status()
 
-        if query_status.complete or query_status.error:
-            return
+    if query_status.complete or query_status.error:
+        return
 
-        query_status.error = True  # Assume error in case nothing below ends up working
+    query_status.error = True  # Assume error in case nothing below ends up working
 
-        pickup_time = datetime.datetime.now(datetime.timezone.utc)
-        if query_status.start_time:
-            wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
-            QUERY_WAIT_TIME.observe(wait_duration)
+    pickup_time = datetime.datetime.now(datetime.timezone.utc)
+    if query_status.start_time:
+        wait_duration = (pickup_time - query_status.start_time) / datetime.timedelta(seconds=1)
+        QUERY_WAIT_TIME.observe(wait_duration)
 
-        try:
-            tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
-            results = process_query(
-                team=team,
-                query_json=query_json,
-                limit_context=limit_context,
-                execution_mode=ExecutionMode.CALCULATION_ALWAYS
-                if refresh_requested
-                else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-            )
-            logger.info("Got results for team %s query %s", team_id, query_id)
-            query_status.complete = True
-            query_status.error = False
-            query_status.results = results
-            query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
-            query_status.expiration_time = query_status.end_time + datetime.timedelta(
-                seconds=manager.STATUS_TTL_SECONDS
-            )
-            process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
-            QUERY_PROCESS_TIME.observe(process_duration)
-        except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
-            query_status.results = None  # Clear results in case they are faulty
-            query_status.error_message = str(err)
-            logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-            raise err
-        except Exception as err:  # We cannot reveal anything about the error
-            query_status.results = None  # Clear results in case they are faulty
-            logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
-            raise err
-        finally:
-            manager.store_query_status(query_status)
+    try:
+        tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
+        results = process_query(
+            team=team,
+            query_json=query_json,
+            limit_context=limit_context,
+            execution_mode=ExecutionMode.CALCULATION_ALWAYS
+            if refresh_requested
+            else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
+        )
+        logger.info("Got results for team %s query %s", team_id, query_id)
+        query_status.complete = True
+        query_status.error = False
+        query_status.results = results
+        query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+        query_status.expiration_time = query_status.end_time + datetime.timedelta(seconds=manager.STATUS_TTL_SECONDS)
+        process_duration = (query_status.end_time - pickup_time) / datetime.timedelta(seconds=1)
+        QUERY_PROCESS_TIME.observe(process_duration)
+    except (ExposedHogQLError, ExposedCHQueryError) as err:  # We can expose the error to the user
+        query_status.results = None  # Clear results in case they are faulty
+        query_status.error_message = str(err)
+        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise err
+    except Exception as err:  # We cannot reveal anything about the error
+        query_status.results = None  # Clear results in case they are faulty
+        logger.error("Error processing query for team %s query %s: %s", team_id, query_id, err)
+        raise err
+    finally:
+        manager.store_query_status(query_status)
 
 
 def kick_off_task(
