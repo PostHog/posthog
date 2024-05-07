@@ -1,18 +1,26 @@
+from typing import Any
 from unittest.mock import patch
 
 from clickhouse_driver.errors import ServerException
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 class TestTable(APIBaseTest):
     @patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
-        return_value={"id": "String", "a_column": "String"},
+        return_value={
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+        },
     )
-    def test_create(self, patch_get_columns):
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        return_value=True,
+    )
+    def test_create_columns(self, patch_get_columns, patch_validate_column_type):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
             {
@@ -25,15 +33,57 @@ class TestTable(APIBaseTest):
                 "format": "Parquet",
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        response = response.json()
+        assert response.status_code == 201
+        data: dict[str, Any] = response.json()
 
-        table = DataWarehouseTable.objects.get()
-        self.assertEqual(table.name, "whatever")
-        self.assertEqual(table.columns, {"id": "String", "a_column": "String"})
-        credentials = DataWarehouseCredential.objects.get()
-        self.assertEqual(credentials.access_key, "_accesskey")
-        self.assertEqual(credentials.access_secret, "_accesssecret")
+        table = DataWarehouseTable.objects.get(id=data["id"])
+
+        assert table.name == "whatever"
+        assert table.columns == {
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+        }
+
+        assert table.credential.access_key, "_accesskey"
+        assert table.credential.access_secret, "_accesssecret"
+
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+        return_value={
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
+        },
+    )
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        return_value=False,
+    )
+    def test_create_columns_invalid_schema(self, patch_get_columns, patch_validate_column_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {
+                    "access_key": "_accesskey",
+                    "access_secret": "_accesssecret",
+                },
+                "format": "Parquet",
+            },
+        )
+        assert response.status_code == 201
+        data: dict[str, Any] = response.json()
+
+        table = DataWarehouseTable.objects.get(id=data["id"])
+
+        assert table.name == "whatever"
+        assert table.columns == {
+            "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+            "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
+        }
+
+        assert table.credential.access_key, "_accesskey"
+        assert table.credential.access_secret, "_accesssecret"
 
     @patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
@@ -56,7 +106,11 @@ class TestTable(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         response = response.json()
 
-    def test_update_schema_200_old_column_style(self):
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        return_value=True,
+    )
+    def test_update_schema_200_old_column_style(self, patch_validate_column_type):
         table = DataWarehouseTable.objects.create(
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={"id": "Nullable(Int64)"}
         )
@@ -67,9 +121,13 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField"}
+        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
-    def test_update_schema_200_new_column_style(self):
+    @patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.validate_column_type",
+        return_value=True,
+    )
+    def test_update_schema_200_new_column_style(self, patch_validate_column_type):
         table = DataWarehouseTable.objects.create(
             name="test_table",
             format="Parquet",
@@ -84,7 +142,7 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField"}
+        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}

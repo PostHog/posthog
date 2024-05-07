@@ -124,7 +124,8 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         if (!field.schema_valid && !inEditSchemaMode) {
                             return (
                                 <>
-                                    <code>{field.key}</code> can't be parsed as a <code>{field.type}</code>
+                                    <code>{field.key}</code> can't be parsed as a <code>{field.type}</code>. It will not
+                                    be queryable until this is fixed.
                                 </>
                             )
                         }
