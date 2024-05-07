@@ -201,7 +201,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             validated_data.pop("targeting_flag_filters")
 
         validated_data["created_by"] = self.context["request"].user
-        return super().create(validated_data)
+        instance = super().create(validated_data)
+        self._add_user_survey_interacted_filters(instance, validated_data.get("targeting_flag_filters"))
+
+        return instance
 
     def update(self, instance: Survey, validated_data):
         if validated_data.get("remove_targeting_flag"):
@@ -239,7 +242,50 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 instance.targeting_flag.active = False
             instance.targeting_flag.save()
 
-        return super().update(instance, validated_data)
+        instance = super().update(instance, validated_data)
+        self._add_user_survey_interacted_filters(instance)
+        return instance
+
+    def _add_user_survey_interacted_filters(self, instance: Survey, targeting_flag_filters=None):
+        user_submitted_dismissed_filter = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{instance.id}",
+                            "type": "person",
+                            "value": ["true"],
+                            "operator": "exact",
+                        },
+                        {
+                            "key": f"$survey_responded/{instance.id}",
+                            "type": "person",
+                            "value": ["true"],
+                            "operator": "exact",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        # if there was a feature flag created already to target users for this survey.
+        if instance.targeting_flag:
+            existing_targeting_flag = instance.targeting_flag
+            serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
+
+            targeting_feature_flag = self._create_or_update_targeting_flag(
+                instance.targeting_flag, serialized_data_filters
+            )
+            instance.targeting_flag_id = targeting_feature_flag.id
+            instance.save()
+        else:
+            new_flag = self._create_or_update_targeting_flag(
+                None, user_submitted_dismissed_filter, instance.name, bool(instance.start_date)
+            )
+            instance.targeting_flag_id = new_flag.id
+            instance.save()
 
     def _create_or_update_targeting_flag(self, existing_flag=None, filters=None, name=None, active=False):
         with create_flag_with_survey_errors():
