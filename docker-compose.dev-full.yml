@@ -103,7 +103,7 @@ services:
             - clickhouse
             - kafka
         links:
-            - object_storage:objectstorage
+            - objectstorage:objectstorage
 
     capture:
         extends:
