@@ -28,6 +28,7 @@ interface ExperimentPreviewProps {
     experimentId: number | 'new'
     trendCount: number
     trendExposure?: number
+    funnelSampleSize?: number
     funnelConversionRate: number
     funnelEntrants?: number
 }
@@ -37,6 +38,7 @@ export function ExperimentPreview({
     trendCount,
     funnelConversionRate,
     trendExposure,
+    funnelSampleSize,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
     const {
@@ -50,9 +52,6 @@ export function ExperimentPreview({
         isExperimentExposureModalOpen,
         experimentLoading,
         experimentMathAggregationForTrends,
-        conversionMetrics,
-        minimumSampleSizePerVariant,
-        variants,
     } = useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
@@ -74,10 +73,6 @@ export function ExperimentPreview({
 
     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
 
-    // SAMPLE SIZE & RUNNING TIME
-    const conversionRate = conversionMetrics.totalRate * 100
-    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
-    const funnelSampleSize = sampleSizePerVariant * variants.length
     let runningTime = 0
     if (experiment?.start_date) {
         runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
@@ -89,10 +84,6 @@ export function ExperimentPreview({
     const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
 
     const targetingProperties = experiment.feature_flag?.filters
-
-    // const trendCount = trendResults[0]?.count
-    // const entrants = results?.[0]?.count
-    // const exposure = recommendedExposureForCountData(trendCount)
 
     return (
         <div className="flex">

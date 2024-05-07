@@ -16,7 +16,7 @@ export function ProgressBar(): JSX.Element {
     const { experimentId, experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
         useValues(experimentLogic)
 
-    const { openMdeModal } = useActions(experimentLogic)
+    const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
@@ -36,7 +36,7 @@ export function ProgressBar(): JSX.Element {
         <div>
             <div className="inline-flex items-center space-x-2">
                 <h2 className="font-semibold text-lg mb-0">Data collection</h2>
-                <LemonButton size="xsmall" type="secondary" onClick={openMdeModal}>
+                <LemonButton size="xsmall" type="secondary" onClick={openExperimentCollectionGoalModal}>
                     Recalculate
                 </LemonButton>
                 <Tooltip
@@ -116,18 +116,24 @@ export function ProgressBar(): JSX.Element {
 }
 
 export function MdeModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { isMdeModalOpen } = useValues(experimentLogic({ experimentId }))
-    const { closeMdeModal, updateExperimentCollectionGoal } = useActions(experimentLogic({ experimentId }))
+    const { isExperimentCollectionGoalModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
+        experimentLogic({ experimentId })
+    )
 
     return (
         <LemonModal
-            isOpen={isMdeModalOpen}
-            onClose={closeMdeModal}
+            isOpen={isExperimentCollectionGoalModalOpen}
+            onClose={closeExperimentCollectionGoalModal}
             width={1000}
             title="Recalculate sample size/running time"
             footer={
                 <div className="flex items-center gap-2">
-                    <LemonButton form="edit-experiment-exposure-form" type="secondary" onClick={closeMdeModal}>
+                    <LemonButton
+                        form="edit-experiment-exposure-form"
+                        type="secondary"
+                        onClick={closeExperimentCollectionGoalModal}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton

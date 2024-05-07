@@ -158,8 +158,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentGoalModal: true,
         openExperimentExposureModal: true,
         closeExperimentExposureModal: true,
-        openMdeModal: true,
-        closeMdeModal: true,
+        openExperimentCollectionGoalModal: true,
+        closeExperimentCollectionGoalModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
         setTruthMinimumDetectableChange: (minimumDetectableChange: number) => ({ minimumDetectableChange }),
@@ -292,11 +292,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeExperimentExposureModal: () => false,
             },
         ],
-        isMdeModalOpen: [
+        isExperimentCollectionGoalModalOpen: [
             false,
             {
-                openMdeModal: () => true,
-                closeMdeModal: () => false,
+                openExperimentCollectionGoalModal: () => true,
+                closeExperimentCollectionGoalModal: () => false,
             },
         ],
         experimentValuesChangedLocally: [
@@ -444,7 +444,7 @@ export const experimentLogic = kea<experimentLogicType>([
             if (isFunnelsQuery(newQuery)) {
                 newQuery.aggregation_group_type_index = aggregationGroupTypeIndex
             }
-            console.log('setting new query', newQuery)
+
             actions.updateQuerySource(newQuery)
         },
         // sync form value `filters` with query
@@ -524,26 +524,17 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.closeExperimentGoalModal()
         },
         updateExperimentCollectionGoal: async () => {
-            const { recommendedRunningTime, recommendedSampleSize, truthMinimumDetectableChange } = values
-            // The following is irrelevant, because a user will set it to something?
-            // OR - we can even default to some stupid value???
-
-            // if (!truthMinimumDetectableChange) {
-            //     eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-            //     return lemonToast.error(
-            //         'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
-            //     )
-            // }
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
 
             actions.updateExperiment({
                 parameters: {
                     ...values.experiment?.parameters,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: truthMinimumDetectableChange,
+                    minimum_detectable_effect: minimumDetectableChange || 0,
                 },
             })
-            actions.closeExperimentGoalModal()
+            actions.closeExperimentCollectionGoalModal()
         },
         updateExperimentExposure: async ({ filters }) => {
             actions.updateExperiment({
@@ -662,7 +653,7 @@ export const experimentLogic = kea<experimentLogicType>([
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
         },
-        openMdeModal: async () => {
+        openExperimentCollectionGoalModal: async () => {
             actions.setNewExperimentInsight(values.experiment?.filters)
             setTimeout(() => {
                 actions.loadData()
@@ -868,7 +859,7 @@ export const experimentLogic = kea<experimentLogicType>([
         // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
         minimumDetectableChange: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
-            (newExperiment, experimentInsightType, conversionMetrics, trendResults): number | null => {
+            (newExperiment, experimentInsightType, conversionMetrics, trendResults): number => {
                 return (
                     newExperiment?.parameters?.minimum_detectable_effect ||
                     // :KLUDGE: extracted the method due to difficulties with logic tests

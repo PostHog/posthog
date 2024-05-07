@@ -1,19 +1,20 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+import { LemonButton, LemonDivider, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
+import { Query } from '~/queries/Query/Query'
 import { InsightType, MultivariateFlagVariant } from '~/types'
 
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from '../constants'
+import { EXPERIMENT_INSIGHT_ID } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { MetricSelector } from '../MetricSelector'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -33,23 +34,18 @@ export function DataCollectionCalculator({
         expectedRunningTime,
         aggregationLabel,
         experiment,
-        isExperimentGoalModalOpen,
-        isExperimentExposureModalOpen,
-        experimentLoading,
         trendResults,
         conversionMetrics,
         minimumSampleSizePerVariant,
         variants,
     } = useValues(experimentLogic({ experimentId }))
-    const {
-        setExperiment,
-        closeExperimentGoalModal,
-        updateExperimentGoal,
-        closeExperimentExposureModal,
-        updateExperimentExposure,
-        setNewExperimentInsight,
-        setExperimentExposureInsight,
-    } = useActions(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic({ experimentId }))
+
+    const insightLogicInstance = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, syncWithUrl: false })
+    const { insightProps } = useValues(insightLogicInstance)
+
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
 
     const trendCount = trendResults[0]?.count || 0
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
@@ -65,7 +61,6 @@ export function DataCollectionCalculator({
 
     // SAMPLE SIZE & RUNNING TIME
     const conversionRate = conversionMetrics.totalRate * 100
-    console.log(conversionMetrics)
     const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
     let runningTime = 0
@@ -272,98 +267,14 @@ export function DataCollectionCalculator({
                             </div>
                         )}
                     </div>
+                    {/* :KLUDGE: mounting the query component to ensure the goal insight is loaded for the calculations */}
+                    <div className="hidden">
+                        <BindLogic logic={insightLogic} props={insightProps}>
+                            <Query query={query} context={{ insightProps }} readOnly />
+                        </BindLogic>
+                    </div>
                 </div>
             </div>
-            <LemonModal
-                isOpen={isExperimentGoalModalOpen}
-                onClose={closeExperimentGoalModal}
-                width={1000}
-                title="Change experiment goal"
-                footer={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            form="edit-experiment-goal-form"
-                            type="secondary"
-                            onClick={closeExperimentGoalModal}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            form="edit-experiment-goal-form"
-                            onClick={() => {
-                                updateExperimentGoal(experiment.filters)
-                            }}
-                            type="primary"
-                            loading={experimentLoading}
-                            data-attr="create-annotation-submit"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <Form
-                    logic={experimentLogic}
-                    props={{ experimentId }}
-                    formKey="experiment"
-                    id="edit-experiment-goal-form"
-                    className="space-y-4"
-                >
-                    <Field name="filters">
-                        <MetricSelector
-                            dashboardItemId={EXPERIMENT_INSIGHT_ID}
-                            setPreviewInsight={setNewExperimentInsight}
-                            showDateRangeBanner
-                        />
-                    </Field>
-                </Form>
-            </LemonModal>
-            <LemonModal
-                isOpen={isExperimentExposureModalOpen}
-                onClose={closeExperimentExposureModal}
-                width={1000}
-                title="Change experiment exposure"
-                footer={
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            form="edit-experiment-exposure-form"
-                            type="secondary"
-                            onClick={closeExperimentExposureModal}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            form="edit-experiment-exposure-form"
-                            onClick={() => {
-                                if (experiment.parameters.custom_exposure_filter) {
-                                    updateExperimentExposure(experiment.parameters.custom_exposure_filter)
-                                }
-                            }}
-                            type="primary"
-                            loading={experimentLoading}
-                            data-attr="create-annotation-submit"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <Form
-                    logic={experimentLogic}
-                    props={{ experimentId }}
-                    formKey="experiment"
-                    id="edit-experiment-exposure-form"
-                    className="space-y-4"
-                >
-                    <Field name="filters">
-                        <MetricSelector
-                            dashboardItemId={EXPERIMENT_EXPOSURE_INSIGHT_ID}
-                            setPreviewInsight={setExperimentExposureInsight}
-                            forceTrendExposureMetric
-                        />
-                    </Field>
-                </Form>
-            </LemonModal>
         </div>
     )
 }
