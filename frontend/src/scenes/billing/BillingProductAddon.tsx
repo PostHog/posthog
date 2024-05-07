@@ -60,26 +60,6 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
-                        {addon.features?.length > 1 && (
-                            <div className="mt-3">
-                                <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                                {addon.features?.map((feature, i) => {
-                                    return (
-                                        i < 6 && (
-                                            <div
-                                                className="flex gap-x-2 items-center mb-2"
-                                                key={'addon-features-' + addon.type + i}
-                                            >
-                                                <IconCheckCircle className="text-success" />
-                                                <Tooltip key={feature.key} title={feature.description}>
-                                                    <b>{feature.name} </b>
-                                                </Tooltip>
-                                            </div>
-                                        )
-                                    )
-                                })}
-                            </div>
-                        )}
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
