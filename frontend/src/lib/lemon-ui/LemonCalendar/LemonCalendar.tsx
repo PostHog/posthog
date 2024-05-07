@@ -27,8 +27,6 @@ export interface LemonCalendarProps {
     weekStartDay?: number
     /** Show a time picker */
     showTime?: boolean
-    /** Only allow upcoming dates */
-    onlyAllowUpcoming?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -130,16 +128,11 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                 <tr key={week} data-attr="lemon-calendar-week">
                                     {range(0, 7).map((day) => {
                                         const date = firstDay.add(week * 7 + day, 'day')
-                                        const pastDate = date.isBefore(today)
                                         const defaultProps: LemonButtonProps = {
                                             className: clsx('flex-col', {
                                                 'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
-                                            disabledReason:
-                                                props.onlyAllowUpcoming && pastDate
-                                                    ? 'Cannot select dates in the past'
-                                                    : undefined,
                                         }
 
                                         const buttonProps =

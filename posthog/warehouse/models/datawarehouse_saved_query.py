@@ -48,9 +48,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self) -> dict[str, str]:
         from posthog.api.services.query import process_query
+        from posthog.hogql_queries.query_runner import ExecutionMode
 
-        # TODO: catch and raise error
-        response = process_query(self.team, self.query)
+        response = process_query(self.team, self.query, execution_mode=ExecutionMode.CALCULATION_ALWAYS)
         types = response.get("types", {})
         return dict(types)
 

@@ -127,7 +127,7 @@ class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):
 
         response = execute_hogql_query(
             parse_select(
-                "select events.person_id, session.$initial_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
+                "select events.person_id, session.$entry_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
                 placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
             ),
             self.team,

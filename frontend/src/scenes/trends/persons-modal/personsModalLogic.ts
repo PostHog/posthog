@@ -19,6 +19,7 @@ import {
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
+    insightActorsQueryOptionsResponseKeys,
     NodeKind,
 } from '~/queries/schema'
 import {
@@ -181,7 +182,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         source: query,
                     }
                     const response = await performQuery(optionsQuery)
-                    return response
+
+                    return Object.fromEntries(
+                        Object.entries(response).filter(([key, _]) =>
+                            insightActorsQueryOptionsResponseKeys.includes(key)
+                        )
+                    )
                 },
             },
         ],

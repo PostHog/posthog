@@ -270,20 +270,16 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             >
                                 <div className="flex gap-2 justify-between items-center">
                                     <LemonSegmentedButton
-                                        onChange={setHeatmapFixedPositionMode}
-                                        value={heatmapFixedPositionMode}
+                                        onChange={(e) => patchHeatmapFilters({ aggregation: e })}
+                                        value={heatmapFilters.aggregation ?? 'total_count'}
                                         options={[
                                             {
-                                                value: 'fixed',
-                                                label: 'Show fixed',
+                                                value: 'total_count',
+                                                label: 'Total count',
                                             },
                                             {
-                                                value: 'relative',
-                                                label: 'Show scrolled',
-                                            },
-                                            {
-                                                value: 'hidden',
-                                                label: 'Hide',
+                                                value: 'unique_visitors',
+                                                label: 'Unique visitors',
                                             },
                                         ]}
                                         size="small"

@@ -5,7 +5,7 @@ import { ActionMatcher } from 'worker/ingestion/action-matcher'
 
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
-import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
+import { convertToPostIngestionEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
@@ -145,14 +145,7 @@ export async function eachMessageWebhooksHandlers(
         // exit early if no webhooks nor resthooks
         return
     }
-    const event = convertToIngestionEvent(clickHouseEvent)
-
-    // TODO: previously onEvent and Webhooks were executed in the same process,
-    // and onEvent would call convertToProcessedPluginEvent, which ends up
-    // mutating the `event` that is passed in. To ensure that we have the same
-    // behaviour we run this here, but we should probably refactor this to
-    // ensure that we don't mutate the event.
-    convertToProcessedPluginEvent(event)
+    const event = convertToPostIngestionEvent(clickHouseEvent)
 
     await runInstrumentedFunction({
         func: () => runWebhooks(actionMatcher, hookCannon, event),
