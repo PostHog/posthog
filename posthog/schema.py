@@ -587,6 +587,7 @@ class NodeKind(str, Enum):
     TimeToSeeDataQuery = "TimeToSeeDataQuery"
     TimeToSeeDataSessionsJSONNode = "TimeToSeeDataSessionsJSONNode"
     TimeToSeeDataSessionsWaterfallNode = "TimeToSeeDataSessionsWaterfallNode"
+    ReplayQuery = "ReplayQuery"
     DatabaseSchemaQuery = "DatabaseSchemaQuery"
 
 
@@ -3336,6 +3337,16 @@ class PropertyGroupFilter(BaseModel):
     )
     type: FilterLogicalOperator
     values: list[PropertyGroupFilterValue]
+
+
+class ReplayQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    kind: Literal["ReplayQuery"] = "ReplayQuery"
+    properties: Optional[PropertyGroupFilter] = Field(default=None, description="Property filters for all series")
 
 
 class RetentionQuery(BaseModel):

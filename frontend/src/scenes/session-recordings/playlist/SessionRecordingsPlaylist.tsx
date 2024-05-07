@@ -103,7 +103,6 @@ function RecordingsLists(): JSX.Element {
         filters,
         advancedFilters,
         simpleFilters,
-        query,
         hasNext,
         pinnedRecordings,
         otherRecordings,
@@ -118,13 +117,11 @@ function RecordingsLists(): JSX.Element {
         showOtherRecordings,
         recordingsCount,
         isRecordingsListCollapsed,
-        useHogQLFiltering,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
         setAdvancedFilters,
         setSimpleFilters,
-        setQuery,
         maybeLoadSessionRecordings,
         setShowFilters,
         setShowSettings,
@@ -235,19 +232,15 @@ function RecordingsLists(): JSX.Element {
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
                 {!notebookNode && showFilters ? (
                     <div className="bg-side border-b">
-                        {useHogQLFiltering ? (
-                            <HogQLFilters query={query} setQuery={setQuery} />
-                        ) : (
-                            <SessionRecordingsFilters
-                                advancedFilters={advancedFilters}
-                                simpleFilters={simpleFilters}
-                                setAdvancedFilters={setAdvancedFilters}
-                                setSimpleFilters={setSimpleFilters}
-                                hideSimpleFilters={logicProps.hideSimpleFilters}
-                                showPropertyFilters={!logicProps.personUUID}
-                                onReset={resetFilters}
-                            />
-                        )}
+                        <SessionRecordingsFilters
+                            advancedFilters={advancedFilters}
+                            simpleFilters={simpleFilters}
+                            setAdvancedFilters={setAdvancedFilters}
+                            setSimpleFilters={setSimpleFilters}
+                            hideSimpleFilters={logicProps.hideSimpleFilters}
+                            showPropertyFilters={!logicProps.personUUID}
+                            onReset={resetFilters}
+                        />
                     </div>
                 ) : showSettings ? (
                     <SessionRecordingsPlaylistSettings />
@@ -364,6 +357,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     return (
         <>
             <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+                <NewFilters />
                 <div
                     ref={playlistRef}
                     data-attr="session-recordings-playlist"
@@ -424,4 +418,11 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
             </BindLogic>
         </>
     )
+}
+
+function NewFilters(): JSX.Element {
+    const { query, useHogQLFiltering } = useValues(sessionRecordingsPlaylistLogic)
+    const { setQuery } = useActions(sessionRecordingsPlaylistLogic)
+
+    return useHogQLFiltering ? <HogQLFilters query={query} setQuery={setQuery} /> : <></>
 }

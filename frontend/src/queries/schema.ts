@@ -1027,10 +1027,12 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
 
 export interface ReplayQuery {
     kind: NodeKind.ReplayQuery
-    dateRange: DateRange
-    filterTestAccounts: boolean
-    /** Property filters for all series */
-    properties: PropertyGroupFilter
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+    predicates?: {
+        eventName: string | null
+        properties: PropertyGroupFilter[]
+    }[]
 }
 
 export interface WebOverviewItem {

@@ -10,6 +10,7 @@ import {
     IconPerson,
     IconPlusSmall,
     IconRetention,
+    IconRewindPlay,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -313,6 +314,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'View top clicks for a website',
         icon: IconTrends,
         inMenu: true,
+    },
+    [NodeKind.ReplayQuery]: {
+        name: 'List Replays',
+        description: 'View replays in a list',
+        icon: IconRewindPlay,
+        inMenu: false,
     },
 }
 

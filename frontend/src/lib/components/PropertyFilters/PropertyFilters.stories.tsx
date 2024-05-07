@@ -47,6 +47,7 @@ export function ComparingPropertyFilters(): JSX.Element {
                 pageKey="pageKey"
                 showNestedArrow
                 eventNames={[]}
+                allowNew
             />
             <hr />
             <h1>Pop-over disabled</h1>
@@ -56,6 +57,7 @@ export function ComparingPropertyFilters(): JSX.Element {
                 pageKey="pageKey"
                 eventNames={[]}
                 disablePopover={true}
+                allowNew
             />
         </>
     )

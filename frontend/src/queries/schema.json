@@ -4774,6 +4774,7 @@
                 "TimeToSeeDataQuery",
                 "TimeToSeeDataSessionsJSONNode",
                 "TimeToSeeDataSessionsWaterfallNode",
+                "ReplayQuery",
                 "DatabaseSchemaQuery"
             ],
             "type": "string"
@@ -6504,6 +6505,27 @@
                 }
             },
             "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "ReplayQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ReplayQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/PropertyGroupFilter",
+                    "description": "Property filters for all series"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         },
         "RetentionEntity": {

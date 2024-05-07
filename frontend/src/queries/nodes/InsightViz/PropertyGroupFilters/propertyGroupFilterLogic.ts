@@ -4,7 +4,7 @@ import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { ReplayQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, PropertyGroupFilterValue } from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
@@ -33,7 +33,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
-        addFilterGroup: true,
+        addFilterGroup: (initialProperties?: PropertyGroupFilterValue[]) => ({ initialProperties }),
     }),
 
     reducers(({ props }) => ({
@@ -41,21 +41,21 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             convertPropertiesToPropertyGroup(props.query.properties),
             {
                 setFilters: (_, { filters }) => filters,
-                addFilterGroup: (state) => {
+                addFilterGroup: (state, { initialProperties }) => {
                     if (!state.values) {
                         return {
                             type: FilterLogicalOperator.And,
                             values: [
                                 {
                                     type: FilterLogicalOperator.And,
-                                    values: [{} as EmptyPropertyFilter],
+                                    values: [initialProperties || ({} as EmptyPropertyFilter)],
                                 },
                             ],
                         }
                     }
                     const filterGroups = [
                         ...state.values,
-                        { type: FilterLogicalOperator.And, values: [{} as EmptyPropertyFilter] },
+                        { type: FilterLogicalOperator.And, values: [initialProperties || ({} as EmptyPropertyFilter)] },
                     ]
 
                     return { ...state, values: filterGroups }
