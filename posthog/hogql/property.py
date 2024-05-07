@@ -309,6 +309,9 @@ def property_to_expr(
                     .first()
                 )
 
+                if not current_join:
+                    raise Exception(f"Could not find join for key {key}")
+
                 prop_type = None
 
                 maybe_view = (
@@ -330,6 +333,9 @@ def property_to_expr(
                 if maybe_table:
                     prop_type_dict = maybe_table.columns.get(property.key, None)
                     prop_type = prop_type_dict.get("hogql")
+
+                if not maybe_view and not maybe_table:
+                    raise Exception(f"Could not find table or view for key {key}")
 
                 if prop_type == "BooleanDatabaseField":
                     if value == "true":
