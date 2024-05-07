@@ -14,7 +14,7 @@ class ActionStep(models.Model):
     EXACT = "exact"
     STRING_MATCHING = [(CONTAINS, CONTAINS), (REGEX, REGEX), (EXACT, EXACT)]
 
-    action: models.ForeignKey = models.ForeignKey("Action", related_name="steps", on_delete=models.CASCADE)
+    action: models.ForeignKey = models.ForeignKey("Action", related_name="action_steps", on_delete=models.CASCADE)
     tag_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     text_matching: models.CharField = models.CharField(
@@ -51,6 +51,7 @@ class ActionStep(models.Model):
 @receiver(post_save, sender=ActionStep)
 def action_step_saved(sender, instance: ActionStep, created, **kwargs):
     instance.action.refresh_bytecode()
+    instance.action.save()
     get_client().publish(
         "reload-action",
         json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id}),
@@ -60,6 +61,7 @@ def action_step_saved(sender, instance: ActionStep, created, **kwargs):
 @mutable_receiver(post_delete, sender=ActionStep)
 def action_step_deleted(sender, instance: ActionStep, **kwargs):
     instance.action.refresh_bytecode()
+    instance.action.save()
     get_client().publish(
         "reload-action",
         json.dumps({"teamId": instance.action.team_id, "actionId": instance.action.id}),
