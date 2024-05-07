@@ -12,7 +12,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -33,7 +33,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -54,7 +54,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -75,7 +75,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -96,7 +96,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -117,7 +117,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -134,7 +134,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -151,7 +151,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -168,7 +168,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -187,7 +187,7 @@
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -231,7 +231,7 @@
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -250,7 +250,7 @@
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -273,7 +273,7 @@
      ORDER BY toTimeZone(events.timestamp, 'UTC') ASC) AS event_view
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -294,7 +294,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -315,7 +315,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -336,7 +336,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -357,7 +357,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -378,7 +378,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -399,7 +399,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -420,7 +420,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -441,7 +441,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -480,7 +480,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -519,7 +519,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -538,7 +538,7 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -558,7 +558,7 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -577,7 +577,7 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -597,7 +597,7 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -616,7 +616,7 @@
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -636,7 +636,7 @@
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -654,7 +654,7 @@
   ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -673,7 +673,7 @@
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -692,7 +692,7 @@
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
