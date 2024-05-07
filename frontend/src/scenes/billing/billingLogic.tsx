@@ -216,7 +216,7 @@ export const billingLogic = kea<billingLogicType>([
                                     numOpenInvoices == 1 && jsonRes['link']
                                         ? jsonRes['link']
                                         : values.billing?.stripe_portal_url,
-                                children: 'View invoices',
+                                children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
                                 targetBlank: true,
                             }
                             return {
