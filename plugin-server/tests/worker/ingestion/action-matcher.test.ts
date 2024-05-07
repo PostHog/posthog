@@ -58,6 +58,7 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
+            steps_json: null,
             bytecode: null,
             bytecode_error: null,
         }
@@ -800,9 +801,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefOuter)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsHrefInner)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefOuter })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefInner })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains', async () => {
@@ -840,11 +845,17 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href contains, with wildcard', async () => {
@@ -882,11 +893,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element href matches regex', async () => {
@@ -924,11 +937,13 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsExactHrefOuter)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExactHrefInner)).toEqual([])
-            expect(await actionMatcher.match(event, elementsExtendedHref)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsBadHref)).toEqual([])
-            expect(await actionMatcher.match(event, elementsNoHref)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefOuter })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExactHrefInner })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsExtendedHref })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsBadHref })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsNoHref })).toEqual([])
         })
 
         it('returns a match in case of element text and tag name equals', async () => {
@@ -962,10 +977,12 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefProper)).toEqual([actionDefinitionLinkHref])
-            expect(await actionMatcher.match(event, elementsHrefWrongTag)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefWrongText)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefWrongLevel)).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProper })).toEqual([
+                actionDefinitionLinkHref,
+            ])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongTag })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongText })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongLevel })).toEqual([])
         })
 
         it('returns a match in case of element text contains', async () => {
@@ -988,8 +1005,10 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefBadText)).toEqual([])
-            expect(await actionMatcher.match(event, elementsHrefGoodText)).toEqual([actionDefinitionLinkHref])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefBadText })).toEqual([])
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefGoodText })).toEqual([
+                actionDefinitionLinkHref,
+            ])
         })
 
         it('returns a match in case of element selector', async () => {
@@ -1030,15 +1049,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(await actionMatcher.match(event, elementsHrefProperNondirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperNondirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectHref,
                 actionDefinitionArraySelectorProp,
             ])
-            expect(await actionMatcher.match(event, elementsHrefWrongClassNondirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefWrongClassNondirect })).toEqual([
                 actionDefinitionDirectHref,
             ])
-            expect(await actionMatcher.match(event, elementsHrefProperDirect)).toEqual([
+            expect(await actionMatcher.match({ ...event, elementsList: elementsHrefProperDirect })).toEqual([
                 actionDefinitionAnyDescendant,
                 actionDefinitionDirectDescendant,
                 actionDefinitionArraySelectorProp,
@@ -1144,6 +1163,13 @@ describe('ActionMatcher', () => {
     })
 
     describe('#checkElementsAgainstSelector()', () => {
+        const checkElementsAgainstSelector = (elements: Element[], selector: string): boolean => {
+            return actionMatcher.checkElementsAgainstSelector(
+                { elementsList: elements } as PostIngestionEvent,
+                selector
+            )
+        }
+
         it('handles selector with attribute', () => {
             const elements: Element[] = [
                 { tag_name: 'h1', attr_class: ['headline'], attributes: { 'attr__data-attr': 'xyz' } },
@@ -1152,16 +1178,16 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "h1[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, ".headline[data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "main [data-attr='xyz']")).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "h1[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, ".headline[data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, "main [data-attr='xyz']")).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, ".top [data-attr='xyz']")).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "[data-attr='foo']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "main[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, "div[data-attr='xyz']")).toBeFalsy()
         })
 
         it('handles any descendant selector', () => {
@@ -1171,16 +1197,16 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main .headline')).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.top main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, '.top main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main .top')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main .top')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector', () => {
@@ -1190,18 +1216,18 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .headline')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .headline')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .top > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .top > h1')).toBeTruthy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.top > main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, '.top > main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .top')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .top')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 1', () => {
@@ -1212,20 +1238,20 @@ describe('ActionMatcher', () => {
                 { tag_name: 'main' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .inner')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .inner')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer > .inner > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .inner > h1')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer > .inner > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .inner > h1')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer > h1')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'outer > main')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'h1 > div')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'outer > main')).toBeFalsy()
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'main > .outer')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
-            expect(actionMatcher.checkElementsAgainstSelector(elements, '.inner > .headline')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > div')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'main > .outer')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'div > h1')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, '.inner > .headline')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 2', () => {
@@ -1239,21 +1265,15 @@ describe('ActionMatcher', () => {
                 { tag_name: 'section' },
             ]
 
-            expect(actionMatcher.checkElementsAgainstSelector(elements, 'aside div > span')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'aside div > span')).toBeTruthy()
         })
 
         it('handles direct descendant selector edge cases 3', () => {
             const elements: Element[] = [{ tag_name: 'span', nth_child: 2, nth_of_type: 1 }, { tag_name: 'section' }]
 
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')
-            ).toBeTruthy()
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')
-            ).toBeFalsy()
-            expect(
-                actionMatcher.checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')
-            ).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(1)')).toBeTruthy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(1):nth-of-type(1)')).toBeFalsy()
+            expect(checkElementsAgainstSelector(elements, 'section > span:nth-child(2):nth-of-type(3)')).toBeFalsy()
         })
     })
 

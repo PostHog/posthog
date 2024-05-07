@@ -10,19 +10,25 @@ from dlt.sources import DltResource, DltSource
 
 
 from dlt.sources.credentials import ConnectionStringCredentials
+from urllib.parse import quote
 
 from .helpers import (
     table_rows,
     engine_from_credentials,
     get_primary_key,
     SqlDatabaseTableConfiguration,
-    SqlTableResourceConfiguration,
 )
 
 
 def postgres_source(
     host: str, port: int, user: str, password: str, database: str, sslmode: str, schema: str, table_names: list[str]
 ) -> DltSource:
+    host = quote(host)
+    user = quote(user)
+    password = quote(password)
+    database = quote(database)
+    sslmode = quote(sslmode)
+
     credentials = ConnectionStringCredentials(
         f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
     )
@@ -31,7 +37,7 @@ def postgres_source(
     return db_source
 
 
-@dlt.source
+@dlt.source(max_table_nesting=0)
 def sql_database(
     credentials: Union[ConnectionStringCredentials, Engine, str] = dlt.secrets.value,
     schema: Optional[str] = dlt.config.value,

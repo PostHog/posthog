@@ -12,6 +12,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    CachedHogQLQueryResponse,
     HogQLQuery,
     HogQLQueryResponse,
     DashboardFilter,
@@ -22,7 +23,8 @@ from posthog.schema import (
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
-    query_type = HogQLQuery
+    response: HogQLQueryResponse
+    cached_response: CachedHogQLQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
@@ -61,7 +63,6 @@ class HogQLQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             timings=self.timings,
             limit_context=self.limit_context,
-            explain=bool(self.query.explain),
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

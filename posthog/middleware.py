@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta
 import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
+from loginas.utils import is_impersonated_session, restore_original_login
 
 from django.shortcuts import redirect
 import structlog
@@ -636,3 +638,49 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             )
 
         return response
+
+
+def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
+    if not is_impersonated_session(request):
+        return None
+
+    init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
+
+    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+
+class AutoLogoutImpersonateMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        impersonated_session_expires_at = get_impersonated_session_expires_at(request)
+
+        if not impersonated_session_expires_at:
+            return self.get_response(request)
+
+        session_is_expired = impersonated_session_expires_at < datetime.now()
+
+        if session_is_expired:
+            # TRICKY: We need to handle different cases here:
+            # 1. For /api requests we want to respond with a code that will force the UI to redirect to the logout page (401)
+            # 2. For any other endpoint we want to redirect to the logout page
+            # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
+
+            if request.path.startswith("/api/"):
+                return HttpResponse(
+                    "Impersonation session has expired. Please log in again.",
+                    status=401,
+                )
+            elif not request.path.startswith("/logout"):
+                return redirect("/logout/")
+            else:
+                restore_original_login(request)
+                return redirect("/admin/")
+
+        expire_since_last_activity = settings.IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY
+
+        if expire_since_last_activity:
+            request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
+
+        return self.get_response(request)

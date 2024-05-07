@@ -13,6 +13,7 @@ import {
 
 import {
     ActionsNode,
+    AnalyticsQueryResponseBase,
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
@@ -241,7 +242,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
         kind: reverseInsightMap[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
@@ -433,6 +434,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
 
 export const lifecycleFilterToQuery = (filters: Record<string, any>): LifecycleFilter => {
     return objectCleanWithEmpty({
+        showLegend: filters.show_legend,
         toggledLifecycles: filters.toggledLifecycles,
         showValuesOnSeries: filters.show_values_on_series,
     })
