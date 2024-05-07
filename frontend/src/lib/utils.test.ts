@@ -261,6 +261,7 @@ describe('dateFilterToText()', () => {
         })
 
         it('handles various ranges', () => {
+            // 2012-03-02T11:38:49.321Z
             tk.freeze(new Date(1330688329321))
             expect(dateFilterToText('dStart', null, 'default', nonRealTimeDateMapping, true)).toEqual('March 2, 2012')
             expect(dateFilterToText('2020-01-02', '2020-01-05', 'default', nonRealTimeDateMapping, true)).toEqual(
@@ -280,7 +281,7 @@ describe('dateFilterToText()', () => {
                 'March 1, 2012'
             )
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', nonRealTimeDateMapping, true)).toEqual(
-                'March 1 - March 31, 2012'
+                'February 1 - February 29, 2012'
             )
             expect(dateFilterToText('-180d', null, 'default', nonRealTimeDateMapping, true)).toEqual(
                 'September 4, 2011 - March 2, 2012'
