@@ -15,6 +15,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -35,6 +36,7 @@ from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
+from posthog.schema import DashboardFilter
 from posthog.types import FilterType
 
 if TYPE_CHECKING:
@@ -51,13 +53,19 @@ logger = structlog.get_logger(__name__)
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight = target if isinstance(target, Insight) else target.insight
-    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
+    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or not insight.filters:
-        return None
+    if insight.query:
+        query_runner = get_query_runner_or_none(insight.query, insight.team)
+        if dashboard:
+            query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.dashboard_filters))
+        return query_runner.get_cache_key() if query_runner else None
 
-    return generate_insight_cache_key(insight, dashboard)
+    if insight.filters:
+        return generate_insight_cache_key(insight, dashboard)
+
+    return None
 
 
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
