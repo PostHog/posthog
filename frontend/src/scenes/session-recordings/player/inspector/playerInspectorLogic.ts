@@ -444,7 +444,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
+                return deduplicatePerformanceEvents(
+                    filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
+                )
             },
         ],
 
@@ -973,6 +975,27 @@ function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
     // the browser can provide network events that we're not interested in,
     // like a navigation to "about:blank"
     return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name === 'about:blank')
+        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
     })
+}
+
+function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEvent[] {
+    // we capture performance entries in the `isInitial` requests
+    // which are those captured before we've wrapped fetch
+    // since we're trying hard to avoid missing requests we sometimes capture the same request twice
+    // once isInitial and once is the actual fetch
+    // the actual fetch will have more data, so we can discard the isInitial
+    const seen = new Set<string>()
+    return events
+        .reverse()
+        .filter((event) => {
+            const key = `${event.entry_type}-${event.name}-${event.timestamp}-${event.window_id}`
+            // we only want to drop is_initial events
+            if (seen.has(key) && event.is_initial) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+        .reverse()
 }

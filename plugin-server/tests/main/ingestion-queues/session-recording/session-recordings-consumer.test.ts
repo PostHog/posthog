@@ -21,6 +21,7 @@ const config: PluginsServerConfig = {
     SESSION_RECORDING_OVERFLOW_ENABLED: true,
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: 1_000_000, // 1MB burst
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: 1_000, // 1kB/s replenish
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1,
     SESSION_RECORDING_REDIS_PREFIX,
 }
 
@@ -597,7 +598,9 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         describe(
             'overflow detection',
             consumeOverflow
-                ? () => {} // Skip these tests when running with consumeOverflow (it's disabled)
+                ? () => {
+                      return // Skip these tests when running with consumeOverflow (it's disabled)
+                  }
                 : () => {
                       const ingestBurst = async (count: number, size_bytes: number, timestamp_delta: number) => {
                           const first_timestamp = Date.now() - 2 * timestamp_delta * count

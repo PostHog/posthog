@@ -14,14 +14,10 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
-
-export type NewActionType = Partial<ActionType> &
-    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
-export type ActionEditType = ActionType | NewActionType
 
 export interface SetActionProps {
     merge?: boolean
@@ -29,11 +25,11 @@ export interface SetActionProps {
 
 export interface ActionEditLogicProps {
     id?: number
-    action: ActionEditType
+    action?: ActionType | null
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
-    path(['scenes', 'actions', 'actionEditLogic']),
+    path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
     connect({
@@ -48,7 +44,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
         values: [sceneLogic, ['activeScene']],
     }),
     actions({
-        setAction: (action: Partial<ActionEditType>, options: SetActionProps = { merge: true }) => ({
+        setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
             options,
         }),
@@ -73,7 +69,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     forms(({ actions, props }) => ({
         action: {
-            defaults: { ...props.action } as ActionEditType,
+            defaults: { ...props.action } as ActionType,
             submit: (action) => {
                 actions.saveAction(action)
             },
@@ -82,11 +78,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     loaders(({ props, values, actions }) => ({
         action: [
-            { ...props.action } as ActionEditType,
+            { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
-                    (merge ? { ...values.action, ...action } : action) as ActionEditType,
-                saveAction: async (updatedAction: ActionEditType, breakpoint) => {
+                    (merge ? { ...values.action, ...action } : action) as ActionType,
+                saveAction: async (updatedAction: ActionType, breakpoint) => {
                     let action: ActionType
 
                     try {
@@ -170,10 +166,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.setAction(
                         {
                             ...actionToCopy,
-                            steps: actionToCopy.steps.map((s: ActionStepType) => {
-                                const { id: _id, ...step } = s
-                                return { ...step, isNew: uuid() }
-                            }),
+                            steps: actionToCopy.steps,
                             name: `${actionToCopy.name} (copy)`,
                         },
                         { merge: false }
