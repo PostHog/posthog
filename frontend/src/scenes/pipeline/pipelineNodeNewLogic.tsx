@@ -4,7 +4,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportService, Breadcrumb, PipelineStage, PipelineTab } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb, PipelineStage, PipelineTab } from '~/types'
 
 import type { pipelineNodeNewLogicType } from './pipelineNodeNewLogicType'
 
@@ -57,7 +57,10 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
         batchExportServiceNames: [
             (s) => [s.user],
             (user): BatchExportService['type'][] => {
-                const services: BatchExportService['type'][] = ['BigQuery', 'Postgres', 'Redshift', 'Snowflake', 'S3']
+                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
+                const services: BatchExportService['type'][] = BATCH_EXPORT_SERVICE_NAMES.filter(
+                    (service) => service !== 'HTTP'
+                ) as BatchExportService['type'][]
                 if (user?.is_impersonated || user?.is_staff) {
                     services.push('HTTP')
                 }
