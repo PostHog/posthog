@@ -166,6 +166,7 @@ class BillingManager:
                 product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
 
             # Update the add on tiers
+            # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
             for addon in product["addons"]:
                 if not addon["subscribed"]:
                     continue
