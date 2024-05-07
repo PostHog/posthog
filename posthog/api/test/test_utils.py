@@ -35,7 +35,7 @@ class TestUtils(BaseTest):
         # Valid request with event
         request = HttpRequest()
         request.method = "POST"
-        request.POST = {"data": json.dumps({"event": "some event"})}  # type: ignore
+        request.POST = {"data": json.dumps({"event": "some event"})}
         data, error_response = get_data(request)
         self.assertEqual(data, {"event": "some event"})
         self.assertEqual(error_response, None)
@@ -119,7 +119,7 @@ class TestUtils(BaseTest):
         ]
 
         for raw_ids, expected_ids in zip(definition_ids, expected_ids_list):
-            ordered_expected_ids = list(set(expected_ids))  # type: ignore
+            ordered_expected_ids = list(set(expected_ids))
             # Property
             query, ids = check_definition_ids_inclusion_field_sql(raw_ids, True, "named_key")
             assert query == "(id = ANY (%(named_key)s::uuid[]))"

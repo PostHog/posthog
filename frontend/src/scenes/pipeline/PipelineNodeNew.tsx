@@ -11,8 +11,10 @@ import { BatchExportService, PipelineStage, PluginType } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
+import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { PipelineBackend } from './types'
 import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from './utils'
@@ -94,13 +96,13 @@ export function PipelineNodeNew(
     }
 
     if (pluginId) {
-        return <>Plugin ID {pluginId}</>
+        return <PipelinePluginConfiguration stage={stage} pluginId={pluginId} />
     }
     if (batchExportDestination) {
         if (stage !== PipelineStage.Destination) {
             return <NotFound object={batchExportDestination} />
         }
-        return <>Batch Export Destination {batchExportDestination}</>
+        return <PipelineBatchExportConfiguration service={batchExportDestination} />
     }
 
     if (stage === PipelineStage.Transformation) {
