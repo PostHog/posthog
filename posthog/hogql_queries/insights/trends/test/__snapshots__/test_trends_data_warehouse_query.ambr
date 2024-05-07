@@ -8,7 +8,7 @@
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -53,7 +53,7 @@
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            sum(count) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
@@ -70,7 +70,7 @@
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26 SETTINGS readonly=2,
-                    max_execution_time=60,
+                    max_execution_time=180,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=1000000,
@@ -115,7 +115,7 @@
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)),
            sum(count) DESC, breakdown_value ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
@@ -145,7 +145,7 @@
      ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
@@ -175,7 +175,7 @@
      ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
@@ -205,7 +205,7 @@
      ORDER BY day_start ASC)
   ORDER BY sum(count) DESC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
