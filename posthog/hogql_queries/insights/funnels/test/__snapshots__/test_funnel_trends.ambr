@@ -82,7 +82,7 @@
      FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
-                      max_execution_time=60,
+                      max_execution_time=180,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=1000000,
@@ -173,7 +173,7 @@
      FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
-                      max_execution_time=60,
+                      max_execution_time=180,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=1000000,
@@ -264,7 +264,7 @@
      FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   ORDER BY fill.entrance_period_start ASC
   LIMIT 1000 SETTINGS readonly=2,
-                      max_execution_time=60,
+                      max_execution_time=180,
                       allow_experimental_object_type=1,
                       format_csv_allow_double_quotes=0,
                       max_ast_elements=1000000,
