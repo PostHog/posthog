@@ -61,18 +61,18 @@ class TrendsActors(ActorBaseQuery):
                         value=lower_bound,
                         operator="gte",
                         type=self._filter.breakdown_type,
-                        group_type_index=(
-                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
-                        ),
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
                     ),
                     Property(
                         key=self._filter.breakdown,
                         value=upper_bound,
                         operator="lt",
                         type=self._filter.breakdown_type,
-                        group_type_index=(
-                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
-                        ),
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
                     ),
                 ]
             else:
@@ -81,9 +81,9 @@ class TrendsActors(ActorBaseQuery):
                         key=self._filter.breakdown,
                         value=self._filter.breakdown_value,
                         type=self._filter.breakdown_type,
-                        group_type_index=(
-                            self._filter.breakdown_group_type_index if self._filter.breakdown_type == "group" else None
-                        ),
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
                     )
                 ]
 
@@ -100,21 +100,21 @@ class TrendsActors(ActorBaseQuery):
             extra_fields += ["uuid"]
 
         events_query, params = TrendsEventQuery(
-            # filter=self._filter,
-            # team=self._team,
-            # entity=self.entity,
+            filter=self._filter,
+            team=self._team,
+            entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            # and self._team.person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events,
-            # extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
+            and self._team.person_on_events_mode != PersonsOnEventsMode.person_id_no_override_properties_on_events,
+            extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
-            # person_on_events_mode=self._team.person_on_events_mode,
+            person_on_events_mode=self._team.person_on_events_mode,
         ).get_query()
 
-        # matching_events_select_statement = (
-        #     ", groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events"
-        #     if self._filter.include_recordings
-        #     else ""
-        # )
+        matching_events_select_statement = (
+            ", groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events"
+            if self._filter.include_recordings
+            else ""
+        )
 
         (
             actor_value_expression,
@@ -123,18 +123,18 @@ class TrendsActors(ActorBaseQuery):
 
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
-                # id_field=self._aggregation_actor_field,
+                id_field=self._aggregation_actor_field,
                 actor_value_expression=actor_value_expression,
-                # matching_events_select_statement=matching_events_select_statement,
+                matching_events_select_statement=matching_events_select_statement,
                 events_query=events_query,
-                # limit="LIMIT %(limit)s" if limit_actors else "",
-                # offset="OFFSET %(offset)s" if limit_actors else "",
+                limit="LIMIT %(limit)s" if limit_actors else "",
+                offset="OFFSET %(offset)s" if limit_actors else "",
             ),
             {
                 **params,
                 **actor_value_params,
-                # "offset": self._filter.offset,
-                # "limit": self._filter.limit or 100,
+                "offset": self._filter.offset,
+                "limit": self._filter.limit or 100,
             },
         )
 
