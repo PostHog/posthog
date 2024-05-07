@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -78,18 +78,6 @@ export function DataCollectionCalculator({
     return (
         <div className="flex">
             <div className="w-full">
-                {experimentId === 'new' && (
-                    <div>
-                        <div>
-                            <b>Experiment preview</b>
-                        </div>
-                        <div className="text-muted">
-                            Here are the baseline metrics for your experiment. Adjust your minimum detectible threshold
-                            to adjust for the smallest conversion value you'll accept, and the experiment duration.{' '}
-                        </div>
-                        <LemonDivider className="my-4" />
-                    </div>
-                )}
                 <div className="mb-4 experiment-preview-row">
                     <div className="flex items-center">
                         <b>Minimum acceptable improvement</b>
