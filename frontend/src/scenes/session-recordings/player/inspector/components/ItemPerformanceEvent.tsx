@@ -359,7 +359,7 @@ export function BodyDisplay({
                     to="https://posthog.com/docs/session-replay/network-recording?utm_medium=in-product"
                     target="_blank"
                 >
-                    Learn how to provide your own redaction code.
+                    Learn how to override PostHog's automatic redaction code.
                 </Link>
             </p>
             <pre>received: {displayContent}</pre>
