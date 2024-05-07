@@ -26,8 +26,16 @@ export function PipelinePluginConfiguration({
     const logicProps = { stage: stage, pluginId: pluginId || null, pluginConfigId: pluginConfigId || null }
     const logic = pipelinePluginConfigurationLogic(logicProps)
 
-    const { plugin, isNew, isConfigurationSubmitting, savedConfiguration, hiddenFields, requiredFields, loading } =
-        useValues(logic)
+    const {
+        plugin,
+        isNew,
+        isConfigurationSubmitting,
+        savedConfiguration,
+        hiddenFields,
+        requiredFields,
+        loading,
+        configurationChanged,
+    } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
     if (!stage) {
@@ -129,9 +137,15 @@ export function PipelinePluginConfiguration({
                         type="secondary"
                         htmlType="reset"
                         onClick={() => resetConfiguration(savedConfiguration || {})}
-                        disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
+                        disabledReason={
+                            isConfigurationSubmitting
+                                ? 'Saving in progress…'
+                                : !configurationChanged
+                                ? 'No changes'
+                                : undefined
+                        }
                     >
-                        {isNew ? 'Reset' : 'Cancel'}
+                        Clear changes
                     </LemonButton>
                     <LemonButton
                         type="primary"
