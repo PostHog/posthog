@@ -9,7 +9,7 @@ import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, Plug
 import { pipelineLogic } from './pipelineLogic'
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
-import { capturePluginEvent } from './utils'
+import { capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
@@ -31,14 +31,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await api.loadPaginatedResults<PluginType>(
-                        `api/organizations/@current/pipeline_transformations`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_transformations')
                 },
             },
         ],

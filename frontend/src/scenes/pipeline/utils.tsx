@@ -330,6 +330,11 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
     return items
 }
 
+export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
+}
+
 export function pipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,

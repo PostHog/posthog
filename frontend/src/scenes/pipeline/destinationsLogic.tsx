@@ -18,7 +18,7 @@ import {
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { pipelineLogic } from './pipelineLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent } from './utils'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -44,14 +44,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await api.loadPaginatedResults<PluginType>(
-                        `api/organizations/@current/pipeline_destinations`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
                 },
             },
         ],

@@ -71,7 +71,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     return (
-        <div className="pipeline-node-scene">
+        <>
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
@@ -85,6 +85,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                         } as LemonTab<PipelineNodeTab>)
                 )}
             />
-        </div>
+        </>
     )
 }
