@@ -122,7 +122,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
-        # bytecode might have been altered in the action steps
         instance = super().update(instance, validated_data)
 
         if "steps" in validated_data:
