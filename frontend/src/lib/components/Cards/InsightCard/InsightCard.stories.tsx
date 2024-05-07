@@ -192,7 +192,7 @@ export const InsightCard: Story = (args) => {
     )
 }
 
-export const HogqlInsightCard: Story = (args) => {
+export const QueryInsightCard: Story = (args) => {
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
