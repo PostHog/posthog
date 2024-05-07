@@ -61,8 +61,8 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <span>
                         {action.steps?.length ? (
-                            action.steps.map((step) => (
-                                <div key={step.id}>
+                            action.steps.map((step, index) => (
+                                <div key={index}>
                                     {(() => {
                                         let url = stripHTTP(step.url || '')
                                         url = url.slice(0, 40) + (url.length > 40 ? '...' : '')

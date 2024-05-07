@@ -45,7 +45,7 @@ RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/
 # install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
 # so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
 # see https://github.com/pnpm/pnpm/issues/4495
-RUN npm install --global pnpm \
+RUN corepack enable && pnpm --version \
     && SHELL=bash pnpm setup \
     && source /root/.bashrc
 

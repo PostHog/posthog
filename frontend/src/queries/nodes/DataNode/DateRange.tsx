@@ -1,20 +1,23 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { DataNode, EventsQuery, HogQLQuery } from '~/queries/schema'
+import { EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
 
-interface DateRangeProps {
-    query: DataNode
-    setQuery?: (query: EventsQuery | HogQLQuery) => void
+interface DateRangeProps<Q extends EventsQuery | HogQLQuery> {
+    query: Q
+    setQuery?: (query: Q) => void
 }
-export function DateRange({ query, setQuery }: DateRangeProps): JSX.Element | null {
+export function DateRange<Q extends EventsQuery | HogQLQuery>({
+    query,
+    setQuery,
+}: DateRangeProps<Q>): JSX.Element | null {
     if (isEventsQuery(query)) {
         return (
             <DateFilter
                 dateFrom={query.after ?? undefined}
                 dateTo={query.before ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
-                    const newQuery: EventsQuery = {
+                    const newQuery: Q = {
                         ...query,
                         after: changedDateFrom ?? undefined,
                         before: changedDateTo ?? undefined,
@@ -31,7 +34,7 @@ export function DateRange({ query, setQuery }: DateRangeProps): JSX.Element | nu
                 dateFrom={query.filters?.dateRange?.date_from ?? undefined}
                 dateTo={query.filters?.dateRange?.date_to ?? undefined}
                 onChange={(changedDateFrom, changedDateTo) => {
-                    const newQuery: HogQLQuery = {
+                    const newQuery: Q = {
                         ...query,
                         filters: {
                             ...(query.filters ?? {}),

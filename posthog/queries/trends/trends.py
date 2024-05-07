@@ -20,7 +20,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
 )
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
+from posthog.models.action.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -254,7 +254,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
-        actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
+        actions = actions.prefetch_related(Prefetch("action_steps", queryset=ActionStep.objects.order_by("id")))
 
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)

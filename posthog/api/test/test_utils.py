@@ -1,4 +1,5 @@
 import json
+import requests
 from typing import Any, cast
 
 from django.http import HttpRequest
@@ -13,6 +14,7 @@ from posthog.api.utils import (
     get_target_entity,
     raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
+    PublicIPOnlyHttpAdapter,
 )
 from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
@@ -216,3 +218,18 @@ class TestUtils(BaseTest):
             "Invalid hostname",
             lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com"),
         )  # Non-existent
+
+    def test_public_ip_only_adapter(self):
+        address = "http://localhost:8123"  # Clickhouse's HTTP port
+
+        # We can connect OK by default
+        self.assertTrue(requests.get(address).ok)
+
+        # Adding the adapter makes the connection fail
+        session = requests.Session()
+        session.mount("http://", PublicIPOnlyHttpAdapter())
+        self.assertRaisesMessage(
+            ValueError,
+            "Internal IP",
+            lambda: session.get(address),
+        )
