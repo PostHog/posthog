@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Union
 from unittest.mock import patch
+import dataclasses
 
 from zoneinfo import ZoneInfo
 from django.test import override_settings
@@ -25,7 +26,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
 )
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Entity,
     Filter,
@@ -88,8 +88,7 @@ def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name, properties=properties)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
     return action
 
 
@@ -3613,11 +3612,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
             self._create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(team=self.team, name="$pageview from non-internal")
-        ActionStep.objects.create(
-            action=event_filtering_action,
-            event="$pageview",
-            properties=[{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+        event_filtering_action = Action.objects.create(
+            team=self.team,
+            name="$pageview from non-internal",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "bar", "type": "person", "value": "a", "operator": "icontains"}],
+                }
+            ],
         )
 
         with freeze_time("2020-01-04T13:01:01Z"):
@@ -5407,16 +5410,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(team=self.team, name="sign up")
-        ActionStep.objects.create(
-            action=sign_up_action,
-            event="sign up",
-            properties=[
+        sign_up_action = Action.objects.create(
+            team=self.team,
+            name="sign up",
+            steps_json=[
                 {
-                    "key": "$current_url",
-                    "type": "event",
-                    "value": ["https://posthog.com/feedback/1234"],
-                    "operator": "exact",
+                    "event": "sign up",
+                    "properties": [
+                        {
+                            "key": "$current_url",
+                            "type": "event",
+                            "value": ["https://posthog.com/feedback/1234"],
+                            "operator": "exact",
+                        }
+                    ],
                 }
             ],
         )
@@ -5478,10 +5485,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             name="a",
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
-        step = sign_up_action.steps.first()
-        if step:
-            step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-            step.save()
+
+        step = sign_up_action.steps[0]
+        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
+
+        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.save()
 
         cohort.calculate_people_ch(pending_version=0)
 
@@ -6631,12 +6640,16 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(name="sign up", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="sign up",
-            url="/some/page",
-            properties=[{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+        action = Action.objects.create(
+            name="sign up",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "sign up",
+                    "url": "/some/page",
+                    "properties": [{"key": "key", "type": "event", "value": ["val"], "operator": "exact"}],
+                }
+            ],
         )
 
         response = self._run(

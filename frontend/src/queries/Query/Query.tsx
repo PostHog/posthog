@@ -1,10 +1,11 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useEffect, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
+import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { AnyResponseType, DataTableNode, DataVisualizationNode, InsightVizNode, Node } from '~/queries/schema'
@@ -37,10 +38,12 @@ export interface QueryProps<Q extends Node> {
     cachedResults?: AnyResponseType
     /** Disable any changes to the query */
     readOnly?: boolean
+    /** Show a stale overlay */
+    stale?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -53,6 +56,9 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     const queryContext = props.context || {}
+
+    const uniqueKey =
+        props.uniqueKey ?? (props.context?.insightProps && insightVizDataNodeKey(props.context.insightProps))
 
     if (query === null) {
         return null
@@ -74,7 +80,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as ((query: DataTableNode) => void) | undefined}
                 context={queryContext}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -83,7 +89,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 query={query}
                 setQuery={setQuery as ((query: DataVisualizationNode) => void) | undefined}
                 cachedResults={props.cachedResults}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
                 context={queryContext}
             />
         )
@@ -96,7 +102,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 setQuery={setQuery as ((query: InsightVizNode) => void) | undefined}
                 context={queryContext}
                 readOnly={readOnly}
-                uniqueKey={props.uniqueKey}
+                uniqueKey={uniqueKey}
             />
         )
     } else if (isTimeToSeeDataSessionsNode(query)) {
@@ -123,6 +129,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                             </div>
                         </>
                     ) : null}
+                    {stale && <SpinnerOverlay mode="editing" />}
                     {component}
                 </>
             </ErrorBoundary>

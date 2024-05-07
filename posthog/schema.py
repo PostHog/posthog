@@ -215,15 +215,20 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
-class DatabaseSchemaQueryResponseField(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chain: Optional[list[str]] = None
-    fields: Optional[list[str]] = None
-    key: str
-    table: Optional[str] = None
-    type: str
+class DatabaseSerializedFieldType(str, Enum):
+    integer = "integer"
+    float = "float"
+    string = "string"
+    datetime = "datetime"
+    date = "date"
+    boolean = "boolean"
+    array = "array"
+    json = "json"
+    lazy_table = "lazy_table"
+    virtual_table = "virtual_table"
+    field_traverser = "field_traverser"
+    expression = "expression"
+    view = "view"
 
 
 class DateRange(BaseModel):
@@ -1661,6 +1666,17 @@ class DataWarehousePropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class DatabaseSchemaQueryResponseField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chain: Optional[list[str]] = None
+    fields: Optional[list[str]] = None
+    key: str
+    table: Optional[str] = None
+    type: DatabaseSerializedFieldType
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2677,17 +2693,6 @@ class DataWarehouseNode(BaseModel):
     timestamp_field: str
 
 
-class DatabaseSchemaQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
-
-
 class EntityNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3284,6 +3289,17 @@ class DataVisualizationNode(BaseModel):
     display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
+
+
+class DatabaseSchemaQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
 
 
 class FunnelsFilter(BaseModel):

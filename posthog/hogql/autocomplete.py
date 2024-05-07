@@ -361,7 +361,7 @@ def get_hogql_autocomplete(
                                 keys=table_aliases,
                                 suggestions=response.suggestions,
                                 kind=Kind.Folder,
-                                details=["Table"] * len(table_aliases),  # type: ignore
+                                details=["Table"] * len(table_aliases),
                             )
                             break
 
@@ -455,7 +455,7 @@ def get_hogql_autocomplete(
                             keys=table_names,
                             suggestions=response.suggestions,
                             kind=Kind.Folder,
-                            details=["Table"] * len(table_names),  # type: ignore
+                            details=["Table"] * len(table_names),
                         )
         except Exception:
             pass
