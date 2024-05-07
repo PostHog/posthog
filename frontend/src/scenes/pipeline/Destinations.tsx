@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -17,7 +17,7 @@ import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
 import { pipelineLogic } from './pipelineLogic'
 import { Destination } from './types'
-import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
+import { getBatchExportUrl, pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -85,7 +85,21 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                             if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
-                            return <RenderBatchExportIcon type={destination.service.type} />
+                            return (
+                                <Tooltip
+                                    title={
+                                        <>
+                                            {destination.service.type}
+                                            <br />
+                                            Click to view docs
+                                        </>
+                                    }
+                                >
+                                    <Link to={getBatchExportUrl(destination.service.type)}>
+                                        <RenderBatchExportIcon type={destination.service.type} />
+                                    </Link>
+                                </Tooltip>
+                            )
                         },
                     },
                     {

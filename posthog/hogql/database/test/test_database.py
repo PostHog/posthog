@@ -266,6 +266,7 @@ class TestDatabase(BaseTest):
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_warehouse_joins_persons_poe_v2(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -287,7 +288,9 @@ class TestDatabase(BaseTest):
 
         assert poe.fields["some_field"] is not None
 
-        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+        assert printed == self.snapshot
 
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(
