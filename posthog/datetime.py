@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+
 def start_of_minute(dt: datetime) -> datetime:
     return datetime(year=dt.year, month=dt.month, day=dt.day, hour=dt.hour, minute=dt.minute, tzinfo=dt.tzinfo)
 
