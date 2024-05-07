@@ -1,6 +1,6 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
