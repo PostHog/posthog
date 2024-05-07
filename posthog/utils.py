@@ -554,12 +554,13 @@ def get_compare_period_dates(
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
+    new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
         new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
         new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
-    else:
+    elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
         # Handle date_from = -7d, -14d etc. specially
