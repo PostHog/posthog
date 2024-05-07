@@ -150,6 +150,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loading,
             queued,
         }),
+        setPageVisibility: (visible: boolean) => ({ visible }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
@@ -276,6 +277,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        pageVisibility: [
+            true,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
         dashboardFailedToLoad: [
             false,
             {
@@ -640,7 +647,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         newestRefreshed: [
-            (s) => [s.sortedDates],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.sortedDates, s.pageVisibility],
             (sortedDates): Dayjs | null => {
                 if (!sortedDates.length) {
                     return null
@@ -660,7 +668,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.newestRefreshed, s.placement],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.newestRefreshed, s.placement, s.pageVisibility],
             (newestRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
                     !!newestRefreshed &&
