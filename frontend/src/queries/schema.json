@@ -3922,6 +3922,9 @@
                         "person_id_override_properties_joined"
                     ],
                     "type": "string"
+                },
+                "s3TableUseInvalidColumns": {
+                    "type": "boolean"
                 }
             },
             "type": "object"

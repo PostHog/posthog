@@ -195,6 +195,7 @@ export interface HogQLQueryModifiers {
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    s3TableUseInvalidColumns?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
