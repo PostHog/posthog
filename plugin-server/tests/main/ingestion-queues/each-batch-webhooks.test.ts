@@ -6,6 +6,7 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -71,6 +72,9 @@ describe('eachMessageWebhooksHandlers', () => {
             Date.now(),
         ])
 
+        const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
+        organizationManager['availableFeaturesCache'].set(2, [['group_analytics'], Date.now()])
+
         actionManager['ready'] = true
         actionManager['actionCache'] = {
             2: {
@@ -108,7 +112,13 @@ describe('eachMessageWebhooksHandlers', () => {
         const matchSpy = jest.spyOn(actionMatcher, 'match')
         const postWebhookSpy = jest.spyOn(hookCannon.rustyHook, 'enqueueIfEnabledForTeam')
 
-        await eachMessageWebhooksHandlers(clickhouseEvent, actionMatcher, hookCannon, groupTypeManager)
+        await eachMessageWebhooksHandlers(
+            clickhouseEvent,
+            actionMatcher,
+            hookCannon,
+            groupTypeManager,
+            organizationManager
+        )
 
         // NOTE: really it would be nice to verify that fire has been called
         // on hookCannon, but that would require a little more setup, and it

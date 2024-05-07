@@ -22,6 +22,7 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
+import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
 
@@ -179,6 +180,9 @@ describe('eachBatchX', () => {
             const groupTypeManager: GroupTypeManager = {
                 fetchGroupTypes: jest.fn(() => Promise.resolve({})),
             } as unknown as GroupTypeManager
+            const organizatonManager: OrganizationManager = {
+                hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
+            } as unknown as GroupTypeManager
 
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
@@ -188,7 +192,8 @@ describe('eachBatchX', () => {
                 actionMatcher,
                 hookCannon,
                 10,
-                groupTypeManager
+                groupTypeManager,
+                organizatonManager
             )
 
             // NOTE: really it would be nice to verify that fire has been called
