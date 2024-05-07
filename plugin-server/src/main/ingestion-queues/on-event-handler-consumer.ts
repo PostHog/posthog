@@ -112,7 +112,14 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
         eachBatch: (payload) =>
-            eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency, groupTypeManager),
+            eachBatchWebhooksHandlers(
+                payload,
+                actionMatcher,
+                hookCannon,
+                concurrency,
+                groupTypeManager,
+                organizationManager
+            ),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)
