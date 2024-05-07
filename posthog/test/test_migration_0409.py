@@ -54,14 +54,3 @@ class TestActionStepsJSONMigration(NonAtomicTestMigrations):
                 "properties": {"key1": "value1"},
             }
         ]
-
-    def tearDown(self):
-        apps = self.apps
-        if apps is None:
-            # obey mypy
-            raise Exception("apps is None")
-
-        # Team.objects.all().delete()
-        # Organization.objects.all().delete()
-        # Action.objects.all().delete()
-        # ActionStep.objects.all().delete()

@@ -101,7 +101,6 @@ def format_action_filter(
             prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=team_id,
                 property_group=Filter(data={"properties": step.properties}).property_groups,
-                # TODO: What is this...
                 prepend=f"action_props_{action.pk}_{index}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
