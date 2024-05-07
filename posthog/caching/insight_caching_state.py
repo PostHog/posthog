@@ -9,6 +9,7 @@ from django.utils.timezone import now
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -66,24 +67,19 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
-cacheable_query_kinds = [
-    "EventsQuery",
-    "HogQLQuery",
-    "TimeToSeeDataSessionsQuery",
-    "TimeToSeeDataQuery",
-]
-
-
 def insight_can_be_cached(insight: Optional[Insight]) -> bool:
     if insight is None:
         return False
 
     cacheable_filter_based_insight = len(insight.filters) > 0
-    cacheable_query_based_insight = insight.query is not None and (
-        insight.query.get("kind", None) in cacheable_query_kinds
-        or insight.query.get("source", {}).get("kind") in cacheable_query_kinds
-    )
-    return cacheable_filter_based_insight or cacheable_query_based_insight
+    if cacheable_filter_based_insight:
+        return True
+
+    cacheable_query_based_insight = insight.query is not None and get_query_runner_or_none(insight.query) is not None
+    if cacheable_query_based_insight:
+        return True
+
+    return False
 
 
 def sync_insight_cache_states():

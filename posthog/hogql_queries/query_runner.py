@@ -266,6 +266,21 @@ def get_query_runner(
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
+def get_query_runner_or_none(
+    query: dict[str, Any] | RunnableQueryNode | BaseModel,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    limit_context: Optional[LimitContext] = None,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> Optional["QueryRunner"]:
+    try:
+        return get_query_runner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
+        )
+    except ValueError:
+        return None
+
+
 Q = TypeVar("Q", bound=RunnableQueryNode)
 # R (for Response) should have a structure similar to QueryResponse
 # Due to the way schema.py is generated, we don't have a good inheritance story here
