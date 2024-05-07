@@ -125,7 +125,7 @@ export const experimentLogic = kea<experimentLogicType>([
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['setQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['loadData', 'updateQuerySource'],
+            ['updateQuerySource'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
             ['setQuery as setExposureQuery'],
             insightVizDataLogic({ dashboardItemId: EXPERIMENT_EXPOSURE_INSIGHT_ID }),
@@ -162,7 +162,6 @@ export const experimentLogic = kea<experimentLogicType>([
         closeExperimentCollectionGoalModal: true,
         setCurrentFormStep: (stepIndex: number) => ({ stepIndex }),
         moveToNextFormStep: true,
-        setTruthMinimumDetectableChange: (minimumDetectableChange: number) => ({ minimumDetectableChange }),
     }),
     reducers({
         experiment: [
@@ -311,12 +310,6 @@ export const experimentLogic = kea<experimentLogicType>([
             0,
             {
                 setCurrentFormStep: (_, { stepIndex }) => stepIndex,
-            },
-        ],
-        truthMinimumDetectableChange: [
-            0,
-            {
-                setTruthMinimumDetectableChange: (_, { minimumDetectableChange }) => minimumDetectableChange,
             },
         ],
     }),
@@ -652,12 +645,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         openExperimentExposureModal: async () => {
             actions.setExperimentExposureInsight(values.experiment?.parameters?.custom_exposure_filter)
-        },
-        openExperimentCollectionGoalModal: async () => {
-            actions.setNewExperimentInsight(values.experiment?.filters)
-            setTimeout(() => {
-                actions.loadData()
-            }, 1000)
         },
         moveToNextFormStep: async () => {
             const { currentFormStep } = values
