@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { CodeSnippet, CodeSnippetProps, Language } from './CodeSnippet'
 
@@ -18,18 +19,65 @@ Default.args = {
     children: 'I am some code',
 }
 
-export const Compact: Story = BasicTemplate.bind({})
-Compact.args = {
+export const CompactWithShortText: Story = BasicTemplate.bind({})
+CompactWithShortText.args = {
+    compact: true,
+    children: 'This is not long text',
+}
+
+export const CompactWithLongText: Story = BasicTemplate.bind({})
+CompactWithLongText.args = {
     compact: true,
     children:
         'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
 }
 
-export const Wrap: Story = BasicTemplate.bind({})
-Wrap.args = {
+export const WithoutWrapping: Story = BasicTemplate.bind({})
+WithoutWrapping.args = {
+    wrap: false,
+    children:
+        'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+}
+
+export const WithoutWrappingWithAction: Story = BasicTemplate.bind({})
+WithoutWrappingWithAction.args = {
+    wrap: false,
+    children:
+        'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+    actions: (
+        <>
+            <LemonButton size="small" type="primary">
+                one button
+            </LemonButton>
+            <LemonButton size="small" type="secondary">
+                two button
+            </LemonButton>
+        </>
+    ),
+}
+
+export const WithWrapping: Story = BasicTemplate.bind({})
+WithWrapping.args = {
     wrap: true,
     children:
         'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+}
+
+export const WithWrappingAndAction: Story = BasicTemplate.bind({})
+WithWrappingAndAction.args = {
+    wrap: true,
+    children:
+        'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+    actions: (
+        <>
+            <LemonButton size="small" type="primary">
+                one button
+            </LemonButton>
+            <LemonButton size="small" type="secondary">
+                two button
+            </LemonButton>
+        </>
+    ),
 }
 
 export const JavaScript: Story = BasicTemplate.bind({})

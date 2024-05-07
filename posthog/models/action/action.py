@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 import json
-from typing import Any, Literal, Optional, get_args
+from typing import Any, Literal, Optional, Union, get_args
 
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -78,11 +78,11 @@ class Action(models.Model):
 
     @steps.setter
     def steps(self, value: list[dict]):
+        # TRICKY: This is a little tricky as DRF will deserialize this here as a dict but typing wise we would expect an ActionStepJSON
         self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
 
-    def get_step_events(self) -> list[str]:
-        # NOTE: This used to return empty strings sometimes - was that on purpose...
-        return [action_step.event for action_step in self.steps if action_step.event]
+    def get_step_events(self) -> list[Union[str, None]]:
+        return [action_step.event for action_step in self.steps]
 
     def generate_bytecode(self) -> list[Any]:
         from posthog.hogql.property import action_to_expr

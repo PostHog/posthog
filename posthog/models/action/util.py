@@ -25,7 +25,7 @@ def format_action_filter_event_only(
         # If selecting for "All events", disable entity pre-filtering
         return "1 = 1", {}
     entity_name = f"{prepend}_{action.pk}"
-    return f"event IN %({entity_name})s", {entity_name: sorted(events)}
+    return f"event IN %({entity_name})s", {entity_name: sorted([x for x in events if x])}
 
 
 def format_action_filter(
@@ -101,7 +101,6 @@ def format_action_filter(
             prop_query, prop_params = parse_prop_grouped_clauses(
                 team_id=team_id,
                 property_group=Filter(data={"properties": step.properties}).property_groups,
-                # TODO: What is this...
                 prepend=f"action_props_{action.pk}_{index}",
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,

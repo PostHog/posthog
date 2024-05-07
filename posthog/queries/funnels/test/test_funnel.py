@@ -3670,7 +3670,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 team=self.team,
                 name="user signed up",
                 steps_json=[
-                    {"event": "checked out"},  # not perormed
+                    {"event": "checked out"},  # not performed
                     {"event": None},  # matches all
                 ],
             )

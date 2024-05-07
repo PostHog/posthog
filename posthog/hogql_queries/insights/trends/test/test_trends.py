@@ -5489,7 +5489,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         step = sign_up_action.steps[0]
         step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
 
-        # TODO: Dataclasses are not great here...
         sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
         sign_up_action.save()
 
