@@ -347,8 +347,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             }
         },
-        setSearchQuery: async () => {
+        setSearchQuery: async (_, breakpoint) => {
             if (values.hasRemoteDataSource) {
+                await breakpoint(300)
                 actions.loadRemoteItems({ offset: 0, limit: values.limit })
             } else {
                 actions.setIndex(0)
