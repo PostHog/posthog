@@ -173,6 +173,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
                 if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
@@ -277,6 +278,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
             (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
                 if (
+                    // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
