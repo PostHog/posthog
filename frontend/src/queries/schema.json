@@ -4572,7 +4572,7 @@
             "type": "object"
         },
         "IntervalType": {
-            "enum": ["hour", "day", "week", "month"],
+            "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "LifecycleFilter": {
