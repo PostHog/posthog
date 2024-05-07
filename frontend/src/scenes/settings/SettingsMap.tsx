@@ -1,7 +1,5 @@
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
-import { AvailableFeature } from '~/types'
-
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -173,12 +171,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
-                features: [
-                    AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-                ],
             },
             {
                 id: 'replay-ai-config',
