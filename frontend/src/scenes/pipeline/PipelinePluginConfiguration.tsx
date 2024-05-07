@@ -84,67 +84,65 @@ export function PipelinePluginConfiguration({
 
     return (
         <div className="space-y-3">
-            <>
-                <div className="flex flex-row gap-2">
-                    <RenderApp plugin={plugin} />
-                    <div className="flex flex-col py-1">
-                        <div className="flex flex-row items-center font-semibold text-sm gap-1">{plugin.name}</div>
-                        {plugin.description ? (
-                            <div className="text-default text-xs text-text-secondary-3000 mt-1">
-                                <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
-                                    {plugin.description}
-                                </LemonMarkdown>
-                            </div>
-                        ) : null}
-                    </div>
+            <div className="flex flex-row gap-2">
+                <RenderApp plugin={plugin} />
+                <div className="flex flex-col py-1">
+                    <div className="flex flex-row items-center font-semibold text-sm gap-1">{plugin.name}</div>
+                    {plugin.description ? (
+                        <div className="text-default text-xs text-text-secondary-3000 mt-1">
+                            <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
+                                {plugin.description}
+                            </LemonMarkdown>
+                        </div>
+                    ) : null}
                 </div>
+            </div>
 
-                <Form
-                    logic={pipelinePluginConfigurationLogic}
-                    props={logicProps}
-                    formKey="configuration"
-                    className="space-y-3"
+            <Form
+                logic={pipelinePluginConfigurationLogic}
+                props={logicProps}
+                formKey="configuration"
+                className="space-y-3"
+            >
+                <LemonField
+                    name="name"
+                    label="Name"
+                    info="Customising the name can be useful if multiple instances of the same type are used."
                 >
-                    <LemonField
-                        name="name"
-                        label="Name"
-                        info="Customising the name can be useful if multiple instances of the same type are used."
+                    <LemonInput type="text" />
+                </LemonField>
+                <LemonField
+                    name="description"
+                    label="Description"
+                    info="Add a description to share context with other team members"
+                >
+                    <LemonInput type="text" />
+                </LemonField>
+                <LemonField name="enabled">
+                    {({ value, onChange }) => (
+                        <LemonCheckbox bordered label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                    )}
+                </LemonField>
+                <>{fields}</>
+                <div className="flex gap-2">
+                    <LemonButton
+                        type="secondary"
+                        htmlType="reset"
+                        onClick={() => resetConfiguration(savedConfiguration || {})}
+                        disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
                     >
-                        <LemonInput type="text" />
-                    </LemonField>
-                    <LemonField
-                        name="description"
-                        label="Description"
-                        info="Add a description to share context with other team members"
+                        {isNew ? 'Reset' : 'Cancel'}
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        onClick={submitConfiguration}
+                        loading={isConfigurationSubmitting}
                     >
-                        <LemonInput type="text" />
-                    </LemonField>
-                    <LemonField name="enabled">
-                        {({ value, onChange }) => (
-                            <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
-                        )}
-                    </LemonField>
-                    <>{fields}</>
-                    <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            htmlType="reset"
-                            onClick={() => resetConfiguration(savedConfiguration || {})}
-                            disabledReason={isConfigurationSubmitting ? 'Saving in progress…' : undefined}
-                        >
-                            {isNew ? 'Reset' : 'Cancel'}
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            onClick={submitConfiguration}
-                            loading={isConfigurationSubmitting}
-                        >
-                            {isNew ? 'Create' : 'Save'}
-                        </LemonButton>
-                    </div>
-                </Form>
-            </>
+                        {isNew ? 'Create' : 'Save'}
+                    </LemonButton>
+                </div>
+            </Form>
         </div>
     )
 }
