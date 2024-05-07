@@ -33,7 +33,7 @@ class PartitionStatsKafkaTable:
             SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100
         """
 
-    def get_drop_table_sql(self) -> None:
+    def get_drop_table_sql(self) -> str:
         return f"""
             DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
