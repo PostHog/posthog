@@ -4,8 +4,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Action, Team
 from posthog.schema import ActionsNode, Compare, DataWarehouseNode, EventsNode, HogQLQueryModifiers, TrendsQuery
 
@@ -98,15 +96,9 @@ class TrendsActorsQueryBuilder:
         )
         return query
 
-    def _sample_value_expr(self) -> ast.RatioExpr:
-        if self.query.samplingFactor is None:
-            return ast.RatioExpr(left=ast.Constant(value=1))
-
-        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
-
     def _actor_id_expr(self) -> ast.Expr:
-        if self.series.math == "unique_group" and self.series.math_group_type_index is not None:
-            return ast.Field(chain=["e", f"$group_{int(self.series.math_group_type_index)}"])
+        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+            return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
 
         # @cached_property
@@ -147,31 +139,37 @@ class TrendsActorsQueryBuilder:
         #             )
         #         )
 
+    def _sample_value_expr(self) -> ast.RatioExpr:
+        if self.trends_query.samplingFactor is None:
+            return ast.RatioExpr(left=ast.Constant(value=1))
+
+        return ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor))
+
     def _entity_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
 
-        if isinstance(self.series, ActionsNode):
+        if isinstance(self.entity, ActionsNode):
             # Actions
             try:
-                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                action = Action.objects.get(pk=int(self.entity.id), team=self.team)
                 conditions.append(action_to_expr(action))
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
                 conditions.append(parse_expr("1 = 2"))
-        elif isinstance(self.series, EventsNode):
-            if self.series.event is not None:
+        elif isinstance(self.entity, EventsNode):
+            if self.entity.event is not None:
                 conditions.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=str(self.series.event)),
+                        right=ast.Constant(value=str(self.entity.event)),
                     )
                 )
 
-            if self.series.properties is not None and self.series.properties != []:
-                conditions.append(property_to_expr(self.series.properties, self.team))
+            if self.entity.properties is not None and self.entity.properties != []:
+                conditions.append(property_to_expr(self.entity.properties, self.team))
         else:
-            raise ValueError(f"Invalid series kind {self.series.kind}")
+            raise ValueError(f"Invalid entity kind {self.entity.kind}")
 
         return conditions
 
@@ -180,7 +178,7 @@ class TrendsActorsQueryBuilder:
 
         # Filter Test Accounts
         if (
-            self.query.filterTestAccounts
+            self.trends_query.filterTestAccounts
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -188,8 +186,8 @@ class TrendsActorsQueryBuilder:
                 conditions.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != []:
-            conditions.append(property_to_expr(self.query.properties, self.team))
+        if self.trends_query.properties is not None and self.trends_query.properties != []:
+            conditions.append(property_to_expr(self.trends_query.properties, self.team))
 
         return conditions
 
@@ -208,33 +206,34 @@ class TrendsActorsQueryBuilder:
         # else:
         #     query_date_range = self.query_date_range
 
-        if actors_query_time_frame is not None:
-            actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
-            query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-            if self.query.dateRange and self.query.dateRange.explicitDate:
-                query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-                # exclude events before the query start
-                if query_from > actors_from:
-                    actors_from = query_from
-                # exclude events after the query end
-                if query_to < actors_to:
-                    actors_to = query_to
-            conditions.extend(
-                [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.GtEq,
-                        right=ast.Constant(value=actors_from),
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.Lt,
-                        right=ast.Constant(value=actors_to),
-                    ),
-                ]
-            )
-        else:
-            raise ValueError("Actors query without day")
+        # if actors_query_time_frame is not None:
+        #     actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
+        #     query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
+        #     if self.trends_query.dateRange and self.trends_query.dateRange.explicitDate:
+        #         query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
+        #         # exclude events before the query start
+        #         if query_from > actors_from:
+        #             actors_from = query_from
+        #         # exclude events after the query end
+        #         if query_to < actors_to:
+        #             actors_to = query_to
+        #     conditions.extend(
+        #         [
+        #             ast.CompareOperation(
+        #                 left=ast.Field(chain=["timestamp"]),
+        #                 op=ast.CompareOperationOp.GtEq,
+        #                 right=ast.Constant(value=actors_from),
+        #             ),
+        #             ast.CompareOperation(
+        #                 left=ast.Field(chain=["timestamp"]),
+        #                 op=ast.CompareOperationOp.Lt,
+        #                 right=ast.Constant(value=actors_to),
+        #             ),
+        #         ]
+        #     )
+        # else:
+        #     raise ValueError("Actors query without day")
+
         #     elif not self._aggregation_operation.requires_query_orchestration():
         #         date_range_placeholders = self.query_date_range.to_placeholders()
         #         conditions.extend(
