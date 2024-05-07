@@ -16,6 +16,7 @@ from posthog.hogql.property import (
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
     Action,
+    ActionStep,
     Cohort,
     Property,
     PropertyDefinition,
@@ -535,15 +536,12 @@ class TestProperty(BaseTest):
         )
 
     def test_action_to_expr(self):
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "selector": "a.nav-link.active",
-                    "tag_name": "a",
-                }
-            ],
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            selector="a.nav-link.active",
+            tag_name="a",
         )
         self.assertEqual(
             clear_locations(action_to_expr(action1)),
@@ -558,35 +556,30 @@ class TestProperty(BaseTest):
             ),
         )
 
-        action2 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example.com",
-                    "url_matching": "contains",
-                }
-            ],
+        action2 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(
+            event="$pageview",
+            action=action2,
+            url="https://example.com",
+            url_matching="contains",
         )
         self.assertEqual(
             clear_locations(action_to_expr(action2)),
             self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
         )
 
-        action3 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example2.com",
-                    "url_matching": "regex",
-                },
-                {
-                    "event": "custom",
-                    "url": "https://example3.com",
-                    "url_matching": "exact",
-                },
-            ],
+        action3 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(
+            event="$pageview",
+            action=action3,
+            url="https://example2.com",
+            url_matching="regex",
+        )
+        ActionStep.objects.create(
+            event="custom",
+            action=action3,
+            url="https://example3.com",
+            url_matching="exact",
         )
         self.assertEqual(
             clear_locations(action_to_expr(action3)),
@@ -599,7 +592,9 @@ class TestProperty(BaseTest):
             ),
         )
 
-        action4 = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}, {"event": None}])
+        action4 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action4)
+        ActionStep.objects.create(event=None, action=action4)
         self.assertEqual(
             clear_locations(action_to_expr(action4)),
             self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"

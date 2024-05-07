@@ -389,10 +389,7 @@ class SessionIdEventsQuery(EventQuery):
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                # NOTE: Do we need a short circuit here for "none" - i.e. all events?
-                event_names_to_filter.extend(
-                    [ae for ae in action.get_step_events() if ae and ae not in event_names_to_filter]
-                )
+                event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
                 if entity.id and entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)

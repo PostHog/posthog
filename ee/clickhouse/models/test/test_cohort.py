@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id
@@ -30,7 +31,8 @@ from posthog.test.base import (
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name)
     return action
 
 
@@ -1142,16 +1144,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     def test_query_with_multiple_new_style_cohorts(self):
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "url": "https://posthog.com/feedback/123",
-                    "url_matching": "exact",
-                }
-            ],
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123",
+            url_matching=ActionStep.EXACT,
         )
 
         # satiesfies all conditions

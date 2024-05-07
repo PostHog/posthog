@@ -7,6 +7,7 @@ from ee.api.test.base import APILicensedTest
 from dateutil import parser
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.action.action import Action
+from posthog.models.action_step import ActionStep
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -1435,43 +1436,41 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         cohort_extra.calculate_people_ch(pending_version=1)
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
                 {
-                    "event": "insight viewed",
-                    "properties": [
-                        {
-                            "key": "insight",
-                            "type": "event",
-                            "value": ["RETENTION"],
-                            "operator": "exact",
-                        },
-                        {
-                            "key": "id",
-                            "value": cohort_extra.id,
-                            "type": "cohort",
-                        },
-                    ],
+                    "key": "insight",
+                    "type": "event",
+                    "value": ["RETENTION"],
+                    "operator": "exact",
                 },
                 {
-                    "event": "insight viewed",
-                    "properties": [
-                        {
-                            "key": "filters_count",
-                            "type": "event",
-                            "value": "1",
-                            "operator": "gt",
-                        }
-                    ],
-                },
-                {
-                    "event": "$autocapture",
-                    "url": "/123",
-                    "url_matching": "regex",
+                    "key": "id",
+                    "value": cohort_extra.id,
+                    "type": "cohort",
                 },
             ],
+        )
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
+                {
+                    "key": "filters_count",
+                    "type": "event",
+                    "value": "1",
+                    "operator": "gt",
+                }
+            ],
+        )
+        ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="/123",
+            url_matching=ActionStep.REGEX,
         )
         response = self._generate_experiment(
             datetime.now() - timedelta(days=5),

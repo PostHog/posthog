@@ -6,6 +6,7 @@ from django.utils.timezone import now
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import (
     Action,
+    ActionStep,
     Dashboard,
     DashboardTile,
     EventDefinition,
@@ -58,9 +59,11 @@ class RevenueDataGenerator(DataGenerator):
                     )
 
     def create_actions_dashboards(self):
-        purchase_action = Action.objects.create(team=self.team, name="Purchase", steps_json=[{"event": "purchase"}])
+        purchase_action = Action.objects.create(team=self.team, name="Purchase")
+        ActionStep.objects.create(action=purchase_action, event="purchase")
 
-        Action.objects.create(team=self.team, name="Entered Free Trial", steps_json=[{"event": "entered_free_trial"}])
+        free_trial_action = Action.objects.create(team=self.team, name="Entered Free Trial")
+        ActionStep.objects.create(action=free_trial_action, event="entered_free_trial")
 
         dashboard = Dashboard.objects.create(name="Sales & Revenue", pinned=True, team=self.team)
         insight = Insight.objects.create(

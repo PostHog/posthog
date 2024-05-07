@@ -259,7 +259,7 @@ class EventsSubQuery:
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
+                event_names.update([ae for ae in action.get_step_events() if ae not in event_names])
             else:
                 if entity.id and entity.id not in event_names:
                     event_names.add(entity.id)

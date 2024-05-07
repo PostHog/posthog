@@ -13,7 +13,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
 )
 from ..warehouse.models import DataWarehouseTable
 from .action import Action
-from .action.action_step import ActionStep
+from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .annotation import Annotation

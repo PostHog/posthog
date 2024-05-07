@@ -198,10 +198,7 @@ describe('DB', () => {
                 },
             })
 
-            expect(await db.fetchAction(69)).toEqual({
-                ...result[2][69],
-                steps_json: null, // Temporary diff whilst we migrate to this new field
-            })
+            expect(await db.fetchAction(69)).toEqual(result[2][69])
         })
 
         it('does not return actions that dont match conditions', async () => {
