@@ -494,6 +494,14 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         updateExperimentGoal: async ({ filters }) => {
+            // Reset MDE to the recommended setting
+            actions.setExperiment({
+                parameters: {
+                    ...values.experiment.parameters,
+                    minimum_detectable_effect: undefined,
+                },
+            })
+
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
             if (!minimumDetectableChange) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
