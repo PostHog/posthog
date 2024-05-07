@@ -98,7 +98,7 @@ class Action(models.Model):
         self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
 
     def get_step_events(self) -> list[str]:
-        # NOTE: This used to return empty strings sometimes - was that on purpose...
+        # NOTE: This used to return [None] sometimes - was that on purpose...
         return [action_step.event for action_step in self.steps if action_step.event]
 
     def generate_bytecode(self) -> list[Any]:
