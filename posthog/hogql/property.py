@@ -303,7 +303,7 @@ def property_to_expr(
                 key = chain[-1]
 
                 # TODO: pass id of table item being filtered on instead of searching through joins
-                current_join: DataWarehouseJoin = (
+                current_join: DataWarehouseJoin | None = (
                     DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
                     .filter(team=team, source_table_name="persons", field_name=key)
                     .first()
