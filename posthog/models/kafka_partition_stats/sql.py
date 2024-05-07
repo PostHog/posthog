@@ -1,32 +1,49 @@
+from dataclasses import dataclass
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.settings.data_stores import KAFKA_HOSTS
 
-CREATE_PARTITION_STATISTICS_KAFKA_TABLE = (
-    lambda monitored_topic: f"""
-CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.kafka_{monitored_topic}_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-(
-    `uuid` String,
-    `distinct_id` String,
-    `ip` String,
-    `site_url` String,
-    `data` String,
-    `team_id` Int64,
-    `now` String,
-    `sent_at` String,
-    `token` String
-)
-ENGINE={kafka_engine(topic=monitored_topic, group="partition_statistics")}
-SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100;
-"""
-)
 
-DROP_PARTITION_STATISTICS_KAFKA_TABLE = (
-    lambda monitored_topic: f"""
-DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.kafka_{monitored_topic}_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}';
-"""
-)
+@dataclass
+class PartitionStatsKafkaTable:
+    brokers: list[str]
+    topic: str
+    consumer_group: str = "partition_statistics"
+
+    @property
+    def table_name(self) -> str:
+        return f"kafka_{self.topic}_partition_statistics"
+
+    def get_create_table_sql(self) -> str:
+        return f"""
+            CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            (
+                `uuid` String,
+                `distinct_id` String,
+                `ip` String,
+                `site_url` String,
+                `data` String,
+                `team_id` Int64,
+                `now` String,
+                `sent_at` String,
+                `token` String
+            )
+            ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group)}
+            SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100
+        """
+
+    def get_drop_table_sql(self) -> None:
+        return f"""
+            DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        """
+
+
+CREATE_PARTITION_STATISTICS_KAFKA_TABLE = lambda topic: PartitionStatsKafkaTable(
+    KAFKA_HOSTS, topic
+).get_create_table_sql()
+DROP_PARTITION_STATISTICS_KAFKA_TABLE = lambda topic: PartitionStatsKafkaTable(KAFKA_HOSTS, topic).get_drop_table_sql()
 
 EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "events_plugin_ingestion_partition_statistics"
