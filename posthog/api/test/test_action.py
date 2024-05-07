@@ -61,6 +61,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "is_action": True,
             "bytecode_error": None,
             "tags": [],
+            "plugin_configs": [],
         }
 
         created_steps = list(ActionStep.objects.filter(action_id=response.json()["id"]).all())
