@@ -2,43 +2,6 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
-from django.core.paginator import Paginator
-
-
-def copy_action_steps_to_json(apps, schema_editor):
-    from posthog.models import Action
-
-    all_actions_with_steps = Action.objects.prefetch_related("action_steps").order_by("-created_at").all()
-
-    paginator = Paginator(all_actions_with_steps, 100)
-
-    for page_num in paginator.page_range:
-        page = paginator.page(page_num)
-
-        print(f"Processing page {page_num} of {paginator.num_pages}")
-
-        objects_to_update = page.object_list
-
-        for action in objects_to_update:
-            # print(f"Updating action {action.id} with steps {action.action_steps.count()}")
-            new_steps = [
-                {
-                    "tag_name": step.tag_name,
-                    "text": step.text,
-                    "text_matching": step.text_matching,
-                    "href": step.href,
-                    "href_matching": step.href_matching,
-                    "selector": step.selector,
-                    "url": step.url,
-                    "url_matching": step.url_matching,
-                    "event": step.event,
-                    "properties": step.properties,
-                }
-                for step in action.action_steps.all()
-            ]
-            action.steps = new_steps  # type: ignore
-
-        Action.objects.bulk_update(objects_to_update, ["steps_json"], batch_size=500)
 
 
 class Migration(migrations.Migration):
@@ -59,5 +22,4 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE, related_name="action_steps", to="posthog.action"
             ),
         ),
-        migrations.RunPython(copy_action_steps_to_json, reverse_code=migrations.RunPython.noop),
     ]
