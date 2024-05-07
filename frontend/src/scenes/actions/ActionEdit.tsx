@@ -61,219 +61,211 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
     )
 
     return (
-        <div className="action-edit-container">
-            <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
-                <PageHeader
-                    caption={
-                        <>
-                            <LemonField name="description">
-                                {({ value, onChange }) => (
-                                    <EditableField
-                                        multiline
-                                        name="description"
-                                        markdown
-                                        value={value || ''}
-                                        placeholder="Description (optional)"
-                                        onChange={
-                                            !id
-                                                ? onChange
-                                                : undefined /* When creating a new action, change value on type */
-                                        }
-                                        onSave={(value) => {
-                                            onChange(value)
-                                            submitAction()
-                                            /* When clicking 'Set' on an `EditableField`, always save the form */
-                                        }}
-                                        mode={
-                                            !id
-                                                ? 'edit'
-                                                : undefined /* When creating a new action, maintain edit mode */
-                                        }
-                                        data-attr="action-description"
-                                        className="action-description"
-                                        compactButtons
-                                        maxLength={600} // No limit on backend model, but enforce shortish description
-                                        paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
-                                    />
-                                )}
-                            </LemonField>
-                            <LemonField name="tags" className="mt-2">
-                                {({ value, onChange }) => (
-                                    <ObjectTags
-                                        tags={value ?? []}
-                                        onChange={(tags) => onChange(tags)}
-                                        className="action-tags"
-                                        saving={actionLoading}
-                                        tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
-                                    />
-                                )}
-                            </LemonField>
-                        </>
-                    }
-                    buttons={
-                        <>
-                            {id ? (
-                                <LemonButton
-                                    type="secondary"
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
+        <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
+            <PageHeader
+                caption={
+                    <>
+                        <LemonField name="description">
+                            {({ value, onChange }) => (
+                                <EditableField
+                                    multiline
+                                    name="description"
+                                    markdown
+                                    value={value || ''}
+                                    placeholder="Description (optional)"
+                                    onChange={
+                                        !id
+                                            ? onChange
+                                            : undefined /* When creating a new action, change value on type */
                                     }
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="action-view-recordings"
-                                >
-                                    View recordings
-                                </LemonButton>
-                            ) : null}
-                            {id ? deleteButton() : cancelButton()}
+                                    onSave={(value) => {
+                                        onChange(value)
+                                        submitAction()
+                                        /* When clicking 'Set' on an `EditableField`, always save the form */
+                                    }}
+                                    mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
+                                    data-attr="action-description"
+                                    className="action-description"
+                                    compactButtons
+                                    maxLength={600} // No limit on backend model, but enforce shortish description
+                                    paywallFeature={AvailableFeature.INGESTION_TAXONOMY}
+                                />
+                            )}
+                        </LemonField>
+                        <LemonField name="tags" className="mt-2">
+                            {({ value, onChange }) => (
+                                <ObjectTags
+                                    tags={value ?? []}
+                                    onChange={(tags) => onChange(tags)}
+                                    className="action-tags"
+                                    saving={actionLoading}
+                                    tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
+                                />
+                            )}
+                        </LemonField>
+                    </>
+                }
+                buttons={
+                    <>
+                        {id ? (
                             <LemonButton
-                                data-attr="save-action-button"
-                                type="primary"
-                                htmlType="submit"
-                                loading={actionLoading}
-                                onClick={submitAction}
+                                type="secondary"
+                                to={
+                                    combineUrl(urls.replay(), {
+                                        filters: {
+                                            actions: [
+                                                {
+                                                    id: id,
+                                                    type: 'actions',
+                                                    order: 0,
+                                                    name: action.name,
+                                                },
+                                            ],
+                                        },
+                                    }).url
+                                }
+                                sideIcon={<IconPlayCircle />}
+                                data-attr="action-view-recordings"
                             >
-                                Save
+                                View recordings
                             </LemonButton>
-                        </>
-                    }
-                />
+                        ) : null}
+                        {id ? deleteButton() : cancelButton()}
+                        <LemonButton
+                            data-attr="save-action-button"
+                            type="primary"
+                            htmlType="submit"
+                            loading={actionLoading}
+                            onClick={submitAction}
+                        >
+                            Save
+                        </LemonButton>
+                    </>
+                }
+            />
 
-                <div>
-                    <h2 className="subtitle">Match groups</h2>
-                    <p>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.
-                        <Link to="https://posthog.com/docs/features/actions" target="_blank">
-                            <IconInfo className="ml-1 text-muted text-xl" />
-                        </Link>
-                    </p>
-                    <LemonField name="steps">
-                        {({ value: stepsValue, onChange }) => (
-                            <div className="grid lg:grid-cols-2 gap-3">
-                                {stepsValue.map((step: ActionStepType, index: number) => {
-                                    const identifier = String(JSON.stringify(step))
-                                    return (
-                                        <ActionStep
-                                            key={index}
-                                            identifier={identifier}
-                                            index={index}
-                                            step={step}
-                                            actionId={action.id || 0}
-                                            isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                            onDelete={() => {
-                                                const identifier = step.id ? 'id' : 'isNew'
-                                                onChange(
-                                                    stepsValue?.filter(
-                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
-                                                    ) ?? []
-                                                )
-                                            }}
-                                            onChange={(newStep) => {
-                                                onChange(
-                                                    stepsValue?.map((s: ActionStepType) =>
-                                                        (step.id && s.id == step.id) ||
-                                                        (step.isNew && s.isNew === step.isNew)
-                                                            ? {
-                                                                  id: step.id,
-                                                                  isNew: step.isNew,
-                                                                  ...newStep,
-                                                              }
-                                                            : s
-                                                    ) ?? []
-                                                )
-                                            }}
-                                        />
-                                    )
-                                })}
-
-                                <div>
-                                    <LemonButton
-                                        icon={<IconPlus />}
-                                        onClick={() => {
-                                            onChange([...(action.steps || []), { isNew: uuid() }])
+            <div>
+                <h2 className="subtitle">Match groups</h2>
+                <p>
+                    Your action will be triggered whenever <b>any of your match groups</b> are received.
+                    <Link to="https://posthog.com/docs/features/actions" target="_blank">
+                        <IconInfo className="ml-1 text-muted text-xl" />
+                    </Link>
+                </p>
+                <LemonField name="steps">
+                    {({ value: stepsValue, onChange }) => (
+                        <div className="grid lg:grid-cols-2 gap-3">
+                            {stepsValue.map((step: ActionStepType, index: number) => {
+                                const identifier = String(JSON.stringify(step))
+                                return (
+                                    <ActionStep
+                                        key={index}
+                                        identifier={identifier}
+                                        index={index}
+                                        step={step}
+                                        actionId={action.id || 0}
+                                        isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                        onDelete={() => {
+                                            const identifier = step.id ? 'id' : 'isNew'
+                                            onChange(
+                                                stepsValue?.filter(
+                                                    (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                ) ?? []
+                                            )
                                         }}
-                                        center
-                                        className="w-full h-full border-dashed border"
-                                    >
-                                        Add match group
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        )}
-                    </LemonField>
-                </div>
-                <LemonField name="post_to_slack">
-                    {({ value, onChange }) => (
-                        <div className="my-4">
-                            <LemonCheckbox
-                                id="webhook-checkbox"
-                                checked={action.bytecode_error ? false : !!value}
-                                onChange={onChange}
-                                disabledReason={
-                                    !slackEnabled
-                                        ? 'Configure webhooks in project settings'
-                                        : action.bytecode_error ?? null
-                                }
-                                label={
-                                    <>
-                                        <span>Post to webhook when this action is triggered.</span>
-                                        {action.bytecode_error ? (
-                                            <IconWarning className="text-warning text-xl ml-1" />
-                                        ) : null}
-                                    </>
-                                }
-                            />
-                            <div className="mt-1 pl-6">
-                                <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
-                                    {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
-                                </Link>
+                                        onChange={(newStep) => {
+                                            onChange(
+                                                stepsValue?.map((s: ActionStepType) =>
+                                                    (step.id && s.id == step.id) ||
+                                                    (step.isNew && s.isNew === step.isNew)
+                                                        ? {
+                                                              id: step.id,
+                                                              isNew: step.isNew,
+                                                              ...newStep,
+                                                          }
+                                                        : s
+                                                ) ?? []
+                                            )
+                                        }}
+                                    />
+                                )
+                            })}
+
+                            <div>
+                                <LemonButton
+                                    icon={<IconPlus />}
+                                    onClick={() => {
+                                        onChange([...(action.steps || []), { isNew: uuid() }])
+                                    }}
+                                    center
+                                    className="w-full h-full border-dashed border"
+                                >
+                                    Add match group
+                                </LemonButton>
                             </div>
                         </div>
                     )}
                 </LemonField>
-                <div>
-                    {action.post_to_slack && (
-                        <>
-                            {!action.bytecode_error && action.post_to_slack && (
+            </div>
+            <LemonField name="post_to_slack">
+                {({ value, onChange }) => (
+                    <div className="my-4">
+                        <LemonCheckbox
+                            id="webhook-checkbox"
+                            checked={action.bytecode_error ? false : !!value}
+                            onChange={onChange}
+                            disabledReason={
+                                !slackEnabled ? 'Configure webhooks in project settings' : action.bytecode_error ?? null
+                            }
+                            label={
                                 <>
-                                    <LemonField name="slack_message_format">
-                                        {({ value, onChange }) => (
-                                            <>
-                                                <LemonLabel showOptional>Slack message format</LemonLabel>
-                                                <LemonTextArea
-                                                    placeholder="Default: [action.name] triggered by [person]"
-                                                    value={value}
-                                                    onChange={onChange}
-                                                    disabled={!slackEnabled || !action.post_to_slack}
-                                                    data-attr="edit-slack-message-format"
-                                                />
-                                                <small>
-                                                    <Link
-                                                        to="https://posthog.com/docs/webhooks#message-formatting"
-                                                        target="_blank"
-                                                    >
-                                                        See documentation on how to format webhook messages.
-                                                    </Link>
-                                                </small>
-                                            </>
-                                        )}
-                                    </LemonField>
+                                    <span>Post to webhook when this action is triggered.</span>
+                                    {action.bytecode_error ? (
+                                        <IconWarning className="text-warning text-xl ml-1" />
+                                    ) : null}
                                 </>
-                            )}
-                        </>
-                    )}
-                </div>
-            </Form>
-        </div>
+                            }
+                        />
+                        <div className="mt-1 pl-6">
+                            <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
+                                {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
+                            </Link>
+                        </div>
+                    </div>
+                )}
+            </LemonField>
+            <div>
+                {action.post_to_slack && (
+                    <>
+                        {!action.bytecode_error && action.post_to_slack && (
+                            <>
+                                <LemonField name="slack_message_format">
+                                    {({ value, onChange }) => (
+                                        <>
+                                            <LemonLabel showOptional>Slack message format</LemonLabel>
+                                            <LemonTextArea
+                                                placeholder="Default: [action.name] triggered by [person]"
+                                                value={value}
+                                                onChange={onChange}
+                                                disabled={!slackEnabled || !action.post_to_slack}
+                                                data-attr="edit-slack-message-format"
+                                            />
+                                            <small>
+                                                <Link
+                                                    to="https://posthog.com/docs/webhooks#message-formatting"
+                                                    target="_blank"
+                                                >
+                                                    See documentation on how to format webhook messages.
+                                                </Link>
+                                            </small>
+                                        </>
+                                    )}
+                                </LemonField>
+                            </>
+                        )}
+                    </>
+                )}
+            </div>
+        </Form>
     )
 }
