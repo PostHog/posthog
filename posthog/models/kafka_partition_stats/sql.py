@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from posthog.clickhouse.kafka_engine import kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree
+from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
@@ -97,3 +97,65 @@ DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statist
 CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = CREATE_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
 
 DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = DROP_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
+
+# V2
+
+
+class PartitionStatsV2Table:
+    table_name: str = "events_plugin_ingestion_partition_statistics_v2"
+
+    def get_create_table_sql(self) -> str:
+        engine = ReplacingMergeTree(self.table_name, ver="timestamp")
+        return f"""
+            CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+                topic LowCardinality(String),
+                partition UInt64,
+                offset UInt64,
+                token String,
+                distinct_id String,
+                ip String,
+                event String,
+                data_length UInt64,
+                timestamp DateTime64
+            )
+            ENGINE = {engine}
+            PARTITION BY (topic, toStartOfDay(timestamp))
+            ORDER BY (topic, partition, offset)
+        """
+
+    def get_drop_table_sql(self) -> str:
+        return f"""
+            DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
+        """
+
+
+@dataclass
+class PartitionStatsV2MaterializedView:
+    to_table: PartitionStatsV2Table
+    from_table: PartitionStatsKafkaTable
+
+    @property
+    def table_name(self) -> str:
+        return f"{self.from_table.topic}_partition_statistics_v2_mv"
+
+    def get_create_table_sql(self) -> str:
+        return f"""
+            CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+            TO `{CLICKHOUSE_DATABASE}`.{self.to_table.table_name}
+            AS SELECT
+                _topic AS topic,
+                _partition AS partition,
+                _offset AS offset,
+                token,
+                distinct_id,
+                ip,
+                if(startsWith(JSONExtractString(data, 'event') AS _event, '$'), _event, '') AS event,
+                length(data) AS data_length,
+                _timestamp AS timestamp
+            FROM {CLICKHOUSE_DATABASE}.{self.from_table.table_name}
+        """
+
+    def get_drop_table_sql(self) -> str:
+        return f"""
+            DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC
+        """
