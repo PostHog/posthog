@@ -5,6 +5,7 @@ from dlt.common.data_types.typing import TDataType
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
+    DateDatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -57,7 +58,7 @@ def dlt_to_hogql_type(dlt_type: TDataType | None) -> str:
     elif dlt_type == "wei":
         raise Exception("DLT type 'wei' is not a supported column type")
     elif dlt_type == "date":
-        hogql_type = DateTimeDatabaseField
+        hogql_type = DateDatabaseField
     elif dlt_type == "time":
         hogql_type = DateTimeDatabaseField
     else:
