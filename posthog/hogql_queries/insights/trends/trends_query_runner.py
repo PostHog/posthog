@@ -344,19 +344,17 @@ class TrendsQueryRunner(QueryRunner):
             raise errors[0]
 
         # Flatten res and timings
-        res = []
+        returned_results: list[list[dict[str, Any]]] = []
         for result in res_matrix:
             if isinstance(result, list):
-                res.append(result)
-            else:
-                res.append([result])
+                returned_results.extend(result)
+            elif isinstance(result, dict):
+                returned_results.append([result])
 
-        timings = []
-        for result in timings_matrix:
-            if isinstance(result, list):
-                timings.extend(result)
-            else:
-                timings.append(result)
+        timings: list[QueryTiming] = []
+        for timing in timings_matrix:
+            if isinstance(timing, list):
+                timings.extend(timing)
 
         if (
             self.query.trendsFilter is not None
@@ -364,12 +362,23 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.formula != ""
         ):
             with self.timings.measure("apply_formula"):
-                res = self.apply_formula(self.query.trendsFilter.formula, res)
+                final_result: list[dict[str, Any]] = self.apply_formula(
+                    self.query.trendsFilter.formula, returned_results
+                )
         else:
-            res = [r[0] for r in res]
+            final_result = []
+            for result in returned_results:
+                if isinstance(result, list):
+                    final_result.extend(result)
+                elif isinstance(result, dict):
+                    final_result.append(result)
 
         return TrendsQueryResponse(
-            results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
+            results=final_result,
+            timings=timings,
+            hogql=response_hogql,
+            modifiers=self.modifiers,
+            error=". ".join(debug_errors),
         )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
