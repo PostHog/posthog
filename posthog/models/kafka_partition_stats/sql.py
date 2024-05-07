@@ -3,7 +3,6 @@ from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import AggregatingMergeTree
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-from posthog.settings.data_stores import KAFKA_HOSTS
 
 
 @dataclass
@@ -39,11 +38,6 @@ class PartitionStatsKafkaTable:
             DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{self.table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
 
-
-CREATE_PARTITION_STATISTICS_KAFKA_TABLE = lambda topic: PartitionStatsKafkaTable(
-    KAFKA_HOSTS, topic
-).get_create_table_sql()
-DROP_PARTITION_STATISTICS_KAFKA_TABLE = lambda topic: PartitionStatsKafkaTable(KAFKA_HOSTS, topic).get_drop_table_sql()
 
 EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "events_plugin_ingestion_partition_statistics"
@@ -100,14 +94,6 @@ DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statist
 """
 )
 
-CREATE_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = CREATE_PARTITION_STATISTICS_KAFKA_TABLE(
-    KAFKA_EVENTS_PLUGIN_INGESTION
-)
-
 CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = CREATE_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
-
-DROP_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = DROP_PARTITION_STATISTICS_KAFKA_TABLE(
-    KAFKA_EVENTS_PLUGIN_INGESTION
-)
 
 DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = DROP_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
