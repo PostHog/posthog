@@ -245,7 +245,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 clickhouse_type = remove_named_tuples(clickhouse_type)
 
             if isinstance(type, dict):
-                column_invalid = type.get("valid", False)
+                column_invalid = not type.get("valid", True)
             else:
                 column_invalid = False
 
