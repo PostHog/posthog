@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def flagged_conversion_to_query(insight: "Insight") -> Iterator[None]:
+def flagged_conversion_to_query_based(insight: "Insight") -> Iterator[None]:
     """Convert the insight for HogQL-based calculation in place transparently, if conversion is needed."""
     if (
         insight.query is None

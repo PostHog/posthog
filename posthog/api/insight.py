@@ -55,7 +55,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
 from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -543,7 +543,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        with flagged_conversion_to_query(insight):
+        with flagged_conversion_to_query_based(insight):
             if insight.query:
                 # Uses query
                 try:
