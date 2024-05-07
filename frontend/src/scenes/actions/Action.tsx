@@ -38,13 +38,13 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
         )
     }
 
-    if (!action) {
+    if (id && !action) {
         return <NotFound object="action" />
     }
 
     return (
         <>
-            {(!id || action) && <ActionEdit id={id} action={action} />}
+            <ActionEdit id={id} action={action} />
             {id && <ActionPlugins />}
             {id &&
                 (isComplete ? (
