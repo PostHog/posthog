@@ -132,7 +132,7 @@ export function PropertyGroupFilters({
             <LemonButton
                 data-attr={`${pageKey}-add-filter-group`}
                 type="secondary"
-                onClick={addFilterGroup}
+                onClick={() => addFilterGroup()}
                 icon={<IconPlusSmall color="var(--primary)" />}
                 sideIcon={null}
                 disabledReason={disabledReason}

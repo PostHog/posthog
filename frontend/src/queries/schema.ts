@@ -1033,7 +1033,7 @@ export interface ReplayQuery {
     //     eventName: string | null
     //     properties: PropertyGroupFilter[]
     // }[]
-    properties?: PropertyGroupFilter[]
+    properties?: PropertyGroupFilter
 }
 
 export interface WebOverviewItem {

@@ -351,7 +351,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 kind: NodeKind.ReplayQuery,
                 dateRange: { date_from: '-7d' },
                 filterTestAccounts: false,
-                properties: { type: FilterLogicalOperator.And, values: [] },
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [] }],
+                },
             } as ReplayQuery,
             {
                 setQuery: (_, { query }) => query,

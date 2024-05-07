@@ -4,7 +4,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import {
+    isPropertyGroupFilterLike,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
@@ -15,7 +18,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 import { propertyGroupFilterLogic } from '~/queries/nodes/InsightViz/PropertyGroupFilters/propertyGroupFilterLogic'
 import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
 import { ReplayQuery } from '~/queries/schema'
-import { AnyPropertyFilter, PropertyGroupFilterValue } from '~/types'
+import { AnyPropertyFilter, PropertyGroupFilterValue, PropertyOperator } from '~/types'
 
 export default function HogQLFilters({
     query,
@@ -30,7 +33,6 @@ export default function HogQLFilters({
     const {
         addFilterGroup,
         removeFilterGroup,
-        duplicateFilterGroup,
         setOuterPropertyGroupsType,
         setInnerPropertyGroupType,
         setPropertyFilters,
@@ -85,7 +87,7 @@ export default function HogQLFilters({
                             key={propertyGroupIndex}
                         >
                             <PropertyFilters
-                                addText="Add filter"
+                                addText="Add another filter"
                                 propertyFilters={
                                     isPropertyGroupFilterLike(group) ? (group.values as AnyPropertyFilter[]) : null
                                 }
@@ -100,13 +102,15 @@ export default function HogQLFilters({
                                 ]}
                                 eventNames={eventNames}
                                 propertyGroupType={group.type}
-                                allowNew
+                                hasRowOperator={false}
                             />
                         </div>
                     )
                 })}
 
-                <AddFilterProperty buttonText="Add group" addFilterGroup={addFilterGroup} />
+                {propertyGroupFilter.values[0].values.length >= 1 && (
+                    <AddFilterProperty buttonText="Add group" onSelect={addFilterGroup} />
+                )}
             </div>
         </div>
     )
@@ -114,10 +118,10 @@ export default function HogQLFilters({
 
 const AddFilterProperty = ({
     buttonText,
-    addFilterGroup,
+    onSelect,
 }: {
     buttonText: string
-    addFilterGroup: (initialProperties?: (PropertyGroupFilterValue | AnyPropertyFilter)[] | undefined) => void
+    onSelect: (initialProperties: PropertyGroupFilterValue['values']) => void
 }): JSX.Element => {
     const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
 
@@ -127,9 +131,15 @@ const AddFilterProperty = ({
             onClickOutside={() => setShowPropertySelector(false)}
             overlay={
                 <TaxonomicFilter
-                    onChange={() => {
-                        // TODO: initialize filter group with the property
-                        addFilterGroup()
+                    onChange={({ type }, value) => {
+                        onSelect([
+                            {
+                                type: taxonomicFilterTypeToPropertyFilterType(type),
+                                value: null,
+                                key: value as string,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ])
                         setShowPropertySelector(false)
                     }}
                     taxonomicGroupTypes={[
