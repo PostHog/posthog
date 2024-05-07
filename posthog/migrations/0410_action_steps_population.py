@@ -14,8 +14,6 @@ def copy_action_steps_to_json(apps, schema_editor):
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
 
-        print(f"Processing page {page_number} of {paginator.num_pages}")  # noqa: T201
-
         objects_to_update = []
 
         for action in page.object_list:
