@@ -312,6 +312,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
 ])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {
+    if (a.pinned !== b.pinned) {
+        return b.pinned ? 1 : -1
+    }
+
     // No matter where we're comparing dashboards, we want to sort generated dashboards last
     const firstName = a.name ?? 'Untitled'
     const secondName = b.name ?? 'Untitled'

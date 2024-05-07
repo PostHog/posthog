@@ -376,7 +376,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     insight: insight,
                                     last_refresh: insight.last_refresh,
                                 }
-                            } else {
+                            } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
                             }
                         } else {

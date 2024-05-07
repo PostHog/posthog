@@ -207,6 +207,7 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
             properties: {
                 $current_url: 'http://localhost:8000',
                 $sent_at: expect.any(String),
+                $elements_chain: 'div:nth-child="1"nth-of-type="2"text="text"',
                 $set: {
                     email: 't@t.com',
                     $current_url: 'http://localhost:8000',
