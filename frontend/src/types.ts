@@ -512,6 +512,8 @@ export enum StringMatching {
 
 export interface ActionStepType {
     event?: string | null
+    id?: number
+    name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
     /** @deprecated Only `selector` should be used now. */

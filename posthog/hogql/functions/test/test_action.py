@@ -1,5 +1,5 @@
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Action
+from posthog.models import Action, ActionStep
 from posthog.models.utils import UUIDT
 from posthog.test.base import (
     BaseTest,
@@ -12,7 +12,8 @@ from posthog.test.base import (
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=name)
     return action
 
 

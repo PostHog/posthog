@@ -66,6 +66,7 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     return {
         event: '$autocapture',
         href: element.getAttribute('href') || '',
+        name: element.getAttribute('name') || '',
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,

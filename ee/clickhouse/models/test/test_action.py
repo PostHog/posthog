@@ -4,6 +4,7 @@ from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
+from posthog.models.action_step import ActionStep
 from posthog.models.test.test_event_model import filter_by_actions_factory
 from posthog.test.base import (
     BaseTest,
@@ -75,18 +76,14 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"$current_url": "https://posthog.com/feedback/1234"},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "url": "https://posthog.com/feedback/123",
-                    "url_matching": "exact",
-                }
-            ],
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123",
+            url_matching=ActionStep.EXACT,
         )
-        query, params = filter_event(action1.steps[0])
+        query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
@@ -119,18 +116,14 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"$current_url": "https://posthog.com/feedback/123?vip=0"},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "url": "https://posthog.com/feedback/123?vip=1",
-                    "url_matching": "exact",
-                }
-            ],
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123?vip=1",
+            url_matching=ActionStep.EXACT,
         )
-        query, params = filter_event(action1.steps[0])
+        query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
@@ -163,12 +156,9 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"$current_url": "https://posthog.com/feedback/1234"},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[{"event": "$autocapture", "url": "https://posthog.com/feedback/123"}],
-        )
-        query, params = filter_event(action1.steps[0])
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(event="$autocapture", action=action1, url="https://posthog.com/feedback/123")
+        query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
@@ -196,18 +186,14 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"$current_url": "https://posthog.com/feedback/1234"},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "url": "/123",
-                    "url_matching": "regex",
-                }
-            ],
+        action1 = Action.objects.create(team=self.team, name="action1")
+        step1 = ActionStep.objects.create(
+            event="$autocapture",
+            action=action1,
+            url="/123",
+            url_matching=ActionStep.REGEX,
         )
-        query, params = filter_event(action1.steps[0])
+        query, params = filter_event(step1)
 
         full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
@@ -222,32 +208,29 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"filters_count": 2},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
                 {
-                    "event": "insight viewed",
-                    "properties": [
-                        {
-                            "key": "insight",
-                            "type": "event",
-                            "value": ["RETENTION"],
-                            "operator": "exact",
-                        }
-                    ],
-                },
+                    "key": "insight",
+                    "type": "event",
+                    "value": ["RETENTION"],
+                    "operator": "exact",
+                }
+            ],
+        )
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[
                 {
-                    "event": "insight viewed",
-                    "properties": [
-                        {
-                            "key": "filters_count",
-                            "type": "event",
-                            "value": "1",
-                            "operator": "gt",
-                        }
-                    ],
-                },
+                    "key": "filters_count",
+                    "type": "event",
+                    "value": "1",
+                    "operator": "gt",
+                }
             ],
         )
 
@@ -268,15 +251,11 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             properties={"filters_count": 1},
         )
 
-        action1 = Action.objects.create(
-            team=self.team,
-            name="action1",
-            steps_json=[
-                {
-                    "event": "insight viewed",
-                    "properties": [{"key": "toInt(properties.filters_count) > 10", "type": "hogql"}],
-                }
-            ],
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[{"key": "toInt(properties.filters_count) > 10", "type": "hogql"}],
         )
 
         events = _get_events_for_action(action1)

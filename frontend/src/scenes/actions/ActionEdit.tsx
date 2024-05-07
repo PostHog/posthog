@@ -171,14 +171,26 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                             actionId={action.id || 0}
                                             isOnlyStep={!!stepsValue && stepsValue.length === 1}
                                             onDelete={() => {
-                                                const newSteps = [...stepsValue]
-                                                newSteps.splice(index, 1)
-                                                onChange(newSteps)
+                                                const identifier = step.id ? 'id' : 'isNew'
+                                                onChange(
+                                                    stepsValue?.filter(
+                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                    ) ?? []
+                                                )
                                             }}
                                             onChange={(newStep) => {
-                                                const newSteps = [...stepsValue]
-                                                newSteps.splice(index, 1, newStep)
-                                                onChange(newSteps)
+                                                onChange(
+                                                    stepsValue?.map((s: ActionStepType) =>
+                                                        (step.id && s.id == step.id) ||
+                                                        (step.isNew && s.isNew === step.isNew)
+                                                            ? {
+                                                                  id: step.id,
+                                                                  isNew: step.isNew,
+                                                                  ...newStep,
+                                                              }
+                                                            : s
+                                                    ) ?? []
+                                                )
                                             }}
                                         />
                                     )
