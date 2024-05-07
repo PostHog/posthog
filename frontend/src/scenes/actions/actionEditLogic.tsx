@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionStepType, ActionType } from '~/types'
+import { ActionType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
@@ -166,10 +166,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     actions.setAction(
                         {
                             ...actionToCopy,
-                            steps: actionToCopy.steps.map((s: ActionStepType) => {
-                                const { id: _id, ...step } = s
-                                return { ...step, isNew: uuid() }
-                            }),
+                            steps: actionToCopy.steps,
                             name: `${actionToCopy.name} (copy)`,
                         },
                         { merge: false }

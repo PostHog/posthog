@@ -1,6 +1,6 @@
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.filters import Filter, RetentionFilter
 from posthog.test.base import (
     APIBaseTest,
@@ -172,19 +172,21 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties_used_in_filter(filter), {("$session_id", "event", None): 1})
 
     def test_properties_used_in_filter_with_actions(self):
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action,
-            url="https://example.com/donate",
-            url_matching=ActionStep.EXACT,
-        )
-        ActionStep.objects.create(
-            action=action,
-            event="$autocapture",
-            tag_name="button",
-            text="Pay $10",
-            properties=[{"key": "$browser", "value": "Chrome", "type": "person"}],
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://example.com/donate",
+                    "url_matching": "exact",
+                },
+                {
+                    "event": "$autocapture",
+                    "tag_name": "button",
+                    "text": "Pay $10",
+                    "properties": [{"key": "$browser", "value": "Chrome", "type": "person"}],
+                },
+            ],
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
@@ -308,12 +310,15 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(should_query_elements_chain_column(filter), True)
 
     def test_should_query_element_chain_column_with_actions(self):
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action,
-            url="https://example.com/donate",
-            url_matching=ActionStep.EXACT,
+        action = Action.objects.create(
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://example.com/donate",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         filter = Filter(data={"actions": [{"id": action.id, "math": "dau"}]})
@@ -322,7 +327,15 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             False,
         )
 
-        ActionStep.objects.create(action=action, event="$autocapture", tag_name="button", text="Pay $10")
+        action.steps = [
+            {
+                "event": "$autocapture",
+                "url": "https://example.com/donate",
+                "url_matching": "exact",
+            },
+            {"event": "$autocapture", "tag_name": "button", "text": "Pay $10"},
+        ]
+        action.save()
 
         self.assertEqual(
             EnterpriseColumnOptimizer(filter, self.team.id).should_query_elements_chain_column,
