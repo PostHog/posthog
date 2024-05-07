@@ -2,8 +2,10 @@ import { IconCode, IconLock } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { Form } from 'antd'
 import { useActions, useValues } from 'kea'
+import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { endWithPunctation } from 'lib/utils'
@@ -75,6 +77,7 @@ export function PluginDrawer(): JSX.Element {
             form.setFieldsValue({
                 ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
                 __enabled: editingPlugin.pluginConfig.enabled,
+                __matchActionId: editingPlugin.pluginConfig.match_action,
                 ...editingPluginInitialChanges,
             })
             generateApiKeysIfNeeded(form)
@@ -82,7 +85,12 @@ export function PluginDrawer(): JSX.Element {
             form.resetFields()
         }
         updateInvisibleAndRequiredFields()
-    }, [editingPlugin?.id, editingPlugin?.config_schema])
+    }, [editingPlugin?.id, editingPlugin?.config_schema, editingPlugin?.pluginConfig?.match_action])
+
+    const actionMatchingFlag = !!useFeatureFlag('PLUGINS_ACTION_MATCHING')
+    const actionMatchingEnabled =
+        (actionMatchingFlag || editingPlugin?.pluginConfig.match_action) &&
+        editingPlugin?.capabilities?.methods?.includes('composeWebhook')
 
     return (
         <>
@@ -174,6 +182,20 @@ export function PluginDrawer(): JSX.Element {
                                             </Tooltip>
                                         ))}
                                     </div>
+                                </>
+                            ) : null}
+
+                            {actionMatchingEnabled ? (
+                                <>
+                                    <h3 className="l3 mt-8">Filter by action</h3>
+
+                                    <Form.Item
+                                        fieldKey="__matchActionId"
+                                        name="__matchActionId"
+                                        data-attr="plugin-match-action"
+                                    >
+                                        <LemonSelectAction fullWidth allowClear />
+                                    </Form.Item>
                                 </>
                             ) : null}
 

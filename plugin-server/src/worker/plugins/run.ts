@@ -1,4 +1,5 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginTaskType, PostIngestionEvent, VMMethodsConcrete } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -212,7 +213,9 @@ async function runSingleTeamPluginComposeWebhook(
 
 export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Promise<void> {
     // Runs composeWebhook for all plugins for this team in parallel
-    const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
+    let pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.teamId, 'composeWebhook')
+
+    pluginMethodsToRun = await filterPluginMethodsForActionMatches(hub, event, pluginMethodsToRun)
 
     await Promise.all(
         pluginMethodsToRun.map(([pluginConfig, composeWebhook]) =>
@@ -378,4 +381,44 @@ async function getPluginMethodsForTeam<M extends keyof VMMethodsConcrete>(
     ][]
 
     return methodsObtainedFiltered
+}
+
+async function filterPluginMethodsForActionMatches<T>(
+    hub: Hub,
+    event: PostIngestionEvent,
+    pluginMethods: [PluginConfig, T][]
+): Promise<[PluginConfig, T][]> {
+    const filteredList: [PluginConfig, T][] = []
+
+    await Promise.all(
+        pluginMethods.map(async ([pluginConfig, method]) => {
+            if (pluginConfig.match_action_id) {
+                const relatedAction = hub.actionMatcher.getActionById(event.teamId, pluginConfig.match_action_id)
+
+                if (!relatedAction) {
+                    captureException(new Error('Could not find action for PluginConfig!'), {
+                        extra: {
+                            pluginConfigId: pluginConfig.id,
+                            teamId: event.teamId,
+                        },
+                    })
+                    status.error('🔴', 'Could not find action for PluginConfig!', {
+                        pluginConfigId: pluginConfig.id,
+                        teamId: event.teamId,
+                    })
+
+                    return
+                }
+
+                const matched = await hub.actionMatcher.checkAction(event, relatedAction)
+
+                if (!matched) {
+                    return
+                }
+            }
+            filteredList.push([pluginConfig, method])
+        })
+    )
+
+    return filteredList
 }
