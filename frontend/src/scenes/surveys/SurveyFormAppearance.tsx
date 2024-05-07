@@ -21,7 +21,7 @@ export function SurveyFormAppearance({
     const showThankYou = survey.appearance?.displayThankYouMessage && activePreview >= survey.questions.length
 
     return survey.type !== SurveyType.API ? (
-        <div className="survey-view">
+        <div className="survey-view max-w-72">
             <SurveyAppearancePreview
                 survey={survey as Survey}
                 activePreview={showThankYou ? 'confirmation' : 'survey'}

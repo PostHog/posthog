@@ -7,7 +7,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
-import { BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
+import { BatchExportGeneralEditFields, BatchExportsEditFields } from 'scenes/batch_exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
@@ -183,10 +183,13 @@ function BatchExportConfigurationFields({
     formValues: Record<string, any>
 }): JSX.Element {
     return (
-        <BatchExportsEditFields
-            isNew={isNew}
-            isPipeline
-            batchExportConfigForm={formValues as BatchExportConfigurationForm}
-        />
+        <>
+            <BatchExportGeneralEditFields
+                isNew={isNew}
+                isPipeline
+                batchExportConfigForm={formValues as BatchExportConfigurationForm}
+            />
+            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues as BatchExportConfigurationForm} />
+        </>
     )
 }
