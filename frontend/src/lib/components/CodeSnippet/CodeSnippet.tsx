@@ -125,8 +125,9 @@ export function CodeSnippet({
                 <LemonButton
                     data-attr="copy-code-button"
                     icon={<IconCopy />}
-                    onClick={() => {
+                    onClick={(e) => {
                         if (text) {
+                            e.stopPropagation()
                             void copyToClipboard(text, thing)
                         }
                     }}
