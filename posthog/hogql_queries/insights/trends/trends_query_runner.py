@@ -840,4 +840,6 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.compare
             and dashboard_filter.date_from == "all"
         ):
+            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
+            # we should disable `compare` _no matter how_ we arrived at the final executed query
             self.query.trendsFilter.compare = False
