@@ -52,19 +52,19 @@ class TrendsActorsQueryBuilder:
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
 
-        def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-            # TODO: add matching_events only when including recordings
-            return parse_select(
-                """
-                    SELECT
-                        actor_id,
-                        count() as event_count,
-                        groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
-                    FROM {events_query}
-                    GROUP BY actor_id
-                """,
-                placeholders={"events_query": self._get_events_query()},
-            )
+    def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        # TODO: add matching_events only when including recordings
+        return parse_select(
+            """
+                SELECT
+                    actor_id,
+                    count() as event_count,
+                    groupUniqArray(100)((timestamp, uuid, $session_id, $window_id)) as matching_events
+                FROM {events_query}
+                GROUP BY actor_id
+            """,
+            placeholders={"events_query": self._get_events_query()},
+        )
 
     def _get_events_query(
         self,
@@ -95,7 +95,6 @@ class TrendsActorsQueryBuilder:
                 sample=(ast.SampleExpr(sample_value=self._sample_value_expr())),
             ),
             where=ast.And(exprs=[*self._entity_where_expr(), *self._prop_where_expr(), *self._date_where_expr()]),
-            group_by=[],
         )
         return query
 
