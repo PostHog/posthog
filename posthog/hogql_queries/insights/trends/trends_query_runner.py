@@ -347,7 +347,7 @@ class TrendsQueryRunner(QueryRunner):
         returned_results: list[list[dict[str, Any]]] = []
         for result in res_matrix:
             if isinstance(result, list):
-                returned_results.extend(result)
+                returned_results.append(result)
             elif isinstance(result, dict):
                 returned_results.append([result])
 
@@ -382,9 +382,6 @@ class TrendsQueryRunner(QueryRunner):
         )
 
     def build_series_response(self, response: HogQLQueryResponse, series: SeriesWithExtras, series_count: int):
-        if response.results is None:
-            return []
-
         def get_value(name: str, val: Any):
             if name not in ["date", "total", "breakdown_value"]:
                 raise Exception("Column not found in hogql results")
@@ -673,8 +670,11 @@ class TrendsQueryRunner(QueryRunner):
 
             all_breakdown_values = set()
             for result in results:
-                for item in result:
-                    all_breakdown_values.add(itemgetter(*keys)(item))
+                if isinstance(result, list):
+                    for item in result:
+                        all_breakdown_values.add(itemgetter(*keys)(item))
+                elif isinstance(result, dict):
+                    all_breakdown_values.add(itemgetter(*keys)(result))
 
             # sort the results so that the breakdown values are in the correct order
             sorted_breakdown_values = natsorted(list(all_breakdown_values), alg=ns.IGNORECASE)
@@ -698,8 +698,9 @@ class TrendsQueryRunner(QueryRunner):
                         row_results.append(
                             {
                                 "label": f"filler for {breakdown_value}",
-                                "data": [0] * len(results[0][0]["data"]),
+                                "data": [0] * len(results[0][0].get("data") or any_result.get("data") or []),
                                 "count": 0,
+                                "aggregated_value": 0,
                                 "action": None,
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
@@ -707,9 +708,6 @@ class TrendsQueryRunner(QueryRunner):
                             }
                         )
                 new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)
-                new_result["label"] = (
-                    f"{new_result['label']} - {' - '.join(breakdown_value) if isinstance(breakdown_value, list) or isinstance(breakdown_value, tuple) else breakdown_value}"
-                )
                 computed_results.append(new_result)
 
             if has_compare:
