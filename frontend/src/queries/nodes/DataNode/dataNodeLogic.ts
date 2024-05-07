@@ -639,15 +639,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
-            // Attention: When on dashboard we don't want to load data on mount
-            // as it will have be loaded by some other logic
-            actions.loadData()
-        } else if (props.cachedResults) {
+        if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
             actions.setResponse(props.cachedResults)
+        } else if (Object.keys(props.query || {}).length > 0) {
+            actions.loadData()
         }
 
         actions.mountDataNode(props.key, {
