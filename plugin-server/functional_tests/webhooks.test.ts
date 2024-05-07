@@ -218,7 +218,6 @@ test.concurrent(`webhooks: fires zapier REST webhook`, async () => {
                 name: 'hehe',
                 uuid: eventUuid,
             },
-            groups: {},
             teamId: teamId,
             timestamp: ts.toISOString(),
         }
