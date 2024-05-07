@@ -59,7 +59,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         events_query: ast.SelectQuery | ast.SelectUnionQuery
 
-        if self._trends_display.should_aggregate_values():
+        if self._trends_display.is_total_value():
             events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
             return events_query
         else:
@@ -207,7 +207,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             group_by=[],
         )
 
-        if not self._trends_display.should_aggregate_values() and not is_actors_query:
+        if not self._trends_display.is_total_value() and not is_actors_query:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
             if (
                 self.query.trendsFilter
@@ -260,7 +260,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 orchestrator.parent_select_query_builder.append_select(ast.Field(chain=["breakdown_value"]))
 
             if (
-                self._aggregation_operation.should_aggregate_values
+                self._aggregation_operation.is_total_value
                 and not self._aggregation_operation.is_count_per_actor_variant()
                 and not is_actors_query
             ):
@@ -282,7 +282,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             wrapper = self.session_duration_math_property_wrapper(default_query)
             assert wrapper.group_by is not None
 
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            if not self._trends_display.is_total_value() and not is_actors_query:
                 default_query.select.append(day_start)
                 default_query.group_by.append(ast.Field(chain=["day_start"]))
 
@@ -315,7 +315,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             wrapper = self.session_duration_math_property_wrapper(default_query)
 
-            if not self._trends_display.should_aggregate_values() and not is_actors_query:
+            if not self._trends_display.is_total_value() and not is_actors_query:
                 assert wrapper.group_by is not None
 
                 default_query.select.append(day_start)
@@ -448,7 +448,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         query.group_by = []
         query.order_by = []
 
-        if not self._trends_display.should_aggregate_values():
+        if not self._trends_display.is_total_value():
             query.select.append(ast.Field(chain=["day_start"]))
             query.group_by.append(ast.Field(chain=["day_start"]))
             query.order_by.append(ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC"))
@@ -619,7 +619,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             self.series,
             self._trends_display.display_type,
             self.query_date_range,
-            self._trends_display.should_aggregate_values(),
+            self._trends_display.is_total_value(),
         )
 
     @cached_property

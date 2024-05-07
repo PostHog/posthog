@@ -194,7 +194,7 @@ class TrendsQueryRunner(QueryRunner):
         # Days
         res_days: Optional[list[DayItem]] = (
             None
-            if self._trends_display.should_aggregate_values()
+            if self._trends_display.is_total_value()
             else [
                 DayItem(
                     label=format_label_date(value, self.query_date_range.interval_name),
@@ -590,7 +590,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_order=index,
                 is_previous_period_series=None,
                 overriden_query=None,
-                aggregate_values=self._trends_display.should_aggregate_values(),
+                aggregate_values=self._trends_display.is_total_value(),
             )
             for index, series in enumerate(self.query.series)
         ]
@@ -620,7 +620,7 @@ class TrendsQueryRunner(QueryRunner):
                             series_order=series.series_order,
                             is_previous_period_series=series.is_previous_period_series,
                             overriden_query=copied_query,
-                            aggregate_values=self._trends_display.should_aggregate_values(),
+                            aggregate_values=self._trends_display.is_total_value(),
                         )
                     )
             series_with_extras = updated_series
@@ -634,7 +634,7 @@ class TrendsQueryRunner(QueryRunner):
                         series_order=series.series_order,
                         is_previous_period_series=False,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
                 updated_series.append(
@@ -643,7 +643,7 @@ class TrendsQueryRunner(QueryRunner):
                         series_order=series.series_order,
                         is_previous_period_series=True,
                         overriden_query=series.overriden_query,
-                        aggregate_values=self._trends_display.should_aggregate_values(),
+                        aggregate_values=self._trends_display.is_total_value(),
                     )
                 )
             series_with_extras = updated_series
@@ -653,7 +653,7 @@ class TrendsQueryRunner(QueryRunner):
     def apply_formula(self, formula: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
-        is_total_value = self._trends_display.should_aggregate_values()
+        is_total_value = self._trends_display.is_total_value()
 
         if len(results) == 0:
             return []
