@@ -140,7 +140,7 @@ class FunnelEventQuery:
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 try:
                     action = Action.objects.get(pk=int(node.id), team=team)
-                    events.update([x for x in action.get_step_events() if x])
+                    events.update(action.get_step_events())
                 except Action.DoesNotExist:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
             else:
