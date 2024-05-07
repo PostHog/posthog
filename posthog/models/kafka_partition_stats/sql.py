@@ -116,11 +116,12 @@ class PartitionStatsV2Table:
                 ip String,
                 event String,
                 data_length UInt64,
-                timestamp DateTime64
+                timestamp DateTime
             )
             ENGINE = {engine}
             PARTITION BY (topic, toStartOfDay(timestamp))
             ORDER BY (topic, partition, offset)
+            TTL timestamp + INTERVAL 30 DAY
         """
 
     def get_drop_table_sql(self) -> str:
