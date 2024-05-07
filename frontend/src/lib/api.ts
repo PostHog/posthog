@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -1910,6 +1910,12 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+        async updateSchema(
+            tableId: DataWarehouseTable['id'],
+            updates: Record<string, DatabaseSerializedFieldType>
+        ): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
         },
     },
 

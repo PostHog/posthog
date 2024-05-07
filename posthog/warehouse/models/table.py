@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 from django.db import models
 
@@ -8,6 +9,7 @@ from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
+    FloatDatabaseField,
     IntegerDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
@@ -21,6 +23,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
+from posthog.schema import DatabaseSerializedFieldType
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
@@ -29,6 +32,17 @@ from uuid import UUID
 from sentry_sdk import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from .external_table_definitions import external_tables
+
+SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
+    DatabaseSerializedFieldType.integer: "Int64",
+    DatabaseSerializedFieldType.float: "Float64",
+    DatabaseSerializedFieldType.string: "String",
+    DatabaseSerializedFieldType.datetime: "DateTime64",
+    DatabaseSerializedFieldType.date: "Date",
+    DatabaseSerializedFieldType.boolean: "Bool",
+    DatabaseSerializedFieldType.array: "Array",
+    DatabaseSerializedFieldType.json: "Map",
+}
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -42,10 +56,10 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "UInt16": IntegerDatabaseField,
     "UInt32": IntegerDatabaseField,
     "UInt64": IntegerDatabaseField,
-    "Float8": IntegerDatabaseField,
-    "Float16": IntegerDatabaseField,
-    "Float32": IntegerDatabaseField,
-    "Float64": IntegerDatabaseField,
+    "Float8": FloatDatabaseField,
+    "Float16": FloatDatabaseField,
+    "Float32": FloatDatabaseField,
+    "Float64": FloatDatabaseField,
     "Int8": IntegerDatabaseField,
     "Int16": IntegerDatabaseField,
     "Int32": IntegerDatabaseField,
@@ -54,7 +68,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
-    "Decimal": IntegerDatabaseField,
+    "Decimal": FloatDatabaseField,
 }
 
 STR_TO_HOGQL_MAPPING = {
@@ -62,6 +76,7 @@ STR_TO_HOGQL_MAPPING = {
     "DateDatabaseField": DateDatabaseField,
     "DateTimeDatabaseField": DateTimeDatabaseField,
     "IntegerDatabaseField": IntegerDatabaseField,
+    "FloatDatabaseField": FloatDatabaseField,
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
@@ -122,7 +137,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             prefix = ""
         return self.name[len(prefix) :]
 
-    def get_columns(self, safe_expose_ch_error=True) -> dict[str, str]:
+    def get_columns(self, safe_expose_ch_error=True) -> dict[str, dict[str, str]]:
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -144,7 +159,29 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             else:
                 raise err
 
-        return {item[0]: item[1] for item in result}
+        if result is None or isinstance(result, int):
+            raise Exception("No columns types provided by clickhouse in get_columns")
+
+        def clean_type(column_type: str) -> str:
+            if column_type.startswith("Nullable("):
+                column_type = column_type.replace("Nullable(", "")[:-1]
+
+            if column_type.startswith("Array("):
+                column_type = remove_named_tuples(column_type)
+
+            column_type = re.sub(r"\(.+?\)", "", column_type)
+
+            return column_type
+
+        columns = {
+            str(item[0]): {
+                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                "clickhouse": item[1],
+            }
+            for item in result
+        }
+
+        return columns
 
     def get_count(self, safe_expose_ch_error=True) -> int:
         try:

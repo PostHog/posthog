@@ -9,7 +9,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.models.action.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition
@@ -477,11 +476,15 @@ class TestStickinessQueryRunner(APIBaseTest):
     def test_actions(self):
         self._create_test_events()
 
-        action = Action.objects.create(name="My Action", team=self.team)
-        ActionStep.objects.create(
-            action=action,
-            event="$pageview",
-            properties=[{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+        action = Action.objects.create(
+            name="My Action",
+            team=self.team,
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+                }
+            ],
         )
 
         series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]

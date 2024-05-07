@@ -37,8 +37,11 @@ import {
     InsightType,
     ItemMode,
     PersonType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
+    RecordingDurationFilter,
+    RecordingFilters,
     RecordingReportLoadTimes,
     Resource,
     SessionPlayerData,
@@ -343,6 +346,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
+        reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -361,8 +365,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportRecordingsListFetched: (loadTime: number) => ({
+        reportRecordingsListFetched: (
+            loadTime: number,
+            filters: RecordingFilters,
+            defaultDurationFilter: RecordingDurationFilter
+        ) => ({
             loadTime,
+            filters,
+            defaultDurationFilter,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -811,7 +821,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('test account filters updated', payload)
         },
-
+        reportPoEModeUpdated: async ({ mode }) => {
+            posthog.capture('persons on events mode updated', { mode })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -903,8 +915,26 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: '3' })
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            const filterBreakdown =
+                filters && defaultDurationFilter
+                    ? {
+                          hasEventsFilters: !!filters.events?.length,
+                          hasActionsFilters: !!filters.actions?.length,
+                          hasPropertiesFilters: !!filters.properties?.length,
+                          hasCohortFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Cohort),
+                          hasPersonFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Person),
+                          hasDurationFilters:
+                              (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
+                          hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+                      }
+                    : {}
+            posthog.capture('recording list fetched', {
+                load_time: loadTime,
+                listing_version: '3',
+                filters,
+                ...filterBreakdown,
+            })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })

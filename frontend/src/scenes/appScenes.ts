@@ -76,4 +76,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
+    [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
 }

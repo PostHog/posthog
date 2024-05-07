@@ -1,4 +1,4 @@
-import { buildIntegerMatcher, buildStringMatcher } from '../../../src/config/config'
+import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -15,7 +15,6 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
@@ -52,7 +51,7 @@ const event: PostIngestionEvent = {
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
-    elementsList: [],
+    elementsList: undefined,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
     person_created_at: '2020-02-20T02:15:00.000Z' as ISOTimestamp,
     person_properties: {},
@@ -151,9 +150,9 @@ describe('eachBatchX', () => {
             expect(runOnEvent).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
+                    eventUuid: 'uuid1',
+                    teamId: 2,
+                    distinctId: 'my_id',
                 })
             )
         })
@@ -161,46 +160,6 @@ describe('eachBatchX', () => {
             queue.pluginsServer.pluginConfigsPerTeam.clear()
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
-        })
-        it('parses elements when useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [{ attributes: {}, order: 0, tag_name: 'random' }],
-                })
-            )
-        })
-        it('skips elements parsing when not useful', async () => {
-            queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
-                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
-            ])
-            queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
-            await eachBatchAppsOnEventHandlers(
-                createKafkaJSBatch({ ...clickhouseEvent, elements_chain: 'random' }),
-                queue
-            )
-            expect(runOnEvent).toHaveBeenCalledWith(
-                expect.anything(),
-                expect.objectContaining({
-                    uuid: 'uuid1',
-                    team_id: 2,
-                    distinct_id: 'my_id',
-                    elements: [],
-                })
-            )
         })
     })
 
@@ -224,15 +183,12 @@ describe('eachBatchX', () => {
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
             // is at the least testing a little bit more than we were before.
-            expect(matchSpy).toHaveBeenCalledWith(
-                {
-                    ...event,
-                    properties: {
-                        $ip: '127.0.0.1',
-                    },
+            expect(matchSpy).toHaveBeenCalledWith({
+                ...event,
+                properties: {
+                    $ip: '127.0.0.1',
                 },
-                []
-            )
+            })
         })
 
         it('it batches events properly', () => {
