@@ -44,35 +44,43 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                 }
             >
                 {!appUrlsVisible ? (
-                    <div className="space-y-2">
+                    <div className="flex gap-2">
                         <LemonButton
                             type="secondary"
-                            icon={<IconSearch />}
-                            onClick={() => setAppUrlsVisible(true)}
-                            size="large"
-                            fullWidth
-                            center
-                            data-attr="new-action-inspect"
-                        >
-                            Inspect element on your site
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconPencil />}
                             onClick={() => {
                                 onSelectOption?.()
                                 router.actions.push(urls.createAction())
                             }}
                             size="large"
-                            fullWidth
-                            center
                             data-attr="new-action-pageview"
+                            className="flex-1"
+                            center
                         >
-                            From event or pageview
+                            <div className="p-4">
+                                <IconPencil className="text-4xl mb-2" />
+                                <div>From event or pageview</div>
+                            </div>
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setAppUrlsVisible(true)}
+                            size="large"
+                            data-attr="new-action-inspect"
+                            className="flex-1"
+                            center
+                        >
+                            <div className="p-4">
+                                <IconSearch className="text-4xl mb-2" />
+                                <div>Inspect element on your site</div>
+                            </div>
                         </LemonButton>
                     </div>
                 ) : (
-                    <div className="max-w-160">
+                    <div className="max-w-200">
+                        <p>
+                            You can create an Action using the Toolbar running on your website. To begin select or add
+                            an authorized domain and <b>launch</b> the toolbar on that site.
+                        </p>
                         <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
                     </div>
                 )}
