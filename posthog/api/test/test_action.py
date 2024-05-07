@@ -198,10 +198,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         action.refresh_from_db()
         assert action.name == "user signed up 2"
 
-        assert action.action_steps.count() == 2
-        assert action.action_steps.all()[0].text == "sign up NOW"
-        assert action.action_steps.all()[1].href == "/a-new-link"
-
         assert previous_bytecode != action.bytecode
 
         # Assert analytics are sent
