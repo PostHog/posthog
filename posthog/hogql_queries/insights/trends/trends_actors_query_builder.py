@@ -1,9 +1,14 @@
 from typing import Optional
+
+from dateutil.parser import parse
+from django.utils.timezone import datetime
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Action, Team
 from posthog.schema import ActionsNode, Compare, DataWarehouseNode, EventsNode, HogQLQueryModifiers, TrendsQuery
 
@@ -194,8 +199,12 @@ class TrendsActorsQueryBuilder:
     def _date_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
 
-        #         if compare == Compare.previous:
-        #     query_date_range = self.query_previous_date_range
+        if not self.time_frame:
+            # TODO: Not for total value queries I think?
+            raise ValueError("A `day` is required for trends actors queries")
+
+        # if compare == Compare.previous:
+        #     date_range = self.query_previous_date_range
 
         #     delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
         #     if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
@@ -204,35 +213,40 @@ class TrendsActorsQueryBuilder:
         #         parse_dt_with_relative_delta = parsed_dt - relative_delta
         #         time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
         # else:
-        #     query_date_range = self.query_date_range
+        date_range = QueryDateRange(
+            date_range=self.trends_query.dateRange,
+            team=self.team,
+            interval=self.trends_query.interval,
+            now=datetime.now(),
+        )
 
-        # if actors_query_time_frame is not None:
-        #     actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
-        #     query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-        #     if self.trends_query.dateRange and self.trends_query.dateRange.explicitDate:
-        #         query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-        #         # exclude events before the query start
-        #         if query_from > actors_from:
-        #             actors_from = query_from
-        #         # exclude events after the query end
-        #         if query_to < actors_to:
-        #             actors_to = query_to
-        #     conditions.extend(
-        #         [
-        #             ast.CompareOperation(
-        #                 left=ast.Field(chain=["timestamp"]),
-        #                 op=ast.CompareOperationOp.GtEq,
-        #                 right=ast.Constant(value=actors_from),
-        #             ),
-        #             ast.CompareOperation(
-        #                 left=ast.Field(chain=["timestamp"]),
-        #                 op=ast.CompareOperationOp.Lt,
-        #                 right=ast.Constant(value=actors_to),
-        #             ),
-        #         ]
-        #     )
-        # else:
-        #     raise ValueError("Actors query without day")
+        actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
+        actors_to = actors_from + date_range.interval_relativedelta()
+
+        # query_from, query_to = date_range.date_from(), date_range.date_to()
+
+        # # exclude events before the query start
+        # if query_from > actors_from:
+        #     actors_from = query_from
+
+        # # exclude events after the query end
+        # if query_to < actors_to:
+        #     actors_to = query_to
+
+        conditions.extend(
+            [
+                ast.CompareOperation(
+                    left=ast.Field(chain=["timestamp"]),
+                    op=ast.CompareOperationOp.GtEq,
+                    right=ast.Constant(value=actors_from),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["timestamp"]),
+                    op=ast.CompareOperationOp.Lt,
+                    right=ast.Constant(value=actors_to),
+                ),
+            ]
+        )
 
         #     elif not self._aggregation_operation.requires_query_orchestration():
         #         date_range_placeholders = self.query_date_range.to_placeholders()

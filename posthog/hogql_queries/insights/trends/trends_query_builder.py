@@ -416,32 +416,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         filters: list[ast.Expr] = []
 
         # Dates
-        if is_actors_query and actors_query_time_frame is not None:
-            actors_from, actors_to = self.query_date_range.interval_bounds_from_str(actors_query_time_frame)
-            query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-            if self.query.dateRange and self.query.dateRange.explicitDate:
-                query_from, query_to = self.query_date_range.date_from(), self.query_date_range.date_to()
-                # exclude events before the query start
-                if query_from > actors_from:
-                    actors_from = query_from
-                # exclude events after the query end
-                if query_to < actors_to:
-                    actors_to = query_to
-            filters.extend(
-                [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.GtEq,
-                        right=ast.Constant(value=actors_from),
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["timestamp"]),
-                        op=ast.CompareOperationOp.Lt,
-                        right=ast.Constant(value=actors_to),
-                    ),
-                ]
-            )
-        elif not self._aggregation_operation.requires_query_orchestration():
+        if not self._aggregation_operation.requires_query_orchestration():
             date_range_placeholders = self.query_date_range.to_placeholders()
             filters.extend(
                 [

@@ -4,7 +4,6 @@ from functools import cached_property
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql.errors import ImpossibleASTError
@@ -263,11 +262,6 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
-
-    def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
-        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})
-        date_to = date_from + self.interval_relativedelta()
-        return date_from, date_to
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):
