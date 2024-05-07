@@ -56,7 +56,9 @@ def process_query_model(
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
-        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        if hasattr(query, "source") and isinstance(query.source, BaseModel):
+            result = process_query_model(team, query.source, execution_mode=execution_mode)
+        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQLAutocomplete):
@@ -84,8 +86,6 @@ def process_query_model(
             )
             serializer.is_valid(raise_exception=True)
             result = get_session_events(serializer) or {}
-        elif hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(team, query.source, execution_mode=execution_mode)
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
