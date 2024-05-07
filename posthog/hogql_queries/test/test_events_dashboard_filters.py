@@ -1,7 +1,6 @@
 from typing import Optional
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
 from posthog.schema import (
     DashboardFilter,
@@ -19,7 +18,7 @@ class TestEventsDashboardFilters(BaseTest):
         after: Optional[str] = None,
         before: Optional[str] = None,
         properties: Optional[list[EventPropertyFilter]] = None,
-    ) -> HogQLQueryRunner:
+    ) -> EventsQueryRunner:
         return EventsQueryRunner(
             query=EventsQuery(
                 after=after,

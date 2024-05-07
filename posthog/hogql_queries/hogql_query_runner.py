@@ -74,7 +74,7 @@ class HogQLQueryRunner(QueryRunner):
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> HogQLQuery:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()
 
         if dashboard_filter.date_to or dashboard_filter.date_from:

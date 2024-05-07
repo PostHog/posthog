@@ -56,6 +56,7 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
@@ -78,6 +79,7 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
@@ -88,7 +90,7 @@ class TestTrendsDashboardFilters(BaseTest):
 
         assert query_runner.query.dateRange.date_from == "-14d"
         assert query_runner.query.dateRange.date_to is None
-        assert query_runner.query.properties is None
+        assert query_runner.query.properties is None  # type: ignore [unreachable]
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter is None
 
@@ -100,6 +102,7 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
@@ -122,6 +125,7 @@ class TestTrendsDashboardFilters(BaseTest):
             None,
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
@@ -147,6 +151,7 @@ class TestTrendsDashboardFilters(BaseTest):
             properties=[EventPropertyFilter(key="abc", value="foo", operator="exact")],
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == [EventPropertyFilter(key="abc", value="foo", operator="exact")]
@@ -200,6 +205,7 @@ class TestTrendsDashboardFilters(BaseTest):
             ),
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == PropertyGroupFilter(
@@ -262,6 +268,7 @@ class TestTrendsDashboardFilters(BaseTest):
             breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties is None
@@ -294,6 +301,7 @@ class TestTrendsDashboardFilters(BaseTest):
             trends_filters=TrendsFilter(compare=True),
         )
 
+        assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2024-07-07"
         assert query_runner.query.dateRange.date_to == "2024-07-14"
         assert query_runner.query.properties is None
@@ -304,7 +312,7 @@ class TestTrendsDashboardFilters(BaseTest):
 
         assert query_runner.query.dateRange.date_from == "all"
         assert query_runner.query.dateRange.date_to is None
-        assert query_runner.query.properties is None
+        assert query_runner.query.properties is None  # type: ignore [unreachable]
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter == TrendsFilter(
             compare=False  # There's no previous period for the "all time" date range
