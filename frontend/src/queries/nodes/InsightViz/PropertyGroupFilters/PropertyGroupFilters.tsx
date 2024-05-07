@@ -7,19 +7,17 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+import { InsightQueryNode, ReplayQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { AnyPropertyFilter, PropertyGroupFilterValue } from '~/types'
 
 import { TestAccountFilter } from '../filters/TestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
-type PropertyGroupFiltersProps = {
-    insightProps: InsightLogicProps
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+type PropertyGroupFiltersProps<T extends TrendsQuery | StickinessQuery | ReplayQuery> = {
+    query: T
+    setQuery: (node: T) => void
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -27,14 +25,13 @@ type PropertyGroupFiltersProps = {
 }
 
 export function PropertyGroupFilters({
-    insightProps,
     query,
     setQuery,
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
     isDataWarehouseSeries,
-}: PropertyGroupFiltersProps): JSX.Element {
+}: PropertyGroupFiltersProps<any>): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
@@ -57,7 +54,7 @@ export function PropertyGroupFilters({
                     <TestAccountFilter
                         disabledReason={disabledReason}
                         query={query}
-                        setQuery={setQuery as (node: InsightQueryNode) => void}
+                        setQuery={setQuery as (node: InsightQueryNode | ReplayQuery) => void}
                     />
                     {showHeader ? (
                         <>
@@ -112,9 +109,7 @@ export function PropertyGroupFilters({
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}
-                                                    pageKey={`${keyForInsightLogicProps('new')(
-                                                        insightProps
-                                                    )}-PropertyGroupFilters-${propertyGroupIndex}`}
+                                                    pageKey={`${pageKey}-PropertyGroupFilters-${propertyGroupIndex}`}
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}

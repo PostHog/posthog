@@ -88,6 +88,9 @@ export enum NodeKind {
     TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
     TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
+    // Replay queries
+    ReplayQuery = 'ReplayQuery',
+
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
 }
@@ -1020,6 +1023,14 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
     compare?: boolean
+}
+
+export interface ReplayQuery {
+    kind: NodeKind.ReplayQuery
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    /** Property filters for all series */
+    properties: PropertyGroupFilter
 }
 
 export interface WebOverviewItem {

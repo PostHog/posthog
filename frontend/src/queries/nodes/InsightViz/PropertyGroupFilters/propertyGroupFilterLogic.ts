@@ -3,15 +3,15 @@ import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { ReplayQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
 export type PropertyGroupFilterLogicProps = {
     pageKey: string
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+    query: TrendsQuery | StickinessQuery | ReplayQuery
+    setQuery: (node: TrendsQuery | StickinessQuery | ReplayQuery) => void
 }
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([

@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
+import HogQLFilters from '../filters/HogQLFilters'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview, SessionRecordingPreviewSkeleton } from './SessionRecordingPreview'
@@ -34,7 +35,6 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
-
 const SCROLL_TRIGGER_OFFSET = 100
 
 const CounterBadge = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -103,6 +103,7 @@ function RecordingsLists(): JSX.Element {
         filters,
         advancedFilters,
         simpleFilters,
+        query,
         hasNext,
         pinnedRecordings,
         otherRecordings,
@@ -117,11 +118,13 @@ function RecordingsLists(): JSX.Element {
         showOtherRecordings,
         recordingsCount,
         isRecordingsListCollapsed,
+        useHogQLFiltering,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
         setAdvancedFilters,
         setSimpleFilters,
+        setQuery,
         maybeLoadSessionRecordings,
         setShowFilters,
         setShowSettings,
@@ -232,15 +235,19 @@ function RecordingsLists(): JSX.Element {
             <div className={clsx('overflow-y-auto')} onScroll={handleScroll} ref={contentRef}>
                 {!notebookNode && showFilters ? (
                     <div className="bg-side border-b">
-                        <SessionRecordingsFilters
-                            advancedFilters={advancedFilters}
-                            simpleFilters={simpleFilters}
-                            setAdvancedFilters={setAdvancedFilters}
-                            setSimpleFilters={setSimpleFilters}
-                            hideSimpleFilters={logicProps.hideSimpleFilters}
-                            showPropertyFilters={!logicProps.personUUID}
-                            onReset={resetFilters}
-                        />
+                        {useHogQLFiltering ? (
+                            <HogQLFilters query={query} setQuery={setQuery} />
+                        ) : (
+                            <SessionRecordingsFilters
+                                advancedFilters={advancedFilters}
+                                simpleFilters={simpleFilters}
+                                setAdvancedFilters={setAdvancedFilters}
+                                setSimpleFilters={setSimpleFilters}
+                                hideSimpleFilters={logicProps.hideSimpleFilters}
+                                showPropertyFilters={!logicProps.personUUID}
+                                onReset={resetFilters}
+                            />
+                        )}
                     </div>
                 ) : showSettings ? (
                     <SessionRecordingsPlaylistSettings />

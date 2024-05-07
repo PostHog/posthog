@@ -34,7 +34,6 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
 
     return (
         <PropertyGroupFilters
-            insightProps={insightProps}
             pageKey={`${keyForInsightLogicProps('new')(insightProps)}-GlobalAndOrFilters`}
             query={querySource as TrendsQuery | StickinessQuery}
             setQuery={updateQuerySource}

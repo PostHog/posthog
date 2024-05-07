@@ -10,8 +10,10 @@ import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 
+import { NodeKind, ReplayQuery } from '~/queries/schema'
 import {
     DurationType,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     RecordingDurationFilter,
@@ -147,6 +149,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     actions({
         setAdvancedFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         setSimpleFilters: (filters: SimpleFiltersType) => ({ filters }),
+        setQuery: (query: ReplayQuery) => ({ query }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         setOrderBy: (orderBy: SessionOrderingType) => ({ orderBy }),
@@ -213,6 +216,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadSessionRecordings: async ({ direction }, breakpoint) => {
                     const params = {
                         ...values.filters,
+                        query: values.query,
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
@@ -342,6 +346,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
+        query: [
+            {
+                kind: NodeKind.ReplayQuery,
+                dateRange: { date_from: '-7d' },
+                filterTestAccounts: false,
+                properties: { type: FilterLogicalOperator.And, values: [] },
+            } as ReplayQuery,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
         showFilters: [
             true,
             {
@@ -451,6 +466,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             props.onFiltersChange?.(values.filters)
             capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
+        },
+        setQuery: () => {
+            actions.loadSessionRecordings()
         },
 
         setOrderBy: () => {

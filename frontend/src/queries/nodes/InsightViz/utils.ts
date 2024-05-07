@@ -7,6 +7,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     InsightQueryNode,
+    ReplayQuery,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -21,7 +22,7 @@ import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/type
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 
-export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
+export const getAllEventNames = (query: InsightQueryNode | ReplayQuery, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
 
     // If there's a "All events" entity, don't filter by event names.

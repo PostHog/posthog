@@ -5,11 +5,11 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterT
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode, ReplayQuery } from '~/queries/schema'
 
 type TestAccountFilterProps = {
-    query: InsightQueryNode
-    setQuery: (query: InsightQueryNode) => void
+    query: InsightQueryNode | ReplayQuery
+    setQuery: (query: InsightQueryNode | ReplayQuery) => void
     disabledReason?: string
 }
 

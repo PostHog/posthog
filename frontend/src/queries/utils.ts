@@ -26,6 +26,7 @@ import {
     NodeKind,
     PathsQuery,
     PersonsNode,
+    ReplayQuery,
     RetentionQuery,
     SavedInsightNode,
     StickinessQuery,
@@ -133,6 +134,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
+}
+
+export function isReplayQuery(node?: Record<string, any> | null): node is ReplayQuery {
+    return node?.kind === NodeKind.ReplayQuery
 }
 
 export function isWebStatsTableQuery(node?: Record<string, any> | null): node is WebStatsTableQuery {
@@ -251,6 +256,8 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
         return undefined
     } else if (isInsightVizNode(node)) {
         return node.source.dateRange
+    } else if (isReplayQuery(node)) {
+        return node.dateRange
     }
 
     return undefined
