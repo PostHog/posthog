@@ -32,7 +32,7 @@ def copy_action_steps_to_json(apps, schema_editor):
                 }
                 for step in action.action_steps.all()
             ]
-            action.steps = new_steps  # type: ignore
+            action.steps = new_steps
 
             objects_to_update.append(action)
 
