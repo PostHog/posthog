@@ -12,8 +12,6 @@ from posthog.test.base import (
     FuzzyInt,
 )
 
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
-
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.action.report_user_action")

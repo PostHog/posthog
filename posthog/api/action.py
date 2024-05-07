@@ -94,7 +94,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         # And then also save the old model for backwards compatibility
 
         if action.pk:
-            existing_actions = list(action.action_steps.all())
+            existing_steps = list(action.action_steps.all())
 
         # Creating
         for step in steps:
@@ -103,8 +103,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
                 **step,
             )
 
-        for existing_action in existing_actions:
-            existing_action.delete()
+        for existing_step in existing_steps:
+            existing_step.delete()
 
     def create(self, validated_data: Any) -> Any:
         validated_data["created_by"] = self.context["request"].user
