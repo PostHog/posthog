@@ -221,7 +221,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(7, 8)):
+        with self.assertNumQueries(FuzzyInt(6, 7)):
             # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
             # PostHog action, PostHog action step
             self.client.get(f"/api/projects/{self.team.id}/actions/")
