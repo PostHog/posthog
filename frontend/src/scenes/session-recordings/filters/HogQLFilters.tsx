@@ -1,8 +1,10 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
@@ -11,8 +13,9 @@ import { actionsModel } from '~/models/actionsModel'
 import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { propertyGroupFilterLogic } from '~/queries/nodes/InsightViz/PropertyGroupFilters/propertyGroupFilterLogic'
+import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
 import { ReplayQuery } from '~/queries/schema'
-import { PropertyGroupFilterValue } from '~/types'
+import { AnyPropertyFilter, PropertyGroupFilterValue } from '~/types'
 
 export default function HogQLFilters({
     query,
@@ -21,7 +24,6 @@ export default function HogQLFilters({
     query: ReplayQuery
     setQuery: (node: ReplayQuery) => void
 }): JSX.Element {
-    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
     const pageKey = 'session-recording'
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -35,7 +37,8 @@ export default function HogQLFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
     const { actions: allActions } = useValues(actionsModel)
 
-    console.log(query.predicates)
+    const hasMultipleGroups = propertyGroupFilter.values.length > 1
+    const eventNames = getAllEventNames(query, allActions)
 
     return (
         <div className="flex flex-col mb-4 rounded border divide-y">
@@ -74,89 +77,77 @@ export default function HogQLFilters({
                     <TestAccountFilter query={query} setQuery={setQuery as (node: any) => void} />
                 </div>
             </div>
-            <div className="p-2 bg-bg-light rounded-b">
-                {propertyGroupFilter.values?.length ? (
-                    propertyGroupFilter.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
-                        return (
-                            <div key={propertyGroupIndex}>
-                                <Popover
-                                    visible={showPropertySelector}
-                                    onClickOutside={() => setShowPropertySelector(false)}
-                                    overlay={
-                                        <PropertyFilters
-                                            addText="Add to group"
-                                            propertyFilters={group.values}
-                                            onChange={(properties) => {
-                                                setPropertyFilters(properties, propertyGroupIndex)
-                                            }}
-                                            pageKey={`${pageKey}-PropertyGroupFilters-${propertyGroupIndex}`}
-                                            taxonomicGroupTypes={[
-                                                TaxonomicFilterGroupType.SessionProperties,
-                                                TaxonomicFilterGroupType.Events,
-                                                TaxonomicFilterGroupType.Actions,
-                                                TaxonomicFilterGroupType.PersonProperties,
-                                                TaxonomicFilterGroupType.Cohorts,
-                                            ]}
-                                            propertyGroupType={group.type}
-                                            allowNew={false}
-                                            openOnInsert
-                                        />
-                                    }
-                                >
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        sideAction={{ icon: <IconTrash />, onClick: () => console.log('Delete') }}
-                                        onClick={() => setShowPropertySelector(!showPropertySelector)}
-                                    >
-                                        Group description
-                                    </LemonButton>
-                                </Popover>
-                                <span>AND/OR</span>
-                            </div>
-                        )
-                    })
-                ) : (
-                    <Popover
-                        visible={showPropertySelector}
-                        onClickOutside={() => setShowPropertySelector(false)}
-                        overlay={
-                            <TaxonomicFilter
-                                onChange={({ type }, value) => {
-                                    const predicates = query.predicates || []
-                                    setQuery({
-                                        ...query,
-                                        predicates: [
-                                            ...predicates,
-                                            {
-                                                eventName:
-                                                    TaxonomicFilterGroupType.Events === type ? (value as string) : null,
-                                                properties: [],
-                                            },
-                                        ],
-                                    })
+            <div className="p-2 bg-bg-light rounded-b space-y-2">
+                {propertyGroupFilter.values?.map((group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
+                    return (
+                        <div
+                            className={clsx('flex space-x-1', hasMultipleGroups && 'bg-side p-1 border rounded')}
+                            key={propertyGroupIndex}
+                        >
+                            <PropertyFilters
+                                addText="Add filter"
+                                propertyFilters={
+                                    isPropertyGroupFilterLike(group) ? (group.values as AnyPropertyFilter[]) : null
+                                }
+                                onChange={(properties) => {
+                                    setPropertyFilters(properties, propertyGroupIndex)
                                 }}
+                                pageKey={`${pageKey}-PropertyGroupFilters-${propertyGroupIndex}`}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.SessionProperties,
-                                    TaxonomicFilterGroupType.Events,
-                                    TaxonomicFilterGroupType.Actions,
+                                    TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.Cohorts,
                                 ]}
+                                eventNames={eventNames}
+                                propertyGroupType={group.type}
+                                allowNew
                             />
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            sideIcon={<IconPlusSmall />}
-                            onClick={() => setShowPropertySelector(!showPropertySelector)}
-                        >
-                            Add filter group
-                        </LemonButton>
-                    </Popover>
-                )}
+                        </div>
+                    )
+                })}
+
+                <AddFilterProperty buttonText="Add group" addFilterGroup={addFilterGroup} />
             </div>
         </div>
+    )
+}
+
+const AddFilterProperty = ({
+    buttonText,
+    addFilterGroup,
+}: {
+    buttonText: string
+    addFilterGroup: (initialProperties?: (PropertyGroupFilterValue | AnyPropertyFilter)[] | undefined) => void
+}): JSX.Element => {
+    const [showPropertySelector, setShowPropertySelector] = useState<boolean>(false)
+
+    return (
+        <Popover
+            visible={showPropertySelector}
+            onClickOutside={() => setShowPropertySelector(false)}
+            overlay={
+                <TaxonomicFilter
+                    onChange={() => {
+                        // TODO: initialize filter group with the property
+                        addFilterGroup()
+                        setShowPropertySelector(false)
+                    }}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ]}
+                />
+            }
+        >
+            <LemonButton
+                size="small"
+                type="secondary"
+                sideIcon={<IconPlusSmall />}
+                onClick={() => setShowPropertySelector(!showPropertySelector)}
+            >
+                {buttonText}
+            </LemonButton>
+        </Popover>
     )
 }

@@ -33,7 +33,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setPropertyFilters: (properties, index: number) => ({ properties, index }),
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
-        addFilterGroup: (initialProperties?: PropertyGroupFilterValue[]) => ({ initialProperties }),
+        addFilterGroup: (initialProperties?: PropertyGroupFilterValue['values']) => ({ initialProperties }),
     }),
 
     reducers(({ props }) => ({

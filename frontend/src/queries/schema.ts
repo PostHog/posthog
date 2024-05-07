@@ -1029,10 +1029,11 @@ export interface ReplayQuery {
     kind: NodeKind.ReplayQuery
     dateRange?: DateRange
     filterTestAccounts?: boolean
-    predicates?: {
-        eventName: string | null
-        properties: PropertyGroupFilter[]
-    }[]
+    // predicates?: {
+    //     eventName: string | null
+    //     properties: PropertyGroupFilter[]
+    // }[]
+    properties?: PropertyGroupFilter[]
 }
 
 export interface WebOverviewItem {
