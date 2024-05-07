@@ -366,7 +366,7 @@ class TrendsQueryRunner(QueryRunner):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
         else:
-            res = res[0]
+            res = [r[0] for r in res]
 
         return TrendsQueryResponse(
             results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
@@ -672,6 +672,14 @@ class TrendsQueryRunner(QueryRunner):
 
             computed_results = []
             for breakdown_value in sorted_breakdown_values:
+                any_result: Optional[dict[str, Any]] = None
+                for result in results:
+                    matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
+                    if matching_result:
+                        any_result = matching_result[0]
+                        break
+                if not any_result:
+                    continue
                 row_results = []
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
@@ -684,17 +692,25 @@ class TrendsQueryRunner(QueryRunner):
                                 "data": [0] * len(results[0][0]["data"]),
                                 "count": 0,
                                 "action": None,
-                                "breakdown_value": breakdown_value,
+                                "breakdown_value": any_result.get("breakdown_value"),
+                                "compare_label": any_result.get("compare_label"),
+                                "days": any_result.get("days"),
                             }
                         )
-                computed_results.append(self.apply_formula_to_results_group(row_results, formula, is_total_value))
+                new_result = self.apply_formula_to_results_group(row_results, formula, is_total_value)
+                new_result["label"] = (
+                    f"{new_result['label']} - {' - '.join(breakdown_value) if isinstance(breakdown_value, list) or isinstance(breakdown_value, tuple) else breakdown_value}"
+                )
+                computed_results.append(new_result)
 
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
             return sorted(computed_results, key=itemgetter("count"), reverse=True)
         else:
-            return [self.apply_formula_to_results_group(results[0], formula, aggregate_values=is_total_value)]
+            return [
+                self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
+            ]
 
     @staticmethod
     def apply_formula_to_results_group(
