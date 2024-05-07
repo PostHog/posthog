@@ -387,6 +387,11 @@ describe('insightVizDataLogic', () => {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             ...trendsQuery,
+                            interval: 'hour',
+                            dateRange: {
+                                date_from: '-3h',
+                                date_to: undefined,
+                            },
                             trendsFilter: { smoothingIntervals: undefined },
                         },
                     },
