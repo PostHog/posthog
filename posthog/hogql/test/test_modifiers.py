@@ -24,6 +24,23 @@ class TestModifiers(BaseTest):
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
 
+    def test_team_modifiers_override(self):
+        assert self.team.modifiers is None
+        modifiers = create_default_modifiers_for_team(self.team)
+        assert modifiers.personsOnEventsMode == self.team.default_modifiers["personsOnEventsMode"]
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.disabled  # the default mode
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.person_id_override_properties_on_events}
+        self.team.save()
+        modifiers = create_default_modifiers_for_team(self.team)
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_override_properties_on_events
+        assert self.team.default_modifiers["personsOnEventsMode"] == PersonsOnEventsMode.disabled  # no change here
+
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.person_id_no_override_properties_on_events}
+        self.team.save()
+        modifiers = create_default_modifiers_for_team(self.team)
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.person_id_no_override_properties_on_events
+
     def test_modifiers_persons_on_events_mode_person_id_override_properties_on_events(self):
         query = "SELECT event, person_id FROM events"
 

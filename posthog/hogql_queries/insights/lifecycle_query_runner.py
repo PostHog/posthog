@@ -19,6 +19,7 @@ from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedLifecycleQueryResponse,
     LifecycleQuery,
     ActionsNode,
     EventsNode,
@@ -30,6 +31,8 @@ from posthog.utils import format_label_date
 
 class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
+    response: LifecycleQueryResponse
+    cached_response: CachedLifecycleQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         if self.query.samplingFactor == 0:

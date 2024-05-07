@@ -295,7 +295,7 @@ class TestCapture(BaseTest):
             }
             with self.assertNumQueries(0):  # Capture does not hit PG anymore
                 self.client.get(
-                    "/e/?data=%s" % quote(self._to_json(data)),
+                    "/e/?data={}".format(quote(self._to_json(data))),
                     HTTP_ORIGIN="https://localhost",
                 )
 
@@ -384,7 +384,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):  # Capture does not hit PG anymore
             response = self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -453,7 +453,7 @@ class TestCapture(BaseTest):
         }
         with self.assertNumQueries(0):
             response = self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
@@ -521,7 +521,7 @@ class TestCapture(BaseTest):
             },
         }
 
-        response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        response = self.client.get("/e/?data={}".format(quote(self._to_json(data))), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -532,7 +532,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="1.2.3.4",
             HTTP_ORIGIN="https://localhost",
         )
@@ -555,7 +555,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="2345:0425:2CA1:0000:0000:0567:5673:23b5",
             HTTP_ORIGIN="https://localhost",
         )
@@ -579,7 +579,7 @@ class TestCapture(BaseTest):
         }
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)),
+            "/e/?data={}".format(quote(self._to_json(data))),
             HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
             HTTP_ORIGIN="https://localhost",
         )
@@ -624,7 +624,7 @@ class TestCapture(BaseTest):
         }
         with freeze_time(timezone.now()):
             self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -658,7 +658,7 @@ class TestCapture(BaseTest):
         }
         with freeze_time(timezone.now()):
             self.client.get(
-                "/e/?data=%s" % quote(self._to_json(data)),
+                "/e/?data={}".format(quote(self._to_json(data))),
                 HTTP_ORIGIN="https://localhost",
             )
 
@@ -692,6 +692,46 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(kafka_produce.call_count, 2)
+
+        validate_response(openapi_spec, response)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_null_event_in_batch(self, kafka_produce):
+        response = self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "beep",
+                            "properties": {
+                                "distinct_id": "eeee",
+                                "token": self.team.api_token,
+                            },
+                        },
+                        None,
+                        {
+                            "event": "boop",
+                            "properties": {
+                                "distinct_id": "aaaa",
+                                "token": self.team.api_token,
+                            },
+                        },
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Invalid payload: some events are null",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
         validate_response(openapi_spec, response)
 
@@ -1165,16 +1205,17 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_engage(self, kafka_produce):
         self.client.get(
-            "/engage/?data=%s"
-            % quote(
-                self._to_json(
-                    {
-                        "$set": {"$os": "Mac OS X"},
-                        "$token": "token123",
-                        "$distinct_id": 3,
-                        "$device_id": "16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395",
-                        "$user_id": 3,
-                    }
+            "/engage/?data={}".format(
+                quote(
+                    self._to_json(
+                        {
+                            "$set": {"$os": "Mac OS X"},
+                            "$token": "token123",
+                            "$distinct_id": 3,
+                            "$device_id": "16fd4afae9b2d8-0fce8fe900d42b-39637c0e-7e9000-16fd4afae9c395",
+                            "$user_id": 3,
+                        }
+                    )
                 )
             ),
             content_type="application/json",

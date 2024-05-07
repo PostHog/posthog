@@ -96,32 +96,34 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(
-            "/api/person/?properties=%s"
-            % json.dumps(
-                [
-                    {
-                        "key": "email",
-                        "operator": "is_set",
-                        "value": "is_set",
-                        "type": "person",
-                    }
-                ]
+            "/api/person/?properties={}".format(
+                json.dumps(
+                    [
+                        {
+                            "key": "email",
+                            "operator": "is_set",
+                            "value": "is_set",
+                            "type": "person",
+                        }
+                    ]
+                )
             )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
         response = self.client.get(
-            "/api/person/?properties=%s"
-            % json.dumps(
-                [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": "another@gm",
-                        "type": "person",
-                    }
-                ]
+            "/api/person/?properties={}".format(
+                json.dumps(
+                    [
+                        {
+                            "key": "email",
+                            "operator": "icontains",
+                            "value": "another@gm",
+                            "type": "person",
+                        }
+                    ]
+                )
             )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -212,7 +214,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         # Filter
         response = self.client.get(
-            "/api/person/?properties=%s" % json.dumps([{"key": "some_prop", "value": "some_value", "type": "person"}])
+            "/api/person/?properties={}".format(
+                json.dumps([{"key": "some_prop", "value": "some_value", "type": "person"}])
+            )
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -383,7 +387,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "whatever", "$os": "Mac OS X"},
         )
 
-        self.client.post("/api/person/%s/split/" % person1.pk, {"main_distinct_id": "1"})
+        self.client.post("/api/person/{}/split/".format(person1.pk), {"main_distinct_id": "1"})
 
         people = Person.objects.all().order_by("id")
         self.assertEqual(people.count(), 3)
@@ -429,7 +433,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/%s/split/" % person1.pk)
+        response = self.client.post("/api/person/{}/split/".format(person1.pk))
         people = Person.objects.all().order_by("id")
         self.assertEqual(people.count(), 3)
         self.assertEqual(people[0].distinct_ids, ["1"])
@@ -679,7 +683,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/%s/split/" % person.uuid).json()
+        response = self.client.post("/api/person/{}/split/".format(person.uuid)).json()
         self.assertTrue(response["success"])
 
         people = Person.objects.all().order_by("id")
@@ -710,12 +714,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        created_person = self.client.get("/api/person/%s/" % person.uuid).json()
+        created_person = self.client.get("/api/person/{}/".format(person.uuid)).json()
         created_person["properties"]["a"] = "b"
-        response = self.client.patch("/api/person/%s/" % person.uuid, created_person)
+        response = self.client.patch("/api/person/{}/".format(person.uuid), created_person)
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
-        self.client.get("/api/person/%s/" % person.uuid)
+        self.client.get("/api/person/{}/".format(person.uuid))
 
         self._assert_person_activity(
             person_id=person.uuid,
@@ -765,7 +769,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.content.splitlines()), 3, response.content)
 
         response = self.client.get(
-            "/api/person.csv?properties=%s" % json.dumps([{"key": "$os", "value": "Windows", "type": "person"}])
+            "/api/person.csv?properties={}".format(json.dumps([{"key": "$os", "value": "Windows", "type": "person"}]))
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
