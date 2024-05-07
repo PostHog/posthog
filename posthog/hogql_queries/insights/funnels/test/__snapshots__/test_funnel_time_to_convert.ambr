@@ -410,7 +410,7 @@
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
@@ -756,7 +756,7 @@
                                     WHERE isNotNull(step_runs.step_1_average_conversion_time_inner)) AS histogram_params), 0), 1)) AS numbers) AS fill ON equals(results.bin_from_seconds, fill.bin_from_seconds)
   ORDER BY fill.bin_from_seconds ASC
   LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
+                     max_execution_time=180,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=1000000,
