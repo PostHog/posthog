@@ -265,6 +265,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
+        self.organization.available_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
