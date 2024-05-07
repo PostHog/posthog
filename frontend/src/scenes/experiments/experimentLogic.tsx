@@ -858,8 +858,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 return (
                     newExperiment?.parameters?.minimum_detectable_effect ||
                     // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults) || // TODO RENAME METHOD "recommended*" ||
-                    0 // TODO: does 0 make sense here?
+                    getMinimumDetectableEffect(experimentInsightType, conversionMetrics, trendResults) ||
+                    0
                 )
             },
         ],
