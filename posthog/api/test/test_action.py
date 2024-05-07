@@ -142,19 +142,26 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
-        action = Action.objects.create(name="user signed up", team=self.team, steps_json=[{"text": "sign me up!"}])
+        action = Action.objects.create(
+            name="user signed up", team=self.team, steps_json=[{"event": "$autocapture", "text": "sign me up!"}]
+        )
+        action.refresh_bytecode()
+        action.save()
+        previous_bytecode = action.bytecode
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={
                 "name": "user signed up 2",
                 "steps": [
                     {
+                        "event": "$autocapture",
                         "text": "sign up NOW",
                         "selector": "div > button",
                         "properties": [{"key": "$browser", "value": "Chrome"}],
                         "url": None,
                     },
-                    {"href": "/a-new-link"},
+                    {"event": "$pageview", "href": "/a-new-link"},
                 ],
                 "description": "updated description",
                 "created_by": {
@@ -172,7 +179,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert not response.json()["created_by"]
         assert response.json()["steps"] == [
             {
-                "event": None,
+                "event": "$autocapture",
                 "properties": [{"key": "$browser", "value": "Chrome"}],
                 "selector": "div > button",
                 "tag_name": None,
@@ -184,7 +191,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "url_matching": "contains",
             },
             {
-                "event": None,
+                "event": "$pageview",
                 "properties": None,
                 "selector": None,
                 "tag_name": None,
@@ -204,8 +211,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert action.action_steps.all()[0].text == "sign up NOW"
         assert action.action_steps.all()[1].href == "/a-new-link"
 
-        # TODO: This can't be right - For @marius to look into perhaps?
-        assert action.bytecode == ["_h", 29, 32, "Chrome", 32, "$browser", 32, "properties", 1, 2, 11, 4, 2]
+        assert previous_bytecode != action.bytecode
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
