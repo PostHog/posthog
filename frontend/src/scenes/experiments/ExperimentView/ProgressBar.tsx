@@ -110,12 +110,12 @@ export function ProgressBar(): JSX.Element {
                     </Tooltip>
                 </div>
             )}
-            <MdeModal experimentId={experimentId} />
+            <DataCollectionGoalModal experimentId={experimentId} />
         </div>
     )
 }
 
-export function MdeModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
+export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const { isExperimentCollectionGoalModalOpen } = useValues(experimentLogic({ experimentId }))
     const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
         experimentLogic({ experimentId })

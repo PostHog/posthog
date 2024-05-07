@@ -4,7 +4,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -15,6 +15,7 @@ import { InsightType, MultivariateFlagVariant } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { VariantTag } from './components'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -28,6 +29,7 @@ export function DataCollectionCalculator({
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
     const {
+        experimentResults,
         experimentInsightType,
         editingExistingExperiment,
         minimumDetectableChange,
@@ -43,8 +45,6 @@ export function DataCollectionCalculator({
 
     const insightLogicInstance = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID, syncWithUrl: false })
     const { insightProps } = useValues(insightLogicInstance)
-
-    // insightDataLogic
     const { query } = useValues(insightDataLogic(insightProps))
 
     const trendCount = trendResults[0]?.count || 0
@@ -104,17 +104,12 @@ export function DataCollectionCalculator({
                             max={sliderMaxValue}
                             step={1}
                             onChange={(value) => {
-                                // setTruthMinimumDetectableChange(value)
-
                                 setExperiment({
                                     parameters: {
                                         ...experiment.parameters,
                                         minimum_detectable_effect: value,
                                     },
                                 })
-                                // setTimeout(() => {
-                                //     console.log(experiment.parameters)
-                                // }, 500)
                             }}
                             className="w-1/3"
                         />
@@ -127,9 +122,6 @@ export function DataCollectionCalculator({
                             suffix={<span>%</span>}
                             value={minimumDetectableChange}
                             onChange={(value) => {
-                                // if (value) {
-                                //     setTruthMinimumDetectableChange(value)
-                                // }
                                 if (value) {
                                     setExperiment({
                                         parameters: {
@@ -206,9 +198,16 @@ export function DataCollectionCalculator({
                             <div className="card-secondary">Experiment variants</div>
                             <ul className="variants-list">
                                 {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => (
-                                        <li key={idx}>{variant.key}</li>
-                                    )
+                                    (variant: MultivariateFlagVariant, idx: number) => {
+                                        if (!experimentResults || !experimentResults.insight) {
+                                            return (
+                                                <div key={idx} className="font-semibold">
+                                                    {capitalizeFirstLetter(variant.key)}
+                                                </div>
+                                            )
+                                        }
+                                        return <VariantTag key={idx} variantKey={variant.key} />
+                                    }
                                 )}
                             </ul>
                         </div>
