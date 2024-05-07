@@ -59,8 +59,8 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     if insight is not None:
         if insight.query:
             query_runner = get_query_runner_or_none(insight.query, insight.team)
-            if dashboard is not None and dashboard.dashboard_filters:
-                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.dashboard_filters))
+            if dashboard is not None and dashboard.filters:
+                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
             return query_runner.get_cache_key() if query_runner else None
 
         if insight.filters:
