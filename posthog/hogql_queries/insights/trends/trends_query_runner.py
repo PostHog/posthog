@@ -826,20 +826,18 @@ class TrendsQueryRunner(QueryRunner):
         return TrendsDisplay(display)
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
-        updated_query: TrendsQuery = super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
+        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
         if (
-            updated_query.breakdownFilter
-            and updated_query.breakdownFilter.breakdown_limit
-            and updated_query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdown_limit
+            and self.query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
         ):
             # Remove too high breakdown limit for display on the dashboard
-            updated_query.breakdownFilter.breakdown_limit = None
+            self.query.breakdownFilter.breakdown_limit = None
 
         if (
-            updated_query.trendsFilter is not None
-            and updated_query.trendsFilter.compare
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.compare
             and dashboard_filter.date_from == "all"
         ):
-            updated_query.trendsFilter.compare = False
-
-        return updated_query
+            self.query.trendsFilter.compare = False

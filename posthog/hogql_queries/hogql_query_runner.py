@@ -84,5 +84,3 @@ class HogQLQueryRunner(QueryRunner):
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
-
-        return self.query
