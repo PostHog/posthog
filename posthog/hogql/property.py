@@ -35,7 +35,9 @@ from posthog.schema import (
     RetentionEntity,
     EmptyPropertyFilter,
 )
+from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.utils import get_from_dict_or_attr
+from django.db.models import Q
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -297,6 +299,52 @@ def property_to_expr(
                     type=PropertyDefinition.Type.GROUP,
                     group_type_index=property.group_type_index,
                 )
+            elif property.type == "data_warehouse_person_property":
+                key = chain[-1]
+
+                # TODO: pass id of table item being filtered on instead of searching through joins
+                current_join: DataWarehouseJoin | None = (
+                    DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, source_table_name="persons", field_name=key)
+                    .first()
+                )
+
+                if not current_join:
+                    raise Exception(f"Could not find join for key {key}")
+
+                prop_type = None
+
+                maybe_view = (
+                    DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
+
+                if maybe_view:
+                    prop_type_dict = maybe_view.columns.get(property.key, None)
+                    prop_type = prop_type_dict.get("hogql")
+
+                maybe_table = (
+                    DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
+
+                if maybe_table:
+                    prop_type_dict = maybe_table.columns.get(property.key, None)
+                    prop_type = prop_type_dict.get("hogql")
+
+                if not maybe_view and not maybe_table:
+                    raise Exception(f"Could not find table or view for key {key}")
+
+                if prop_type == "BooleanDatabaseField":
+                    if value == "true":
+                        value = True
+                    if value == "false":
+                        value = False
+
+                return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
+
             else:
                 property_types = PropertyDefinition.objects.filter(
                     team=team,
