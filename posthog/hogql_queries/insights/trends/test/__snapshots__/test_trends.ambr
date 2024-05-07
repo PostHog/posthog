@@ -1393,8 +1393,10 @@
                      max_ast_elements=1000000,
                      max_expanded_ast_elements=1000000,
                      max_query_size=524288
+  '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
