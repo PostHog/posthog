@@ -65,17 +65,21 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
                             return (
-                                <Tooltip title="Click to update configuration, view metrics, and more">
-                                    <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Configuration
-                                        )}
-                                        title={destination.name}
-                                        description={destination.description}
-                                    />
-                                </Tooltip>
+                                <LemonTableLink
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Configuration
+                                    )}
+                                    title={
+                                        <>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                                <span>{destination.name}</span>
+                                            </Tooltip>
+                                        </>
+                                    }
+                                    description={destination.description}
+                                />
                             )
                         },
                     },

@@ -10,6 +10,7 @@ import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryF
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyDataNode,
+    AnyResponseType,
     DataTableNode,
     EventsQuery,
     HogQLExpression,
@@ -103,14 +104,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInResponse
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
-                    const eventsQueryResponse = response as EventsQuery['response'] | null
+                    const eventsQueryResponse = response as AnyResponseType
                     if (eventsQueryResponse) {
                         // must be loading
                         if (!equal(columnsInQuery, columnsInResponse)) {
                             return []
                         }
 
-                        const { results } = eventsQueryResponse
+                        let results: any[] | null = []
+                        if ('results' in eventsQueryResponse) {
+                            results = eventsQueryResponse.results
+                        } else if ('result' in eventsQueryResponse) {
+                            results = eventsQueryResponse.result
+                        }
+
+                        if (!results) {
+                            return []
+                        }
+
                         const orderKey = orderBy?.[0]?.endsWith(' DESC')
                             ? orderBy[0].replace(/ DESC$/, '')
                             : orderBy?.[0]

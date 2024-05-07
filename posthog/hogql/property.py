@@ -18,7 +18,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.models import (
     Action,
-    ActionStep,
     Cohort,
     Property,
     PropertyDefinition,
@@ -36,7 +35,9 @@ from posthog.schema import (
     PropertyOperator,
     RetentionEntity,
 )
+from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.utils import get_from_dict_or_attr
+from django.db.models import Q
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -298,6 +299,52 @@ def property_to_expr(
                     type=PropertyDefinition.Type.GROUP,
                     group_type_index=property.group_type_index,
                 )
+            elif property.type == "data_warehouse_person_property":
+                key = chain[-1]
+
+                # TODO: pass id of table item being filtered on instead of searching through joins
+                current_join: DataWarehouseJoin | None = (
+                    DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, source_table_name="persons", field_name=key)
+                    .first()
+                )
+
+                if not current_join:
+                    raise Exception(f"Could not find join for key {key}")
+
+                prop_type = None
+
+                maybe_view = (
+                    DataWarehouseSavedQuery.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
+
+                if maybe_view:
+                    prop_type_dict = maybe_view.columns.get(property.key, None)
+                    prop_type = prop_type_dict.get("hogql")
+
+                maybe_table = (
+                    DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+                    .filter(team=team, name=current_join.joining_table_name)
+                    .first()
+                )
+
+                if maybe_table:
+                    prop_type_dict = maybe_table.columns.get(property.key, None)
+                    prop_type = prop_type_dict.get("hogql")
+
+                if not maybe_view and not maybe_table:
+                    raise Exception(f"Could not find table or view for key {key}")
+
+                if prop_type == "BooleanDatabaseField":
+                    if value == "true":
+                        value = True
+                    if value == "false":
+                        value = False
+
+                return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
+
             else:
                 property_types = PropertyDefinition.objects.filter(
                     team=team,
@@ -380,7 +427,7 @@ def property_to_expr(
 
 
 def action_to_expr(action: Action) -> ast.Expr:
-    steps = action.steps.all()
+    steps = action.steps
 
     if len(steps) == 0:
         return ast.Constant(value=True)
@@ -397,29 +444,29 @@ def action_to_expr(action: Action) -> ast.Expr:
             if step.tag_name is not None:
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                if step.href_matching == ActionStep.REGEX:
+                if step.href_matching == "regex":
                     operator = PropertyOperator.regex
-                elif step.href_matching == ActionStep.CONTAINS:
+                elif step.href_matching == "contains":
                     operator = PropertyOperator.icontains
                 else:
                     operator = PropertyOperator.exact
                 exprs.append(element_chain_key_filter("href", step.href, operator))
             if step.text is not None:
-                if step.text_matching == ActionStep.REGEX:
+                if step.text_matching == "regex":
                     operator = PropertyOperator.regex
-                elif step.text_matching == ActionStep.CONTAINS:
+                elif step.text_matching == "contains":
                     operator = PropertyOperator.icontains
                 else:
                     operator = PropertyOperator.exact
                 exprs.append(element_chain_key_filter("text", step.text, operator))
 
         if step.url:
-            if step.url_matching == ActionStep.EXACT:
+            if step.url_matching == "exact":
                 expr = parse_expr(
                     "properties.$current_url = {url}",
                     {"url": ast.Constant(value=step.url)},
                 )
-            elif step.url_matching == ActionStep.REGEX:
+            elif step.url_matching == "regex":
                 expr = parse_expr(
                     "properties.$current_url =~ {regex}",
                     {"regex": ast.Constant(value=step.url)},

@@ -118,6 +118,10 @@ type RenderAppProps = {
     imageSize?: PluginImageSize
 }
 
+export function getBatchExportUrl(service: BatchExportService['type']): string {
+    return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`
+}
+
 export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     if (!plugin) {
         return <LemonSkeleton className="w-15 h-15" />
@@ -162,9 +166,19 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportService['type
 
     return (
         <div className="flex items-center gap-4">
-            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
-                <img src={icon} alt={type} height={60} width={60} />
-            </Link>
+            <Tooltip
+                title={
+                    <>
+                        {type}
+                        <br />
+                        Click to view docs
+                    </>
+                }
+            >
+                <Link to={getBatchExportUrl(type)}>
+                    <img src={icon} alt={type} height={60} width={60} />
+                </Link>
+            </Tooltip>
         </div>
     )
 }
@@ -255,13 +269,17 @@ export function nameColumn<
         sticky: true,
         render: function RenderName(_, pipelineNode) {
             return (
-                <Tooltip title="Click to update configuration, view metrics, and more">
-                    <LemonTableLink
-                        to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
-                        title={pipelineNode.name}
-                        description={pipelineNode.description}
-                    />
-                </Tooltip>
+                <LemonTableLink
+                    to={urls.pipelineNode(pipelineNode.stage, pipelineNode.id, PipelineNodeTab.Configuration)}
+                    title={
+                        <>
+                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                <span>{pipelineNode.name}</span>
+                            </Tooltip>
+                        </>
+                    }
+                    description={pipelineNode.description}
+                />
             )
         },
     }
@@ -310,6 +328,11 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
         items.concat(pluginMenuItems(node))
     }
     return items
+}
+
+export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
 }
 
 export function pipelinePluginBackedNodeMenuCommonItems(
