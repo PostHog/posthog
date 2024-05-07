@@ -1240,6 +1240,15 @@ export interface InsightActorsQueryOptionsResponse {
         value: string
     }[]
 }
+export const insightActorsQueryOptionsResponseKeys: string[] = [
+    'day',
+    'status',
+    'interval',
+    'breakdown',
+    'series',
+    'compare',
+]
+
 export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {

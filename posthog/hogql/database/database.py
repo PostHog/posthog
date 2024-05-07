@@ -301,7 +301,7 @@ def create_hogql_database(
                 from_field=from_field,
                 to_field=to_field,
                 join_table=joining_table,
-                join_function=join.join_function,
+                join_function=join.join_function(),
             )
 
             if join.source_table_name == "persons":
@@ -330,14 +330,17 @@ def create_hogql_database(
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join.join_function,
+                            # reusing join_function but with different source_table_key since we're joining 'directly' on events
+                            join_function=join.join_function(
+                                override_source_table_key=f"person.{join.source_table_key}"
+                            ),
                         )
                     else:
                         table_or_field.fields[join.field_name] = LazyJoin(
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join.join_function,
+                            join_function=join.join_function(),
                         )
         except Exception as e:
             capture_exception(e)

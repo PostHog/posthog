@@ -696,6 +696,46 @@ class TestCapture(BaseTest):
         validate_response(openapi_spec, response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_null_event_in_batch(self, kafka_produce):
+        response = self.client.post(
+            "/batch/",
+            data={
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "beep",
+                            "properties": {
+                                "distinct_id": "eeee",
+                                "token": self.team.api_token,
+                            },
+                        },
+                        None,
+                        {
+                            "event": "boop",
+                            "properties": {
+                                "distinct_id": "aaaa",
+                                "token": self.team.api_token,
+                            },
+                        },
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Invalid payload: some events are null",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
+
+        validate_response(openapi_spec, response)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_drops_performance_events(self, kafka_produce):
         self.client.post(
             "/batch/",
