@@ -453,6 +453,7 @@ const handleQuerySourceUpdateSideEffects = (
     currentState: InsightQueryNode
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
+    const trendsMergedUpdate = mergedUpdate as TrendsQuery
 
     const maybeChangedSeries = (update as TrendsQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
@@ -477,12 +478,12 @@ const handleQuerySourceUpdateSideEffects = (
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+            trendsMergedUpdate.interval = 'day'
         } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'week'
+            trendsMergedUpdate.interval = 'week'
         }
     }
 
@@ -501,11 +502,11 @@ const handleQuerySourceUpdateSideEffects = (
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
             if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+                trendsMergedUpdate.interval = 'hour'
             } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+                trendsMergedUpdate.interval = 'day'
             } else {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'month'
+                trendsMergedUpdate.interval = 'month'
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
@@ -521,7 +522,7 @@ const handleQuerySourceUpdateSideEffects = (
                     break
                 }
             }
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = newDefaultInterval
+            trendsMergedUpdate.interval = newDefaultInterval
         }
     }
 
@@ -549,9 +550,9 @@ const handleQuerySourceUpdateSideEffects = (
     // if mixed, clear breakdown and trends filter
     if (
         kind === NodeKind.TrendsQuery &&
-        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
-        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
-        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
+        trendsMergedUpdate.series?.length >= 0 &&
+        trendsMergedUpdate.series.some((series) => isDataWarehouseNode(series)) &&
+        trendsMergedUpdate.series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
         mergedUpdate['breakdownFilter'] = null
         mergedUpdate['properties'] = []
@@ -562,16 +563,12 @@ const handleQuerySourceUpdateSideEffects = (
     if (
         currentState.kind == NodeKind.TrendsQuery &&
         kind !== NodeKind.TrendsQuery &&
-        ((mergedUpdate as Partial<TrendsQuery>)?.interval || interval) == 'minute'
+        (trendsMergedUpdate?.interval || interval) == 'minute'
     ) {
-        ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+        trendsMergedUpdate.interval = 'hour'
     }
 
-    if (
-        kind == NodeKind.TrendsQuery &&
-        (mergedUpdate as Partial<TrendsQuery>)?.interval == 'minute' &&
-        interval !== 'minute'
-    ) {
+    if (kind == NodeKind.TrendsQuery && trendsMergedUpdate?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
         console.log('DATE RANGE', mergedUpdate, interval, date_from, date_to)
         // Current bug is that neither of these has dateRange in it
@@ -582,15 +579,14 @@ const handleQuerySourceUpdateSideEffects = (
         if (!date_from && !date_to) {
             // When insights are created, they might not have an explicit dateRange set. This defaults to 7 days.
             // Change it to 3 hours if they pick hour.
-            ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+            trendsMergedUpdate.dateRange = {
                 date_from: dateMapping.values[0],
                 date_to: dateMapping.values[1],
             }
-        }
-        if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
+        } else if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
             // Custom date mapping
             if (dayjs(date_to).diff(dayjs(date_from), 'day') >= 1) {
-                ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+                trendsMergedUpdate.dateRange = {
                     date_from: dateMapping.values[0],
                     date_to: dateMapping.values[1],
                 }
@@ -605,7 +601,7 @@ const handleQuerySourceUpdateSideEffects = (
                     defaultInterval &&
                     defaultInterval !== 'minute'
                 ) {
-                    ;(mergedUpdate as Partial<TrendsQuery>).dateRange = {
+                    trendsMergedUpdate.dateRange = {
                         date_from: dateMapping.values[0],
                         date_to: dateMapping.values[1],
                     }
@@ -613,18 +609,21 @@ const handleQuerySourceUpdateSideEffects = (
             }
         }
     }
-    console.log('MERGED UPDATE', mergedUpdate)
 
     // If we've changed interval, clear smoothings
-    if (
-        kind == NodeKind.TrendsQuery &&
-        (mergedUpdate as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
-        (mergedUpdate as Partial<TrendsQuery>)?.interval !== undefined &&
-        interval !== undefined &&
-        (mergedUpdate as Partial<TrendsQuery>)?.interval !== interval
-    ) {
-        // @ts-ignore
-        ;(mergedUpdate as TrendsQuery).trendsFilter.smoothingIntervals = undefined
+    if (kind == NodeKind.TrendsQuery) {
+        if (
+            (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
+            trendsMergedUpdate?.interval !== undefined &&
+            interval !== undefined &&
+            trendsMergedUpdate.interval !== interval
+        ) {
+            trendsMergedUpdate.trendsFilter = {
+                ...(trendsMergedUpdate.trendsFilter || {}),
+                smoothingIntervals: undefined,
+            }
+        }
     }
+
     return mergedUpdate
 }
