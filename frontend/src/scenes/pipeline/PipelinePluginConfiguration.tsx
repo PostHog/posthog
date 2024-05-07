@@ -128,7 +128,7 @@ export function PipelinePluginConfiguration({
                 </LemonField>
                 <LemonField name="enabled">
                     {({ value, onChange }) => (
-                        <LemonCheckbox bordered label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                        <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
                     )}
                 </LemonField>
                 <>{fields}</>
