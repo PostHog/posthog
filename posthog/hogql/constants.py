@@ -97,7 +97,7 @@ class HogQLQuerySettings(BaseModel):
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
-    max_execution_time: Optional[int] = 3 * 60  # three minutes (these guesses can be wildly off, might have to expand)
+    max_execution_time: Optional[int] = 60
     allow_experimental_object_type: Optional[bool] = True
     format_csv_allow_double_quotes: Optional[bool] = False
     max_ast_elements: Optional[int] = 50000 * 20  # default value 50000
