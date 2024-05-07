@@ -94,7 +94,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         # And then also save the old model for backwards compatibility
 
         if action.pk:
-            # This is slightly< inefficient but simple and temporary
             existing_actions = list(action.action_steps.all())
 
         # Creating
