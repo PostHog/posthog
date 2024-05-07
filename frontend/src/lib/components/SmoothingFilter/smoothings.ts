@@ -4,7 +4,16 @@ import { IntervalType, SmoothingType } from '~/types'
 // the typing should catch if we update SmoothingType but do not add an explicit
 // option to this lookup
 export const smoothingOptions: Record<IntervalType, { label: string; value: SmoothingType }[]> = {
-    minute: [],
+    minute: [
+        {
+            label: 'No smoothing',
+            value: 1,
+        },
+        {
+            label: '3 minute',
+            value: 3,
+        },
+    ],
     hour: [
         {
             label: 'No smoothing',
