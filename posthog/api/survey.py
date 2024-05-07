@@ -255,22 +255,21 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     "properties": [
                         {
                             "key": f"$survey_dismissed/{instance.id}",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
                             "type": "person",
-                            "value": ["true"],
-                            "operator": "exact",
                         },
                         {
                             "key": f"$survey_responded/{instance.id}",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
                             "type": "person",
-                            "value": ["true"],
-                            "operator": "exact",
                         },
                     ],
                 }
             ]
         }
 
-        # if there was a feature flag created already to target users for this survey.
         if instance.targeting_flag:
             existing_targeting_flag = instance.targeting_flag
             serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}

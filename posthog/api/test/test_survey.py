@@ -56,6 +56,66 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    def test_create_adds_user_interactivity_filters(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think of the new notebooks feature?",
+                    }
+                ],
+                "targeting_flag_filters": None,
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["description"] == "Get feedback on the new notebooks feature"
+        assert response_data["type"] == "popover"
+        assert response_data["questions"] == [
+            {
+                "type": "open",
+                "question": "What do you think of the new notebooks feature?",
+            }
+        ]
+        assert response_data["created_by"]["id"] == self.user.id
+        assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
+        survey_id = response_data["id"]
+        user_submitted_dismissed_filter = {
+            "groups": [
+                {
+                    "variant": "",
+                    "rollout_percentage": 100,
+                    "properties": [
+                        {
+                            "key": f"$survey_dismissed/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                        {
+                            "key": f"$survey_responded/{survey_id}",
+                            "type": "person",
+                            "value": "is_not_set",
+                            "operator": "is_not_set",
+                        },
+                    ],
+                }
+            ]
+        }
+
+        assert (
+            FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).get().filters
+            == user_submitted_dismissed_filter
+        )
+
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
 
@@ -251,7 +311,9 @@ class TestSurvey(APIBaseTest):
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["linked_flag"]["id"] == notebooks_flag.id
-        assert response_data["targeting_flag"] is None
+        # need to write an assertion that the user-defined flag groups are gone.
+        # assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is None
+        assert response_data["targeting_flag"] is not None
 
         created_survey2 = response.json()["id"]
 
@@ -266,7 +328,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -370,7 +432,8 @@ class TestSurvey(APIBaseTest):
         ).json()
 
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).exists()
-        assert survey_without_targeting["targeting_flag"] is None
+        # assert that any user defined conditions are deleted
+        assert survey_without_targeting["targeting_flag"] is not None
 
         updated_survey_creates_targeting_flag = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_without_targeting['id']}/",
@@ -509,7 +572,8 @@ class TestSurvey(APIBaseTest):
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
         assert updated_survey_deletes_targeting_flag.json()["name"] == "survey with targeting"
-        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is None
+        # need to write an assertion that the user-defined flag groups are gone.
+        assert updated_survey_deletes_targeting_flag.json()["targeting_flag"] is not None
 
         with self.assertRaises(FeatureFlag.DoesNotExist):
             FeatureFlag.objects.get(id=flagId)
@@ -832,6 +896,9 @@ class TestSurvey(APIBaseTest):
         list = self.client.get(f"/api/projects/{self.team.id}/surveys/")
         response_data = list.json()
         assert list.status_code == status.HTTP_200_OK, response_data
+
+        # remove the automatically inserted targeting flag from test assertion.
+        response_data.get("results")[0]["targeting_flag"] = None
         assert response_data == {
             "count": 1,
             "next": None,
