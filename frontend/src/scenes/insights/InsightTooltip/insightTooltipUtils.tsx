@@ -79,7 +79,7 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
-    minute: 'DD MMM YYYY HH:mm:00', // fix this
+    minute: 'DD MMM YYYY HH:mm:00',
     hour: 'DD MMM YYYY HH:00',
     day: 'DD MMM YYYY',
     week: 'DD MMM YYYY',
@@ -94,9 +94,6 @@ export function getFormattedDate(dayInput?: string | number, interval: IntervalT
     const day = dayjs(dayInput)
     // Dayjs formatted day
     if (dayInput !== undefined && day.isValid()) {
-        if (interval == 'minute') {
-            console.log(dayInput, day)
-        }
         return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
     return String(dayInput)

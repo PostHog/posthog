@@ -24,7 +24,6 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                 disabled={disabled}
                 interval={interval || 'day'}
                 onIntervalChange={(value) => {
-                    //console.log('ON INTERVAL CHANGE', value)
                     updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
                 options={Object.entries(enabledIntervals).reduce(

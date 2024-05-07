@@ -18,8 +18,6 @@ type ValueColumnTitleProps = {
 export function ValueColumnTitle({ index, indexedResults, compare, interval }: ValueColumnTitleProps): JSX.Element {
     const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
 
-    //console.log(interval)
-    //console.log(indexedResults)
     return (
         <DateDisplay
             interval={interval || 'day'}

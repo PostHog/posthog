@@ -98,7 +98,6 @@ export function InsightTooltip({
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    console.log(seriesData, altTitle, date)
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
         (date

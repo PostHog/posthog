@@ -118,7 +118,7 @@ def is_stale(team: Team, date_to: datetime, interval: str, cached_result: Any) -
 
     if interval == "minute":
         return start_of_minute(date_to) > start_of_minute(last_refresh)
-    if interval == "hour":
+    elif interval == "hour":
         return start_of_hour(date_to) > start_of_hour(last_refresh)
     elif interval == "day":
         return start_of_day(date_to) > start_of_day(last_refresh)

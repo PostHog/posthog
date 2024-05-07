@@ -58,7 +58,7 @@ class QueryDateRange:
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
-            if not (self.interval_name == "hour" or self.interval_name == "minute"):
+            if self.interval_name not in ("hour", "minute"):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
                 if self.interval_name == "hour":
@@ -214,16 +214,11 @@ class QueryDateRange:
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
-        if interval == IntervalType.hour or interval == IntervalType.minute:
+        if interval in (IntervalType.hour, IntervalType.minute):
             return False
         elif interval == IntervalType.day:
             if is_delta_hours:
                 return False
-            else:
-                return True
-        elif interval == IntervalType.week or interval == IntervalType.month:
-            return True
-
         return True
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
@@ -305,7 +300,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
-        if self._interval == IntervalType.hour or self._interval == IntervalType.minute:
+        if self._interval in (IntervalType.hour, IntervalType.minute):
             return self.date_to() - delta
         elif self._interval == IntervalType.week:
             date_from = self.date_to() - delta

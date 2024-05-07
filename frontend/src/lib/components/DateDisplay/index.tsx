@@ -22,7 +22,6 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {
     switch (interval) {
         case 'minute':
-            // What is this?
             return parsedDate.format('MMM D')
         case 'hour':
             return parsedDate.format('MMM D')

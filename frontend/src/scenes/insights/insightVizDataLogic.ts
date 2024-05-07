@@ -388,8 +388,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ display })
         },
         updateQuerySource: ({ querySource }) => {
-            console.log('UPDATE QUERY SOURCE', querySource)
-
             actions.setQuery({
                 ...values.query,
                 source: {
@@ -558,21 +556,17 @@ const handleQuerySourceUpdateSideEffects = (
         mergedUpdate['properties'] = []
     }
 
-    console.log('handleQuerySourceUpdateSideEffects')
     // Don't allow minutes on anything other than Trends
     if (
         currentState.kind == NodeKind.TrendsQuery &&
         kind !== NodeKind.TrendsQuery &&
-        (trendsMergedUpdate?.interval || interval) == 'minute'
+        (('interval' in mergedUpdate && mergedUpdate?.interval) || interval) == 'minute'
     ) {
         trendsMergedUpdate.interval = 'hour'
     }
 
     if (kind == NodeKind.TrendsQuery && trendsMergedUpdate?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
-        console.log('DATE RANGE', mergedUpdate, interval, date_from, date_to)
-        // Current bug is that neither of these has dateRange in it
-        console.log(currentState, update)
 
         // Change the date range to be the last 3 hours if it was longer
         const dateMapping = realTimeDateMapping[1]
@@ -615,11 +609,10 @@ const handleQuerySourceUpdateSideEffects = (
         if (
             (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
             trendsMergedUpdate?.interval !== undefined &&
-            interval !== undefined &&
             trendsMergedUpdate.interval !== interval
         ) {
             trendsMergedUpdate.trendsFilter = {
-                ...(trendsMergedUpdate.trendsFilter || {}),
+                ...trendsMergedUpdate.trendsFilter,
                 smoothingIntervals: undefined,
             }
         }
