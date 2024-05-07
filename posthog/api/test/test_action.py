@@ -12,6 +12,8 @@ from posthog.test.base import (
     FuzzyInt,
 )
 
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.action.report_user_action")
@@ -143,6 +145,11 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.force_login(user)
 
         action = Action.objects.create(name="user signed up", team=self.team, steps_json=[{"text": "sign me up!"}])
+        action.refresh_bytecode()
+        action.save()
+        # NOTE: @mariusandra Is this correct?
+        assert action.bytecode == [_H, op.TRUE]
+
         response = self.client.patch(
             f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={
