@@ -460,7 +460,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     capture_exception()
                     logger.exception("Failed to apply dashboard property filters")
             else:
-                self.query = dashboard_filter.properties
+                self.query.properties = dashboard_filter.properties
         if dashboard_filter.date_from or dashboard_filter.date_to:
             if self.query.dateRange is None:
                 self.query.dateRange = DateRange()
