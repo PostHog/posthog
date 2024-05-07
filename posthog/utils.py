@@ -253,7 +253,6 @@ def relative_date_parse_with_delta_mapping(
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
         if "hours" in delta_mapping:
-            # want to not pass always truncate if it is minutes
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
