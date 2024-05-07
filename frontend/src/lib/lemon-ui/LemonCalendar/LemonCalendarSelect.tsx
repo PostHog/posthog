@@ -42,8 +42,8 @@ function proposedDate(target: dayjs.Dayjs | null, { value, unit }: GetLemonButto
     return date
 }
 
-function cloneTimeToDate(date: dayjs.Dayjs, selectValue: dayjs.Dayjs): dayjs.Dayjs {
-    return date.clone().hour(selectValue.hour()).minute(selectValue.minute())
+function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayjs.Dayjs {
+    return targetDate.clone().hour(timeSource.hour()).minute(timeSource.minute())
 }
 
 export interface LemonCalendarSelectProps {
@@ -188,7 +188,7 @@ export function LemonCalendarSelect({
 }
 
 export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
-    onChange?: (date: dayjs.Dayjs | null) => void
+    onChange: (date: dayjs.Dayjs | null) => void
     onClickOutside?: () => void
     buttonProps?: Omit<LemonButtonWithSideActionProps, 'sideAction'> & { sideAction?: SideAction }
     placeholder?: string
@@ -216,7 +216,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 <LemonCalendarSelect
                     {...calendarProps}
                     onChange={(value) => {
-                        props.onChange?.(value)
+                        props.onChange(value)
                         setUncontrolledVisible(false)
                     }}
                     onClose={() => {

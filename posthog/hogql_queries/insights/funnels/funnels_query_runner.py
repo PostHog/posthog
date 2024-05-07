@@ -23,6 +23,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedFunnelsQueryResponse,
     FunnelVizType,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -32,6 +33,8 @@ from posthog.schema import (
 
 class FunnelsQueryRunner(QueryRunner):
     query: FunnelsQuery
+    response: FunnelsQueryResponse
+    cached_response: CachedFunnelsQueryResponse
     context: FunnelQueryContext
 
     def __init__(

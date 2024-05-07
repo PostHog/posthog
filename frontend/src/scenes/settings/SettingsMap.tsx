@@ -1,3 +1,5 @@
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
+
 import { AvailableFeature } from '~/types'
 
 import { Invites } from './organization/Invites'
@@ -120,6 +122,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ProjectAccountFiltersSetting />,
             },
             {
+                id: 'persons-on-events',
+                title: 'Event person filtering behavior',
+                component: <PersonsOnEvents />,
+            },
+            {
                 id: 'correlation-analysis',
                 title: 'Correlation analysis exclusions',
                 component: <CorrelationConfig />,
@@ -224,7 +231,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],

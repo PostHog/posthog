@@ -11,7 +11,7 @@ import {
     isOtherBreakdown,
 } from 'scenes/insights/utils'
 
-import { EntityNode, LifecycleQuery } from '~/queries/schema'
+import { LifecycleQuery, MathType } from '~/queries/schema'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -25,8 +25,6 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-
-type MathType = Required<EntityNode>['math']
 
 /** All math types that can result in non-whole numbers. */
 const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
@@ -126,9 +124,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
                     indexedResults.sort((a, b) =>
-                        a.label === BREAKDOWN_OTHER_STRING_LABEL
+                        a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                             ? BREAKDOWN_OTHER_NUMERIC_LABEL
-                            : a.label === BREAKDOWN_NULL_STRING_LABEL
+                            : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
                             ? BREAKDOWN_NULL_NUMERIC_LABEL
                             : b.aggregated_value - a.aggregated_value
                     )

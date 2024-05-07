@@ -16,44 +16,15 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
-    FunnelCorrelationQuery,
-    FunnelsQuery,
     HogQLAutocomplete,
     HogQLMetadata,
-    HogQLQuery,
-    EventsQuery,
-    TrendsQuery,
-    RetentionQuery,
     QuerySchemaRoot,
-    LifecycleQuery,
-    WebOverviewQuery,
-    WebTopClicksQuery,
-    WebStatsTableQuery,
-    ActorsQuery,
-    SessionsTimelineQuery,
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
-    StickinessQuery,
-    PathsQuery,
-    InsightActorsQueryOptions,
 )
 
 logger = structlog.get_logger(__name__)
-
-QUERY_WITH_RUNNER_USING_CACHE = (
-    TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | FunnelCorrelationQuery
-    | WebOverviewQuery
-    | WebTopClicksQuery
-    | WebStatsTableQuery
-)
-QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery | InsightActorsQueryOptions
 
 
 def process_query(
@@ -82,19 +53,12 @@ def process_query_model(
 ) -> dict:
     result: dict | BaseModel
 
-    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not isinstance(
-        query,
-        QUERY_WITH_RUNNER_USING_CACHE,  # type: ignore
-    ):
-        result = CacheMissResponse(cache_key=None)
-    else:
-        if isinstance(query, QUERY_WITH_RUNNER_USING_CACHE):  # type: ignore
-            query_runner = get_query_runner(query, team, limit_context=limit_context)
-            result = query_runner.run(execution_mode=execution_mode)
-        elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
-            # TODO: These queries should be using the QueryRunner caching layer too
-            query_runner = get_query_runner(query, team, limit_context=limit_context)
-            result = query_runner.calculate()
+    try:
+        query_runner = get_query_runner(query, team, limit_context=limit_context)
+    except ValueError:  # This query doesn't run via query runner
+        if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+            # Caching is handled by query runners, so in this case we can only return a cache miss
+            result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
@@ -121,9 +85,11 @@ def process_query_model(
             serializer.is_valid(raise_exception=True)
             result = get_session_events(serializer) or {}
         elif hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(team, query.source)
+            result = process_query_model(team, query.source, execution_mode=execution_mode)
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+    else:  # Query runner available - it will handle execution as well as caching
+        result = query_runner.run(execution_mode=execution_mode)
 
     if isinstance(result, BaseModel):
         return result.model_dump()
