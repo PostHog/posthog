@@ -294,17 +294,17 @@ describe('insightNavLogic', () => {
                     builtInsightDataLogic.actions.setQuery(trendsQuery)
                 })
 
-                await expectLogic(logic, () => {
+                await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.LIFECYCLE)
                 }).toDispatchActions([
-                    logic.actionCreators.setQuery({
+                    builtInsightDataLogic.actionCreators.setQuery({
                         kind: 'InsightVizNode',
                         source: {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
-                            lifecycleFilter: { showValuesOnSeries: true },
                             interval: 'hour',
+                            lifecycleFilter: { showValuesOnSeries: true },
                         },
                     } as Node),
                 ])

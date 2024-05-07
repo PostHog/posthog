@@ -326,6 +326,7 @@ describe('insightVizDataLogic', () => {
             expectLogic(builtInsightVizDataLogic).toMatchValues({
                 enabledIntervals: {
                     day: { label: 'day', newDateFrom: undefined },
+                    minute: { label: 'minute', newDateFrom: 'hStart' },
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
@@ -348,6 +349,10 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 enabledIntervals: {
                     day: { label: 'day', newDateFrom: undefined },
+                    minute: {
+                        label: 'minute',
+                        newDateFrom: 'hStart',
+                    },
                     hour: {
                         label: 'hour',
                         newDateFrom: 'dStart',
