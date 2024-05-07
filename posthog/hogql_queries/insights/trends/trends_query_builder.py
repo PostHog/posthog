@@ -89,7 +89,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """,
             placeholders={
                 "subquery": self._get_events_subquery(
-                    False,
+                    no_modifications=False,
                     is_actors_query=True,
                     breakdown=breakdown,
                     breakdown_values_override=breakdown_filter,
@@ -194,16 +194,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         default_query = ast.SelectQuery(
             select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
-            select_from=ast.JoinExpr(table=self._table_expr, alias="e"),
+            select_from=ast.JoinExpr(
+                table=self._table_expr,
+                alias="e",
+                sample=(
+                    ast.SampleExpr(sample_value=self._sample_value())
+                    if not isinstance(self.series, DataWarehouseNode)
+                    else None
+                ),
+            ),
             where=events_filter,
+            group_by=[],
         )
-        if not isinstance(self.series, DataWarehouseNode):
-            assert default_query.select_from is not None
-            default_query.select_from.sample = ast.SampleExpr(
-                sample_value=self._sample_value(),
-            )
-
-        default_query.group_by = []
 
         if not self._trends_display.should_aggregate_values() and not is_actors_query:
             # For cumulative unique users or groups, we want to count each user or group once per query, not per day
@@ -227,7 +229,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ast.Field(chain=["e", "$session_id"]),
                 ast.Field(chain=["e", "$window_id"]),
             ]
-            default_query.group_by = []
 
         # No breakdowns and no complex series aggregation
         if (
