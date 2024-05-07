@@ -3451,8 +3451,7 @@ class TrendsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        default=None,
-        description="Granularity of the response. Can be one of `hour`, `day`, `week`, `month`, or `minute`",
+        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
