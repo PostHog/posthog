@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            "CREATE INDEX CONCURRENTLY posthog_eventproperty_property_r32khd9s ON posthog_eventproperty(property)",
-            reverse_sql='DROP INDEX "posthog_eventproperty_property_r32khd9s"',
+            "CREATE INDEX CONCURRENTLY posthog_eventproperty_team_id_and_property_r32khd9s ON posthog_eventproperty(team_id, property)",
+            reverse_sql='DROP INDEX "posthog_eventproperty_team_id_and_property_r32khd9s"',
         ),
     ]
