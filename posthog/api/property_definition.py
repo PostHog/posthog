@@ -119,7 +119,10 @@ class QueryContext:
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
+    # the event name filter is used with and without a posthog_eventproperty_table_join_alias qualifier
     event_name_join_filter: str = ""
+
+    posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -212,8 +215,8 @@ class QueryContext:
             event_names = json.loads(event_names)
 
         if event_names and len(event_names) > 0:
-            event_property_field = "posthog_eventproperty.property IS NOT NULL"
-            event_name_join_filter = "AND posthog_eventproperty.event = ANY(%(event_names)s)"
+            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
+            event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(
             self,
@@ -290,10 +293,12 @@ class QueryContext:
     def _join_on_event_property(self):
         return (
             f"""
-            {self.event_property_join_type} posthog_eventproperty ON
-                posthog_eventproperty.property = {self.table}.name
-                AND posthog_eventproperty.team_id = {self.table}.team_id
-                {self.event_name_join_filter}
+            {self.event_property_join_type} (
+                SELECT DISTINCT property
+                FROM posthog_eventproperty
+                WHERE team_id = %(team_id)s {self.event_name_join_filter}
+            ) {self.posthog_eventproperty_table_join_alias}
+            ON {self.posthog_eventproperty_table_join_alias}.property = name
             """
             if self.should_join_event_property
             else ""
