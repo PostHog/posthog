@@ -4,32 +4,6 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
-def copy_action_steps_to_json(apps, schema_editor):
-    from posthog.models import Action
-
-    all_actions_with_steps = Action.objects.prefetch_related("action_steps").all()
-
-    for action in all_actions_with_steps:
-        new_steps = [
-            {
-                "tag_name": step.tag_name,
-                "text": step.text,
-                "text_matching": step.text_matching,
-                "href": step.href,
-                "href_matching": step.href_matching,
-                "selector": step.selector,
-                "url": step.url,
-                "url_matching": step.url_matching,
-                "event": step.event,
-                "properties": step.properties,
-            }
-            for step in action.action_steps.all()
-        ]
-        action.steps = new_steps  # type: ignore
-
-    Action.objects.bulk_update(all_actions_with_steps, ["steps_json"], batch_size=500)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0408_team_modifiers"),
@@ -48,5 +22,4 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE, related_name="action_steps", to="posthog.action"
             ),
         ),
-        migrations.RunPython(copy_action_steps_to_json, reverse_code=migrations.RunPython.noop),
     ]
