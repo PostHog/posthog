@@ -16,6 +16,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
@@ -39,6 +40,7 @@ import {
     PersonType,
     PropertyFilterValue,
     PropertyGroupFilter,
+    RecordingFilters,
     RecordingReportLoadTimes,
     Resource,
     SessionPlayerData,
@@ -362,8 +364,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportRecordingsListFetched: (loadTime: number) => ({
+        reportRecordingsListFetched: (loadTime: number, filters: RecordingFilters) => ({
             loadTime,
+            filters,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -906,8 +909,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: '3' })
+        reportRecordingsListFetched: ({ loadTime, filters }) => {
+            posthog.capture('recording list fetched', {
+                load_time: loadTime,
+                listing_version: '3',
+                filters,
+                hasEventsFilters: !!filters.events?.length,
+                hasActionsFilters: !!filters.actions?.length,
+                hasPropertiesFilters: !!filters.properties?.length,
+                hasDurationFilters:
+                    (filters.session_recording_duration?.value || -1) > defaultRecordingDurationFilter.value,
+                hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+            })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })
