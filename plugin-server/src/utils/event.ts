@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import {
     ClickHouseEvent,
     GroupTypeToColumnIndex,
+    HookPayload,
     PipelineEvent,
     PostIngestionEvent,
     RawClickHouseEvent,
@@ -16,7 +17,7 @@ import {
     clickHouseTimestampToISO,
 } from './utils'
 
-export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
+export function convertToOnEventPayload(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
         ip: null, // deprecated : within properties[$ip] now
@@ -28,6 +29,28 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
         elements: event.elementsList ?? [],
+    }
+}
+
+export function convertToHookPayload(event: PostIngestionEvent): HookPayload['data'] {
+    // It is only at this point that we need the elements list for the full event
+    // NOTE: It is possible that nobody uses it in which case we could remove this for performance but
+    // currently we have no way of being sure so we keep it in
+    mutatePostIngestionEventWithElementsList(event)
+
+    return {
+        eventUuid: event.eventUuid,
+        event: event.event,
+        teamId: event.teamId,
+        distinctId: event.distinctId,
+        properties: event.properties,
+        timestamp: event.timestamp,
+        elementsList: event.elementsList,
+        person: {
+            uuid: event.person_id!,
+            properties: event.person_properties,
+            created_at: event.person_created_at,
+        },
     }
 }
 
@@ -76,6 +99,8 @@ export function convertToPostHogEvent(event: PostIngestionEvent): PostHogEvent {
     }
 }
 
+// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
+// that we can keep to as a contract
 export function convertToPostIngestionEvent(
     event: RawClickHouseEvent,
     groupTypes?: GroupTypeToColumnIndex

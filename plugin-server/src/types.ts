@@ -1143,3 +1143,23 @@ export type RawClickhouseHeatmapEvent = {
     type: string
     team_id: number
 }
+
+export interface HookPayload {
+    hook: Pick<Hook, 'id' | 'event' | 'target'>
+
+    data: {
+        eventUuid: string
+        event: string
+        teamId: TeamId
+        distinctId: string
+        properties: Properties
+        timestamp: ISOTimestamp
+        elementsList?: Element[]
+
+        person: {
+            uuid: string
+            properties: Properties
+            created_at: ISOTimestamp | null
+        }
+    }
+}
