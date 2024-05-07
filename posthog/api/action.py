@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
