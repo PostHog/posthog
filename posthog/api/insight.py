@@ -2,7 +2,6 @@ import json
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
-from sentry_sdk import capture_exception, set_tag
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -55,11 +54,8 @@ from posthog.helpers.multi_property_breakdown import (
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
-from posthog.hogql_queries.legacy_compatibility.feature_flag import (
-    hogql_insights_replace_filters,
-    should_use_hogql_backend_in_insight_serialization,
-)
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.legacy_compatibility.feature_flag import hogql_insights_replace_filters
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
@@ -545,30 +541,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
-        dashboard = self.context.get("dashboard", None)
-        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
 
-        if insight.query:
-            try:
-                return calculate_for_query_based_insight(
-                    insight, dashboard=dashboard, refresh_requested=refresh_requested_by_client(self.context["request"])
-                )
-            except ExposedHogQLError as e:
-                raise ValidationError(str(e))
-
-        if not self.context["request"].user.is_anonymous and should_use_hogql_backend_in_insight_serialization(
-            self.context["request"].user
-        ):
-            # TRICKY: As running `filters`-based insights on the HogQL-based engine is a transitional mechanism,
-            # we fake the insight being properly `query`-based.
-            # To prevent the lie from accidentally being saved to Postgres, we roll it back in the `finally` branch.
-            try:
-                insight.query = filter_to_query(insight.filters).model_dump()
-            except:
-                # If `filter_to_query` failed, let's capture this and proceed with legacy filters
-                set_tag("filter_to_query_todo", True)
-                capture_exception()
-            else:
+        with flagged_conversion_to_query(insight):
+            if insight.query:
+                # Uses query
                 try:
                     return calculate_for_query_based_insight(
                         insight,
@@ -577,21 +554,21 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     )
                 except ExposedHogQLError as e:
                     raise ValidationError(str(e))
-                finally:
-                    insight.query = None
+            else:
+                # Uses legacy filters
+                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+                is_shared = self.context.get("is_shared", False)
+                refresh_insight_now, refresh_frequency = should_refresh_insight(
+                    insight,
+                    dashboard_tile,
+                    request=self.context["request"],
+                    is_shared=is_shared,
+                )
+                if refresh_insight_now:
+                    INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
+                    return synchronously_update_cache(insight, dashboard, refresh_frequency=refresh_frequency)
 
-        is_shared = self.context.get("is_shared", False)
-        refresh_insight_now, refresh_frequency = should_refresh_insight(
-            insight,
-            dashboard_tile,
-            request=self.context["request"],
-            is_shared=is_shared,
-        )
-        if refresh_insight_now:
-            INSIGHT_REFRESH_INITIATED_COUNTER.labels(is_shared=is_shared).inc()
-            return synchronously_update_cache(insight, dashboard, refresh_frequency=refresh_frequency)
-
-        return fetch_cached_insight_result(dashboard_tile or insight, refresh_frequency)
+                return fetch_cached_insight_result(dashboard_tile or insight, refresh_frequency)
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
