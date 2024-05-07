@@ -143,7 +143,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return self.list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False)
-    def get_open_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+    def get_invoices(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
             return Response(
@@ -153,8 +153,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
 
+        invoice_status = request.GET.get("status")
+
         try:
-            res = BillingManager(license).get_invoices(organization, status="open")
+            res = BillingManager(license).get_invoices(organization, status=invoice_status)
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
