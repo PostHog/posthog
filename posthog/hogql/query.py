@@ -188,6 +188,7 @@ def execute_hogql_query(
                 )
             except Exception as e:
                 if debug:
+                    results = []
                     if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
                         error = str(e)
                     else:
@@ -217,7 +218,7 @@ def execute_hogql_query(
         clickhouse=clickhouse_sql,
         error=error,
         timings=timings.to_list(),
-        results=results or [],
+        results=results,
         columns=print_columns,
         types=types,
         modifiers=query_modifiers,
