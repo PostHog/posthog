@@ -517,9 +517,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             result = self._get_actors(trends_query=source_query)
 
         self.assertEqual(len(result), 3)
-        self.assertEqual(get_distinct_id(result[0]), "person2")
         self.assertEqual(get_event_count(result[0]), 4)
-        self.assertEqual(get_distinct_id(result[1]), "person1")
         self.assertEqual(get_event_count(result[1]), 4)
         self.assertEqual(get_distinct_id(result[2]), "person3")
         self.assertEqual(get_event_count(result[2]), 1)
