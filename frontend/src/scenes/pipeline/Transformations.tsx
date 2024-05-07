@@ -25,8 +25,8 @@ export function Transformations(): JSX.Element {
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
     }
-    const { sortedEnabledTransformations, canConfigurePlugins, shouldShowProductIntroduction } =
-        useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, shouldShowProductIntroduction } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedEnabledTransformations.length === 0
