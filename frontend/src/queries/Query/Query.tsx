@@ -1,5 +1,6 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useEffect, useState } from 'react'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import React, { useEffect, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -37,10 +38,12 @@ export interface QueryProps<Q extends Node> {
     cachedResults?: AnyResponseType
     /** Disable any changes to the query */
     readOnly?: boolean
+    /** Show a stale overlay */
+    stale?: boolean
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
-    const { query: propsQuery, setQuery: propsSetQuery, readOnly } = props
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, stale } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
@@ -126,6 +129,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                             </div>
                         </>
                     ) : null}
+                    {stale && <SpinnerOverlay mode="editing" />}
                     {component}
                 </>
             </ErrorBoundary>

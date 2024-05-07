@@ -164,9 +164,18 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.insightData, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
-            (insightData, breakdownFilter, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
-                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
+            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (
+                insightData,
+                querySource,
+                breakdownFilter,
+                results,
+                isTimeToConvertFunnel
+            ): FunnelStepWithNestedBreakdown[] => {
+                if (
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
                     return []
                 }
 
@@ -265,9 +274,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData],
-            (insightData, funnelsFilter, steps, histogramGraphData) => {
-                if (insightData?.filters?.insight !== InsightType.FUNNELS) {
+            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
+            (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
+                if (
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
                     return false
                 }
 

@@ -330,6 +330,7 @@ function InsightCardInternal(
                                 insightProps: insightLogicProps,
                             }}
                             readOnly
+                            stale={stale}
                         />
                     </div>
                 ) : insight.filters?.insight ? (
