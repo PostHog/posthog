@@ -1,9 +1,7 @@
-import copy
 from natsort import natsorted, ns
 from typing import Union
 from copy import deepcopy
 from datetime import timedelta
-from itertools import groupby
 from math import ceil
 from operator import itemgetter
 import threading
@@ -349,9 +347,9 @@ class TrendsQueryRunner(QueryRunner):
         res = []
         for result in res_matrix:
             if isinstance(result, list):
-                res.extend(result)
-            else:
                 res.append(result)
+            else:
+                res.append([result])
 
         timings = []
         for result in timings_matrix:
@@ -367,6 +365,8 @@ class TrendsQueryRunner(QueryRunner):
         ):
             with self.timings.measure("apply_formula"):
                 res = self.apply_formula(self.query.trendsFilter.formula, res)
+        else:
+            res = res[0]
 
         return TrendsQueryResponse(
             results=res, timings=timings, hogql=response_hogql, modifiers=self.modifiers, error=". ".join(debug_errors)
@@ -650,7 +650,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return series_with_extras
 
-    def apply_formula(self, formula: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def apply_formula(self, formula: str, results: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
         is_total_value = self._trends_display.should_aggregate_values()
@@ -661,44 +661,40 @@ class TrendsQueryRunner(QueryRunner):
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
             keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
-            try:
-                sorted_results = natsorted(
-                    results, key=lambda x: tuple(str(itemgetter(k)(x)) for k in keys), alg=ns.IGNORECASE
-                )
-            except Exception:
-                sorted_results = results
+
+            all_breakdown_values = set()
+            for result in results:
+                for item in result:
+                    all_breakdown_values.add(itemgetter(*keys)(item))
+
+            # sort the results so that the breakdown values are in the correct order
+            sorted_breakdown_values = natsorted(list(all_breakdown_values), alg=ns.IGNORECASE)
 
             computed_results = []
-            for _key, group in groupby(sorted_results, key=itemgetter(*keys)):
-                results_group = list(group)
-                # compare queries are executed separately and some breakdown values might be missing in a group
-                # we need to fill them up so that series are correctly attributed to formula letters
-                if has_compare:
-                    for idx in range(0, len(self.query.series)):
-                        if any(result["action"]["order"] == idx for result in results_group):
-                            continue
-
-                        # add the missing result
-                        base_result = copy.deepcopy(results_group[0])
-                        base_result["label"] = f"filler for {idx} - {base_result['breakdown_value']}"
-                        if is_total_value:
-                            base_result["aggregated_value"] = 0
-                        else:
-                            base_result["data"] = [0] * len(base_result["data"])
-                        base_result["count"] = 0
-                        base_result["action"]["order"] = idx
-                        results_group.append(base_result)
-
-                    results_group = sorted(results_group, key=lambda x: x["action"]["order"])
-
-                computed_results.append(self.apply_formula_to_results_group(results_group, formula, is_total_value))
+            for breakdown_value in sorted_breakdown_values:
+                row_results = []
+                for result in results:
+                    matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
+                    if matching_result:
+                        row_results.append(matching_result[0])
+                    else:
+                        row_results.append(
+                            {
+                                "label": f"filler for {breakdown_value}",
+                                "data": [0] * len(results[0][0]["data"]),
+                                "count": 0,
+                                "action": None,
+                                "breakdown_value": breakdown_value,
+                            }
+                        )
+                computed_results.append(self.apply_formula_to_results_group(row_results, formula, is_total_value))
 
             if has_compare:
                 return multisort(computed_results, (("compare_label", False), ("count", True)))
 
             return sorted(computed_results, key=itemgetter("count"), reverse=True)
         else:
-            return [self.apply_formula_to_results_group(results, formula, aggregate_values=is_total_value)]
+            return [self.apply_formula_to_results_group(results[0], formula, aggregate_values=is_total_value)]
 
     @staticmethod
     def apply_formula_to_results_group(
