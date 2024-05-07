@@ -565,28 +565,29 @@ const handleQuerySourceUpdateSideEffects = (
         trendsMergedUpdate.interval = 'hour'
     }
 
+    // Reset dateRange to the dateMapping default
     if (kind == NodeKind.TrendsQuery && trendsMergedUpdate?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         // Change the date range to be the last 3 hours if it was longer
         const dateMapping = realTimeDateMapping[1]
-        if (!date_from && !date_to) {
-            // When insights are created, they might not have an explicit dateRange set. This defaults to 7 days.
-            // Change it to 3 hours if they pick hour.
+
+        if (
+            // When insights are created, they might not have an explicit dateRange set. Change it to 3 hours if the interval is minute.
+            (!date_from && !date_to) ||
+            // If the interval is set manually to a range greater or equal to a day, also change it to 3 hours
+            (date_from &&
+                date_to &&
+                dayjs(date_from).isValid() &&
+                dayjs(date_to).isValid() &&
+                dayjs(date_to).diff(dayjs(date_from), 'day') >= 1)
+        ) {
             trendsMergedUpdate.dateRange = {
                 date_from: dateMapping.values[0],
                 date_to: dateMapping.values[1],
             }
-        } else if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
-            // Custom date mapping
-            if (dayjs(date_to).diff(dayjs(date_from), 'day') >= 1) {
-                trendsMergedUpdate.dateRange = {
-                    date_from: dateMapping.values[0],
-                    date_to: dateMapping.values[1],
-                }
-            }
         } else {
-            // Dropdown date mapping. Change the date range if the defaultInterval isn't minute.
+            // The date range is from the dropdown. Change the date range to 3 hrs if the current selection's defaultInterval isn't a minute.
             for (const { key, values, defaultInterval } of allDateMapping) {
                 if (
                     values[0] === date_from &&

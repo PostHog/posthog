@@ -369,6 +369,29 @@ describe('insightVizDataLogic', () => {
                 },
             })
         })
+
+        it('clears smoothing ', async () => {
+            const trendsQuery = { ...trendsQueryDefault, interval: 'minute' }
+            trendsQuery.trendsFilter = { ...trendsQuery.trendsFilter, smoothingIntervals: 2 }
+            builtInsightVizDataLogic.actions.updateQuerySource(trendsQuery)
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.TrendsQuery,
+                    interval: 'hour',
+                } as TrendsQuery)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            ...trendsQuery,
+                            trendsFilter: { smoothingIntervals: undefined },
+                        },
+                    },
+                })
+        })
     })
 
     describe('isFunnelWithEnoughSteps', () => {
