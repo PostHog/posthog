@@ -263,6 +263,29 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(result), 0)
 
+    @skip("fails, as other returns all breakdowns, even those that should be display with the breakdown_limit")
+    def test_trends_breakdown_others_persons(self):
+        self._create_events()
+        source_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="-7d"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_limit=1),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2024-04-29", breakdown="Chrome")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person1")
+        self.assertEqual(get_event_count(result[0]), 2)
+
+        result = self._get_actors(
+            trends_query=source_query, day="2024-04-29", breakdown="$$_posthog_breakdown_other_$$"
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_distinct_id(result[0]), "person2")
+        self.assertEqual(get_event_count(result[0]), 2)
+
     def test_trends_cohort_breakdown_persons(self):
         self._create_events()
         cohort = _create_cohort(
