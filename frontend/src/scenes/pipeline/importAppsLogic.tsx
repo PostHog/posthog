@@ -9,7 +9,7 @@ import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, Plug
 import type { importAppsLogicType } from './importAppsLogicType'
 import { pipelineLogic } from './pipelineLogic'
 import { convertToPipelineNode, ImportApp } from './types'
-import { capturePluginEvent } from './utils'
+import { capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const importAppsLogic = kea<importAppsLogicType>([
     path(['scenes', 'pipeline', 'importAppsLogic']),
@@ -18,20 +18,14 @@ export const importAppsLogic = kea<importAppsLogicType>([
     }),
     actions({
         loadPluginConfigs: true,
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
     }),
     loaders(({ values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await api.loadPaginatedResults(
-                        `api/organizations/@current/pipeline_import_apps`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_import_apps')
                 },
             },
         ],
@@ -57,6 +51,12 @@ export const importAppsLogic = kea<importAppsLogicType>([
                         enabled,
                     })
                     return { ...pluginConfigs, [id]: response }
+                },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
                 },
             },
         ],
