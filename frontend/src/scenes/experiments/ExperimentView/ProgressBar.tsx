@@ -63,28 +63,28 @@ export function ProgressBar(): JSX.Element {
                             <b>{actualRunningTime}</b> {formatUnitByQuantity(actualRunningTime, 'day')} running
                         </div>
                     )}
-                    <span className="inline-flex space-x-1">
-                        <div className="cursor-pointer">
-                            {hasHighRunningTime ? (
-                                <>
-                                    Goal: <b> &gt; 2</b> months
-                                </>
-                            ) : (
-                                <>
-                                    Goal: <b>{recommendedRunningTime}</b>{' '}
-                                    {formatUnitByQuantity(recommendedRunningTime, 'day')}
-                                </>
-                            )}
-                            <Tooltip title={goalTooltipText}>
-                                <IconInfo className="text-muted-alt text-base" />
-                            </Tooltip>
-                        </div>
+                    <div className="inline-flex space-x-1 items-center">
+                        {hasHighRunningTime ? (
+                            <>
+                                Goal:&nbsp;
+                                <b> &gt; 2</b>&nbsp;months
+                            </>
+                        ) : (
+                            <>
+                                Goal:&nbsp;
+                                <b>{recommendedRunningTime}</b>&nbsp;
+                                {formatUnitByQuantity(recommendedRunningTime, 'day')}
+                            </>
+                        )}
+                        <Tooltip title={goalTooltipText}>
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
                         {hasHighRunningTime && (
                             <Tooltip title="Based on the current data, this experiment might take a while to reach statistical significance. Please make sure events are being tracked correctly and consider if this timeline works for you.">
                                 <IconInfo className="text-muted-alt text-lg" />
                             </Tooltip>
                         )}
-                    </span>
+                    </div>
                 </div>
             )}
             {experimentInsightType === InsightType.FUNNELS && (
@@ -111,9 +111,11 @@ export function ProgressBar(): JSX.Element {
                     </div>
                 </div>
             )}
-            <LemonButton className="mt-3" size="small" type="secondary" onClick={openExperimentCollectionGoalModal}>
-                Recalculate
-            </LemonButton>
+            {!experiment.end_date && (
+                <LemonButton className="mt-3" size="small" type="secondary" onClick={openExperimentCollectionGoalModal}>
+                    Recalculate
+                </LemonButton>
+            )}
             <DataCollectionGoalModal experimentId={experimentId} />
         </div>
     )
@@ -130,7 +132,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
             isOpen={isExperimentCollectionGoalModalOpen}
             onClose={closeExperimentCollectionGoalModal}
             width={1000}
-            title="Recalculate sample size/running time"
+            title="Recalculate estimated sample size"
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton
