@@ -7,8 +7,8 @@ from posthog.models.organization import Organization
 
 
 class TestActionStepsJSONMigration(NonAtomicTestMigrations):
-    migrate_from = "0408_team_modifiers"
-    migrate_to = "0409_action_steps_json_alter_actionstep_action"
+    migrate_from = "0409_action_steps_json_alter_actionstep_action"
+    migrate_to = "0410_action_steps_population"
 
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -39,7 +39,7 @@ class TestActionStepsJSONMigration(NonAtomicTestMigrations):
             # obey mypy
             raise Exception("apps is None")
 
-        all_actions = Action.objects.all()
+        all_actions = Action.objects.prefetch_related("action_steps").all()
 
         assert len(all_actions) == 1000
 

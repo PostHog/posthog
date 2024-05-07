@@ -7,19 +7,18 @@ from django.core.paginator import Paginator
 def copy_action_steps_to_json(apps, schema_editor):
     from posthog.models import Action
 
-    all_actions_with_steps = Action.objects.prefetch_related("action_steps").order_by("-created_at").all()
+    all_actions_with_steps = Action.objects.prefetch_related("action_steps").order_by("pk").all()
 
     paginator = Paginator(all_actions_with_steps, 100)
 
-    for page_num in paginator.page_range:
-        page = paginator.page(page_num)
+    for page_number in paginator.page_range:
+        page = paginator.page(page_number)
 
-        print(f"Processing page {page_num} of {paginator.num_pages}")
+        print(f"Processing page {page_number} of {paginator.num_pages}")
 
-        objects_to_update = page.object_list
+        objects_to_update = []
 
-        for action in objects_to_update:
-            # print(f"Updating action {action.id} with steps {action.action_steps.count()}")
+        for action in page.object_list:
             new_steps = [
                 {
                     "tag_name": step.tag_name,
@@ -37,7 +36,9 @@ def copy_action_steps_to_json(apps, schema_editor):
             ]
             action.steps = new_steps  # type: ignore
 
-        Action.objects.bulk_update(objects_to_update, ["steps_json"], batch_size=500)
+            objects_to_update.append(action)
+
+        Action.objects.bulk_update(objects_to_update, ["steps_json"])
 
 
 class Migration(migrations.Migration):
