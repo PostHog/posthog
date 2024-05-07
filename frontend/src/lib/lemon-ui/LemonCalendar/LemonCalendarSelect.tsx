@@ -188,7 +188,7 @@ export function LemonCalendarSelect({
 }
 
 export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
-    onChange: (date: dayjs.Dayjs | null) => void
+    onChange?: (date: dayjs.Dayjs | null) => void
     onClickOutside?: () => void
     buttonProps?: Omit<LemonButtonWithSideActionProps, 'sideAction'> & { sideAction?: SideAction }
     placeholder?: string
