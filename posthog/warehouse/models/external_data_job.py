@@ -38,10 +38,7 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        if settings.DEBUG and "localhost" in str(settings.AIRBYTE_BUCKET_DOMAIN):
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
-        else:
-            return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
 
     def delete_data_in_bucket(self) -> None:
         s3 = get_s3_client()

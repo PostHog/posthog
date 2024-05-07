@@ -231,7 +231,7 @@ def create_hogql_database(
 
     tables: dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+        tables[table.name] = table.hogql_definition(modifiers)
 
     if modifiers.dataWarehouseEventsModifiers:
         for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:

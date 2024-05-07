@@ -1282,6 +1282,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
 export interface DatabaseSchemaQueryResponseField {
     key: string
     type: DatabaseSerializedFieldType
+    schema_valid: boolean
     table?: string
     fields?: string[]
     chain?: string[]

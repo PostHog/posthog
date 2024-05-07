@@ -24,7 +24,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
-from posthog.schema import DatabaseSerializedFieldType
+from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
@@ -152,7 +152,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 select_from=ast.JoinExpr(table=ast.Field(chain=[self.name])),
             )
 
-            execute_hogql_query(query, self.team)
+            execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True))
             return True
         except:
             return False
@@ -225,7 +225,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
         return result[0][0]
 
-    def hogql_definition(self) -> S3Table:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> S3Table:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -244,7 +244,13 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if clickhouse_type.startswith("Array("):
                 clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            structure.append(f"{column} {clickhouse_type}")
+            if isinstance(type, dict):
+                column_invalid = type.get("valid", False)
+            else:
+                column_invalid = False
+
+            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+                structure.append(f"{column} {clickhouse_type}")
 
             # Support for 'old' style columns
             if isinstance(type, str):

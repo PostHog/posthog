@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.schema import DatabaseSerializedFieldType
 from posthog.warehouse.models import (
@@ -55,11 +56,15 @@ class TableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context, table.columns)
+        return serialize_fields(
+            table.hogql_definition().fields,
+            HogQLContext(database=database, team_id=self.context["team_id"]),
+            table.columns,
+        )
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -78,11 +83,14 @@ class TableSerializer(serializers.ModelSerializer):
         table = DataWarehouseTable(**validated_data)
         try:
             table.columns = table.get_columns()
-            for column in table.columns.keys():
-                table.columns[column]["valid"] = table.validate_column_type(column)
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+
+        for column in table.columns.keys():
+            table.columns[column]["valid"] = table.validate_column_type(column)
+        table.save()
+
         return table
 
 
@@ -95,11 +103,13 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name", "columns", "row_count"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+        database = self.context.get("database", None)
+        team_id = self.context.get("team_id", None)
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
+
+        return serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -117,6 +127,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
+        context["team_id"] = self.team_id
         return context
 
     def safely_get_queryset(self, queryset):
@@ -174,7 +185,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         table.columns = columns
         table.save()
 
-        # Gotta update
+        # Have to update the `valid` value seperately to the `columns` valye as the columns are required in the `ast.S3Table` class when querying ClickHouse
         for key in updates.keys():
             columns[key]["valid"] = table.validate_column_type(key)
 
