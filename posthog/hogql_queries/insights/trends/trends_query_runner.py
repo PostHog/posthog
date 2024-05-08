@@ -8,8 +8,6 @@ from math import ceil
 from operator import itemgetter
 import threading
 from typing import Optional, Any
-from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.conf import settings
 
 from django.utils.timezone import datetime

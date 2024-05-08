@@ -10,7 +10,7 @@ class TrendsDisplay:
         if display_type:
             self.display_type = display_type
         else:
-            self.display_type = ChartDisplayType.ActionsAreaGraph
+            self.display_type = ChartDisplayType.ActionsLineGraph
 
     # No time range
     def is_total_value(self) -> bool:

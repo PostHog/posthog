@@ -1,4 +1,6 @@
 from typing import Optional, cast
+
+from freezegun import freeze_time
 from hogql_parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -6,7 +8,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.schema import Compare, DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
+from posthog.schema import ChartDisplayType, Compare, DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 from posthog.test.base import BaseTest
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
@@ -18,7 +20,7 @@ class TestQueryBuilder(BaseTest):
 
     def _get_builder(
         self,
-        time_frame: str,
+        time_frame: Optional[str] = None,
         series_index: int = 0,
         trends_query: TrendsQuery = default_query,
         compare_value: Optional[Compare] = None,
@@ -108,6 +110,22 @@ class TestQueryBuilder(BaseTest):
         #     "greaterOrEquals(timestamp, toDateTime('2023-04-30 13:00:00.000000')), less(timestamp, toDateTime('2023-04-30 14:00:00.000000'))",
         # )
 
+    def test_date_range_total_value(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber)}, deep=True
+        )
 
-# total_value
+        with freeze_time("2022-06-15T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query),
+                "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
+            )
+
+    # def test_date_range_total_value_compare_previous(self)
+
+
+# wau
+# mau
+# count actor
 # explicit for ...

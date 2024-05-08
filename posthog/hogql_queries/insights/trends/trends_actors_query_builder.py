@@ -11,6 +11,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Action, Team
@@ -20,6 +21,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -83,6 +85,11 @@ class TrendsActorsQueryBuilder:
             interval=self.trends_query.interval,
             now=datetime.now(),
         )
+
+    @cached_property
+    def trends_display(self) -> TrendsDisplay:
+        trends_filter = self.trends_query.trendsFilter or TrendsFilter()
+        return TrendsDisplay(trends_filter.display)
 
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add matching_events only when including recordings
@@ -236,12 +243,18 @@ class TrendsActorsQueryBuilder:
         return conditions
 
     def _date_where_expr(self) -> list[ast.Expr]:
-        conditions: list[ast.Expr] = []
         date_range: QueryDateRange
+        actors_from: datetime
+        actors_to: datetime
+        actors_to_op: ast.CompareOperationOp
 
-        if not self.time_frame:
-            # TODO: Not for total value queries I think?
-            raise ValueError("A `day` is required for trends actors queries")
+        if not self.time_frame and not self.trends_display.is_total_value():
+            raise ValueError("A `day` is required for trends actors queries without total value aggregation")
+
+        if self.time_frame and self.trends_display.is_total_value():
+            raise ValueError("A `day` is forbidden for trends actors queries with total value aggregation")
+
+        conditions: list[ast.Expr] = []
 
         if self.compare_value == Compare.previous:
             date_range = self.trends_previous_date_range
@@ -254,18 +267,25 @@ class TrendsActorsQueryBuilder:
         else:
             date_range = self.trends_date_range
 
-        actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
-        actors_to = actors_from + date_range.interval_relativedelta()
+        query_from, query_to = date_range.date_from(), date_range.date_to()
 
-        # query_from, query_to = date_range.date_from(), date_range.date_to()
+        if self.trends_display.is_total_value():
+            actors_from = query_from
+            actors_to = query_to
+            actors_to_op = ast.CompareOperationOp.LtEq
+        else:
+            assert self.time_frame
+            actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
+            actors_to = actors_from + date_range.interval_relativedelta()
+            actors_to_op = ast.CompareOperationOp.Lt
 
-        # # exclude events before the query start
-        # if query_from > actors_from:
-        #     actors_from = query_from
+            # # exclude events before the query start
+            # if query_from > actors_from:
+            #     actors_from = query_from
 
-        # # exclude events after the query end
-        # if query_to < actors_to:
-        #     actors_to = query_to
+            # # exclude events after the query end
+            # if query_to < actors_to:
+            #     actors_to = query_to
 
         conditions.extend(
             [
@@ -276,7 +296,7 @@ class TrendsActorsQueryBuilder:
                 ),
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
-                    op=ast.CompareOperationOp.Lt,
+                    op=actors_to_op,
                     right=ast.Constant(value=actors_to),
                 ),
             ]
