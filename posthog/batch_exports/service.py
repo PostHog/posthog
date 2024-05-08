@@ -265,7 +265,7 @@ async def apause_batch_export(temporal: Client, batch_export_id: str, note: str 
         `True` if the batch export was paused, `False` if it was already paused.
     """
     try:
-        batch_export = await BatchExport.objects.aget(id=batch_export_id)  # type: ignore
+        batch_export = await BatchExport.objects.aget(id=batch_export_id)
     except BatchExport.DoesNotExist:
         raise BatchExportIdError(batch_export_id)
 
@@ -379,7 +379,7 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await handle.cancel()
 
     batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
-    await batch_export_backfill.asave()  # type: ignore
+    await batch_export_backfill.asave()
 
 
 @dataclass
@@ -509,7 +509,7 @@ async def acreate_batch_export_run(
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
         records_total_count=records_total_count,
     )
-    await run.asave()  # type: ignore
+    await run.asave()
 
     return run
 
@@ -549,7 +549,7 @@ async def aupdate_batch_export_run(
     model = BatchExportRun.objects.filter(id=run_id)
     update_at = dt.datetime.now()
 
-    updated = await model.aupdate(  # type: ignore
+    updated = await model.aupdate(
         **kwargs,
         last_updated_at=update_at,
     )
@@ -557,7 +557,7 @@ async def aupdate_batch_export_run(
     if not updated:
         raise ValueError(f"BatchExportRun with id {run_id} not found.")
 
-    return await model.aget()  # type: ignore
+    return await model.aget()
 
 
 def count_failed_batch_export_runs(batch_export_id: UUID, last_n: int) -> int:
@@ -584,7 +584,7 @@ async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) ->
             .values("id")[:last_n]
         )
         .filter(status=BatchExportRun.Status.FAILED)
-        .acount()  # type: ignore
+        .acount()
     )
 
     return count_of_failures
@@ -687,7 +687,7 @@ async def acreate_batch_export_backfill(
         end_at=dt.datetime.fromisoformat(end_at) if end_at else None,
         team_id=team_id,
     )
-    await backfill.asave()  # type: ignore
+    await backfill.asave()
 
     return backfill
 
@@ -716,9 +716,9 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         status: The new status to assign to the BatchExportBackfill.
     """
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = await model.aupdate(status=status)  # type: ignore
+    updated = await model.aupdate(status=status)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
-    return await model.aget()  # type: ignore
+    return await model.aget()
