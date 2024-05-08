@@ -51,6 +51,7 @@ export type SettingId =
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
+    | 'replay-network'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
