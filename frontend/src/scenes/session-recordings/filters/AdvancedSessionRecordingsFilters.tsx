@@ -30,6 +30,7 @@ function DateAndDurationFilters({
                 onChange={(checked) => setFilters({ live_mode: checked })}
                 bordered={true}
                 tooltip="Live mode shows only the last hour of data... we exclude that last hour outside of live mode which lets us show you data much faster. You can switch to live mode to let us take a little longer to show you sessions as they arrive"
+                date-attr="replay-date-live-mode-switch"
             />
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter
