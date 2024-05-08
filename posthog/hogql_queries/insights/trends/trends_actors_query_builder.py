@@ -1,7 +1,8 @@
 from functools import cached_property
 from typing import Optional
 
-from dateutil.parser import parse
+from dateutil.parser import parse, isoparse
+from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime
 
 from posthog.hogql import ast
@@ -11,6 +12,7 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Action, Team
 from posthog.schema import (
     ActionsNode,
@@ -67,6 +69,15 @@ class TrendsActorsQueryBuilder:
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
         return QueryDateRange(
+            date_range=self.trends_query.dateRange,
+            team=self.team,
+            interval=self.trends_query.interval,
+            now=datetime.now(),
+        )
+
+    @cached_property
+    def trends_previous_date_range(self) -> QueryPreviousPeriodDateRange:
+        return QueryPreviousPeriodDateRange(
             date_range=self.trends_query.dateRange,
             team=self.team,
             interval=self.trends_query.interval,
@@ -226,26 +237,27 @@ class TrendsActorsQueryBuilder:
 
     def _date_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
+        date_range: QueryDateRange
 
         if not self.time_frame:
             # TODO: Not for total value queries I think?
             raise ValueError("A `day` is required for trends actors queries")
 
-        # if compare == Compare.previous:
-        #     date_range = self.query_previous_date_range
-
-        #     delta_mappings = self.query_previous_date_range.date_from_delta_mappings()
-        #     if delta_mappings is not None and time_frame is not None and isinstance(time_frame, str):
-        #         relative_delta = relativedelta(**delta_mappings)
-        #         parsed_dt = parser.isoparse(time_frame)
-        #         parse_dt_with_relative_delta = parsed_dt - relative_delta
-        #         time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-        # else:
+        if self.compare_value == Compare.previous:
+            date_range = self.trends_previous_date_range
+            delta_mappings = date_range.date_from_delta_mappings()
+            assert delta_mappings
+            relative_delta = relativedelta(**delta_mappings)
+            parsed_dt = isoparse(self.time_frame)
+            parse_dt_with_relative_delta = parsed_dt - relative_delta
+            self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
+        else:
+            date_range = self.trends_date_range
 
         actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
-        actors_to = actors_from + self.trends_date_range.interval_relativedelta()
+        actors_to = actors_from + date_range.interval_relativedelta()
 
-        # query_from, query_to = self.trends_date_range.date_from(), self.trends_date_range.date_to()
+        # query_from, query_to = date_range.date_from(), date_range.date_to()
 
         # # exclude events before the query start
         # if query_from > actors_from:
@@ -271,7 +283,7 @@ class TrendsActorsQueryBuilder:
         )
 
         #     elif not self._aggregation_operation.requires_query_orchestration():
-        #         date_range_placeholders = self.query_date_range.to_placeholders()
+        #         date_range_placeholders = date_range.to_placeholders()
         #         conditions.extend(
         #             [
         #                 parse_expr(
