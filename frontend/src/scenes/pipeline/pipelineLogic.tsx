@@ -57,9 +57,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
         ],
         // This is currently an organization level setting but might in the future be user level
         // it's better to add the permission checks everywhere now
-        // TODO: do this check in the backend
         canGloballyManagePlugins: [(s) => [s.user], (user) => canGloballyManagePlugins(user?.organization)],
-        // TODO: maybe move it into the check
         canConfigurePlugins: [(s) => [s.user], (user) => canConfigurePlugins(user?.organization)],
         canEnableNewDestinations: [
             (s) => [s.user, s.hasAvailableFeature],
