@@ -21,6 +21,7 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
@@ -54,6 +55,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { createNotebookFromDashboard } = useActions(notebooksModel)
 
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+
+    const { user } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
