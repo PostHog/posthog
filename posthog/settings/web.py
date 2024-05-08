@@ -90,6 +90,7 @@ MIDDLEWARE = [
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
@@ -285,6 +286,9 @@ WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
+# For sensitive actions we have an additional permission (default 1 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60, type_cast=int)
+
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
 
@@ -366,3 +370,4 @@ IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
 )
 
 IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
+SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")

@@ -1,5 +1,9 @@
+from datetime import timedelta
+import time
 from typing import cast
 
+from django.conf import settings
+from django.utils import timezone
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
@@ -255,6 +259,30 @@ class SharingTokenPermission(BasePermission):
             return view.action in view.sharing_enabled_actions
 
         return False
+
+
+class TimeSensitiveActionPermission(BasePermission):
+    """
+    Validates that the authenticated session is not older than the allowed time for the action.
+    """
+
+    message = "This action requires you to be recently authenticated."
+
+    def has_permission(self, request, view) -> bool:
+        # if request.method in SAFE_METHODS:
+        #     return True
+
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return False
+
+        session_age_seconds = time.time() - session_created_at
+
+        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+            return False
+
+        return True
 
 
 class APIScopePermission(BasePermission):

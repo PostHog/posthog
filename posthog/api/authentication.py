@@ -67,6 +67,12 @@ def axes_locked_out(*args, **kwargs):
     )
 
 
+def do_login(request: HttpRequest, user: User) -> None:
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    # Update the session start time
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     request.session.flush()
     sso_providers = get_instance_available_sso_providers()
@@ -151,7 +157,8 @@ class LoginSerializer(serializers.Serializer):
             request.session["user_authenticated_time"] = time.time()
             raise TwoFactorRequired()
 
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        do_login(request, user)
+
         report_user_logged_in(user, social_provider="")
         return user
 
@@ -203,7 +210,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     permission_classes = (permissions.AllowAny,)
 
     def _token_is_valid(self, request, user: User, device) -> Response:
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        do_login(request, user)
         otp_login(request, device)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
@@ -326,11 +333,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        login(
-            self.context["request"],
-            user,
-            backend="django.contrib.auth.backends.ModelBackend",
-        )
+        do_login(self.context["request"], user)
         report_user_password_reset(user)
         return True
 

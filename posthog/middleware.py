@@ -684,3 +684,14 @@ class AutoLogoutImpersonateMiddleware:
             request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
 
         return self.get_response(request)
+
+
+class SessionAgeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if settings.SESSION_COOKIE_CREATED_AT_KEY not in request.session:
+            request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+        return self.get_response(request)
