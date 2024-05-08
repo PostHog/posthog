@@ -30,7 +30,9 @@ import {
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
     identifierToHuman,
+    is12HoursOrLess,
     isExternalLink,
+    isLessThan2Days,
     isURL,
     median,
     midEllipsis,
@@ -793,6 +795,44 @@ describe('range', () => {
 
     it('creates offset range', () => {
         expect(range(1, 5)).toEqual([1, 2, 3, 4])
+    })
+})
+
+describe('time ranges', () => {
+    it('is less than or equal to 12 hours', () => {
+        expect(is12HoursOrLess('-0h')).toBeTruthy()
+        expect(is12HoursOrLess('-1h')).toBeTruthy()
+        expect(is12HoursOrLess('-12h')).toBeTruthy()
+        expect(is12HoursOrLess('-13h')).toBeFalsy()
+
+        expect(is12HoursOrLess('-24h')).toBeFalsy()
+        expect(is12HoursOrLess('-30h')).toBeFalsy()
+        expect(is12HoursOrLess('-47h')).toBeFalsy()
+        expect(is12HoursOrLess('-111h')).toBeFalsy()
+
+        expect(is12HoursOrLess('-1.123h')).toBeFalsy()
+        expect(is12HoursOrLess('1.123h')).toBeFalsy()
+        expect(is12HoursOrLess('-ab1-13h')).toBeFalsy()
+        expect(is12HoursOrLess('-1d')).toBeFalsy()
+        expect(is12HoursOrLess('-1w')).toBeFalsy()
+    })
+
+    it('is less than 2 days', () => {
+        expect(isLessThan2Days('-0h')).toBeTruthy()
+        expect(isLessThan2Days('-1h')).toBeTruthy()
+        expect(isLessThan2Days('-12h')).toBeTruthy()
+        expect(isLessThan2Days('-24h')).toBeTruthy()
+        expect(isLessThan2Days('-30h')).toBeTruthy()
+        expect(isLessThan2Days('-47h')).toBeTruthy()
+
+        expect(isLessThan2Days('-48h')).toBeFalsy()
+        expect(isLessThan2Days('-49h')).toBeFalsy()
+        expect(isLessThan2Days('0h')).toBeFalsy()
+        expect(isLessThan2Days('1h')).toBeFalsy()
+        expect(isLessThan2Days('48h')).toBeFalsy()
+        expect(isLessThan2Days('-13.123h')).toBeFalsy()
+        expect(isLessThan2Days('13.123h')).toBeFalsy()
+        expect(isLessThan2Days('-ab1-13h')).toBeFalsy()
     })
 })
 

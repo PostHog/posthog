@@ -9,7 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -62,7 +62,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -469,6 +469,10 @@ const handleQuerySourceUpdateSideEffects = (
 
     const interval = (currentState as TrendsQuery).interval
 
+    const oneHourDateRange = {
+        date_from: '-1h',
+    }
+
     /*
      * Series change side effects.
      */
@@ -516,38 +520,20 @@ const handleQuerySourceUpdateSideEffects = (
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
-            let newDefaultInterval: IntervalType | null = null
-            for (const { key, values, defaultInterval } of dateMapping) {
-                if (
+            const selectedDateMapping = dateMapping.find(
+                ({ key, values, defaultInterval }) =>
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&
                     key !== 'Custom' &&
                     defaultInterval
-                ) {
-                    newDefaultInterval = defaultInterval
-                    break
-                }
-            }
+            )
 
-            const is12HoursOrLess: () => boolean = () => {
-                if (!date_from) {
-                    return false
-                }
-                return date_from.search(/^-([0-9]|1[0-2])h/) != -1
-            }
-            const isLessThan2Days: () => boolean = () => {
-                if (!date_from) {
-                    return false
-                }
-                return date_from.search(/^-(([0-9]+)h)|([1-2]d)/) != -1
-            }
-
-            if (!newDefaultInterval && isTrendsQuery(currentState) && is12HoursOrLess()) {
+            if (!selectedDateMapping && isTrendsQuery(currentState) && is12HoursOrLess(date_from)) {
                 ;(mergedUpdate as TrendsQuery).interval = 'minute'
-            } else if (!newDefaultInterval && isLessThan2Days()) {
+            } else if (!selectedDateMapping && isLessThan2Days(date_from)) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else {
-                ;(mergedUpdate as TrendsQuery).interval = newDefaultInterval || 'day'
+                ;(mergedUpdate as TrendsQuery).interval = selectedDateMapping?.defaultInterval || 'day'
             }
         }
     }
@@ -593,15 +579,9 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).interval = 'hour'
     }
 
-    // Reset dateRange to the dateMapping default
+    // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
     if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
-
-        // Change the date range to be the last hour if it was longer
-        // Try to find the key but fallback if it fails
-        const oneHourDateRange = {
-            date_from: '-1h',
-        }
 
         if (
             // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
@@ -615,17 +595,8 @@ const handleQuerySourceUpdateSideEffects = (
         ) {
             ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
         } else {
-            // The date range is from the dropdown. Change the date range to an hour if the current selection's defaultInterval isn't a minute.
-            for (const { key, values, defaultInterval } of dateMapping) {
-                if (
-                    values[0] === date_from &&
-                    values[1] === (date_to || undefined) &&
-                    key !== 'Custom' &&
-                    defaultInterval &&
-                    defaultInterval !== 'minute'
-                ) {
-                    ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
-                }
+            if (!is12HoursOrLess(date_from)) {
+                ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
             }
         }
     }
