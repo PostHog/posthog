@@ -502,7 +502,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"
-        assert response.results[0]["count"] == 3
+        assert response.results[1]["count"] == 1
 
         assert response.results[2]["compare_label"] == "previous"
         assert response.results[2]["label"] == "Formula (A+2*B)"
@@ -537,7 +537,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results[1]["compare_label"] == "current"
         assert response.results[1]["breakdown_value"] == "Safari"
-        assert response.results[0]["aggregated_value"] == 3
+        assert response.results[1]["aggregated_value"] == 1
 
         assert response.results[2]["compare_label"] == "previous"
         assert response.results[2]["label"] == "Formula (A+2*B)"
@@ -630,7 +630,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown_type=BreakdownType.cohort, breakdown=[cohort1.pk, "all"]),
         )
 
-        print(response)  # noqa: T201
         assert len(response.results) == 2
 
         assert response.results[0]["label"] == "Formula (A+B)"

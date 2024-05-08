@@ -362,9 +362,17 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.formula != ""
         ):
             with self.timings.measure("apply_formula"):
-                final_result: list[dict[str, Any]] = self.apply_formula(
-                    self.query.trendsFilter.formula, returned_results
-                )
+                final_result: list[dict[str, Any]]
+                has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
+                if has_compare:
+                    current_results = returned_results[: len(returned_results) // 2]
+                    previous_results = returned_results[len(returned_results) // 2 :]
+
+                    final_result = self.apply_formula(
+                        self.query.trendsFilter.formula, current_results
+                    ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
+                else:
+                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
         else:
             final_result = []
             for result in returned_results:
@@ -643,6 +651,7 @@ class TrendsQueryRunner(QueryRunner):
                         aggregate_values=self._trends_display.should_aggregate_values(),
                     )
                 )
+            for series in series_with_extras:
                 updated_series.append(
                     SeriesWithExtras(
                         series=series.series,
@@ -666,15 +675,13 @@ class TrendsQueryRunner(QueryRunner):
 
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
-            keys = [*(["compare_label"] if has_compare else []), *(["breakdown_value"] if has_breakdown else [])]
+            keys = ["breakdown_value"] if has_breakdown else ["compare_label"]
 
             all_breakdown_values = set()
             for result in results:
                 if isinstance(result, list):
                     for item in result:
                         all_breakdown_values.add(itemgetter(*keys)(item))
-                elif isinstance(result, dict):
-                    all_breakdown_values.add(itemgetter(*keys)(result))
 
             # sort the results so that the breakdown values are in the correct order
             sorted_breakdown_values = natsorted(list(all_breakdown_values), alg=ns.IGNORECASE)
