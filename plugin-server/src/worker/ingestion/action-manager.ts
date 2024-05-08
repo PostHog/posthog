@@ -1,6 +1,6 @@
 import * as schedule from 'node-schedule'
 
-import { Action, ActionStep, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
+import { Action, Hook, PluginConfig, PluginsServerConfig, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { PubSub } from '../../utils/pubsub'
 import { status } from '../../utils/status'
@@ -137,6 +137,7 @@ export async function fetchAllActionsGroupedByTeam(
                 is_calculating,
                 updated_at,
                 last_calculated_at,
+                steps_json,
                 bytecode,
                 bytecode_error
             FROM posthog_action
@@ -147,19 +148,6 @@ export async function fetchAllActionsGroupedByTeam(
         )
     ).rows
 
-    const pluginIds: number[] = rawActions.map(({ id }) => id)
-    const actionSteps: (ActionStep & { team_id: Team['id'] })[] = (
-        await client.query(
-            PostgresUse.COMMON_READ,
-            `
-                SELECT posthog_actionstep.*, posthog_action.team_id
-                FROM posthog_actionstep JOIN posthog_action ON (posthog_action.id = posthog_actionstep.action_id)
-                WHERE posthog_action.id = ANY($1)
-            `,
-            [pluginIds],
-            'fetchActionSteps'
-        )
-    ).rows
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
     for (const rawAction of rawActions) {
         if (!actions[rawAction.team_id]) {
@@ -168,18 +156,13 @@ export async function fetchAllActionsGroupedByTeam(
 
         actions[rawAction.team_id][rawAction.id] = {
             ...rawAction,
-            steps: [],
+            steps: rawAction.steps_json ?? [],
             hooks: [],
         }
     }
     for (const hook of restHooks) {
         if (hook.resource_id !== null && actions[hook.team_id]?.[hook.resource_id]) {
             actions[hook.team_id][hook.resource_id].hooks.push(hook)
-        }
-    }
-    for (const actionStep of actionSteps) {
-        if (actions[actionStep.team_id]?.[actionStep.action_id]) {
-            actions[actionStep.team_id][actionStep.action_id].steps.push(actionStep)
         }
     }
     return actions
@@ -222,17 +205,9 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
         return null
     }
 
-    const [steps, hooks] = await Promise.all([
-        client.query<ActionStep>(
-            PostgresUse.COMMON_READ,
-            `SELECT * FROM posthog_actionstep WHERE action_id = $1`,
-            [id],
-            'fetchActionSteps'
-        ),
-        fetchActionRestHooks(client, id),
-    ])
+    const hooks = await fetchActionRestHooks(client, id)
 
-    const action: Action = { ...rawActions[0], steps: steps.rows, hooks }
+    const action: Action = { ...rawActions[0], steps: rawActions[0].steps_json ?? [], hooks }
     return action.post_to_slack || action.hooks.length > 0 ? action : null
 }
 
