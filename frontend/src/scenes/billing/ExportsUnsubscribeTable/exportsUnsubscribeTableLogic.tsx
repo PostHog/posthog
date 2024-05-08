@@ -2,13 +2,13 @@ import { IconDatabase } from '@posthog/icons'
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { pipelineLogic } from 'scenes/pipeline/pipelineLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 
-import { pipelineTransformationsLogic } from '../../pipeline/transformationsLogic'
 import { RenderApp } from '../../pipeline/utils'
 import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTableLogicType'
 
@@ -26,7 +26,7 @@ export interface ItemToDisable {
 export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect({
-        values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
+        values: [pluginsLogic, ['plugins'], pipelineLogic, ['canConfigurePlugins'], userLogic, ['user']],
     }),
 
     actions({
