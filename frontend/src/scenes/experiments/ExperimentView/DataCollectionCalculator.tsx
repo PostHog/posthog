@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -192,6 +192,10 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                     </div>
                 </div>
                 <div className="flex flex-col experiment-preview-row">
+                    <LemonBanner type="info" className="mb-4">
+                        The calculations are based on the events received in the last 14 days. This event count may
+                        differ from what was considered in earlier estimates.
+                    </LemonBanner>
                     {experimentInsightType === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
