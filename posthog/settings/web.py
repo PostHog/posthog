@@ -361,3 +361,6 @@ IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
 )
 
 IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
+
+# Cookie age in seconds (default 30 days)
+SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 30, type_cast=int)
