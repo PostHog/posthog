@@ -30,7 +30,9 @@ export function ProgressBar(): JSX.Element {
         experiment?.parameters?.minimum_detectable_effect &&
         `Based on the Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%`
 
-    const hasHighRunningTime = recommendedRunningTime > 62
+    // const hasHighRunningTime = recommendedRunningTime > 62
+
+    const hasHighRunningTime = true
 
     return (
         <div>

@@ -112,14 +112,14 @@ export function DataCollectionCalculator({
                 </div>
                 <div className="flex flex-col experiment-preview-row">
                     {experimentInsightType === InsightType.TRENDS ? (
-                        <div className="flex">
+                        <div className="flex flex-wrap">
                             {!experiment?.start_date && (
                                 <>
-                                    <div className="w-1/4">
+                                    <div className="mb-4 w-1/2">
                                         <div className="card-secondary">Baseline Count</div>
                                         <div className="l4">{humanFriendlyNumber(trendCount || 0)}</div>
                                     </div>
-                                    <div className="w-1/4">
+                                    <div className="mb-4 w-1/2">
                                         <div className="card-secondary">Minimum Acceptable Count</div>
                                         <div className="l4">
                                             {humanFriendlyNumber(
