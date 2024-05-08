@@ -31,7 +31,7 @@ from posthog.hogql_queries.insights.trends.breakdown_values import (
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.query_runner import QueryRunner, RunnableQueryNode
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
@@ -880,21 +880,21 @@ class TrendsQueryRunner(QueryRunner):
 
         return TrendsDisplay(display)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> RunnableQueryNode:
-        updated_query: TrendsQuery = super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
         if (
-            updated_query.breakdownFilter
-            and updated_query.breakdownFilter.breakdown_limit
-            and updated_query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
+            self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdown_limit
+            and self.query.breakdownFilter.breakdown_limit > BREAKDOWN_VALUES_LIMIT
         ):
             # Remove too high breakdown limit for display on the dashboard
-            updated_query.breakdownFilter.breakdown_limit = None
+            self.query.breakdownFilter.breakdown_limit = None
 
         if (
-            updated_query.trendsFilter is not None
-            and updated_query.trendsFilter.compare
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.compare
             and dashboard_filter.date_from == "all"
         ):
-            updated_query.trendsFilter.compare = False
-
-        return updated_query
+            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
+            # we should disable `compare` _no matter how_ we arrived at the final executed query
+            self.query.trendsFilter.compare = False
