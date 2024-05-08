@@ -1,6 +1,6 @@
 import './UnsubscribeSurveyModal.scss'
 
-import { LemonBanner, LemonButton, LemonCollapse, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -65,7 +65,7 @@ export const UnsubscribeSurveyModal = ({
                         </p>
                     </LemonBanner>
                 ) : (
-                    <LemonBanner type="warning">
+                    <LemonBanner type="info">
                         <p>
                             Your invoice will be billed immediately.{' '}
                             <Link to={billing?.stripe_portal_url} target="_blank">
@@ -82,40 +82,46 @@ export const UnsubscribeSurveyModal = ({
                         setSurveyResponse(value, '$survey_response')
                     }}
                 />
-                <LemonCollapse
-                    className="UnsubscribeSurveyCostControl"
-                    panels={[
-                        {
-                            key: '1',
-                            header: 'Need to control your costs?',
-                            content: (
-                                <p>
-                                    Learn about{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
-                                        target="_blank"
-                                        onClick={() => {
-                                            reportSurveyDismissed(surveyID)
-                                        }}
-                                    >
-                                        ways to reduce your bill
-                                    </Link>
-                                    {' or '}
-                                    <Link
-                                        to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
-                                        target="_blank"
-                                        onClick={() => {
-                                            reportSurveyDismissed(surveyID)
-                                        }}
-                                    >
-                                        chat with support
-                                    </Link>
-                                    .
-                                </p>
-                            ),
-                        },
-                    ]}
-                />
+                <LemonBanner type="info">
+                    <p>
+                        {'Need to control your costs? Learn about ways to '}
+                        <Link
+                            to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
+                            target="_blank"
+                            onClick={() => {
+                                reportSurveyDismissed(surveyID)
+                            }}
+                        >
+                            reduce your bill
+                        </Link>
+                        {`${product.type !== 'session_replay' ? ' or ' : ', '}`}
+                        <Link
+                            to="mailto:sales@posthog.com?subject=Help%20reducing%20PostHog%20bill"
+                            target="_blank"
+                            onClick={() => {
+                                reportSurveyDismissed(surveyID)
+                            }}
+                        >
+                            chat with support
+                        </Link>
+                        {product.type === 'session_replay' && (
+                            <>
+                                {', or '}
+                                <Link
+                                    to="mailto:sales@posthog.com?subject=Joining%session%replay%controls%20beta"
+                                    target="_blank"
+                                    onClick={() => {
+                                        reportSurveyDismissed(surveyID)
+                                    }}
+                                >
+                                    join our beta
+                                </Link>
+                                {' for tuning recording volume with sampling and minimum duration.'}
+                            </>
+                        )}
+                        .
+                    </p>
+                </LemonBanner>
             </div>
             {includesPipelinesAddon && itemsToDisable.length > 0 ? (
                 <div className="mt-6">
