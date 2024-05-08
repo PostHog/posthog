@@ -21,8 +21,14 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     const logicProps = { service: (service as BatchExportService['type']) || null, id: id || null }
     const logic = pipelineBatchExportConfigurationLogic(logicProps)
 
-    const { isNew, configuration, savedConfiguration, isConfigurationSubmitting, batchExportConfigLoading } =
-        useValues(logic)
+    const {
+        isNew,
+        configuration,
+        savedConfiguration,
+        isConfigurationSubmitting,
+        batchExportConfigLoading,
+        permissionsError,
+    } = useValues(logic)
     const { resetConfiguration, submitConfiguration } = useActions(logic)
 
     if (batchExportConfigLoading) {
@@ -45,9 +51,9 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     >
                         <LemonInput type="text" />
                     </LemonField>
-                    <LemonField name="enabled" info="Start continuously exporting from now">
+                    <LemonField name="paused" info="Start continuously exporting from now">
                         {({ value, onChange }) => (
-                            <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                            <LemonCheckbox label="Paused" onChange={() => onChange(!value)} checked={value} />
                         )}
                     </LemonField>
                     <BatchExportConfigurationFields
@@ -68,6 +74,13 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                             htmlType="submit"
                             onClick={submitConfiguration}
                             loading={isConfigurationSubmitting}
+                            disabledReason={
+                                isConfigurationSubmitting
+                                    ? 'Saving in progress…'
+                                    : permissionsError
+                                    ? permissionsError
+                                    : undefined
+                            }
                         >
                             {isNew ? 'Create' : 'Save'}
                         </LemonButton>

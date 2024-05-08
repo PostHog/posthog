@@ -1,8 +1,9 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { BatchExportConfigurationForm } from 'scenes/batch_exports/batchExportEditLogic'
 import { urls } from 'scenes/urls'
 
@@ -10,7 +11,7 @@ import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
-import { checkPermissions } from './utils'
+import { pipelineLogic } from './pipelineLogic'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
@@ -45,6 +46,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
+    connect({
+        values: [pipelineLogic, ['notAllowedReasonByStageAndOperationType']],
+    }),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
     }),
@@ -59,13 +63,10 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    if (
-                        !checkPermissions(
-                            PipelineStage.Destination,
-                            !props.id || (!!values.batchExportConfig?.paused && formdata.paused !== true)
-                        )
-                    ) {
-                        return null
+                    const permissionsError = values.permissionsError
+                    if (permissionsError) {
+                        lemonToast.error(permissionsError)
+                        return values.batchExportConfig
                     }
                     const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
                     const destinationObj = {
@@ -114,6 +115,21 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         ],
     })),
     selectors(() => ({
+        notAllowedReasonByOperationType: [
+            (s) => [s.notAllowedReasonByStageAndOperationType],
+            (notAllowedReasonByStageAndOperationType) =>
+                notAllowedReasonByStageAndOperationType[PipelineStage.Destination],
+        ],
+        permissionsError: [
+            (s) => [s.notAllowedReasonByOperationType, s.batchExportConfig, s.configuration],
+            (notAllowedReasonByOperationType, batchExportConfig, configuration): string | undefined => {
+                return notAllowedReasonByOperationType[
+                    !batchExportConfig || (configuration.paused !== true && batchExportConfig.paused === true)
+                        ? 'new_or_enable'
+                        : 'edit_without_enable'
+                ]
+            },
+        ],
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         savedConfiguration: [
             (s, p) => [s.batchExportConfig, p.service],
@@ -134,7 +150,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         requiredFields: [
             (s) => [s.service],
             (service): string[] => {
-                const generalRequiredFields = ['interval', 'name', 'paused']
+                const generalRequiredFields = ['interval', 'name']
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,

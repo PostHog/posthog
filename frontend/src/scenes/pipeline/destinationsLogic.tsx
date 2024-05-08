@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,13 +16,21 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
+import { pipelineLogic } from './pipelineLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
+import { captureBatchExportEvent, loadPluginsFromUrl, patchPluginConfig } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            pipelineLogic,
+            ['notAllowedReasonByStageAndOperationType'],
+        ],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -63,10 +72,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const { pluginConfigs, plugins } = values
                     const pluginConfig = pluginConfigs[destination.id]
                     const plugin = plugins[pluginConfig.plugin]
-                    capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin, pluginConfig)
-                    const response = await api.update(`api/plugin_config/${destination.id}`, {
-                        enabled,
-                    })
+                    const response = await patchPluginConfig(
+                        values.notAllowedReasonByOperationType,
+                        pluginConfig,
+                        plugin,
+                        { enabled }
+                    )
                     return { ...pluginConfigs, [destination.id]: response }
                 },
                 updatePluginConfig: ({ pluginConfig }) => {
@@ -87,6 +98,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
                 toggleNodeBatchExport: async ({ destination, enabled }) => {
+                    const permissionsError =
+                        values.notAllowedReasonByOperationType[enabled ? 'new_or_enable' : 'edit_without_enable']
+                    if (permissionsError) {
+                        lemonToast.error(permissionsError)
+                        return values.batchExportConfigs
+                    }
                     const batchExport = values.batchExportConfigs[destination.id]
                     if (enabled) {
                         await api.batchExports.unpause(destination.id)
@@ -109,6 +126,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     selectors({
+        notAllowedReasonByOperationType: [
+            (s) => [s.notAllowedReasonByStageAndOperationType],
+            (notAllowedReasonByStageAndOperationType) =>
+                notAllowedReasonByStageAndOperationType[PipelineStage.Destination],
+        ],
         loading: [
             (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
@@ -145,9 +167,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     }),
     listeners(({ actions, asyncActions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (!checkPermissions(PipelineStage.Destination, enabled)) {
-                return
-            }
             if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else {

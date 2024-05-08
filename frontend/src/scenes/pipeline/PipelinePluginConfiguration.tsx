@@ -35,6 +35,7 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
+        permissionsError,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
@@ -151,6 +152,13 @@ export function PipelinePluginConfiguration({
                         type="primary"
                         htmlType="submit"
                         onClick={submitConfiguration}
+                        disabledReason={
+                            isConfigurationSubmitting
+                                ? 'Saving in progress…'
+                                : permissionsError
+                                ? permissionsError
+                                : undefined
+                        }
                         loading={isConfigurationSubmitting}
                     >
                         {isNew ? 'Create' : 'Save'}

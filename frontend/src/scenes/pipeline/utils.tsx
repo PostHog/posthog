@@ -25,7 +25,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
+import { OperationType, pipelineLogic } from './pipelineLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
 import {
     Destination,
@@ -341,7 +341,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { notAllowedReasonByStageAndOperationType } = useValues(pipelineLogic)
 
     return [
         {
@@ -351,7 +351,10 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                     enabled: !node.enabled,
                     id: node.id,
                 }),
-            disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to toggle.',
+            disabledReason:
+                notAllowedReasonByStageAndOperationType[node.stage][
+                    node.enabled ? 'new_or_enable' : 'edit_without_enable'
+                ],
         },
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
@@ -369,26 +372,27 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                               callback: loadPluginConfigs,
                           })
                       },
-                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
+                      disabledReason: notAllowedReasonByStageAndOperationType[node.stage]['edit_without_enable'],
                   },
               ]
             : []),
     ]
 }
 
-export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
-    if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
-        lemonToast.error('Import apps are deprecated and cannot be enabled.')
-        return false
+export async function patchPluginConfig(
+    notAllowedReasonByOperationType: Record<OperationType, string | undefined>,
+    currentPluginConfig: PluginConfigTypeNew,
+    plugin: PluginType,
+    payload: Partial<PluginConfigTypeNew>
+): Promise<PluginConfigTypeNew> {
+    const permissionsError =
+        notAllowedReasonByOperationType[
+            payload.enabled && !currentPluginConfig.enabled ? 'new_or_enable' : 'edit_without_enable'
+        ]
+    if (permissionsError) {
+        lemonToast.error(permissionsError)
+        return currentPluginConfig
     }
-    if (!canConfigurePlugins) {
-        lemonToast.error(`You don't have permission to enable or disable ${stage}s`)
-        return false
-    }
-    if (togglingToEnabledOrNew && stage === PipelineStage.Destination && !canEnableNewDestinations) {
-        lemonToast.error(`Data pipelines add-on is required for enabling new ${stage}s`)
-        return false
-    }
-    return true
+    capturePluginEvent(`plugin ${payload.enabled ? 'enabled' : 'disabled'}`, plugin, currentPluginConfig)
+    return await api.update(`api/plugin_config/${currentPluginConfig.id}`, payload)
 }

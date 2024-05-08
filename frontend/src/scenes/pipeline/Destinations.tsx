@@ -13,7 +13,6 @@ import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/
 import { AppMetricSparkLine } from './AppMetricSparkLine'
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
 import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
@@ -142,8 +141,8 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
+    const { notAllowedReasonByOperationType } = useValues(pipelineDestinationsLogic)
 
     return (
         <LemonMenuOverlay
@@ -151,11 +150,8 @@ export const DestinationMoreOverlay = ({
                 {
                     label: destination.enabled ? 'Pause destination' : 'Unpause destination',
                     onClick: () => toggleNode(destination, !destination.enabled),
-                    disabledReason: !canConfigurePlugins
-                        ? 'You do not have permission to toggle destinations.'
-                        : !canEnableNewDestinations && !destination.enabled
-                        ? 'Data pipelines add-on is required for enabling new destinations'
-                        : undefined,
+                    disabledReason:
+                        notAllowedReasonByOperationType[destination.enabled ? 'edit_without_enable' : 'new_or_enable'],
                 },
                 ...pipelineNodeMenuCommonItems(destination),
                 ...(!inOverview
@@ -164,9 +160,7 @@ export const DestinationMoreOverlay = ({
                               label: 'Delete destination',
                               status: 'danger' as const, // for typechecker happiness
                               onClick: () => deleteNode(destination),
-                              disabledReason: canConfigurePlugins
-                                  ? undefined
-                                  : 'You do not have permission to delete destinations.',
+                              disabledReason: notAllowedReasonByOperationType['edit_without_enable'],
                           },
                       ]
                     : []),

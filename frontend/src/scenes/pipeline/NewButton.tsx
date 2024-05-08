@@ -7,12 +7,13 @@ import { PipelineStage } from '~/types'
 import { pipelineLogic } from './pipelineLogic'
 
 type NewButtonProps = {
-    stage: PipelineStage
+    stage: PipelineStage | undefined
 }
 
 export function NewButton({ stage }: NewButtonProps): JSX.Element {
-    const { canEnableNewDestinations } = useValues(pipelineLogic)
-    if (stage === PipelineStage.Destination && !canEnableNewDestinations) {
+    const { notAllowedReasonByStageAndOperationType } = useValues(pipelineLogic)
+
+    if (!stage || notAllowedReasonByStageAndOperationType[stage]['new_or_enable']) {
         return <></>
     }
     return (

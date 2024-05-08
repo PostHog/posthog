@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -6,14 +7,22 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
+import { pipelineLogic } from './pipelineLogic'
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
-import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
+import { loadPluginsFromUrl, patchPluginConfig } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            pipelineLogic,
+            ['notAllowedReasonByStageAndOperationType'],
+        ],
     }),
     actions({
         loadPluginConfigs: true,
@@ -53,7 +62,9 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 savePluginConfigsOrder: async ({ newOrders }) => {
-                    if (!checkPermissions(PipelineStage.Transformation, false)) {
+                    const permissionsError = values.notAllowedReasonByOperationType['edit_without_enable']
+                    if (permissionsError) {
+                        lemonToast.error(permissionsError)
                         return values.pluginConfigs
                     }
                     // Plugin-server sorts by order and runs the plugins in that order
@@ -79,23 +90,21 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return newPluginConfigs
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    if (!checkPermissions(PipelineStage.Transformation, enabled)) {
-                        return values.pluginConfigs
-                    }
                     const { pluginConfigs, plugins } = values
                     const pluginConfig = pluginConfigs[id]
                     const plugin = plugins[pluginConfig.plugin]
-                    capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin, pluginConfig)
                     // Update order if enabling to be at the end of current enabled plugins
                     // See comment in savePluginConfigsOrder about races
                     let order = {}
                     if (enabled) {
                         order = { order: values.nextAvailableOrder }
                     }
-                    const response = await api.update(`api/plugin_config/${id}`, {
-                        enabled,
-                        ...order,
-                    })
+                    const response = await patchPluginConfig(
+                        values.notAllowedReasonByOperationType,
+                        pluginConfig,
+                        plugin,
+                        { enabled, ...order }
+                    )
                     return { ...pluginConfigs, [id]: response }
                 },
                 updatePluginConfig: ({ pluginConfig }) => {
@@ -108,6 +117,11 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
         ],
     })),
     selectors({
+        notAllowedReasonByOperationType: [
+            (s) => [s.notAllowedReasonByStageAndOperationType],
+            (notAllowedReasonByStageAndOperationType) =>
+                notAllowedReasonByStageAndOperationType[PipelineStage.Transformation],
+        ],
         loading: [
             (s) => [s.pluginsLoading, s.pluginConfigsLoading],
             (pluginsLoading, pluginConfigsLoading) => pluginsLoading || pluginConfigsLoading,
@@ -139,6 +153,15 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     transformations = transformations.sort((a, b) => a.order - b.order)
                 }
                 return transformations
+            },
+        ],
+        canReorder: [
+            (s) => [s.sortedEnabledTransformations, s.notAllowedReasonByOperationType],
+            (sortedEnabledTransformations, notAllowedReasonByOperationType): boolean => {
+                return (
+                    notAllowedReasonByOperationType['edit_without_enable'] === undefined &&
+                    sortedEnabledTransformations.length > 1
+                )
             },
         ],
         sortedTransformations: [

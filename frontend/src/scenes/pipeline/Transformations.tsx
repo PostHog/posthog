@@ -13,17 +13,16 @@ import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { PipelineStage, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
-import { pipelineLogic } from './pipelineLogic'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
-    const { sortedEnabledTransformations, shouldShowProductIntroduction } = useValues(pipelineTransformationsLogic)
-    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { sortedTransformations, shouldShowProductIntroduction, canReorder, notAllowedReasonByOperationType } =
+        useValues(pipelineTransformationsLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
-    const shouldShowEmptyState = sortedEnabledTransformations.length === 0
+    const shouldShowEmptyState = sortedTransformations.length === 0
 
     return (
         <>
@@ -38,7 +37,7 @@ export function Transformations(): JSX.Element {
                     isEmpty={true}
                 />
             )}
-            {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
+            {canReorder && (
                 <>
                     <ReorderModal />
                     <div className="flex items-center gap-2">
@@ -47,9 +46,7 @@ export function Transformations(): JSX.Element {
                             onClick={openReorderModal}
                             noPadding
                             id="app-reorder"
-                            disabledReason={
-                                canConfigurePlugins ? undefined : 'You do not have permission to reorder plugins.'
-                            }
+                            disabledReason={notAllowedReasonByOperationType['edit_without_enable']}
                         >
                             Change order
                         </LemonButton>
@@ -116,9 +113,8 @@ export const TransformationsMoreOverlay = ({
     transformation: Transformation
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins } = useValues(pipelineLogic)
     const { toggleEnabled, loadPluginConfigs, openReorderModal } = useActions(pipelineTransformationsLogic)
-    const { sortedEnabledTransformations } = useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, notAllowedReasonByOperationType } = useValues(pipelineTransformationsLogic)
 
     return (
         <LemonMenuOverlay
@@ -128,9 +124,7 @@ export const TransformationsMoreOverlay = ({
                           {
                               label: 'Reorder apps',
                               onClick: openReorderModal,
-                              disabledReason: canConfigurePlugins
-                                  ? undefined
-                                  : 'You do not have permission to reorder apps.',
+                              disabledReason: notAllowedReasonByOperationType['edit_without_enable'],
                           },
                       ]
                     : []),

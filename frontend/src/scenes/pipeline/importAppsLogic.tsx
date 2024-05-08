@@ -7,13 +7,21 @@ import { userLogic } from 'scenes/userLogic'
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import type { importAppsLogicType } from './importAppsLogicType'
+import { pipelineLogic } from './pipelineLogic'
 import { convertToPipelineNode, ImportApp } from './types'
-import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
+import { loadPluginsFromUrl, patchPluginConfig } from './utils'
 
 export const importAppsLogic = kea<importAppsLogicType>([
     path(['scenes', 'pipeline', 'importAppsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            pipelineLogic,
+            ['notAllowedReasonByStageAndOperationType'],
+        ],
     }),
     actions({
         loadPluginConfigs: true,
@@ -39,16 +47,15 @@ export const importAppsLogic = kea<importAppsLogicType>([
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    if (!checkPermissions(PipelineStage.ImportApp, enabled)) {
-                        return values.pluginConfigs
-                    }
                     const { pluginConfigs, plugins } = values
                     const pluginConfig = pluginConfigs[id]
                     const plugin = plugins[pluginConfig.plugin]
-                    capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin, pluginConfig)
-                    const response = await api.update(`api/plugin_config/${id}`, {
-                        enabled,
-                    })
+                    const response = await patchPluginConfig(
+                        values.notAllowedReasonByOperationType,
+                        pluginConfig,
+                        plugin,
+                        { enabled }
+                    )
                     return { ...pluginConfigs, [id]: response }
                 },
                 updatePluginConfig: ({ pluginConfig }) => {
@@ -61,6 +68,11 @@ export const importAppsLogic = kea<importAppsLogicType>([
         ],
     })),
     selectors({
+        notAllowedReasonByOperationType: [
+            (s) => [s.notAllowedReasonByStageAndOperationType],
+            (notAllowedReasonByStageAndOperationType) =>
+                notAllowedReasonByStageAndOperationType[PipelineStage.ImportApp],
+        ],
         loading: [
             (s) => [s.pluginsLoading, s.pluginConfigsLoading],
             (pluginsLoading, pluginConfigsLoading) => pluginsLoading || pluginConfigsLoading,

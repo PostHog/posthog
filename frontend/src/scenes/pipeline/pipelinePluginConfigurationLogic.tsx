@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,9 +18,9 @@ import {
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
+import { pipelineLogic } from './pipelineLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
-import { checkPermissions } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -57,7 +58,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            ['nextAvailableOrder'],
+            pipelineLogic,
+            ['notAllowedReasonByStageAndOperationType'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -84,13 +92,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     if (!values.plugin || !props.stage) {
                         return null
                     }
-                    if (
-                        !checkPermissions(
-                            props.stage,
-                            !props.pluginConfigId ||
-                                (values.pluginConfig && !values.pluginConfig.enabled && formdata.enabled)
-                        )
-                    ) {
+                    const permissionsError = values.permissionsError
+                    if (permissionsError) {
+                        lemonToast.error(permissionsError)
                         return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
@@ -169,6 +173,23 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         ],
     })),
     selectors(() => ({
+        notAllowedReasonByOperationType: [
+            (s, p) => [s.notAllowedReasonByStageAndOperationType, p.stage],
+            (notAllowedReasonByStageAndOperationType, stage) =>
+                stage
+                    ? notAllowedReasonByStageAndOperationType[stage]
+                    : { edit_without_enable: 'Failed to load stage', new_or_enable: 'Failed to load stage' },
+        ],
+        permissionsError: [
+            (s) => [s.notAllowedReasonByOperationType, s.pluginConfig, s.configuration],
+            (notAllowedReasonByOperationType, pluginConfig, configuration): string | undefined => {
+                return notAllowedReasonByOperationType[
+                    !pluginConfig || (configuration.enabled && !pluginConfig.enabled)
+                        ? 'new_or_enable'
+                        : 'edit_without_enable'
+                ]
+            },
+        ],
         plugin: [
             (s) => [s.pluginFromPluginId, s.pluginConfig],
             (pluginFromId, pluginConfig) => pluginConfig?.plugin_info || pluginFromId,
@@ -216,10 +237,9 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         configuration: {
             errors: (formdata) => {
                 return Object.fromEntries(
-                    values.requiredFields.map((field) => [
-                        field,
-                        formdata[field] ? undefined : 'This field is required',
-                    ])
+                    values.requiredFields.map((field) => {
+                        return [field, formdata[field] ? undefined : 'This field is required']
+                    })
                 )
             },
             submit: async (formdata) => {
@@ -233,5 +253,6 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         } else if (props.pluginId) {
             actions.loadPlugin()
         }
+        // TODO: fix stage url if it's not correct based on plugin url
     }),
 ])
