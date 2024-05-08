@@ -19,6 +19,7 @@ import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { checkPermissions } from './utils'
 
 export interface PipelinePluginConfigurationLogicProps {
     stage: PipelineStage | null
@@ -82,6 +83,15 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 updatePluginConfig: async (formdata: Record<string, any>) => {
                     if (!values.plugin || !props.stage) {
                         return null
+                    }
+                    if (
+                        !checkPermissions(
+                            props.stage,
+                            !props.pluginConfigId ||
+                                (values.pluginConfig && !values.pluginConfig.enabled && formdata.enabled)
+                        )
+                    ) {
+                        return values.pluginConfig
                     }
                     const { enabled, order, name, description, ...config } = formdata
                     const formData = getPluginConfigFormData(

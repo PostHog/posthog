@@ -20,7 +20,8 @@ def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
         capture_exception()
         return query
     try:
-        return query_runner.apply_dashboard_filters(DashboardFilter(**filters)).dict()
+        query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+        return query_runner.query.model_dump()
     except NotImplementedError:
         # TODO when we implement apply_dashboard_filters on more query runners, we can remove the try/catch
         capture_exception()
