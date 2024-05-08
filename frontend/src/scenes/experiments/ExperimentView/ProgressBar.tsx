@@ -142,7 +142,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         <LemonModal
             isOpen={isExperimentCollectionGoalModalOpen}
             onClose={closeExperimentCollectionGoalModal}
-            width={600}
+            width={550}
             title="Recalculate estimated sample size"
             footer={
                 <div className="flex items-center gap-2">

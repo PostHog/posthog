@@ -73,7 +73,7 @@ export function DataCollectionCalculator({
                             <IconInfo className="ml-1 text-muted text-xl" />
                         </Tooltip>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-4">
                         <LemonSlider
                             value={minimumDetectableChange}
                             min={1}
@@ -87,9 +87,10 @@ export function DataCollectionCalculator({
                                     },
                                 })
                             }}
-                            className="w-full"
+                            className="w-5/6"
                         />
                         <LemonInput
+                            className="w-1/6"
                             data-attr="min-acceptable-improvement"
                             type="number"
                             min={1}
