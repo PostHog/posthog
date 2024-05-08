@@ -35,6 +35,7 @@ import nh3
 from urllib.parse import urlparse
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -147,8 +148,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             link = raw_question.get("link")
             if link:
                 parsed_url = urlparse(link)
-                if parsed_url.scheme != "https" or parsed_url.netloc == "":
-                    raise serializers.ValidationError("Link must be a URL to a https resource")
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES or parsed_url.netloc == "":
+                    raise serializers.ValidationError(
+                        f"Link must be a URL to resource with one of these schemes [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                    )
 
             cleaned_questions.append(cleaned_question)
 
