@@ -53,7 +53,9 @@ export function getDefaultEvent(): Entity {
 }
 
 export const isStepsUndefined = (filters: FunnelsFilterType): boolean =>
-    typeof filters.events === 'undefined' && (typeof filters.actions === 'undefined' || filters.actions.length === 0)
+    typeof filters.events === 'undefined' &&
+    (typeof filters.actions === 'undefined' || filters.actions.length === 0) &&
+    (typeof filters.data_warehouse === 'undefined' || filters.data_warehouse.length === 0)
 
 const findFirstNumber = (candidates: (number | undefined)[]): number | undefined =>
     candidates.find((s) => typeof s === 'number')
