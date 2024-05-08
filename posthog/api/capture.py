@@ -403,6 +403,14 @@ def get_event(request):
         else:
             events = [data]
 
+        if not all(data):  # Check that all items are truthy (not null, not empty dict)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
+                ),
+            )
+
         try:
             events = drop_performance_events(events)
         except Exception as e:

@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -128,12 +128,16 @@ export class ApiError extends Error {
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
 
+    /** Link to external resources, e.g. stripe invoices */
+    link: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
+        this.link = data?.link || null
     }
 }
 
@@ -1906,6 +1910,12 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+        async updateSchema(
+            tableId: DataWarehouseTable['id'],
+            updates: Record<string, DatabaseSerializedFieldType>
+        ): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
         },
     },
 
