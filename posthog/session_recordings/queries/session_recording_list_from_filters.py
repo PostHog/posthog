@@ -304,7 +304,7 @@ class EventsSubQuery:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._filter.date_from - timedelta(hours=12)),
+                    right=ast.Constant(value=self._filter.date_from),
                 )
             )
 
@@ -313,7 +313,7 @@ class EventsSubQuery:
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._filter.date_to + timedelta(hours=12)),
+                    right=ast.Constant(value=self._filter.date_to),
                 )
             )
 
