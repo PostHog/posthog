@@ -5,6 +5,7 @@ from django.db import models
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
+from posthog.hogql import ast
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
 from posthog.warehouse.models.util import remove_named_tuples
@@ -17,7 +18,12 @@ def validate_saved_query_name(value):
             params={"value": value},
         )
 
-    if value in Database._table_names:
+    # This doesnt protect us from naming a table the same as a warehouse table
+    database = Database()
+    all_keys = list(vars(database).keys())
+    table_names = [key for key in all_keys if isinstance(getattr(database, key), ast.Table)]
+
+    if value in table_names:
         raise ValidationError(
             f"{value} is not a valid view name. View names cannot overlap with PostHog table names.",
             params={"value": value},
@@ -48,9 +54,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     def get_columns(self) -> dict[str, str]:
         from posthog.api.services.query import process_query
+        from posthog.hogql_queries.query_runner import ExecutionMode
 
-        # TODO: catch and raise error
-        response = process_query(self.team, self.query)
+        response = process_query(self.team, self.query, execution_mode=ExecutionMode.CALCULATION_ALWAYS)
         types = response.get("types", {})
         return dict(types)
 

@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 
+from django.db.models import Min
 from django.http import JsonResponse
 
 from posthog.api.shared import UserBasicSerializer
@@ -23,6 +24,7 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+from nanoid import generate
 
 from typing import Any
 
@@ -30,7 +32,10 @@ from posthog.utils_cors import cors_response
 
 import nh3
 
+from urllib.parse import urlparse
+
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -139,6 +144,14 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             choices = raw_question.get("choices")
             if choices and not isinstance(choices, list):
                 raise serializers.ValidationError("Question choices must be a list of strings")
+
+            link = raw_question.get("link")
+            if link:
+                parsed_url = urlparse(link)
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES or parsed_url.netloc == "":
+                    raise serializers.ValidationError(
+                        f"Link must be a URL to resource with one of these schemes [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                    )
 
             cleaned_questions.append(cleaned_question)
 
@@ -251,7 +264,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
             elif name and filters:
-                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
+                random_id = generate("1234567890abcdef", 10)
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}")
                 feature_flag_serializer = FeatureFlagSerializer(
                     data={
                         "key": feature_flag_key,
@@ -288,14 +302,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def responses_count(self, request: request.Request, **kwargs):
+        earliest_survey_creation_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("created_at"))[
+            "created_at__min"
+        ]
         data = sync_execute(
             f"""
             SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s
+            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
             GROUP BY survey_id
         """,
-            {"team_id": self.team_id},
+            {"team_id": self.team_id, "timestamp": earliest_survey_creation_date},
         )
 
         counts = {}

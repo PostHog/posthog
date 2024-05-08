@@ -10,7 +10,6 @@ from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
 from posthog.session_recordings.sql.session_replay_event_sql import (
@@ -51,8 +50,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(team_id=team_id, name=name)
-        ActionStep.objects.create(action=action, event=name, properties=properties)
+        action = Action.objects.create(
+            team_id=team_id, name=name, steps_json=[{"event": name, "properties": properties}]
+        )
         return action
 
     def create_event(
@@ -1992,7 +1992,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
@@ -2023,7 +2022,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             page_view_session_id,

@@ -123,7 +123,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 42
+        cls.base_app_num_queries = 43
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
         other_org = create_organization(name="test org")
@@ -395,7 +395,7 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         }
 
         response = self.client.get(
-            "/e/?data=%s" % quote(json.dumps(data)),
+            "/e/?data={}".format(quote(json.dumps(data))),
             HTTP_ORIGIN="https://localhost",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)

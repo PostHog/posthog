@@ -116,6 +116,7 @@ describe('trendsDataLogic', () => {
                     insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
+                    labelGroupType: 'people',
                     indexedResults: [
                         expect.objectContaining({
                             count: -50255.0,
@@ -136,6 +137,14 @@ describe('trendsDataLogic', () => {
                             seriesIndex: 0,
                         }),
                     ],
+                })
+
+                query.aggregation_group_type_index = 1
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    labelGroupType: 1,
                 })
             })
         })

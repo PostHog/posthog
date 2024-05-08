@@ -1,4 +1,4 @@
-import { AvailableFeature } from '~/types'
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -27,6 +27,7 @@ import {
     WebSnippet,
 } from './project/ProjectSettings'
 import {
+    NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
@@ -120,6 +121,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ProjectAccountFiltersSetting />,
             },
             {
+                id: 'persons-on-events',
+                title: 'Event person filtering behavior',
+                component: <PersonsOnEvents />,
+            },
+            {
                 id: 'correlation-analysis',
                 title: 'Correlation analysis exclusions',
                 component: <CorrelationConfig />,
@@ -158,6 +164,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
+            },
+            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
@@ -166,12 +177,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
-                features: [
-                    AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-                ],
             },
             {
                 id: 'replay-ai-config',
@@ -224,7 +229,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],

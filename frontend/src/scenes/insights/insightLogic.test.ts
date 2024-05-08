@@ -11,7 +11,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -19,7 +18,6 @@ import { DataTableNode, NodeKind } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
-    AvailableFeature,
     BreakdownType,
     DashboardTile,
     DashboardType,
@@ -112,7 +110,6 @@ describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
     beforeEach(async () => {
-        useAvailableFeatures([AvailableFeature.TEAM_COLLABORATION])
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],

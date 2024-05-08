@@ -3,14 +3,14 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import DashboardFilter, NodeKind
 
-DATA_TABLE_LIKE_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode]
+WRAPPER_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode, NodeKind.InsightVizNode]
 
 
 # Apply the filters from the django-style Dashboard object
 def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
     kind = query.get("kind", None)
 
-    if kind in DATA_TABLE_LIKE_NODE_KINDS:
+    if kind in WRAPPER_NODE_KINDS:
         source = apply_dashboard_filters(query["source"], filters, team)
         return {**query, "source": source}
 
@@ -20,7 +20,8 @@ def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
         capture_exception()
         return query
     try:
-        return query_runner.apply_dashboard_filters(DashboardFilter(**filters)).dict()
+        query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+        return query_runner.query.model_dump()
     except NotImplementedError:
         # TODO when we implement apply_dashboard_filters on more query runners, we can remove the try/catch
         capture_exception()

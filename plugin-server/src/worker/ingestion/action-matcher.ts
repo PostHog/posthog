@@ -19,9 +19,9 @@ import {
     PropertyOperator,
     StringMatching,
 } from '../../types'
-import { extractElements } from '../../utils/db/elements-chain'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { stringToBoolean } from '../../utils/env-utils'
+import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
 
@@ -145,15 +145,11 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public async match(event: PostIngestionEvent, elements?: Element[]): Promise<Action[]> {
+    public async match(event: PostIngestionEvent): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
-        if (!elements) {
-            const rawElements: Record<string, any>[] | undefined = event.properties?.['$elements']
-            elements = rawElements ? extractElements(rawElements) : []
-        }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => this.checkAction(event, elements, action))
+            teamActions.map((action) => this.checkAction(event, action))
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
@@ -171,24 +167,29 @@ export class ActionMatcher {
      * Return whether the event is a match for the action.
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
-    public async checkAction(
-        event: PostIngestionEvent,
-        elements: Element[] | undefined,
-        action: Action
-    ): Promise<boolean> {
+    public async checkAction(event: PostIngestionEvent, action: Action): Promise<boolean> {
         for (const step of action.steps) {
             try {
-                if (await this.checkStep(event, elements, step)) {
+                if (await this.checkStep(event, step)) {
                     return true
                 }
             } catch (error) {
                 captureException(error, {
                     tags: { team_id: action.team_id },
-                    extra: { event, elements, action, step },
+                    extra: { event, action, step },
                 })
             }
         }
         return false
+    }
+
+    /**
+     * Helper method to build the elementsList if not already present and return it.
+     */
+    private getElementsList(event: PostIngestionEvent): Element[] {
+        mutatePostIngestionEventWithElementsList(event)
+
+        return event.elementsList ?? []
     }
 
     /**
@@ -197,19 +198,13 @@ export class ActionMatcher {
      * Return whether the event is a match for the step (match group).
      * The event is considered a match if no subcheck fails. Many subchecks are usually irrelevant and skipped.
      */
-    private async checkStep(
-        event: PostIngestionEvent,
-        elements: Element[] | undefined,
-        step: ActionStep
-    ): Promise<boolean> {
-        if (!elements) {
-            elements = []
-        }
+    private async checkStep(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         return (
-            this.checkStepElement(elements, step) &&
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
-            (await this.checkStepFilters(event, elements, step))
+            // The below checks are less performant may parse the elements chain or do a database query hence moved to the end
+            this.checkStepElement(event, step) &&
+            (await this.checkStepFilters(event, step))
         )
     }
 
@@ -240,9 +235,10 @@ export class ActionMatcher {
      * the step's "Link href equals", "Text equals" and "HTML selector matches" constraints.
      * Step properties: `tag_name`, `text`, `href`, `selector`.
      */
-    private checkStepElement(elements: Element[], step: ActionStep): boolean {
+    private checkStepElement(event: PostIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.href || step.tag_name || step.text) {
+            const elements = this.getElementsList(event)
             if (
                 !elements.some((element) => {
                     if (
@@ -267,7 +263,7 @@ export class ActionMatcher {
                 return false
             }
         }
-        if (step.selector && !this.checkElementsAgainstSelector(elements, step.selector)) {
+        if (step.selector && !this.checkElementsAgainstSelector(event, step.selector)) {
             return false // SELECTOR IS A MISMATCH
         }
         return true
@@ -293,12 +289,12 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's fiter constraints.
      * Step property: `properties`.
      */
-    private async checkStepFilters(event: PostIngestionEvent, elements: Element[], step: ActionStep): Promise<boolean> {
+    private async checkStepFilters(event: PostIngestionEvent, step: ActionStep): Promise<boolean> {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilter(event, elements, filter))) {
+                if (!(await this.checkEventAgainstFilter(event, filter))) {
                     return false
                 }
             }
@@ -309,20 +305,16 @@ export class ActionMatcher {
     /**
      * Sublevel 3 of action matching.
      */
-    private async checkEventAgainstFilter(
-        event: PostIngestionEvent,
-        elements: Element[],
-        filter: PropertyFilter
-    ): Promise<boolean> {
+    private async checkEventAgainstFilter(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
         switch (filter.type) {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
             case 'person':
-                return this.checkEventAgainstPersonFilter(event.person_properties, filter)
+                return this.checkEventAgainstPersonFilter(event, filter)
             case 'element':
-                return this.checkEventAgainstElementFilter(elements, filter)
+                return this.checkEventAgainstElementFilter(event, filter)
             case 'cohort':
-                return await this.checkEventAgainstCohortFilter(event.person_id, event.teamId, filter)
+                return await this.checkEventAgainstCohortFilter(event, filter)
             default:
                 return false
         }
@@ -338,27 +330,24 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstPersonFilter(
-        personProperties: Properties | undefined,
-        filter: PersonPropertyFilter
-    ): boolean {
-        if (!personProperties) {
+    private checkEventAgainstPersonFilter(event: PostIngestionEvent, filter: PersonPropertyFilter): boolean {
+        if (!event.person_properties) {
             return !!(filter.operator && emptyMatchingOperator[filter.operator]) // NO PERSON OR PROPERTIES TO MATCH AGAINST FILTER
         }
-        return this.checkPropertiesAgainstFilter(personProperties, filter)
+        return this.checkPropertiesAgainstFilter(event.person_properties, filter)
     }
 
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstElementFilter(elements: Element[], filter: ElementPropertyFilter): boolean {
+    private checkEventAgainstElementFilter(event: PostIngestionEvent, filter: ElementPropertyFilter): boolean {
         if (filter.key === 'selector') {
             const okValues = Array.isArray(filter.value) ? filter.value : [filter.value]
             return okValues.some((okValue) =>
-                okValue ? this.checkElementsAgainstSelector(elements, okValue.toString()) : false
+                okValue ? this.checkElementsAgainstSelector(event, okValue.toString()) : false
             )
         } else {
-            return elements.some((element) => this.checkPropertiesAgainstFilter(element, filter))
+            return this.getElementsList(event).some((element) => this.checkPropertiesAgainstFilter(element, filter))
         }
     }
 
@@ -366,8 +355,7 @@ export class ActionMatcher {
      * Sublevel 4 of action matching.
      */
     private async checkEventAgainstCohortFilter(
-        personUuid: string | undefined,
-        teamId: number,
+        event: PostIngestionEvent,
         filter: CohortPropertyFilter
     ): Promise<boolean> {
         let cohortId = filter.value
@@ -375,7 +363,7 @@ export class ActionMatcher {
             // The "All users" cohort matches anyone
             return true
         }
-        if (!personUuid) {
+        if (!event.person_id) {
             return false // NO PERSON TO MATCH AGAINST COHORT
         }
         if (typeof cohortId !== 'number') {
@@ -384,7 +372,7 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.doesPersonBelongToCohort(Number(filter.value), personUuid, teamId)
+        return await this.doesPersonBelongToCohort(Number(filter.value), event.person_id, event.teamId)
     }
 
     public async doesPersonBelongToCohort(cohortId: number, personUuid: string, teamId: number): Promise<boolean> {
@@ -467,7 +455,8 @@ export class ActionMatcher {
     /**
      * Sublevel 3 or 5 of action matching.
      */
-    public checkElementsAgainstSelector(elements: Element[], selector: string, escapeSlashes = true): boolean {
+    public checkElementsAgainstSelector(event: PostIngestionEvent, selector: string, escapeSlashes = true): boolean {
+        const elements = this.getElementsList(event)
         const parts: SelectorPart[] = []
         // Sometimes people manually add *, just remove them as they don't do anything
         selector = selector

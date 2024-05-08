@@ -21,13 +21,13 @@ from posthog.schema import (
     StickinessQuery,
     TrendsQuery,
     FunnelsQuery,
+    LifecycleQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
 
 class InsightActorsQueryRunner(QueryRunner):
     query: InsightActorsQueryNode
-    query_type = InsightActorsQueryNode  # type: ignore
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -88,6 +88,11 @@ class InsightActorsQueryRunner(QueryRunner):
         if isinstance(self.source_runner, FunnelsQueryRunner):
             assert isinstance(self.query, FunnelsActorsQuery)
             assert isinstance(self.query.source, FunnelsQuery)
+            return self.query.source.aggregation_group_type_index
+
+        if isinstance(self.source_runner, LifecycleQueryRunner):
+            # Lifecycle Query uses a plain InsightActorsQuery
+            assert isinstance(self.query.source, LifecycleQuery)
             return self.query.source.aggregation_group_type_index
 
         if (

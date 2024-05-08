@@ -35,6 +35,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { DashboardFilter } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -44,7 +45,6 @@ import {
     DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
-    FilterType,
     InsightColor,
     InsightModel,
     InsightShortId,
@@ -136,11 +136,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItemsManual: true,
         resetInterval: true,
         updateAndRefreshDashboard: true,
-        setDates: (dateFrom: string | null, dateTo: string | null) => ({
-            dateFrom,
-            dateTo,
+        setDates: (date_from: string | null, date_to: string | null) => ({
+            date_from,
+            date_to,
         }),
-        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
+        setEditMode: (editMode: boolean) => ({ editMode }),
+        setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
+        setFilters: (filters: DashboardFilter) => ({ filters }),
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
@@ -148,6 +150,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loading,
             queued,
         }),
+        setPageVisibility: (visible: boolean) => ({ visible }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
@@ -171,6 +174,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
+        applyTemporary: true,
+        cancelTemporary: true,
     }),
 
     loaders(({ actions, props, values }) => ({
@@ -272,6 +277,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        pageVisibility: [
+            true,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
         dashboardFailedToLoad: [
             false,
             {
@@ -279,17 +290,43 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardFailure: () => true,
             },
         ],
-        filters: [
-            { date_from: null, date_to: null, properties: [] } as FilterType,
+        temporaryFilters: [
             {
-                setDates: (state, { dateFrom, dateTo }) => ({
+                date_from: null,
+                date_to: null,
+                properties: null,
+            } as DashboardFilter,
+            {
+                setDates: (state, { date_from, date_to }) => ({
                     ...state,
-                    date_from: dateFrom || null,
-                    date_to: dateTo || null,
+                    date_from: date_from || null,
+                    date_to: date_to || null,
                 }),
                 setProperties: (state, { properties }) => ({
                     ...state,
                     properties: properties || null,
+                }),
+                loadDashboardSuccess: (state, { dashboard }) =>
+                    dashboard
+                        ? {
+                              ...state,
+                              date_from: dashboard?.filters.date_from || null,
+                              date_to: dashboard?.filters.date_to || null,
+                              properties: dashboard?.filters.properties || [],
+                          }
+                        : state,
+            },
+        ],
+        filters: [
+            {
+                date_from: null,
+                date_to: null,
+                properties: null,
+            } as DashboardFilter,
+            {
+                setFilters: (state, { filters }) => ({
+                    ...state,
+                    ...filters,
                 }),
                 loadDashboardSuccess: (state, { dashboard }) =>
                     dashboard
@@ -346,7 +383,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     insight: insight,
                                     last_refresh: insight.last_refresh,
                                 }
-                            } else {
+                            } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
                             }
                         } else {
@@ -523,6 +560,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setTextTileId: (_, { textTileId }) => textTileId,
             },
         ],
+        editMode: [
+            false,
+            {
+                setEditMode: (_, { editMode }) => editMode,
+            },
+        ],
     })),
     selectors(() => ({
         asDashboardTemplate: [
@@ -604,7 +647,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         newestRefreshed: [
-            (s) => [s.sortedDates],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.sortedDates, s.pageVisibility],
             (sortedDates): Dayjs | null => {
                 if (!sortedDates.length) {
                     return null
@@ -624,7 +668,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.newestRefreshed, s.placement],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.newestRefreshed, s.placement, s.pageVisibility],
             (newestRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
                     !!newestRefreshed &&
@@ -725,6 +770,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return 0
                 })
+            },
+        ],
+        stale: [
+            (s) => [s.editMode, s.temporaryFilters, s.dashboard],
+            (editMode, temporaryFilters, dashboard) => {
+                return (
+                    editMode &&
+                    (temporaryFilters.date_from !== dashboard?.filters.date_from ||
+                        temporaryFilters.date_to !== dashboard?.filters.date_to ||
+                        JSON.stringify(temporaryFilters.properties) !== JSON.stringify(dashboard?.filters.properties))
+                )
             },
         ],
     })),
@@ -1001,12 +1057,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
-        setDates: ({ dateFrom, dateTo }) => {
+        setFilters: ({ filters: { date_from, date_to } }) => {
             actions.updateFilters()
-            eventUsageLogic.actions.reportDashboardDateRangeChanged(dateFrom, dateTo)
-        },
-        setProperties: () => {
-            actions.updateFilters()
+            eventUsageLogic.actions.reportDashboardDateRangeChanged(date_from, date_to)
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
@@ -1148,6 +1201,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 insights_fetched: 0,
                 insights_fetched_cached: 0,
             })
+        },
+        applyTemporary: () => {
+            actions.setFilters(values.temporaryFilters)
+            actions.setEditMode(false)
+        },
+        cancelTemporary: () => {
+            actions.setDates(values.dashboard?.filters.date_from ?? null, values.dashboard?.filters.date_to ?? null)
+            actions.setProperties(values.dashboard?.filters.properties ?? null)
+            actions.setEditMode(false)
         },
     })),
 
