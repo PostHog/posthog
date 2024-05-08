@@ -29,6 +29,7 @@ import {
     WebSnippet,
 } from './project/ProjectSettings'
 import {
+    NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
@@ -163,6 +164,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay',
                 title: 'Session replay',
                 component: <ReplayGeneral />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',

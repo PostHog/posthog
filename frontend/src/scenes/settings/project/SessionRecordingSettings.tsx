@@ -118,13 +118,12 @@ function PayloadWarning(): JSX.Element {
     )
 }
 
-function NetworkCaptureSettings(): JSX.Element {
+export function NetworkCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <div>
-            <h3>Network capture</h3>
+        <>
             <p>
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.
@@ -221,7 +220,7 @@ function NetworkCaptureSettings(): JSX.Element {
                     />
                 </div>
             </div>
-        </div>
+        </>
     )
 }
 
@@ -699,7 +698,6 @@ export function ReplayGeneral(): JSX.Element {
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
-            <NetworkCaptureSettings />
         </div>
     )
 }
