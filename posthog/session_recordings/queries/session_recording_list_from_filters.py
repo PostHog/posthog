@@ -299,16 +299,19 @@ class EventsSubQuery:
             ),
         ]
 
+        # TRICKY: we're adding a buffer to the date range to ensure we get all the events
+        # you can start sending us events before the session starts
         if self._filter.date_from:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._filter.date_from),
+                    right=ast.Constant(value=self._filter.date_from - timedelta(minutes=2)),
                 )
             )
 
-        if self._filter.date_from:
+        # but we don't want to include events after date_to if provided
+        if self._filter.date_to:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,

@@ -113,7 +113,7 @@ class LogQuery:
         timestamp_params = {}
         if self._filter.date_from:
             timestamp_clause += "\nAND timestamp >= %(event_start_time)s"
-            timestamp_params["event_start_time"] = self._filter.date_from
+            timestamp_params["event_start_time"] = self._filter.date_from - timedelta(minutes=2)
         if self._filter.date_to:
             timestamp_clause += "\nAND timestamp <= %(event_end_time)s"
             timestamp_params["event_end_time"] = self._filter.date_to
