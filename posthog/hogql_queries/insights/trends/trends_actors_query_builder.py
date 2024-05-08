@@ -141,15 +141,13 @@ class TrendsActorsQueryBuilder:
         return ast.Field(chain=["e", "person_id"])
 
     def _events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
-        #         {self._get_not_null_actor_condition()}
-
         return ast.And(
             exprs=[
                 *self._entity_where_expr(),
                 *self._prop_where_expr(),
                 *self._date_where_expr(),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
-                *self._filter_empty_groups_expr(),
+                *self._filter_empty_actors_expr(),
             ]
         )
 
@@ -325,7 +323,7 @@ class TrendsActorsQueryBuilder:
 
         return conditions
 
-    def _filter_empty_groups_expr(self) -> list[ast.Expr]:
+    def _filter_empty_actors_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
 
         # Ignore empty groups
