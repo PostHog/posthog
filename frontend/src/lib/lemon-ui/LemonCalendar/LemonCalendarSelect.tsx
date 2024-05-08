@@ -8,6 +8,7 @@ import {
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
 
 function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
@@ -57,6 +58,8 @@ export interface LemonCalendarSelectProps {
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
+    showTimeToggle?: boolean
+    onToggleTime?: (value: boolean) => void
 }
 
 export function LemonCalendarSelect({
@@ -66,6 +69,8 @@ export function LemonCalendarSelect({
     onClose,
     granularity = 'day',
     selectionPeriod,
+    showTimeToggle,
+    onToggleTime,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
@@ -177,7 +182,15 @@ export function LemonCalendarSelect({
                 }}
                 granularity={granularity}
             />
-            <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
+            <div className="flex space-x-2 justify-between items-center border-t p-2 pt-4">
+                {showTimeToggle && (
+                    <LemonSwitch
+                        label="Include time?"
+                        checked={granularity != 'day'}
+                        onChange={onToggleTime}
+                        bordered
+                    />
+                )}
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
                     Cancel
                 </LemonButton>
