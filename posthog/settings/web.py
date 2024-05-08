@@ -282,7 +282,12 @@ def add_recorder_js_headers(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = add_recorder_js_headers
 
+# Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
+SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
+
 CSRF_COOKIE_NAME = "posthog_csrftoken"
+CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
+
 
 # see posthog.gzip_middleware.ScopedGZipMiddleware
 # for how adding paths here can add vulnerability to the "breach" attack
@@ -361,6 +366,3 @@ IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
 )
 
 IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
-
-# Cookie age in seconds (default 30 days)
-SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 30, type_cast=int)
