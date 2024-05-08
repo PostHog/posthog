@@ -6,7 +6,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.schema import DateRange, EventsNode, TrendsQuery
+from posthog.schema import DateRange, EventsNode, IntervalType, TrendsQuery
 from posthog.test.base import BaseTest
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
@@ -42,11 +42,34 @@ class TestQueryBuilder(BaseTest):
         return sql[sql.find("WHERE and(") + 10 : sql.find(") LIMIT 10000")]
 
     def test_date_range(self):
-        builder = self._get_builder(time_frame="2024-03-03")
+        builder = self._get_builder(time_frame="2023-05-08")
 
         date_expr = builder._date_where_expr()
 
         self.assertEqual(
             self._print_hogql_expr(date_expr),
-            "greaterOrEquals(timestamp, toDateTime('2024-03-03 00:00:00.000000')), less(timestamp, toDateTime('2024-03-04 00:00:00.000000'))",
+            "greaterOrEquals(timestamp, toDateTime('2023-05-08 00:00:00.000000')), less(timestamp, toDateTime('2024-05-08 00:00:00.000000'))",
+        )
+
+    def test_date_range_with_timezone(self):
+        self.team.timezone = "Europe/Berlin"
+        builder = self._get_builder(time_frame="2023-05-08")
+
+        date_expr = builder._date_where_expr()
+
+        self.assertEqual(
+            self._print_hogql_expr(date_expr),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-07 22:00:00.000000')), less(timestamp, toDateTime('2023-05-08 22:00:00.000000'))",
+        )
+
+    def test_date_range_hourly(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(update={"interval": IntervalType.hour}, deep=True)
+        builder = self._get_builder(trends_query=trends_query, time_frame="2023-05-08T15:00:00")
+
+        date_expr = builder._date_where_expr()
+
+        self.assertEqual(
+            self._print_hogql_expr(date_expr),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-08 13:00:00.000000')), less(timestamp, toDateTime('2023-05-08 14:00:00.000000'))",
         )
