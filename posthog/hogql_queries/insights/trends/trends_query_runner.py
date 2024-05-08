@@ -362,7 +362,6 @@ class TrendsQueryRunner(QueryRunner):
             and self.query.trendsFilter.formula != ""
         ):
             with self.timings.measure("apply_formula"):
-                final_result: list[dict[str, Any]]
                 has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
                 if has_compare:
                     current_results = returned_results[: len(returned_results) // 2]
@@ -372,35 +371,14 @@ class TrendsQueryRunner(QueryRunner):
                         self.query.trendsFilter.formula, current_results
                     ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
                 else:
-                    # if cohort
-                    if (
-                        self.query.breakdownFilter
-                        and self.query.breakdownFilter.breakdown_type == "cohort"
-                        and isinstance(self.query.breakdownFilter.breakdown, list)
-                    ):
-                        breakdowns_count = len(self.query.breakdownFilter.breakdown)
-
-                        if len(returned_results) % breakdowns_count == 0:
-                            results_per_breakdown = len(returned_results) // breakdowns_count
-                            final_result = []
-                            for i in range(breakdowns_count):
-                                breakdown_results = returned_results[
-                                    (i * results_per_breakdown) : ((i + 1) * results_per_breakdown)
-                                ]
-                                final_result.extend(
-                                    self.apply_formula(self.query.trendsFilter.formula, breakdown_results)
-                                )
-                        else:
-                            raise ValueError("Number of results is not divisible by breakdowns count")
-                    else:
-                        final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
         else:
             final_result = []
             for result in returned_results:
                 if isinstance(result, list):
                     final_result.extend(result)
                 elif isinstance(result, dict):
-                    final_result.append(result)
+                    raise ValueError("This should not happen")
 
         return TrendsQueryResponse(
             results=final_result,
@@ -686,13 +664,41 @@ class TrendsQueryRunner(QueryRunner):
 
         return series_with_extras
 
-    def apply_formula(self, formula: str, results: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    def apply_formula(
+        self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
+    ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.trendsFilter and self.query.trendsFilter.compare)
         has_breakdown = bool(self.query.breakdownFilter and self.query.breakdownFilter.breakdown)
         is_total_value = self._trends_display.should_aggregate_values()
 
         if len(results) == 0:
             return []
+
+        # The "all" cohort makes us do special handling (basically we run a separate query per cohort,
+        # search for leftjoin_conjoined in self.setup_series). Here we undo the damage.
+        if (
+            has_breakdown
+            and self.query.breakdownFilter
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+            and isinstance(self.query.breakdownFilter.breakdown, list)
+            and "all" in self.query.breakdownFilter.breakdown
+            and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and not in_breakdown_clause
+        ):
+            cohort_count = len(self.query.breakdownFilter.breakdown)
+
+            if len(results) % cohort_count == 0:
+                results_per_cohort = len(results) // cohort_count
+                conjoined_results = []
+                for i in range(cohort_count):
+                    cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
+                    cohort_results = self.apply_formula(
+                        self.query.trendsFilter.formula, cohort_series, in_breakdown_clause=True
+                    )
+                    conjoined_results.append(cohort_results)
+                results = conjoined_results
+            else:
+                raise ValueError("Number of results is not divisible by breakdowns count")
 
         # we need to apply the formula to a group of results when we have a breakdown or the compare option is enabled
         if has_compare or has_breakdown:
