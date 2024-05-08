@@ -72,15 +72,18 @@ def insight_can_be_cached(insight: Optional[Insight]) -> bool:
     if insight is None:
         return False
 
-    cacheable_filter_based_insight = len(insight.filters) > 0
-    if cacheable_filter_based_insight:
+    if insight.filters:
         return True
 
-    cacheable_query_based_insight = (
-        insight.query is not None and get_query_runner_or_none(insight.query, insight.team) is not None
-    )
-    if cacheable_query_based_insight:
+    if not insight.query:
+        return False
+
+    if get_query_runner_or_none(insight.query, insight.team) is not None:
         return True
+
+    if source := insight.query.get("source"):
+        if get_query_runner_or_none(source, insight.team) is not None:
+            return True
 
     return False
 
