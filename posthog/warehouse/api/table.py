@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.schema import DatabaseSerializedFieldType
 from posthog.warehouse.models import (
@@ -55,11 +56,13 @@ class TableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        return serialize_fields(
+            database.get_table(table.name).fields, HogQLContext(database=database, team_id=self.context["team_id"])
+        )
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
