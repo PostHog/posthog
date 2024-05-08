@@ -10,8 +10,8 @@ export const smoothingOptions: Record<IntervalType, { label: string; value: Smoo
             value: 1,
         },
         {
-            label: '3 minute',
-            value: 3,
+            label: '5-minute average',
+            value: 5,
         },
     ],
     hour: [
@@ -20,7 +20,7 @@ export const smoothingOptions: Record<IntervalType, { label: string; value: Smoo
             value: 1,
         },
         {
-            label: '24 Hrs',
+            label: '24-hour average',
             value: 24,
         },
     ],
@@ -30,11 +30,11 @@ export const smoothingOptions: Record<IntervalType, { label: string; value: Smoo
             value: 1,
         },
         {
-            label: '7 Day',
+            label: '7-day average',
             value: 7,
         },
         {
-            label: '28 Day',
+            label: '28-day average',
             value: 28,
         },
     ],

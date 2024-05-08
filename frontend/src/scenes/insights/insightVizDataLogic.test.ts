@@ -370,7 +370,7 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('clears smoothing ', async () => {
+        it('clears smoothing when switching between intervals', async () => {
             const trendsQuery = { ...trendsQueryDefault, interval: 'minute' }
             trendsQuery.trendsFilter = { ...trendsQuery.trendsFilter, smoothingIntervals: 2 }
             builtInsightVizDataLogic.actions.updateQuerySource(trendsQuery)

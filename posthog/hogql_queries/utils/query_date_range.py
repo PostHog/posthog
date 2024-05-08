@@ -18,7 +18,7 @@ from posthog.utils import (
     relative_date_parse_with_delta_mapping,
 )
 
-INTERVAL_LITERAL = Literal["minute", "hour", "day", "week", "month"]
+IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -118,8 +118,8 @@ class QueryDateRange:
         return self._interval or IntervalType.day
 
     @cached_property
-    def interval_name(self) -> INTERVAL_LITERAL:
-        return cast(INTERVAL_LITERAL, self.interval_type.name)
+    def interval_name(self) -> IntervalLiteral:
+        return cast(IntervalLiteral, self.interval_type.name)
 
     def align_with_interval(self, start: datetime) -> datetime:
         if self.interval_name == "minute":

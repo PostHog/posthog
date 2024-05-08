@@ -742,14 +742,14 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
 // Could potentially be expensive to compute.
 export const realTimeDateMapping: DateMappingOption[] = [
     {
-        key: 'Last Hour',
+        key: 'Last hour',
         values: ['-1h'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'h'), date, DATE_FORMAT_WITH_TIME),
         defaultInterval: 'minute',
     },
     {
-        key: 'Last Three Hours',
+        key: 'Last 3 hours',
         values: ['-3h'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(3, 'h'), date, DATE_FORMAT_WITH_TIME),
@@ -1079,14 +1079,14 @@ export const areDatesValidForInterval = (
     } else if (interval === 'minute') {
         return (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
-            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 24 * 2 // 2 days
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
         )
     }
     throw new UnexpectedNeverError(interval)
 }
 
 const defaultDatesForInterval = {
-    minute: { dateFrom: '-3h', dateTo: null },
+    minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },

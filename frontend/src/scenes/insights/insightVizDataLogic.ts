@@ -578,25 +578,27 @@ const handleQuerySourceUpdateSideEffects = (
     if (kind == NodeKind.TrendsQuery && trendsMergedUpdate?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
-        // Change the date range to be the last 3 hours if it was longer
-        const dateMapping = realTimeDateMapping[1]
+        // Change the date range to be the last hour if it was longer
+        // Try to find the key but fallback if it fails
+        const dateMapping =
+            realTimeDateMapping.find((dateMapping) => dateMapping.key === 'Last hour') || realTimeDateMapping[0]
 
         if (
-            // When insights are created, they might not have an explicit dateRange set. Change it to 3 hours if the interval is minute.
+            // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
             (!date_from && !date_to) ||
-            // If the interval is set manually to a range greater or equal to a day, also change it to 3 hours
+            // If the interval is set manually to a range greater than 12 hours, change it to an hour
             (date_from &&
                 date_to &&
                 dayjs(date_from).isValid() &&
                 dayjs(date_to).isValid() &&
-                dayjs(date_to).diff(dayjs(date_from), 'day') >= 1)
+                dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
         ) {
             trendsMergedUpdate.dateRange = {
                 date_from: dateMapping.values[0],
                 date_to: dateMapping.values[1],
             }
         } else {
-            // The date range is from the dropdown. Change the date range to 3 hrs if the current selection's defaultInterval isn't a minute.
+            // The date range is from the dropdown. Change the date range to an hour if the current selection's defaultInterval isn't a minute.
             for (const { key, values, defaultInterval } of allDateMapping) {
                 if (
                     values[0] === date_from &&
