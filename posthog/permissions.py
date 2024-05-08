@@ -269,9 +269,6 @@ class TimeSensitiveActionPermission(BasePermission):
     message = "This action requires you to be recently authenticated."
 
     def has_permission(self, request, view) -> bool:
-        # if request.method in SAFE_METHODS:
-        #     return True
-
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
         if not session_created_at:
             # This should always be covered by the middleware but just in case
