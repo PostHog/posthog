@@ -252,7 +252,7 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.preflight, s.billing],
             (preflight, billing): boolean => !!preflight?.is_debug && !billing?.billing_period,
         ],
-        projectedTotalAmountUsd: [
+        projectedTotalAmountUsdWithBillingLimits: [
             (s) => [s.billing],
             (billing: BillingV2Type): number => {
                 if (!billing) {
@@ -260,13 +260,19 @@ export const billingLogic = kea<billingLogicType>([
                 }
                 let projectedTotal = 0
                 for (const product of billing.products || []) {
-                    projectedTotal += parseFloat(product.projected_amount_usd || '0')
+                    const billingLimit: string =
+                        billing?.custom_limits_usd?.[product.type] ||
+                        (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] || '0' : '0')
+                    projectedTotal += Math.min(
+                        parseFloat(product.projected_amount_usd || '0'),
+                        parseFloat(billingLimit)
+                    )
                 }
                 return projectedTotal
             },
         ],
         over20kAnnual: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsdWithBillingLimits],
             (billing, preflight, projectedTotalAmountUsd) => {
                 if (!billing || !preflight?.cloud) {
                     return
@@ -279,7 +285,7 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return true
                 }
-                return
+                return false
             },
         ],
         isAnnualPlan: [
