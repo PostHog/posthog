@@ -372,7 +372,28 @@ class TrendsQueryRunner(QueryRunner):
                         self.query.trendsFilter.formula, current_results
                     ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
                 else:
-                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+                    # if cohort
+                    if (
+                        self.query.breakdownFilter
+                        and self.query.breakdownFilter.breakdown_type == "cohort"
+                        and isinstance(self.query.breakdownFilter.breakdown, list)
+                    ):
+                        breakdowns_count = len(self.query.breakdownFilter.breakdown)
+
+                        if len(returned_results) % breakdowns_count == 0:
+                            results_per_breakdown = len(returned_results) // breakdowns_count
+                            final_result = []
+                            for i in range(breakdowns_count):
+                                breakdown_results = returned_results[
+                                    (i * results_per_breakdown) : ((i + 1) * results_per_breakdown)
+                                ]
+                                final_result.extend(
+                                    self.apply_formula(self.query.trendsFilter.formula, breakdown_results)
+                                )
+                        else:
+                            raise ValueError("Number of results is not divisible by breakdowns count")
+                    else:
+                        final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
         else:
             final_result = []
             for result in returned_results:
