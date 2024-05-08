@@ -167,13 +167,13 @@ class BillingManager:
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
             # Also update the tiers
-            if product["tiers"]:
+            if product.get("tiers"):
                 product["tiers"] = compute_usage_per_tier(current_usage, product["projected_usage"], product["tiers"])
                 product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
 
             # Update the add on tiers
             # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
-            for addon in product["addons"]:
+            for addon in product.get("addons"):
                 if not addon["subscribed"]:
                     continue
                 addon_usage_key = addon.get("usage_key")
