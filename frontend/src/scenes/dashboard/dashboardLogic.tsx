@@ -1043,7 +1043,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         cancelled = true
                     } else {
-                        actions.setRefreshStatus(insight.short_id)
+                        actions.setRefreshError(insight.short_id)
                     }
                 }
 
