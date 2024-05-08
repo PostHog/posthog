@@ -190,7 +190,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
-    const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
+    const { isSignupSubmitting, validatedPassword } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
@@ -227,7 +227,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         <div className="flex flex-1 items-center justify-between">
                             <span>Password</span>
                             <span className="w-20">
-                                <PasswordStrength password={signup.password} />
+                                <PasswordStrength validatedPassword={validatedPassword} />
                             </span>
                         </div>
                     }

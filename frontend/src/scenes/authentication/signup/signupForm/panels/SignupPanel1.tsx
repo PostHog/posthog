@@ -12,7 +12,7 @@ import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, validatedPassword } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -49,7 +49,7 @@ export function SignupPanel1(): JSX.Element | null {
                             <div className="flex flex-1 items-center justify-between">
                                 <span>Password</span>
                                 <span className="w-20">
-                                    <PasswordStrength password={signupPanel1.password} />
+                                    <PasswordStrength validatedPassword={validatedPassword} />
                                 </span>
                             </div>
                         }

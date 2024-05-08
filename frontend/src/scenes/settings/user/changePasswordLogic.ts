@@ -1,7 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { connect, kea, path } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
+import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { userLogic } from 'scenes/userLogic'
 
 import type { changePasswordLogicType } from './changePasswordLogicType'
@@ -46,4 +47,12 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
             },
         },
     })),
+    selectors({
+        validatedPassword: [
+            (s) => [s.changePassword],
+            ({ password }): ValidatedPasswordResult => {
+                return validatePassword(password)
+            },
+        ],
+    }),
 ])
