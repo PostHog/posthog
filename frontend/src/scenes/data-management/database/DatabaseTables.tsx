@@ -30,7 +30,7 @@ export function DatabaseTablesContainer(): JSX.Element {
                         <div className="px-4 py-3">
                             <div className="mt-2">
                                 <span className="card-secondary">Columns</span>
-                                <DatabaseTable table={row.name} tables={filteredTables} />
+                                <DatabaseTable table={row.name} tables={filteredTables} inEditSchemaMode={false} />
                                 {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE] && (
                                     <div className="w-full flex justify-end">
                                         <LemonButton

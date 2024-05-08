@@ -46,8 +46,8 @@ function proposedDate(target: dayjs.Dayjs | null, { value, unit }: GetLemonButto
     return date
 }
 
-function cloneTimeToDate(date: dayjs.Dayjs, selectValue: dayjs.Dayjs): dayjs.Dayjs {
-    return date.clone().hour(selectValue.hour()).minute(selectValue.minute())
+function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayjs.Dayjs {
+    return targetDate.clone().hour(timeSource.hour()).minute(timeSource.minute())
 }
 
 export interface LemonCalendarSelectProps {

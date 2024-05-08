@@ -84,6 +84,39 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
+async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+    const results: T[] = []
+    const activePromises: Promise<void>[] = []
+    const remainingTasks = [...tasks] // Clone the tasks array to manage remaining tasks
+
+    const enqueueTask = (): void => {
+        while (activePromises.length < limit && remainingTasks.length > 0) {
+            const task = remainingTasks.shift() // Get the next task and remove it from remaining
+            if (task) {
+                const promise = task()
+                    .then((result) => {
+                        results.push(result)
+                        void activePromises.splice(activePromises.indexOf(promise), 1) // Remove promise when done
+                    })
+                    .catch((error) => {
+                        void activePromises.splice(activePromises.indexOf(promise), 1) // Handle errors and remove promise
+                        console.error('Error executing task:', error)
+                    })
+                activePromises.push(promise)
+            }
+        }
+    }
+
+    enqueueTask() // Initial population of the activePromises array
+
+    while (activePromises.length > 0) {
+        await Promise.race(activePromises)
+        enqueueTask() // Check and enqueue new tasks if there's room
+    }
+
+    return results
+}
+
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
@@ -150,6 +183,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loading,
             queued,
         }),
+        setPageVisibility: (visible: boolean) => ({ visible }),
         setRefreshError: (shortId: InsightShortId) => ({ shortId }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
@@ -276,6 +310,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        pageVisibility: [
+            true,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
         dashboardFailedToLoad: [
             false,
             {
@@ -376,7 +416,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     insight: insight,
                                     last_refresh: insight.last_refresh,
                                 }
-                            } else {
+                            } else if (!insight.dashboards?.includes(props.id)) {
                                 newTiles.splice(tileIndex, 1)
                             }
                         } else {
@@ -640,7 +680,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         newestRefreshed: [
-            (s) => [s.sortedDates],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.sortedDates, s.pageVisibility],
             (sortedDates): Dayjs | null => {
                 if (!sortedDates.length) {
                     return null
@@ -660,7 +701,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.newestRefreshed, s.placement],
+            // page visibility is only here to trigger a recompute when the page is hidden/shown
+            (s) => [s.newestRefreshed, s.placement, s.pageVisibility],
             (newestRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
                     !!newestRefreshed &&
@@ -1001,7 +1043,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         cancelled = true
                     } else {
-                        actions.setRefreshError(insight.short_id)
+                        actions.setRefreshStatus(insight.short_id)
                     }
                 }
 
@@ -1034,17 +1076,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            async function loadNextPromise(): Promise<void> {
-                if (!cancelled && fetchItemFunctions.length > 0) {
-                    const nextPromise = fetchItemFunctions.shift()
-                    if (nextPromise) {
-                        await nextPromise()
-                        await loadNextPromise()
-                    }
-                }
-            }
-
-            void loadNextPromise()
+            await runWithLimit(fetchItemFunctions, 2)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },

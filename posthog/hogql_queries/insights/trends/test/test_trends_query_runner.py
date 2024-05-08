@@ -658,6 +658,24 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], response.results[0]["data"])
 
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_breakdown_is_context_aware(self, mock_sync_execute: MagicMock):
+        self._create_test_events()
+
+        self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.day,
+            [EventsNode(event="$pageviewxxx"), EventsNode(event="$pageleavexxx")],
+            TrendsFilter(formula="A+2*B"),
+            BreakdownFilter(breakdown_type=BreakdownType.person, breakdown="$browser"),
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+
+        self.assertEqual(mock_sync_execute.call_count, 4)
+        for mock_execute_call_args in mock_sync_execute.call_args_list:
+            self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
+
     def test_trends_compare(self):
         self._create_test_events()
 

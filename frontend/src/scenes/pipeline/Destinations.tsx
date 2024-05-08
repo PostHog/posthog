@@ -2,12 +2,10 @@ import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
@@ -20,10 +18,6 @@ import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
     const { destinations, shouldShowProductIntroduction } = useValues(pipelineDestinationsLogic)
 
     const shouldShowEmptyState = !destinations.some((destination) => destination.enabled)
@@ -65,17 +59,21 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
                             return (
-                                <Tooltip title="Click to update configuration, view metrics, and more">
-                                    <LemonTableLink
-                                        to={urls.pipelineNode(
-                                            PipelineStage.Destination,
-                                            destination.id,
-                                            PipelineNodeTab.Configuration
-                                        )}
-                                        title={destination.name}
-                                        description={destination.description}
-                                    />
-                                </Tooltip>
+                                <LemonTableLink
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Configuration
+                                    )}
+                                    title={
+                                        <>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
+                                                <span>{destination.name}</span>
+                                            </Tooltip>
+                                        </>
+                                    }
+                                    description={destination.description}
+                                />
                             )
                         },
                     },

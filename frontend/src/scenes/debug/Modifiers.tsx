@@ -1,15 +1,19 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { DataNode, HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQueryModifiers } from '~/queries/schema'
 
-export interface ModifiersProps {
-    setQuery: (query: DataNode) => void
-    query: HogQLQuery | Record<string, any> | null
-    response: HogQLQueryResponse | null
+export interface ModifiersProps<Q extends { response?: Record<string, any>; modifiers?: HogQLQueryModifiers }> {
+    setQuery: (query: Q) => void
+    query: Q | null
+    response: Required<Q>['response'] | null
 }
 
-export function Modifiers({ setQuery, query, response = null }: ModifiersProps): JSX.Element | null {
+export function Modifiers<Q extends { response?: Record<string, any>; modifiers?: HogQLQueryModifiers }>({
+    setQuery,
+    query,
+    response = null,
+}: ModifiersProps<Q>): JSX.Element | null {
     if (query === null) {
         return null
     }
@@ -38,7 +42,7 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                         setQuery({
                             ...query,
                             modifiers: { ...query.modifiers, personsOnEventsMode: value },
-                        } as HogQLQuery)
+                        })
                     }
                     value={query.modifiers?.personsOnEventsMode ?? response?.modifiers?.personsOnEventsMode}
                 />
@@ -54,7 +58,7 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                         setQuery({
                             ...query,
                             modifiers: { ...query.modifiers, personsArgMaxVersion: value },
-                        } as HogQLQuery)
+                        })
                     }
                     value={query.modifiers?.personsArgMaxVersion ?? response?.modifiers?.personsArgMaxVersion}
                 />
@@ -72,7 +76,7 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                         setQuery({
                             ...query,
                             modifiers: { ...query.modifiers, inCohortVia: value },
-                        } as HogQLQuery)
+                        })
                     }
                     value={query.modifiers?.inCohortVia ?? response?.modifiers?.inCohortVia}
                 />
@@ -90,7 +94,7 @@ export function Modifiers({ setQuery, query, response = null }: ModifiersProps):
                         setQuery({
                             ...query,
                             modifiers: { ...query.modifiers, materializationMode: value },
-                        } as HogQLQuery)
+                        })
                     }
                     value={query.modifiers?.materializationMode ?? response?.modifiers?.materializationMode}
                 />
