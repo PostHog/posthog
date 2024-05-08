@@ -1,21 +1,17 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { groupFilters } from 'scenes/feature-flags/FeatureFlags'
+import { humanFriendlyNumber } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { InsightType, MultivariateFlagVariant } from '~/types'
+import { InsightType } from '~/types'
 
 import { EXPERIMENT_INSIGHT_ID } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -29,12 +25,9 @@ export function DataCollectionCalculator({
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
     const {
-        experimentResults,
         experimentInsightType,
-        editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
-        aggregationLabel,
         experiment,
         trendResults,
         conversionMetrics,
@@ -70,11 +63,6 @@ export function DataCollectionCalculator({
         runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
     }
 
-    const expectedEndDate = dayjs(experiment?.start_date).add(runningTime, 'hour')
-    const showEndDate = !experiment?.end_date && currentDuration >= 24 && funnelEntrants && funnelSampleSize
-
-    const targetingProperties = experiment.feature_flag?.filters
-
     return (
         <div className="flex">
             <div className="w-full">
@@ -99,7 +87,7 @@ export function DataCollectionCalculator({
                                     },
                                 })
                             }}
-                            className="w-1/3"
+                            className="w-full"
                         />
                         <LemonInput
                             data-attr="min-acceptable-improvement"
@@ -153,11 +141,11 @@ export function DataCollectionCalculator({
                         <div className="flex flex-wrap">
                             {!experiment?.start_date && (
                                 <>
-                                    <div className="w-1/2">
+                                    <div className="mb-4 w-1/2">
                                         <div className="card-secondary">Baseline Conversion Rate</div>
                                         <div className="l4">{funnelConversionRate.toFixed(1)}%</div>
                                     </div>
-                                    <div className="w-1/2">
+                                    <div className="mb-4 w-1/2">
                                         <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
                                         <div className="l4">
                                             {(funnelConversionRate + (minimumDetectableChange || 5)).toFixed(1)}%
@@ -181,79 +169,6 @@ export function DataCollectionCalculator({
                             )}
                         </div>
                     )}
-                    <div className="flex w-full mt-4">
-                        <div className="flex-1">
-                            <div className="card-secondary">Experiment variants</div>
-                            <ul className="variants-list">
-                                {experiment?.parameters?.feature_flag_variants?.map(
-                                    (variant: MultivariateFlagVariant, idx: number) => {
-                                        if (!experimentResults || !experimentResults.insight) {
-                                            return (
-                                                <div key={idx} className="font-semibold">
-                                                    {capitalizeFirstLetter(variant.key)}
-                                                </div>
-                                            )
-                                        }
-                                        return <VariantTag key={idx} variantKey={variant.key} />
-                                    }
-                                )}
-                            </ul>
-                        </div>
-                        <div className="flex-1">
-                            <div className="card-secondary">Participants</div>
-                            <div className="inline-block">
-                                {targetingProperties ? (
-                                    <>
-                                        {groupFilters(targetingProperties, undefined, aggregationLabel)}
-                                        <LemonButton
-                                            to={
-                                                experiment.feature_flag
-                                                    ? urls.featureFlag(experiment.feature_flag.id)
-                                                    : undefined
-                                            }
-                                            size="small"
-                                            className="mt-0.5"
-                                            type="secondary"
-                                            center
-                                        >
-                                            Check flag release conditions
-                                        </LemonButton>
-                                    </>
-                                ) : (
-                                    '100% of all users'
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex w-full">
-                        {experimentId !== 'new' && !editingExistingExperiment && (
-                            <div className="w-1/2">
-                                <div className="card-secondary mt-4">Start date</div>
-                                {experiment?.start_date ? (
-                                    <TZLabel time={experiment?.start_date} />
-                                ) : (
-                                    <span className="description">Not started yet</span>
-                                )}
-                            </div>
-                        )}
-                        {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
-                            <div className="w-1/2">
-                                <div className="card-secondary mt-4">Expected end date</div>
-                                <span>
-                                    {expectedEndDate.isAfter(dayjs())
-                                        ? expectedEndDate.format('D MMM YYYY')
-                                        : dayjs().format('D MMM YYYY')}
-                                </span>
-                            </div>
-                        ) : null}
-                        {/* The null prevents showing a 0 while loading */}
-                        {experiment?.end_date && (
-                            <div className="w-1/2">
-                                <div className="card-secondary mt-4">Completed date</div>
-                                <TZLabel time={experiment?.end_date} />
-                            </div>
-                        )}
-                    </div>
                     {/* :KLUDGE: mounting the query component to ensure the goal insight is loaded for the calculations */}
                     <div className="hidden">
                         <BindLogic logic={insightLogic} props={insightProps}>
