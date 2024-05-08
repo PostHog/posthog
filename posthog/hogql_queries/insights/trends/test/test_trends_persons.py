@@ -450,7 +450,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[2]), "person3")
         self.assertEqual(get_event_count(result[2]), 0)
 
-    @skip("fails in resolver")
+    @skip("fails, as event_count isn't populated properly")
     def test_trends_math_count_per_actor_persons(self):
         self._create_events()
         source_query = TrendsQuery(
@@ -512,6 +512,37 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[0]), 2)
         self.assertEqual(get_group_name(result[1]), "Pied Piper")
         self.assertEqual(get_event_count(result[1]), 1)
+
+    def test_trends_math_group_persons_filters_empty(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="Company", group_type_index=0)
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="Hooli")
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="")
+
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-05-01 16:00",
+            properties={"$group_0": "Hooli"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            timestamp="2023-05-01 17:00",
+            team=self.team,
+        )
+        source_query = TrendsQuery(
+            series=[
+                EventsNode(event="$pageview", math="unique_group", math_group_type_index=MathGroupTypeIndex.number_0)
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        result = self._get_actors(trends_query=source_query, day="2023-05-01")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(get_group_name(result[0]), "Hooli")
+        self.assertEqual(get_event_count(result[0]), 1)
 
     def test_trends_total_value_persons(self):
         self._create_events()

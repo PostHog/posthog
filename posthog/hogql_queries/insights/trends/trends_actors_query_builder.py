@@ -117,21 +117,7 @@ class TrendsActorsQueryBuilder:
             placeholders={"events_query": self._get_events_query()},
         )
 
-    def _get_events_query(
-        self,
-        time_frame: Optional[str] = None,
-        breakdown_filter: Optional[str | int] = None,
-    ) -> ast.SelectQuery:
-        # breakdown = self._breakdown(is_actors_query=True, breakdown_filter=breakdown_filter)
-
-        # events_filter = self._events_filter(
-        #     ignore_breakdowns=False,
-        #     breakdown=breakdown,
-        #     is_actors_query=True,
-        #     breakdown_values_override=breakdown_values_override,
-        #     actors_query_time_frame=actors_query_time_frame,
-        # )
-
+    def _get_events_query(self) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="actor_id", expr=self._actor_id_expr()),
@@ -154,41 +140,16 @@ class TrendsActorsQueryBuilder:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
 
-        # def _events_filter(
-        #     self,
-        #     is_actors_query: bool,
-        #     breakdown: Breakdown | None,
-        #     ignore_breakdowns: bool = False,
-        #     breakdown_values_override: Optional[str | int] = None,
-        #     actors_query_time_frame: Optional[str] = None,
-        # ) -> ast.Expr:
-
+    def _events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
         #         {self._get_not_null_actor_condition()}
 
-        #     # Breakdown
-        #     if not ignore_breakdowns and breakdown is not None:
-        #         if breakdown.enabled and not breakdown.is_histogram_breakdown:
-        #             breakdown_filter = breakdown.events_where_filter()
-        #             if breakdown_filter is not None:
-        #                 conditions.append(breakdown_filter)
-
-        #     # Ignore empty groups
-        #     if series.math == "unique_group" and series.math_group_type_index is not None:
-        #         conditions.append(
-        #             ast.CompareOperation(
-        #                 op=ast.CompareOperationOp.NotEq,
-        #                 left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
-        #                 right=ast.Constant(value=""),
-        #             )
-        #         )
-
-    def _events_where_expr(self, with_breakdown_expr: bool = True) -> ast.And:
         return ast.And(
             exprs=[
                 *self._entity_where_expr(),
                 *self._prop_where_expr(),
                 *self._date_where_expr(),
                 *(self._breakdown_where_expr() if with_breakdown_expr else []),
+                *self._filter_empty_groups_expr(),
             ]
         )
 
@@ -295,26 +256,33 @@ class TrendsActorsQueryBuilder:
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
 
-            # # exclude events before the query start
-            # if query_from > actors_from:
-            #     actors_from = query_from
+            if self.trends_date_range.explicit():
+                # exclude events before the query start
+                if query_from > actors_from:
+                    actors_from = query_from
 
-            # # exclude events after the query end
-            # if query_to < actors_to:
-            #     actors_to = query_to
+                # exclude events after the query end
+                if query_to < actors_to:
+                    actors_to_op = ast.CompareOperationOp.LtEq
+                    actors_to = query_to
 
-        if self.entity.math == BaseMathType.weekly_active:
-            actors_from_expr = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=actors_from),
-                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
-            )
-        elif self.entity.math == BaseMathType.monthly_active:
-            actors_from_expr = ast.ArithmeticOperation(
-                op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=actors_from),
-                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
-            )
+        # adjust date_from for weekly and monthly active calculations
+        if self.entity.math == BaseMathType.weekly_active or self.entity.math == BaseMathType.monthly_active:
+            if self.entity.math == BaseMathType.weekly_active:
+                actors_from_expr = ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Constant(value=actors_from),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
+                )
+            elif self.entity.math == BaseMathType.monthly_active:
+                actors_from_expr = ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Constant(value=actors_from),
+                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
+                )
+
+            if self.trends_date_range.explicit():
+                actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
         else:
             actors_from_expr = ast.Constant(value=actors_from)
 
@@ -354,5 +322,20 @@ class TrendsActorsQueryBuilder:
             breakdown_filter = breakdown.events_where_filter()
             if breakdown_filter is not None:
                 conditions.append(breakdown_filter)
+
+        return conditions
+
+    def _filter_empty_groups_expr(self) -> list[ast.Expr]:
+        conditions: list[ast.Expr] = []
+
+        # Ignore empty groups
+        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"]),
+                    right=ast.Constant(value=""),
+                )
+            )
 
         return conditions

@@ -86,6 +86,12 @@ class QueryDateRange:
 
         return date_from
 
+    def explicit(self) -> bool:
+        if self._date_range is None or self._date_range.explicitDate is None:
+            return False
+
+        return self._date_range.explicitDate
+
     @cached_property
     def previous_period_date_from(self) -> datetime:
         return self.date_from() - (self.date_to() - self.date_from())
