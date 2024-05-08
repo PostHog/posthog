@@ -7,6 +7,7 @@ import api, { getJSONOrNull } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -33,9 +34,19 @@ export interface BillingAlertConfig {
     onClose?: () => void
 }
 
+export enum BillingAPIErrorCodes {
+    OPEN_INVOICES_ERROR = 'open_invoices_error',
+}
+
 export interface UnsubscribeError {
     detail: string | JSX.Element
     link: JSX.Element
+}
+
+export interface BillingError {
+    status: 'info' | 'warning' | 'error'
+    message: string
+    action: LemonButtonPropsBase
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -167,7 +178,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        if (error.detail && error.detail.includes('open invoice')) {
+                        if (error.code && error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
                             actions.setUnsubscribeError({
                                 detail: error.detail,
                                 link: (
@@ -187,6 +198,41 @@ export const billingLogic = kea<billingLogicType>([
                         // This is a bit of a hack to prevent the page from re-rendering.
                         return values.billing
                     }
+                },
+            },
+        ],
+        billingError: [
+            null as BillingError | null,
+            {
+                getInvoices: async () => {
+                    // First check to see if there are open invoices
+                    try {
+                        const res = await api.getResponse('api/billing-v2/get_invoices?status=open')
+                        const jsonRes = await getJSONOrNull(res)
+                        const numOpenInvoices = jsonRes['count']
+                        if (numOpenInvoices > 0) {
+                            const viewInvoicesButton = {
+                                to:
+                                    numOpenInvoices == 1 && jsonRes['link']
+                                        ? jsonRes['link']
+                                        : values.billing?.stripe_portal_url,
+                                children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
+                                targetBlank: true,
+                            }
+                            return {
+                                status: 'warning',
+                                message: `You have ${numOpenInvoices} open invoice${
+                                    numOpenInvoices > 1 ? 's' : ''
+                                }. Please pay ${
+                                    numOpenInvoices > 1 ? 'them' : 'it'
+                                } before adding items to your subscription.`,
+                                action: viewInvoicesButton,
+                            }
+                        }
+                    } catch (error: any) {
+                        console.error(error)
+                    }
+                    return null
                 },
             },
         ],
@@ -436,6 +482,7 @@ export const billingLogic = kea<billingLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadBilling()
+        actions.getInvoices()
     }),
     urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence

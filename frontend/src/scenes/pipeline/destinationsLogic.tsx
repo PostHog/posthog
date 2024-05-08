@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -16,21 +15,13 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { pipelineLogic } from './pipelineLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
+import { captureBatchExportEvent, capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            userLogic,
-            ['user'],
-            pipelineLogic,
-            ['canConfigurePlugins', 'canEnableNewDestinations'],
-        ],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
@@ -152,14 +143,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, asyncActions, values }) => ({
+    listeners(({ actions, asyncActions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (!values.canConfigurePlugins) {
-                lemonToast.error("You don't have permission to enable or disable destinations")
-                return
-            }
-            if (enabled && !values.canEnableNewDestinations) {
-                lemonToast.error('Data pipelines add-on is required for enabling new destinations')
+            if (!checkPermissions(PipelineStage.Destination, enabled)) {
                 return
             }
             if (destination.backend === PipelineBackend.Plugin) {
