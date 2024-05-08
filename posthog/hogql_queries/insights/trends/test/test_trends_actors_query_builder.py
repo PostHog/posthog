@@ -8,7 +8,16 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.schema import ChartDisplayType, Compare, DateRange, EventsNode, IntervalType, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    BaseMathType,
+    ChartDisplayType,
+    Compare,
+    DateRange,
+    EventsNode,
+    IntervalType,
+    TrendsFilter,
+    TrendsQuery,
+)
 from posthog.test.base import BaseTest
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
@@ -120,4 +129,28 @@ class TestQueryBuilder(BaseTest):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
+            )
+
+    def test_date_range_weekly_active_users_math(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)]}, deep=True
+        )
+
+        with freeze_time("2024-05-30T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-27"),
+                "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(6))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
+            )
+
+    def test_date_range_monthly_active_users_math(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)]}, deep=True
+        )
+
+        with freeze_time("2024-05-30T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-27"),
+                "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(29))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
             )

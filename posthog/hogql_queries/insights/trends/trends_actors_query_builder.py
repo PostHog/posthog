@@ -10,6 +10,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -17,6 +18,7 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import Action, Team
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     Compare,
     DataWarehouseNode,
     EventsNode,
@@ -91,6 +93,16 @@ class TrendsActorsQueryBuilder:
         trends_filter = self.trends_query.trendsFilter or TrendsFilter()
         return TrendsDisplay(trends_filter.display)
 
+    @cached_property
+    def trends_aggregation_operations(self) -> AggregationOperations:
+        return AggregationOperations(
+            self.team,
+            self.entity,
+            self.trends_display.display_type,
+            self.trends_date_range,  # TODO: does this need to be adjusted for compare queries?
+            self.trends_display.is_total_value(),
+        )
+
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add matching_events only when including recordings
         return parse_select(
@@ -141,16 +153,6 @@ class TrendsActorsQueryBuilder:
         if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
-
-        # @cached_property
-        # def _aggregation_operation(self) -> AggregationOperations:
-        #     return AggregationOperations(
-        #         self.team,
-        #         self.series,
-        #         self._trends_display.display_type,
-        #         self.query_date_range,
-        #         self._trends_display.is_total_value(),
-        #     )
 
         # def _events_filter(
         #     self,
@@ -245,6 +247,7 @@ class TrendsActorsQueryBuilder:
     def _date_where_expr(self) -> list[ast.Expr]:
         date_range: QueryDateRange
         actors_from: datetime
+        actors_from_expr: ast.Expr
         actors_to: datetime
         actors_to_op: ast.CompareOperationOp
 
@@ -277,6 +280,17 @@ class TrendsActorsQueryBuilder:
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
             assert self.time_frame
+
+            # if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
+            #     BaseMathType.weekly_active,
+            #     BaseMathType.monthly_active,
+            # ):
+            #     # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
+            #     # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
+            #     # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
+            #     # This way we at least ensure the date range is the probably expected 7 or 30 days.
+            #     date_from_with_lookback = "{date_to} - {inclusive_lookback}"
+
             actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
@@ -289,12 +303,27 @@ class TrendsActorsQueryBuilder:
             # if query_to < actors_to:
             #     actors_to = query_to
 
+        if self.entity.math == BaseMathType.weekly_active:
+            actors_from_expr = ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Constant(value=actors_from),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
+            )
+        elif self.entity.math == BaseMathType.monthly_active:
+            actors_from_expr = ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Constant(value=actors_from),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
+            )
+        else:
+            actors_from_expr = ast.Constant(value=actors_from)
+
         conditions.extend(
             [
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
                     op=ast.CompareOperationOp.GtEq,
-                    right=ast.Constant(value=actors_from),
+                    right=actors_from_expr,
                 ),
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
@@ -304,16 +333,6 @@ class TrendsActorsQueryBuilder:
             ]
         )
 
-        #     elif not self._aggregation_operation.requires_query_orchestration():
-        #         date_range_placeholders = date_range.to_placeholders()
-        #         conditions.extend(
-        #             [
-        #                 parse_expr(
-        #                     "timestamp >= {date_from_with_adjusted_start_of_interval}", placeholders=date_range_placeholders
-        #                 ),
-        #                 parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
-        #             ]
-        #         )
         return conditions
 
     def _breakdown_where_expr(self) -> list[ast.Expr]:
