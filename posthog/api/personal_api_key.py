@@ -7,6 +7,7 @@ from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.user_permissions import UserPermissions
 
 
@@ -100,6 +101,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
+
+    permission_classes = [TimeSensitiveActionPermission]
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
