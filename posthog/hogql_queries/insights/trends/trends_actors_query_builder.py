@@ -131,7 +131,7 @@ class TrendsActorsQueryBuilder:
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
                 alias="e",
-                sample=(ast.SampleExpr(sample_value=self._sample_value_expr())),
+                sample=self._sample_expr(),
             ),
             where=self._events_where_expr(),
         )
@@ -190,11 +190,11 @@ class TrendsActorsQueryBuilder:
             ]
         )
 
-    def _sample_value_expr(self) -> ast.RatioExpr:
+    def _sample_expr(self) -> ast.SampleExpr | None:
         if self.trends_query.samplingFactor is None:
-            return ast.RatioExpr(left=ast.Constant(value=1))
+            return None
 
-        return ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor))
+        return ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self.trends_query.samplingFactor)))
 
     def _entity_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
@@ -248,14 +248,16 @@ class TrendsActorsQueryBuilder:
         actors_to: datetime
         actors_to_op: ast.CompareOperationOp
 
+        conditions: list[ast.Expr] = []
+
+        # validate inputs
         if not self.time_frame and not self.trends_display.is_total_value():
             raise ValueError("A `day` is required for trends actors queries without total value aggregation")
 
         if self.time_frame and self.trends_display.is_total_value():
             raise ValueError("A `day` is forbidden for trends actors queries with total value aggregation")
 
-        conditions: list[ast.Expr] = []
-
+        # adjust self.time_frame for compare_value
         if self.compare_value == Compare.previous:
             date_range = self.trends_previous_date_range
             delta_mappings = date_range.date_from_delta_mappings()

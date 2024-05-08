@@ -121,11 +121,3 @@ class TestQueryBuilder(BaseTest):
                 self._get_date_where_sql(trends_query=trends_query),
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
             )
-
-    # def test_date_range_total_value_compare_previous(self)
-
-
-# wau
-# mau
-# count actor
-# explicit for ...
