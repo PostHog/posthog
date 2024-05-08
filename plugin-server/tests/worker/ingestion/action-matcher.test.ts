@@ -58,7 +58,6 @@ describe('ActionMatcher', () => {
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            steps_json: null,
             bytecode: null,
             bytecode_error: null,
             steps_json: partialSteps
