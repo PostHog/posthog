@@ -36,6 +36,7 @@ export interface BillingAlertConfig {
 
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
+    NO_ACTIVATE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
 }
 
 export interface UnsubscribeError {
@@ -178,15 +179,21 @@ export const billingLogic = kea<billingLogicType>([
                         actions.reportProductUnsubscribed(key)
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
-                        if (error.code && error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
-                            actions.setUnsubscribeError({
-                                detail: error.detail,
-                                link: (
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
-                                        View invoices
-                                    </Link>
-                                ),
-                            } as UnsubscribeError)
+                        if (error.code) {
+                            if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                            View invoices
+                                        </Link>
+                                    ),
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVATE_PAYMENT_METHOD_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                } as UnsubscribeError)
+                            }
                         } else {
                             actions.setUnsubscribeError({
                                 detail:
