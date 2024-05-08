@@ -512,8 +512,6 @@ export enum StringMatching {
 
 export interface ActionStepType {
     event?: string | null
-    id?: number
-    name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
     /** @deprecated Only `selector` should be used now. */
@@ -3732,6 +3730,7 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
+export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
