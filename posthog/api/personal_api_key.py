@@ -101,7 +101,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
-
     permission_classes = [TimeSensitiveActionPermission]
 
     def get_queryset(self):
