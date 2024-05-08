@@ -6573,6 +6573,9 @@
                 },
                 "totalIntervals": {
                     "type": "integer"
+                },
+                "showMean": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -6599,6 +6602,9 @@
                 },
                 "total_intervals": {
                     "type": "integer"
+                },
+                "show_mean": {
+                    "type": "boolean"
                 }
             },
             "type": "object"

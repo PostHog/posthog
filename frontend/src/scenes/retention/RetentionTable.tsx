@@ -7,6 +7,7 @@ import { BRAND_BLUE_HSL, gradateColor, PURPLE } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
@@ -17,6 +18,8 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         retentionTableLogic(insightProps)
     )
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
+    const showMean = retentionFilter?.showMean || false
 
     return (
         <table
@@ -30,7 +33,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     ))}
                 </tr>
 
-                {tableRows.length > 0 ? (
+                {showMean && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
                         {range(0, tableRows[0].length - 1).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">

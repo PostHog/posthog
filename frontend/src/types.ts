@@ -2110,6 +2110,9 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+
+    //frontend only
+    show_mean?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
