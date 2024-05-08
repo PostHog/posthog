@@ -42,6 +42,7 @@ from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property_definition import PropertyDefinition
+from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownItem,
@@ -536,6 +537,15 @@ class TrendsQueryRunner(QueryRunner):
                         series_object["label"] = remapped_label
 
                     series_object["breakdown_value"] = remapped_label
+
+            if self.query.samplingFactor and self.query.samplingFactor != 1:
+                factor = self.query.samplingFactor
+                math = series_object.get("action", {}).get("math")
+                series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
+                if "data" in series_object:
+                    series_object["data"] = [
+                        correct_result_for_sampling(value, factor, math) for value in series_object["data"]
+                    ]
 
             res.append(series_object)
         return res
