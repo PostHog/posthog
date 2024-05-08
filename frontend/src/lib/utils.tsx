@@ -1090,13 +1090,13 @@ export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {
     if (!dateFrom) {
         return false
     }
-    return dateFrom.search(/^-([0-9]|1[0-2])h/) != -1
+    return dateFrom.search(/^-([0-9]|1[0-2])h$/) != -1
 }
 export function isLessThan2Days(dateFrom: string | undefined | null): boolean {
     if (!dateFrom) {
         return false
     }
-    return dateFrom.search(/^-(4[0-7]|[0-3]?[0-9])h|[1-2]d/) != -1
+    return dateFrom.search(/^-(4[0-7]|[0-3]?[0-9])h|[1-2]d$/) != -1
 }
 
 export function clamp(value: number, min: number, max: number): number {

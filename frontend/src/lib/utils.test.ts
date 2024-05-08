@@ -815,6 +815,7 @@ describe('time ranges', () => {
         expect(is12HoursOrLess('-ab1-13h')).toBeFalsy()
         expect(is12HoursOrLess('-1d')).toBeFalsy()
         expect(is12HoursOrLess('-1w')).toBeFalsy()
+        expect(is12HoursOrLess('-1h-2h')).toBeFalsy()
     })
 
     it('is less than 2 days', () => {
@@ -833,6 +834,7 @@ describe('time ranges', () => {
         expect(isLessThan2Days('-13.123h')).toBeFalsy()
         expect(isLessThan2Days('13.123h')).toBeFalsy()
         expect(isLessThan2Days('-ab1-13h')).toBeFalsy()
+        expect(isLessThan2Days('-1d-1h')).toBeFalsy()
     })
 })
 
