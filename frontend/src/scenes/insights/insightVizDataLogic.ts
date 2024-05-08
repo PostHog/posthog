@@ -517,7 +517,7 @@ const handleQuerySourceUpdateSideEffects = (
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
-            let newDefaultInterval: IntervalType = 'day'
+            let newDefaultInterval: IntervalType | null = null
             for (const { key, values, defaultInterval } of allDateMapping) {
                 if (
                     values[0] === date_from &&
@@ -529,7 +529,27 @@ const handleQuerySourceUpdateSideEffects = (
                     break
                 }
             }
-            trendsMergedUpdate.interval = newDefaultInterval
+
+            const is12HoursOrLess: () => boolean = () => {
+                if (!date_from) {
+                    return false
+                }
+                return date_from.search(/^-([0-9]|1[0-2])h/) != -1
+            }
+            const isLessThan2Days: () => boolean = () => {
+                if (!date_from) {
+                    return false
+                }
+                return date_from.search(/^-(([0-9]+)h)|([1-2]d)/) != -1
+            }
+
+            if (!newDefaultInterval && isTrendsQuery(currentState) && is12HoursOrLess()) {
+                trendsMergedUpdate.interval = 'minute'
+            } else if (!newDefaultInterval && isLessThan2Days()) {
+                trendsMergedUpdate.interval = 'hour'
+            } else {
+                trendsMergedUpdate.interval = newDefaultInterval || 'day'
+            }
         }
     }
 
