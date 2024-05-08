@@ -199,11 +199,15 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        const [normalizedEvent, timestamp] = await this.runStep(
+        const [normalizedEvent, timestamp, normalizeEventKafkaAcks] = await this.runStep(
             normalizeEventStep,
-            [processedEvent, processPerson],
+            [this, processedEvent, processPerson],
             event.team_id
         )
+
+        if (normalizeEventKafkaAcks.length > 0) {
+            kafkaAcks.push(...normalizeEventKafkaAcks)
+        }
 
         const [postPersonEvent, person] = await this.runStep(
             processPersonsStep,
