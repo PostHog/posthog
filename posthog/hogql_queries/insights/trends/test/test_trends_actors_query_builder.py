@@ -23,7 +23,7 @@ from posthog.test.base import BaseTest
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 
 
-class TestQueryBuilder(BaseTest):
+class TestTrendsActorsQueryBuilder(BaseTest):
     def setUp(self):
         super().setUp()
 
