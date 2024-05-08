@@ -174,8 +174,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return Response(
             {
-                "link": res["portal_url"],
-                "count": res["count"],
+                "link": res.get("portal_url"),
+                "count": res.get("count"),
             },
             status=status.HTTP_200_OK,
         )
