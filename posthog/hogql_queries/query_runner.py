@@ -277,8 +277,10 @@ def get_query_runner_or_none(
         return get_query_runner(
             query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
         )
-    except ValueError:
-        return None
+    except ValueError as e:
+        if "Can't get a runner for an unknown" in str(e):
+            return None
+        raise e
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
