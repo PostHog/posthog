@@ -19,8 +19,8 @@ import { Transformation } from './types'
 import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
 
 export function Transformations(): JSX.Element {
-    const { sortedEnabledTransformations, canConfigurePlugins, shouldShowProductIntroduction } =
-        useValues(pipelineTransformationsLogic)
+    const { sortedEnabledTransformations, shouldShowProductIntroduction } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
     const { openReorderModal } = useActions(pipelineTransformationsLogic)
 
     const shouldShowEmptyState = sortedEnabledTransformations.length === 0

@@ -7,14 +7,13 @@ import { userLogic } from 'scenes/userLogic'
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
 import type { frontendAppsLogicType } from './frontendAppsLogicType'
-import { pipelineLogic } from './pipelineLogic'
 import { convertToPipelineNode, SiteApp } from './types'
-import { capturePluginEvent, loadPluginsFromUrl } from './utils'
+import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
     path(['scenes', 'pipeline', 'frontendAppsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -40,7 +39,7 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    if (!values.canConfigurePlugins) {
+                    if (!checkPermissions(PipelineStage.SiteApp, enabled)) {
                         return values.pluginConfigs
                     }
                     const { pluginConfigs, plugins } = values
