@@ -6,8 +6,9 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
 import { MockSignature } from '~/mocks/utils'
-import { PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import { AvailableFeature, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 import batchExports from './__mocks__/batchExports.json'
 import empty from './__mocks__/empty.json'
@@ -125,6 +126,14 @@ export function PipelineTransformationsPage(): JSX.Element {
 }
 
 export function PipelineDestinationsPage(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTab.Destinations))
+    }, [])
+    return <App />
+}
+
+export function PipelineDestinationsPageWithoutPipelines(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTab.Destinations))
     }, [])
@@ -174,6 +183,14 @@ export function PipelineNodeNewTransformation(): JSX.Element {
 }
 
 export function PipelineNodeNewDestination(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewDestinationWithoutDataPipelines(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
     }, [])
@@ -188,6 +205,14 @@ export function PipelineNodeNewSequenceTimer(): JSX.Element {
 }
 
 export function PipelineNodeNewBigQuery(): JSX.Element {
+    useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
+    useEffect(() => {
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+    }, [])
+    return <App />
+}
+
+export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
     }, [])
@@ -198,7 +223,7 @@ export function PipelineNodeEditConfiguration(): JSX.Element {
     useEffect(() => {
         router.actions.push(
             urls.pipelineNode(
-                PipelineStage.Transformation,
+                PipelineStage.Destination,
                 eventSequenceTimerPluginConfigId,
                 PipelineNodeTab.Configuration
             )

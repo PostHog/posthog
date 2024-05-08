@@ -1,5 +1,6 @@
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
@@ -7,6 +8,8 @@ import { useState } from 'react'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
 
@@ -104,6 +107,25 @@ function itemSizeInfo(item: PerformanceEvent): {
     }
 }
 
+function emptyPayloadMessage(
+    payloadCaptureIsEnabled: undefined | boolean,
+    item: PerformanceEvent,
+    label: 'Request' | 'Response'
+): JSX.Element | string {
+    return payloadCaptureIsEnabled ? (
+        item.is_initial ? (
+            `${label} captured before PostHog was initialized`
+        ) : (
+            `No ${label.toLowerCase()} body captured`
+        )
+    ) : (
+        <>
+            Payload capture is disabled.{' '}
+            <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+        </>
+    )
+}
+
 export function ItemPerformanceEvent({
     item,
     finalTimestamp,
@@ -111,6 +133,11 @@ export function ItemPerformanceEvent({
     setExpanded,
 }: ItemPerformanceEvent): JSX.Element {
     const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
+
+    const { currentTeam } = useValues(teamLogic)
+    const payloadCaptureIsEnabled =
+        currentTeam?.capture_performance_opt_in &&
+        currentTeam?.session_recording_network_payload_capture_config?.recordBody
 
     const sizeInfo = itemSizeInfo(item)
     const startTime = item.start_time || item.fetch_start || 0
@@ -274,11 +301,11 @@ export function ItemPerformanceEvent({
                                             <BodyDisplay
                                                 content={item.request_body}
                                                 headers={item.request_headers}
-                                                emptyMessage={
-                                                    item.is_initial
-                                                        ? 'Request captured before PostHog was initialized'
-                                                        : 'No request body captured'
-                                                }
+                                                emptyMessage={emptyPayloadMessage(
+                                                    payloadCaptureIsEnabled,
+                                                    item,
+                                                    'Request'
+                                                )}
                                             />
                                         ),
                                     },
@@ -290,11 +317,11 @@ export function ItemPerformanceEvent({
                                                   <BodyDisplay
                                                       content={item.response_body}
                                                       headers={item.response_headers}
-                                                      emptyMessage={
-                                                          item.is_initial
-                                                              ? 'Response captured before PostHog was initialized'
-                                                              : 'No response body captured'
-                                                      }
+                                                      emptyMessage={emptyPayloadMessage(
+                                                          payloadCaptureIsEnabled,
+                                                          item,
+                                                          'Response'
+                                                      )}
                                                   />
                                               ),
                                           }
@@ -380,18 +407,32 @@ export function HeadersDisplay({
     response: Record<string, string> | undefined
     isInitial?: boolean
 }): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
+    const isHeadersCaptureEnabled =
+        currentTeam?.capture_performance_opt_in &&
+        currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
     const emptyMessage = isInitial ? 'captured before PostHog was initialized' : 'No headers captured'
+
     return (
         <div className="flex flex-col w-full">
-            <div>
-                <h4 className="font-semibold">Request Headers</h4>
-                <SimpleKeyValueList item={request || {}} emptyMessage={emptyMessage} />
-            </div>
-            <LemonDivider dashed />
-            <div>
-                <h4 className="font-semibold">Response Headers</h4>
-                <SimpleKeyValueList item={response || {}} emptyMessage={emptyMessage} />
-            </div>
+            {isHeadersCaptureEnabled ? (
+                <>
+                    <div>
+                        <h4 className="font-semibold">Request Headers</h4>
+                        <SimpleKeyValueList item={request || {}} emptyMessage={emptyMessage} />
+                    </div>
+                    <LemonDivider dashed />
+                    <div>
+                        <h4 className="font-semibold">Response Headers</h4>
+                        <SimpleKeyValueList item={response || {}} emptyMessage={emptyMessage} />
+                    </div>
+                </>
+            ) : (
+                <>
+                    Headers capture is disabled.{' '}
+                    <Link to={urls.settings('project-replay', 'replay-network')}>Enable it here</Link>
+                </>
+            )}
         </div>
     )
 }

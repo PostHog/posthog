@@ -6,15 +6,14 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
-import { pipelineLogic } from './pipelineLogic'
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { convertToPipelineNode, Transformation } from './types'
-import { capturePluginEvent, loadPluginsFromUrl } from './utils'
+import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], userLogic, ['user'], pipelineLogic, ['canConfigurePlugins']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
         loadPluginConfigs: true,
@@ -54,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 savePluginConfigsOrder: async ({ newOrders }) => {
-                    if (!values.canConfigurePlugins) {
+                    if (!checkPermissions(PipelineStage.Transformation, false)) {
                         return values.pluginConfigs
                     }
                     // Plugin-server sorts by order and runs the plugins in that order
@@ -80,7 +79,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
                     return newPluginConfigs
                 },
                 toggleEnabled: async ({ id, enabled }) => {
-                    if (!values.canConfigurePlugins) {
+                    if (!checkPermissions(PipelineStage.Transformation, enabled)) {
                         return values.pluginConfigs
                     }
                     const { pluginConfigs, plugins } = values
