@@ -9,7 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { allDateMapping, realTimeDateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -460,7 +460,6 @@ const handleQuerySourceUpdateSideEffects = (
     currentState: InsightQueryNode
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
-    const trendsMergedUpdate = mergedUpdate as TrendsQuery
 
     const maybeChangedSeries = (update as TrendsQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
@@ -485,12 +484,12 @@ const handleQuerySourceUpdateSideEffects = (
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            trendsMergedUpdate.interval = 'day'
+            ;(mergedUpdate as TrendsQuery).interval = 'day'
         } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            trendsMergedUpdate.interval = 'week'
+            ;(mergedUpdate as TrendsQuery).interval = 'week'
         }
     }
 
@@ -509,16 +508,16 @@ const handleQuerySourceUpdateSideEffects = (
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
             if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                trendsMergedUpdate.interval = 'hour'
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                trendsMergedUpdate.interval = 'day'
+                ;(mergedUpdate as TrendsQuery).interval = 'day'
             } else {
-                trendsMergedUpdate.interval = 'month'
+                ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
             let newDefaultInterval: IntervalType | null = null
-            for (const { key, values, defaultInterval } of allDateMapping) {
+            for (const { key, values, defaultInterval } of dateMapping) {
                 if (
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&
@@ -544,11 +543,11 @@ const handleQuerySourceUpdateSideEffects = (
             }
 
             if (!newDefaultInterval && isTrendsQuery(currentState) && is12HoursOrLess()) {
-                trendsMergedUpdate.interval = 'minute'
+                ;(mergedUpdate as TrendsQuery).interval = 'minute'
             } else if (!newDefaultInterval && isLessThan2Days()) {
-                trendsMergedUpdate.interval = 'hour'
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else {
-                trendsMergedUpdate.interval = newDefaultInterval || 'day'
+                ;(mergedUpdate as TrendsQuery).interval = newDefaultInterval || 'day'
             }
         }
     }
@@ -577,9 +576,9 @@ const handleQuerySourceUpdateSideEffects = (
     // if mixed, clear breakdown and trends filter
     if (
         kind === NodeKind.TrendsQuery &&
-        trendsMergedUpdate.series?.length >= 0 &&
-        trendsMergedUpdate.series.some((series) => isDataWarehouseNode(series)) &&
-        trendsMergedUpdate.series.some((series) => isActionsNode(series) || isEventsNode(series))
+        (mergedUpdate as TrendsQuery).series?.length >= 0 &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isDataWarehouseNode(series)) &&
+        (mergedUpdate as TrendsQuery).series.some((series) => isActionsNode(series) || isEventsNode(series))
     ) {
         mergedUpdate['breakdownFilter'] = null
         mergedUpdate['properties'] = []
@@ -591,17 +590,18 @@ const handleQuerySourceUpdateSideEffects = (
         kind !== NodeKind.TrendsQuery &&
         (('interval' in mergedUpdate && mergedUpdate?.interval) || interval) == 'minute'
     ) {
-        trendsMergedUpdate.interval = 'hour'
+        ;(mergedUpdate as TrendsQuery).interval = 'hour'
     }
 
     // Reset dateRange to the dateMapping default
-    if (kind == NodeKind.TrendsQuery && trendsMergedUpdate?.interval == 'minute' && interval !== 'minute') {
+    if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         // Change the date range to be the last hour if it was longer
         // Try to find the key but fallback if it fails
-        const dateMapping =
-            realTimeDateMapping.find((dateMapping) => dateMapping.key === 'Last hour') || realTimeDateMapping[0]
+        const oneHourDateRange = {
+            date_from: '-1h',
+        }
 
         if (
             // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
@@ -613,13 +613,10 @@ const handleQuerySourceUpdateSideEffects = (
                 dayjs(date_to).isValid() &&
                 dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
         ) {
-            trendsMergedUpdate.dateRange = {
-                date_from: dateMapping.values[0],
-                date_to: dateMapping.values[1],
-            }
+            ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
         } else {
             // The date range is from the dropdown. Change the date range to an hour if the current selection's defaultInterval isn't a minute.
-            for (const { key, values, defaultInterval } of allDateMapping) {
+            for (const { key, values, defaultInterval } of dateMapping) {
                 if (
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&
@@ -627,10 +624,7 @@ const handleQuerySourceUpdateSideEffects = (
                     defaultInterval &&
                     defaultInterval !== 'minute'
                 ) {
-                    trendsMergedUpdate.dateRange = {
-                        date_from: dateMapping.values[0],
-                        date_to: dateMapping.values[1],
-                    }
+                    ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
                 }
             }
         }
@@ -640,11 +634,11 @@ const handleQuerySourceUpdateSideEffects = (
     if (kind == NodeKind.TrendsQuery) {
         if (
             (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
-            trendsMergedUpdate?.interval !== undefined &&
-            trendsMergedUpdate.interval !== interval
+            (mergedUpdate as TrendsQuery)?.interval !== undefined &&
+            (mergedUpdate as TrendsQuery).interval !== interval
         ) {
-            trendsMergedUpdate.trendsFilter = {
-                ...trendsMergedUpdate.trendsFilter,
+            ;(mergedUpdate as TrendsQuery).trendsFilter = {
+                ...(mergedUpdate as TrendsQuery).trendsFilter,
                 smoothingIntervals: undefined,
             }
         }

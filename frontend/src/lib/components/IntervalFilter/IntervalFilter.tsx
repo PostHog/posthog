@@ -26,19 +26,12 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                 onIntervalChange={(value) => {
                     updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
-                options={Object.entries(enabledIntervals).reduce(
-                    (result: LemonSelectOption<IntervalType>[], [value, { label, disabledReason, hidden }]) => {
-                        if (!hidden) {
-                            result.push({
-                                value: value as IntervalType,
-                                label,
-                                disabledReason,
-                            })
-                        }
-                        return result
-                    },
-                    []
-                )}
+                options={Object.entries(enabledIntervals).map(([value, { label, disabledReason, hidden }]) => ({
+                    value: value as IntervalType,
+                    label,
+                    hidden,
+                    disabledReason,
+                }))}
             />
         </>
     )

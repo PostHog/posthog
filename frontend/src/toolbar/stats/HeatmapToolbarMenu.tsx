@@ -10,7 +10,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dateFilterToText, nonRealTimeDateMapping } from 'lib/utils'
+import { dateFilterToText, dateMapping } from 'lib/utils'
 import React, { useState } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -159,7 +159,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     // let's filter the list down
     const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
 
-    const dateItems = nonRealTimeDateMapping
+    const dateItems = dateMapping
         .filter((dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key))
         .map((dateOption) => ({
             label: dateOption.key,

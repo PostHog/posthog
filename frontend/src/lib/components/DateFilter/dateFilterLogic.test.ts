@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { nonRealTimeDateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils'
 
 import { dateFilterLogic } from './dateFilterLogic'
 
@@ -18,7 +18,7 @@ describe('dateFilterLogic', () => {
             onChange,
             dateFrom: null,
             dateTo: null,
-            dateOptions: nonRealTimeDateMapping,
+            dateOptions: dateMapping,
             isDateFormatted: false,
         }
         logic = dateFilterLogic(props)
@@ -58,7 +58,7 @@ describe('dateFilterLogic', () => {
             onChange,
             dateFrom: '-1dStart',
             dateTo: '-1dEnd',
-            dateOptions: nonRealTimeDateMapping,
+            dateOptions: dateMapping,
             isDateFormatted: false,
         }
         const withDateFrom = dateFilterLogic(props)
@@ -74,7 +74,7 @@ describe('dateFilterLogic', () => {
             onChange,
             dateFrom: '-1d',
             dateTo: null,
-            dateOptions: nonRealTimeDateMapping,
+            dateOptions: dateMapping,
             isDateFormatted: false,
         }
         const withDateFrom = dateFilterLogic(props)
@@ -92,7 +92,7 @@ describe('dateFilterLogic', () => {
             onChange,
             dateFrom: null,
             dateTo: null,
-            dateOptions: nonRealTimeDateMapping,
+            dateOptions: dateMapping,
             isDateFormatted: false,
         }
         const withoutDateFrom = dateFilterLogic(props)

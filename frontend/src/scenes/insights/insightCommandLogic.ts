@@ -1,7 +1,7 @@
 import { IconTrending } from '@posthog/icons'
 import { connect, events, kea, key, path, props } from 'kea'
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { nonRealTimeDateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
@@ -31,7 +31,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                                 insightVizDataLogic(props).actions.updateInsightFilter({ compare: !compare })
                             },
                         },
-                        ...nonRealTimeDateMapping.map(({ key, values }) => ({
+                        ...dateMapping.map(({ key, values }) => ({
                             icon: IconTrending,
                             display: `Set Time Range to ${key}`,
                             executor: () => {

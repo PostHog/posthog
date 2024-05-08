@@ -15,6 +15,7 @@ import {
     colonDelimitedDuration,
     compactNumber,
     dateFilterToText,
+    dateMapping,
     dateStringToDayJs,
     dateTimeOperatorMap,
     durationOperatorMap,
@@ -33,7 +34,6 @@ import {
     isURL,
     median,
     midEllipsis,
-    nonRealTimeDateMapping,
     numericOperatorMap,
     objectClean,
     objectCleanWithEmpty,
@@ -255,35 +255,27 @@ describe('dateFilterToText()', () => {
             const from = dayjs('2018-04-04T16:00:00.000Z')
             const to = dayjs('2018-04-09T15:05:00.000Z')
 
-            expect(dateFilterToText(from, to, 'custom', nonRealTimeDateMapping, true)).toEqual(
-                'April 4 - April 9, 2018'
-            )
+            expect(dateFilterToText(from, to, 'custom', dateMapping, true)).toEqual('April 4 - April 9, 2018')
         })
 
         it('handles various ranges', () => {
             // 2012-03-02T11:38:49.321Z
             tk.freeze(new Date(1330688329321))
-            expect(dateFilterToText('dStart', null, 'default', nonRealTimeDateMapping, true)).toEqual('March 2, 2012')
-            expect(dateFilterToText('2020-01-02', '2020-01-05', 'default', nonRealTimeDateMapping, true)).toEqual(
+            expect(dateFilterToText('dStart', null, 'default', dateMapping, true)).toEqual('March 2, 2012')
+            expect(dateFilterToText('2020-01-02', '2020-01-05', 'default', dateMapping, true)).toEqual(
                 'January 2 - January 5, 2020'
             )
-            expect(dateFilterToText(null, null, 'default', nonRealTimeDateMapping, true)).toEqual('default')
-            expect(dateFilterToText('-24h', null, 'default', nonRealTimeDateMapping, true)).toEqual(
-                'March 1 - March 2, 2012'
-            )
-            expect(dateFilterToText('-48h', undefined, 'default', nonRealTimeDateMapping, true)).toEqual(
+            expect(dateFilterToText(null, null, 'default', dateMapping, true)).toEqual('default')
+            expect(dateFilterToText('-24h', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
+            expect(dateFilterToText('-48h', undefined, 'default', dateMapping, true)).toEqual(
                 'February 29 - March 2, 2012'
             )
-            expect(dateFilterToText('-1d', null, 'default', nonRealTimeDateMapping, true)).toEqual(
-                'March 1 - March 2, 2012'
-            )
-            expect(dateFilterToText('-1dStart', '-1dEnd', 'default', nonRealTimeDateMapping, true)).toEqual(
-                'March 1, 2012'
-            )
-            expect(dateFilterToText('-1mStart', '-1mEnd', 'default', nonRealTimeDateMapping, true)).toEqual(
+            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
+            expect(dateFilterToText('-1dStart', '-1dEnd', 'default', dateMapping, true)).toEqual('March 1, 2012')
+            expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 'February 1 - February 29, 2012'
             )
-            expect(dateFilterToText('-180d', null, 'default', nonRealTimeDateMapping, true)).toEqual(
+            expect(dateFilterToText('-180d', null, 'default', dateMapping, true)).toEqual(
                 'September 4, 2011 - March 2, 2012'
             )
             tk.reset()
@@ -307,7 +299,7 @@ describe('dateFilterToText()', () => {
             const from = dayjs('2018-04-04T16:00:00.000Z').tz('America/New_York')
             const to = dayjs('2018-04-09T15:05:00.000Z').tz('America/New_York')
 
-            expect(dateFilterToText(from, to, 'custom', nonRealTimeDateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
+            expect(dateFilterToText(from, to, 'custom', dateMapping, true, 'YYYY-MM-DD hh:mm:ss')).toEqual(
                 '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
             )
         })
