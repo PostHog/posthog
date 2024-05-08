@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -7,12 +8,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportService, PipelineStage, PluginType } from '~/types'
+import { AvailableFeature, BatchExportService, PipelineStage, PluginType } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
+import { PipelineBatchExportConfiguration } from './PipelineBatchExportConfiguration'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
+import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { PipelineBackend } from './types'
 import { getBatchExportUrl, RenderApp, RenderBatchExportIcon } from './utils'
@@ -94,19 +97,31 @@ export function PipelineNodeNew(
     }
 
     if (pluginId) {
-        return <>Plugin ID {pluginId}</>
+        const res = <PipelinePluginConfiguration stage={stage} pluginId={pluginId} />
+        if (stage === PipelineStage.Destination) {
+            return <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>{res}</PayGateMini>
+        }
+        return res
     }
     if (batchExportDestination) {
         if (stage !== PipelineStage.Destination) {
             return <NotFound object={batchExportDestination} />
         }
-        return <>Batch Export Destination {batchExportDestination}</>
+        return (
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+                <PipelineBatchExportConfiguration service={batchExportDestination} />
+            </PayGateMini>
+        )
     }
 
     if (stage === PipelineStage.Transformation) {
         return <TransformationOptionsTable />
     } else if (stage === PipelineStage.Destination) {
-        return <DestinationOptionsTable />
+        return (
+            <PayGateMini feature={AvailableFeature.DATA_PIPELINES}>
+                <DestinationOptionsTable />
+            </PayGateMini>
+        )
     } else if (stage === PipelineStage.SiteApp) {
         return <SiteAppOptionsTable />
     }

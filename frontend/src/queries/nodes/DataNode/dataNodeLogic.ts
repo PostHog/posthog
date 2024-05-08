@@ -119,21 +119,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
-        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
+        if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
         if (
-            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
+            !(
+                (props.cachedResults?.['result'] || props.cachedResults?.['results']) &&
+                props.key.includes('dashboard')
+            ) && // Don't load data on dashboard if cached results are available
+            ((!values.response?.['result'] && !values.response?.['results']) ||
+                !queryEqual(props.query, oldProps.query)) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
             actions.loadData()
-        } else if (props.cachedResults) {
+        } else if (props.cachedResults && !values.response?.['result'] && !values.response?.['results']) {
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
         }
@@ -163,11 +167,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        if (
-                            props.cachedResults['result'] ||
-                            props.cachedResults['results'] ||
-                            !isInsightQueryNode(props.query)
-                        ) {
+                        if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
                     }
@@ -643,9 +643,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0 && !props.key.includes('dashboard')) {
-            // Attention: When on dashboard we don't want to load data on mount
-            // as it will have be loaded by some other logic
+        if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again.
+            // We need to set them here, as the propsChanged listener will not trigger on mount
+            // and if we never change the props, the cached results will never be used.
+            actions.setResponse(props.cachedResults)
+        } else if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
 

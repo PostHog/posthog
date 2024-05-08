@@ -86,7 +86,7 @@ export function ExportedInsight({
                     })}
                 >
                     {query ? (
-                        <Query query={query} cachedResults={insight.result} readOnly />
+                        <Query query={query} cachedResults={insight} readOnly />
                     ) : (
                         <FilterBasedCardContent insight={insight as any} insightProps={insightLogicProps} />
                     )}
