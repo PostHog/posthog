@@ -19,9 +19,10 @@ import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { shouldCancelQuery, uuid } from 'lib/utils'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,6 +75,14 @@ const LOAD_MORE_ROWS_LIMIT = 10000
 
 const concurrencyController = new ConcurrencyController(Infinity)
 
+/** Compares two queries for semantic equality to prevent double-fetching of data. */
+const queryEqual = (a: DataNode, b: DataNode): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareInsightQuery(a, b, true)
+    }
+    return objectsEqual(a, b)
+}
+
 /** Tests wether a query is valid to prevent unnecessary requests.  */
 const queryValid = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
@@ -110,7 +119,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -119,6 +128,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
         if (
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
+            ((!values.response?.['result'] && !values.response?.['results']) ||
+                !queryEqual(props.query, oldProps.query)) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {

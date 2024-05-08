@@ -73,8 +73,8 @@ describe('dataNodeLogic', () => {
                 select: ['*', 'event', 'timestamp', 'person'],
             },
         })
-        expect(query).toHaveBeenCalledTimes(3) // TODO: We needed to trigger loading here, but it should not have been necessary
-        // await expectLogic(logic).toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
+        expect(query).toHaveBeenCalledTimes(2)
+        await expectLogic(logic).toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
 
         // changing the query kind will clear the results and trigger a new query
         const results3 = {}
@@ -85,7 +85,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.PersonsNode,
             },
         })
-        expect(query).toHaveBeenCalledTimes(4)
+        expect(query).toHaveBeenCalledTimes(3)
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
