@@ -237,9 +237,10 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         configuration: {
             errors: (formdata) => {
                 return Object.fromEntries(
-                    values.requiredFields.map((field) => {
-                        return [field, formdata[field] ? undefined : 'This field is required']
-                    })
+                    values.requiredFields.map((field) => [
+                        field,
+                        formdata[field] ? undefined : 'This field is required',
+                    ])
                 )
             },
             submit: async (formdata) => {
@@ -253,6 +254,5 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         } else if (props.pluginId) {
             actions.loadPlugin()
         }
-        // TODO: fix stage url if it's not correct based on plugin url
     }),
 ])

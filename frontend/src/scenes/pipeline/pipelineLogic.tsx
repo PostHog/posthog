@@ -79,7 +79,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
                         (acc, stage) => ({
                             ...acc,
                             [stage]: ops.reduce(
-                                (acc, op) => ({ ...acc, [op]: 'You do not have permission to change plugins.' }),
+                                (acc, op) => ({ ...acc, [op]: `You do not have permission to change ${stage}s.` }),
                                 {}
                             ),
                         }),
@@ -88,7 +88,7 @@ export const pipelineLogic = kea<pipelineLogicType>([
                 }
                 return {
                     [PipelineStage.ImportApp]: ops.reduce(
-                        (acc, op) => ({ ...acc, [op]: 'Import apps are deprecated.' }),
+                        (acc, op) => ({ ...acc, [op]: 'Legacy sources are deprecated.' }),
                         {} as Record<OperationType, string | undefined>
                     ),
                     [PipelineStage.SiteApp]: ops.reduce(
