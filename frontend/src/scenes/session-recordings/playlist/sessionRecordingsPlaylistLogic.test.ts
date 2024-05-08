@@ -431,7 +431,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         console_logs: [],
                         console_search_query: '',
                         date_from: '-7d',
-                        date_to: null,
+                        date_to: '-1h',
                         events: [],
                         properties: [],
                     },
