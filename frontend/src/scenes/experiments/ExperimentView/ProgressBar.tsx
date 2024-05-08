@@ -26,13 +26,31 @@ export function ProgressBar(): JSX.Element {
             ? (funnelResultsPersonsTotal / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
-    const goalTooltipText =
-        experiment?.parameters?.minimum_detectable_effect &&
-        `Based on the Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%`
+    const hasHighRunningTime = recommendedRunningTime > 62
+    const GoalTooltip = (): JSX.Element => {
+        if (!experiment?.parameters?.minimum_detectable_effect) {
+            return <></>
+        }
 
-    // const hasHighRunningTime = recommendedRunningTime > 62
-
-    const hasHighRunningTime = true
+        return (
+            <Tooltip
+                title={
+                    <div>
+                        <div>{`Based on the Minimum Acceptable Improvement of ${experiment.parameters.minimum_detectable_effect}%.`}</div>
+                        {hasHighRunningTime && (
+                            <div className="mt-2">
+                                Given the current data, this experiment might take a while to reach statistical
+                                significance. Please make sure events are being tracked correctly and consider if this
+                                timeline works for you.
+                            </div>
+                        )}
+                    </div>
+                }
+            >
+                <IconInfo className="text-muted-alt text-base" />
+            </Tooltip>
+        )
+    }
 
     return (
         <div>
@@ -78,14 +96,7 @@ export function ProgressBar(): JSX.Element {
                                 {formatUnitByQuantity(recommendedRunningTime, 'day')}
                             </>
                         )}
-                        <Tooltip title={goalTooltipText}>
-                            <IconInfo className="text-muted-alt text-base" />
-                        </Tooltip>
-                        {hasHighRunningTime && (
-                            <Tooltip title="Based on the current data, this experiment might take a while to reach statistical significance. Please make sure events are being tracked correctly and consider if this timeline works for you.">
-                                <IconInfo className="text-muted-alt text-lg" />
-                            </Tooltip>
-                        )}
+                        <GoalTooltip />
                     </div>
                 </div>
             )}
@@ -107,9 +118,7 @@ export function ProgressBar(): JSX.Element {
                             Goal: <b>{humanFriendlyNumber(recommendedSampleSize)}</b>{' '}
                             {formatUnitByQuantity(recommendedSampleSize, 'participant')}
                         </span>
-                        <Tooltip title={goalTooltipText}>
-                            <IconInfo className="text-muted-alt text-base" />
-                        </Tooltip>
+                        <GoalTooltip />
                     </div>
                 </div>
             )}
