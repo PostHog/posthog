@@ -79,7 +79,7 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
     [InsightType.RETENTION]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action.',
+        description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
     },
