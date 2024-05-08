@@ -38,11 +38,11 @@ class ZxcvbnValidator:
     def validate(self, password, user=None):
         result = zxcvbn(password)
 
-        if result["score"] < 2:
+        if result["score"] < 3:
+            joined_feedback = " ".join(result["feedback"]["suggestions"])
+
             raise ValidationError(
-                result["feedback"]["suggestions"][0]
-                if result["feedback"]["suggestions"]
-                else "This password is too weak.",
+                joined_feedback or "This password is too weak.",
                 code="password_too_weak",
             )
 

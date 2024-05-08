@@ -346,11 +346,12 @@ class TestSignupAPI(APIBaseTest):
 
     def test_cant_sign_up_with_weak_passwords(self):
         cases = [
-            ["a", ""],
-            ["password", ""],
-            ["password123", ""],
-            ["password123!", ""],
-            ["password123!@#", ""],
+            ["password", "Add another word or two. Uncommon words are better."],
+            [
+                "test test test",
+                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
+            ],
+            ["12345678", "Add another word or two. Uncommon words are better."],
         ]
 
         for password, detail in cases:
@@ -361,10 +362,10 @@ class TestSignupAPI(APIBaseTest):
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
             assert res.json() == {
                 "type": "validation_error",
-                "code": "password_too_short",
+                "code": "password_too_weak",
                 "detail": detail,
                 "attr": "password",
-            }
+            }, [password, res.json()]
 
     def test_default_dashboard_is_created_on_signup(self):
         """
