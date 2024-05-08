@@ -15,15 +15,13 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel, IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sessionReplayLinkedFlagLogic } from 'scenes/settings/project/sessionReplayLinkedFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -265,10 +263,8 @@ function LinkedFlagSelector(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(enabledFlagsLogic)
-    const flagIsEnabled = featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING]
-    const featureFlagRecordingFeatureEnabled =
-        flagIsEnabled || hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
+
+    const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING)
 
     const logic = sessionReplayLinkedFlagLogic({ id: currentTeam?.session_recording_linked_flag?.id || null })
     const { linkedFlag, featureFlagLoading, flagHasVariants } = useValues(logic)
@@ -304,40 +300,38 @@ function LinkedFlagSelector(): JSX.Element | null {
                         />
                     )}
                 </div>
-                <FlaggedFeature match={true} flag={FEATURE_FLAGS.SESSION_REPLAY_LINKED_VARIANTS}>
-                    {flagHasVariants && (
-                        <>
-                            <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
-                            <LemonSegmentedButton
-                                className="min-w-1/3"
-                                value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
-                                options={variantOptions(linkedFlag?.filters.multivariate)}
-                                onChange={(variant) => {
-                                    if (!linkedFlag) {
-                                        return
-                                    }
+                {flagHasVariants && (
+                    <>
+                        <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
+                        <LemonSegmentedButton
+                            className="min-w-1/3"
+                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
+                            options={variantOptions(linkedFlag?.filters.multivariate)}
+                            onChange={(variant) => {
+                                if (!linkedFlag) {
+                                    return
+                                }
 
-                                    updateCurrentTeam({
-                                        session_recording_linked_flag: {
-                                            id: linkedFlag?.id,
-                                            key: linkedFlag?.key,
-                                            variant: variant === 'any' ? null : variant,
-                                        },
-                                    })
-                                }}
-                            />
-                            <p>
-                                This is a multi-variant flag. You can link to "any" variant of the flag, and recordings
-                                will start whenever the flag is enabled for a user.
-                            </p>
-                            <p>
-                                Alternatively, you can link to a specific variant of the flag, and recordings will only
-                                start when the user has that specific variant enabled. Variant targeting support
-                                requires posthog-js v1.110.0 or greater
-                            </p>
-                        </>
-                    )}
-                </FlaggedFeature>
+                                updateCurrentTeam({
+                                    session_recording_linked_flag: {
+                                        id: linkedFlag?.id,
+                                        key: linkedFlag?.key,
+                                        variant: variant === 'any' ? null : variant,
+                                    },
+                                })
+                            }}
+                        />
+                        <p>
+                            This is a multi-variant flag. You can link to "any" variant of the flag, and recordings will
+                            start whenever the flag is enabled for a user.
+                        </p>
+                        <p>
+                            Alternatively, you can link to a specific variant of the flag, and recordings will only
+                            start when the user has that specific variant enabled. Variant targeting support requires
+                            posthog-js v1.110.0 or greater
+                        </p>
+                    </>
+                )}
             </div>
         </>
     )
