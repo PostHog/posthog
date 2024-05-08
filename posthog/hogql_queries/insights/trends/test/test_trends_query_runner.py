@@ -1995,3 +1995,27 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
+
+    def test_sampling_adjustment(self):
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.month,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+        )
+        runner.query.samplingFactor = 0.1
+
+        response = runner.calculate()
+        assert len(response.results) == 1
+        # 10% of 30 is 3, so check we're adjusting the results back up
+        assert response.results[0]["count"] > 5 and response.results[0]["count"] < 30

@@ -84,39 +84,6 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
-async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
-    const results: T[] = []
-    const activePromises: Promise<void>[] = []
-    const remainingTasks = [...tasks] // Clone the tasks array to manage remaining tasks
-
-    const enqueueTask = (): void => {
-        while (activePromises.length < limit && remainingTasks.length > 0) {
-            const task = remainingTasks.shift() // Get the next task and remove it from remaining
-            if (task) {
-                const promise = task()
-                    .then((result) => {
-                        results.push(result)
-                        void activePromises.splice(activePromises.indexOf(promise), 1) // Remove promise when done
-                    })
-                    .catch((error) => {
-                        void activePromises.splice(activePromises.indexOf(promise), 1) // Handle errors and remove promise
-                        console.error('Error executing task:', error)
-                    })
-                activePromises.push(promise)
-            }
-        }
-    }
-
-    enqueueTask() // Initial population of the activePromises array
-
-    while (activePromises.length > 0) {
-        await Promise.race(activePromises)
-        enqueueTask() // Check and enqueue new tasks if there's room
-    }
-
-    return results
-}
-
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
@@ -1043,7 +1010,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         cancelled = true
                     } else {
-                        actions.setRefreshStatus(insight.short_id)
+                        actions.setRefreshError(insight.short_id)
                     }
                 }
 
@@ -1076,7 +1043,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 2)
+            async function loadNextPromise(): Promise<void> {
+                if (!cancelled && fetchItemFunctions.length > 0) {
+                    const nextPromise = fetchItemFunctions.shift()
+                    if (nextPromise) {
+                        await nextPromise()
+                        await loadNextPromise()
+                    }
+                }
+            }
+
+            void loadNextPromise()
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
