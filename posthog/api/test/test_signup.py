@@ -47,7 +47,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "John",
                 "last_name": "Doe",
                 "email": "hedgehog@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
@@ -118,7 +118,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "John",
                 "email": "fake@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -140,7 +140,7 @@ class TestSignupAPI(APIBaseTest):
                 {
                     "first_name": "Jane",
                     "email": "hedgehog2@posthog.com",
-                    "password": "notsecure",
+                    "password": VALID_TEST_PASSWORD,
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -149,7 +149,7 @@ class TestSignupAPI(APIBaseTest):
                 {
                     "first_name": "Jane",
                     "email": "hedgehog2@posthog.com",
-                    "password": "notsecure",
+                    "password": VALID_TEST_PASSWORD,
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -187,7 +187,7 @@ class TestSignupAPI(APIBaseTest):
                         {
                             "first_name": "Jane",
                             "email": "hedgehog4@posthog.com",
-                            "password": "notsecure",
+                            "password": VALID_TEST_PASSWORD,
                         },
                     )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -202,7 +202,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -262,7 +262,7 @@ class TestSignupAPI(APIBaseTest):
             body = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             }
             body.pop(attribute)
 
@@ -299,7 +299,7 @@ class TestSignupAPI(APIBaseTest):
             body: dict[str, Optional[str]] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             }
             body[attribute] = None
 
@@ -380,7 +380,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
