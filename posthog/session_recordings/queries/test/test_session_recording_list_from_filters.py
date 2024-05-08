@@ -1,6 +1,5 @@
 from datetime import datetime
 from uuid import uuid4
-from unittest import skip
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -1956,7 +1955,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: throwing posthog.errors.CHQueryErrorIllegalPrewhere")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
