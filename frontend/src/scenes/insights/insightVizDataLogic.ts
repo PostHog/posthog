@@ -391,6 +391,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
+                if (query.source.kind === NodeKind.TrendsQuery) {
+                    // Disable filter test account when using a data warehouse series
+                    const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
+                    const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
+                    if (hasWarehouseSeries && filterTestAccountsEnabled) {
+                        query.source.filterTestAccounts = false
+                    }
+                }
+
                 if (props.setQuery) {
                     props.setQuery(query)
                 }
