@@ -106,7 +106,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("notsecure"))
+        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_email_collision(self):
@@ -249,7 +249,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("notsecure"))
+        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
