@@ -1293,6 +1293,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 return dayjs().diff(experiment.start_date, 'day')
             },
         ],
+        hasRecentEvents: [
+            (s) => [s.experimentInsightType, s.conversionMetrics, s.trendResults],
+            (experimentInsightType, conversionMetrics, trendResults): boolean => {
+                if (experimentInsightType === InsightType.FUNNELS && !conversionMetrics?.totalRate) {
+                    return false
+                } else if (!trendResults[0]?.count) {
+                    return false
+                }
+                return true
+            },
+        ],
     }),
     forms(({ actions }) => ({
         experiment: {
