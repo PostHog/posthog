@@ -541,7 +541,12 @@ class TrendsQueryRunner(QueryRunner):
             if self.query.samplingFactor and self.query.samplingFactor != 1:
                 factor = self.query.samplingFactor
                 math = series_object.get("action", {}).get("math")
-                series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
+                if "count" in series_object:
+                    series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
+                if "aggregated_value" in series_object:
+                    series_object["aggregated_value"] = correct_result_for_sampling(
+                        series_object["aggregated_value"], factor, math
+                    )
                 if "data" in series_object:
                     series_object["data"] = [
                         correct_result_for_sampling(value, factor, math) for value in series_object["data"]

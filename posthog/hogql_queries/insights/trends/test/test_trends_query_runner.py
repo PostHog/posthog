@@ -2006,6 +2006,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 properties={"breakdown_value": f"{value}"},
             )
 
+        # line graph
         runner = self._create_query_runner(
             "2020-01-01",
             "2020-01-31",
@@ -2014,8 +2015,21 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
         )
         runner.query.samplingFactor = 0.1
-
         response = runner.calculate()
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["count"] > 5 and response.results[0]["count"] < 30
+
+        # big number
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.month,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BoldNumber),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        # 10% of 30 is 3, so check we're adjusting the results back up
+        assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
