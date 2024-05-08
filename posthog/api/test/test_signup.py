@@ -344,6 +344,28 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
+    def test_cant_sign_up_with_weak_passwords(self):
+        cases = [
+            ["a", ""],
+            ["password", ""],
+            ["password123", ""],
+            ["password123!", ""],
+            ["password123!@#", ""],
+        ]
+
+        for password, detail in cases:
+            res = self.client.post(
+                "/api/signup/",
+                {"first_name": "Jane", "email": "failed@posthog.com", "password": password},
+            )
+            assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+            assert res.json() == {
+                "type": "validation_error",
+                "code": "password_too_short",
+                "detail": detail,
+                "attr": "password",
+            }
+
     def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
