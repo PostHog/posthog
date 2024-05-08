@@ -684,6 +684,8 @@ class TrendsQueryRunner(QueryRunner):
             and "all" in self.query.breakdownFilter.breakdown
             and self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
             and not in_breakdown_clause
+            and self.query.trendsFilter
+            and self.query.trendsFilter.formula
         ):
             cohort_count = len(self.query.breakdownFilter.breakdown)
 
