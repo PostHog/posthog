@@ -15,24 +15,20 @@ import { experimentLogic } from '../experimentLogic'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
-    trendExposure?: number
-    funnelEntrants?: number
 }
 
-export function DataCollectionCalculator({
-    experimentId,
-    trendExposure,
-    funnelEntrants,
-}: ExperimentPreviewProps): JSX.Element {
+export function DataCollectionCalculator({ experimentId }: ExperimentPreviewProps): JSX.Element {
     const {
         experimentInsightType,
         minimumDetectableChange,
         expectedRunningTime,
         experiment,
         trendResults,
+        funnelResults,
         conversionMetrics,
         minimumSampleSizePerVariant,
         variants,
+        recommendedExposureForCountData,
     } = useValues(experimentLogic({ experimentId }))
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
@@ -41,6 +37,7 @@ export function DataCollectionCalculator({
     const { query } = useValues(insightDataLogic(insightProps))
 
     const trendCount = trendResults[0]?.count || 0
+    const trendExposure = recommendedExposureForCountData(trendCount)
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     const sliderMaxValue =
@@ -51,6 +48,8 @@ export function DataCollectionCalculator({
             : 50
 
     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
+
+    const funnelEntrants = funnelResults?.[0]?.count
 
     // SAMPLE SIZE & RUNNING TIME
     const conversionRate = conversionMetrics.totalRate * 100

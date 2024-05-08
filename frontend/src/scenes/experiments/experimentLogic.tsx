@@ -103,7 +103,7 @@ export const experimentLogic = kea<experimentLogicType>([
             sceneLogic,
             ['activeScene'],
             funnelDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
-            ['conversionMetrics'],
+            ['results as funnelResults', 'conversionMetrics'],
             trendsDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
             ['results as trendResults'],
             insightDataLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID }),
