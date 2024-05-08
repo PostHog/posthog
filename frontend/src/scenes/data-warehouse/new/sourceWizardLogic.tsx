@@ -182,7 +182,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
+        actions: [
+            dataWarehouseTableLogic,
+            ['resetTable', 'createTableSuccess'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
         manualLinkingProvider: [
@@ -437,6 +442,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             if (values.currentStep === 4) {
                 actions.closeWizard()
             }
+        },
+        createTableSuccess: () => {
+            actions.onClear()
+            actions.clearSource()
+            actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
         },
         closeWizard: () => {
             actions.onClear()
