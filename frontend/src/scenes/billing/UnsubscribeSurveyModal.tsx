@@ -16,7 +16,7 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
-    const { deactivateProduct } = useActions(billingLogic)
+    const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
@@ -31,6 +31,7 @@ export const UnsubscribeSurveyModal = ({
         <LemonModal
             onClose={() => {
                 reportSurveyDismissed(surveyID)
+                resetUnsubscribeError()
             }}
             width="max(40vw)"
             title={`Why are you unsubscribing from ${product.name}?`}

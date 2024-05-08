@@ -36,7 +36,8 @@ export interface BillingAlertConfig {
 
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
-    NO_ACTIVATE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
+    NO_ACTIVE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
+    COULD_NOT_PAY_INVOICES_ERROR = 'could_not_pay_invoices_error',
 }
 
 export interface UnsubscribeError {
@@ -189,9 +190,18 @@ export const billingLogic = kea<billingLogicType>([
                                         </Link>
                                     ),
                                 } as UnsubscribeError)
-                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVATE_PAYMENT_METHOD_ERROR) {
+                            } else if (error.code === BillingAPIErrorCodes.NO_ACTIVE_PAYMENT_METHOD_ERROR) {
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
+                                } as UnsubscribeError)
+                            } else if (error.code === BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR) {
+                                actions.setUnsubscribeError({
+                                    detail: error.detail,
+                                    link: (
+                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
+                                            {error.link ? 'View invoice' : 'View invoices'}
+                                        </Link>
+                                    ),
                                 } as UnsubscribeError)
                             }
                         } else {

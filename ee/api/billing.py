@@ -134,6 +134,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     {
                         "statusText": e.args[0],
                         "detail": detail_object.get("error_message", detail_object),
+                        "link": detail_object.get("link", None),
                         "code": detail_object.get("code"),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
