@@ -47,13 +47,15 @@ def active_teams() -> set[int]:
     if not all_teams:
         teams_by_recency = sync_execute(
             """
-            SELECT team_id, date_diff('second', max(timestamp), now()) AS age
-            FROM events
-            WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
-            GROUP BY team_id
-            ORDER BY age;
-        """
+                SELECT team_id, date_diff('second', max(timestamp), toDateTime(%(now)s, 'UTC')) AS age
+                FROM events
+                WHERE timestamp > date_sub(DAY, 3, toDateTime(%(now)s, 'UTC')) AND timestamp < toDateTime(%(now)s, 'UTC')
+                GROUP BY team_id
+                ORDER BY age;
+            """,
+            {"now": datetime.now().isoformat()},  # Allow mocking datetime in tests
         )
+
         if not teams_by_recency:
             return set()
         redis.zadd(
