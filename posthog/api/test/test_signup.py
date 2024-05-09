@@ -1174,7 +1174,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Bob", "password": "new_password"},
+            {"first_name": "Bob", "password": VALID_TEST_PASSWORD + "_new"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
@@ -1197,7 +1197,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # User is not changed
         self.assertEqual(user.first_name, "")
-        self.assertFalse(user.check_password("new_password"))  # Password is not updated
+        self.assertFalse(user.check_password(VALID_TEST_PASSWORD + "_new"))  # Password is not updated
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
