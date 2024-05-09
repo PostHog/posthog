@@ -2827,8 +2827,8 @@
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'message 4') > 0 ) as log_text_matching
@@ -2869,8 +2869,8 @@
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
@@ -2911,8 +2911,8 @@
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['warn', 'error']
          AND positionCaseInsensitive(message, 'MESSAGE 5') > 0 ) as log_text_matching
@@ -2953,8 +2953,8 @@
        FROM log_entries PREWHERE team_id = 2
        AND timestamp >= '2020-12-31 20:00:00'
        AND timestamp <= now()
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 08:00:00'
+       AND timestamp >= '2021-01-13 23:58:00'
+       AND timestamp <= '2021-01-21 20:00:00'
        WHERE 1=1
          AND level in ['info']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching

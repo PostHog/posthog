@@ -9,12 +9,4 @@ AVAILABLE_PRODUCT_FEATURES: list[dict[str, Any]] = [
         "note": None,
         "unit": None,
     },
-    {
-        "description": "Restrict access to data within the organization to only those who need it.",
-        "key": "team_collaboration",
-        "limit": None,
-        "name": "Dashboard permissions",
-        "note": None,
-        "unit": None,
-    },
 ]

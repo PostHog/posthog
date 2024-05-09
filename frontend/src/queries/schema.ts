@@ -195,6 +195,7 @@ export interface HogQLQueryModifiers {
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    s3TableUseInvalidColumns?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1240,6 +1241,15 @@ export interface InsightActorsQueryOptionsResponse {
         value: string
     }[]
 }
+export const insightActorsQueryOptionsResponseKeys: string[] = [
+    'day',
+    'status',
+    'interval',
+    'breakdown',
+    'series',
+    'compare',
+]
+
 export type CachedInsightActorsQueryOptionsResponse = InsightActorsQueryOptionsResponse & CachedQueryResponseMixin
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
@@ -1272,7 +1282,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
 
 export interface DatabaseSchemaQueryResponseField {
     key: string
-    type: string
+    type: DatabaseSerializedFieldType
+    schema_valid: boolean
     table?: string
     fields?: string[]
     chain?: string[]
@@ -1282,6 +1293,21 @@ export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResp
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
 }
+
+export type DatabaseSerializedFieldType =
+    | 'integer'
+    | 'float'
+    | 'string'
+    | 'datetime'
+    | 'date'
+    | 'boolean'
+    | 'array'
+    | 'json'
+    | 'lazy_table'
+    | 'virtual_table'
+    | 'field_traverser'
+    | 'expression'
+    | 'view'
 
 export interface TimeToSeeDataQuery extends DataNode<Record<string, any> /* TODO: Type specifically */> {
     kind: NodeKind.TimeToSeeDataQuery

@@ -1,6 +1,5 @@
 from datetime import datetime
 from uuid import uuid4
-from unittest import skip
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -11,7 +10,6 @@ from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
 from posthog.session_recordings.sql.session_replay_event_sql import (
@@ -38,10 +36,6 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
-    # this test does not create any session_recording_events, only writes to the session_replay summary table
-    # it is a pair with test_session_recording_list
-    # it should pass all the same tests but without needing the session_recording_events table at all
-
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -52,8 +46,16 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(team_id=team_id, name=name)
-        ActionStep.objects.create(action=action, event=name, properties=properties)
+        action = Action.objects.create(
+            team_id=team_id,
+            name=name,
+            steps_json=[
+                {
+                    "event": name,
+                    "properties": properties,
+                }
+            ],
+        )
         return action
 
     def create_event(
@@ -1949,7 +1951,6 @@ class TestSessionRecordingsListFromFilters(ClickhouseTestMixin, APIBaseTest):
 
         assert session_recordings == []
 
-    @skip("TODO: throwing posthog.errors.CHQueryErrorIllegalPrewhere")
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"
