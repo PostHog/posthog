@@ -1467,6 +1467,92 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
             self.assertTrue(response["is_cached"])
 
+    @parameterized.expand(
+        [
+            [  # Property group filter, which is what's actually used these days
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR,
+                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                        )
+                    ],
+                )
+            ],
+            [  # Classic list of filters
+                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
+            ],
+        ]
+    )
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
+    def test_insight_refreshing_query_async(self, properties_filter, spy_execute_hogql_query) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="1",
+                properties={"prop": "val"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                properties={"prop": "another_val"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="2",
+                properties={"prop": "val", "another": "never_return_this"},
+            )
+
+        query_dict = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                )
+            ],
+            properties=properties_filter,
+        ).model_dump()
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights",
+                data={
+                    "query": query_dict,
+                    "dashboards": [dashboard_id],
+                },
+            ).json()
+            self.assertNotIn("code", response)  # Watching out for an error code
+            self.assertEqual(response["last_refresh"], None)
+            insight_id = response["id"]
+
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
+            self.assertNotIn("code", response)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
+            self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
+            self.assertFalse(response["is_cached"])
+
+        with freeze_time("2012-01-15T05:17:39.000Z"):
+            # Make sure the /query/ endpoint reuses the same cached result - ASYNC EXECUTION HERE!
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "async": True}
+            ).json()
+            self.assertNotIn("code", response)
+            self.assertTrue(response.get("query_async"))
+            self.assertTrue(response.get("complete"))
+            results = response["results"]
+
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(results["results"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
+            self.assertEqual(results["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
+            self.assertTrue(results["is_cached"])
+
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
