@@ -64,10 +64,9 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
-        hasDashboardCollaboration: [
+        hasTagging: [
             (s) => [s.currentOrganization],
-            (currentOrganization) =>
-                currentOrganization?.available_features?.includes(AvailableFeature.TEAM_COLLABORATION),
+            (currentOrganization) => currentOrganization?.available_features?.includes(AvailableFeature.TAGGING),
         ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
