@@ -1083,4 +1083,35 @@ describe('vm tests', () => {
             cryptoUndefined: true,
         })
     })
+
+    test('url', async () => {
+        const x = new URL(
+            'https://something.other/?at=c#/currentAccount/07aec9b6-7f28-39b6-aaaa-8bab6a029846/transactions'
+        )
+        x.hash = 'wat'
+        const properties = {
+            url: x.toString(),
+            hash: x.hash,
+        }
+        expect(properties?.url).toEqual('https://something.other/?at=c#wat')
+
+        const indexJs = `
+            async function processEvent (event, meta) {
+                const x = new URL(
+                    'https://something.other/?at=c#/currentAccount/07aec9b6-7f28-39b6-aaaa-8bab6a029846/transactions'
+                )
+                x.hash = 'wat'
+                event.properties = {
+                    url: x.toString(),
+                    hash: x.hash,
+                }
+                return event
+            }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
+        const event = await vm.methods.processEvent!({ ...defaultEvent })
+
+        expect(event?.properties?.url).toEqual('https://something.other/?at=c#wat')
+    })
 })
