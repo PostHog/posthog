@@ -18,6 +18,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             title="Re-authenticate account"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
+            maxWidth="30rem"
             footer={
                 <LemonButton
                     type="primary"
@@ -88,7 +89,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
 
     return timeSensitiveAuthenticationRequired ? (
         <div className="flex-1 bg-side border border-border rounded flex flex-col items-center p-6 text-center w-full">
-            <h2>Authentication required</h2>
+            <h2>Re-authentication required</h2>
 
             <p>For security purposes, this area requires that you re-authenticate</p>
 
