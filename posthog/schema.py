@@ -547,6 +547,7 @@ class InsightType(str, Enum):
 
 
 class IntervalType(str, Enum):
+    minute = "minute"
     hour = "hour"
     day = "day"
     week = "week"

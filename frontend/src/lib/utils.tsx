@@ -797,14 +797,14 @@ export const dateMapping: DateMappingOption[] = [
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
         key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
-            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+            formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
         inactive: true,
         defaultInterval: 'day',
     },
@@ -1055,11 +1055,17 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
         )
+    } else if (interval === 'minute') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
     }
     throw new UnexpectedNeverError(interval)
 }
 
 const defaultDatesForInterval = {
+    minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
@@ -1078,6 +1084,19 @@ export const updateDatesWithInterval = (
         }
     }
     return defaultDatesForInterval[interval]
+}
+
+export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-([0-9]|1[0-2])h$/) != -1
+}
+export function isLessThan2Days(dateFrom: string | undefined | null): boolean {
+    if (!dateFrom) {
+        return false
+    }
+    return dateFrom.search(/^-(4[0-7]|[0-3]?[0-9])h|[1-2]d$/) != -1
 }
 
 export function clamp(value: number, min: number, max: number): number {
