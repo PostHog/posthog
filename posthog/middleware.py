@@ -667,7 +667,10 @@ class AutoLogoutImpersonateMiddleware:
             # 2. For any other endpoint we want to redirect to the logout page
             # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
 
-            if request.path.startswith("/api/"):
+            if request.path.startswith("/static/"):
+                # Skip static files
+                pass
+            elif request.path.startswith("/api/"):
                 return HttpResponse(
                     "Impersonation session has expired. Please log in again.",
                     status=401,
