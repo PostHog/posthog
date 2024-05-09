@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections.abc import Iterable
 
 from posthog.hogql import ast
@@ -12,7 +12,7 @@ from posthog.session_recordings.queries.session_replay_events import ttl_days
 class RecordingsHelper:
     def __init__(self, team: Team):
         self.team = team
-        self._ttl = ttl_days(team)
+        self._ttl_days = ttl_days(team)
 
     def session_ids_all(
         self,
@@ -27,28 +27,46 @@ class RecordingsHelper:
         # we always want to clamp to TTL
         # technically technically technically we should do what replay listing does and check in postgres too
         # but pinning to TTL is good enough for 90% of cases
-        if not date_from:
-            date_from = datetime.now() - timedelta(days=self._ttl)
-
-        if not date_to:
-            date_to = datetime.now()
-        elif date_to > datetime.now():
-            date_to = datetime.now()
+        fixed_date_from_or_since_ttl_days = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["min_first_timestamp"]),
+            right=ast.Constant(value=date_from)
+            if date_from
+            else ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Constant(value=date_from),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=self._ttl_days)]),
+            ),
+        )
+        fixed_date_to_or_before_now = ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Field(chain=["max_last_timestamp"]),
+            right=ast.Call(name="now", args=[])
+            if not date_to or date_to > datetime.now()
+            else ast.Constant(value=date_to),
+        )
+        matching_provided_session_ids = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
+        )
 
         query = """
           SELECT DISTINCT session_id
           FROM raw_session_replay_events
-          WHERE session_id in {session_ids}
-          AND min_first_timestamp >= {date_from}
-          and max_last_timestamp <= {date_to}
+          WHERE {where_predicates}
           """
 
         response = execute_hogql_query(
             query,
             placeholders={
-                "session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
-                "date_from": ast.Constant(value=date_from),
-                "date_to": ast.Constant(value=date_to),
+                "where_predicates": ast.And(
+                    exprs=[
+                        fixed_date_from_or_since_ttl_days,
+                        fixed_date_to_or_before_now,
+                        matching_provided_session_ids,
+                    ]
+                ),
             },
             team=self.team,
         )
