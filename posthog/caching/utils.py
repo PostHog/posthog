@@ -53,7 +53,7 @@ def active_teams() -> set[int]:
                 GROUP BY team_id
                 ORDER BY age;
             """,
-            {"now": datetime.now().isoformat()},  # Allow mocking datetime in tests
+            {"now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},  # Allow mocking datetime in tests
         )
 
         if not teams_by_recency:
