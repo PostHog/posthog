@@ -607,7 +607,7 @@ export const breakdownPieResult: TrendAPIResponse = {
         },
     ],
     timezone: 'UTC',
-}
+} as unknown as TrendAPIResponse
 
 // 1. Select "Lifecycle"
 export const lifecycleResult: TrendAPIResponse = {
