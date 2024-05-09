@@ -56,16 +56,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }),
             ['response', 'responseLoading'],
         ],
-        actions: [
-            dataNodeLogic({
-                cachedResults: props.cachedResults,
-                key: props.key,
-                query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
-            }),
-            ['loadDataSuccess'],
-        ],
     })),
     props({ query: {} } as DataVisualizationLogicProps),
     actions({
