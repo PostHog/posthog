@@ -36,7 +36,6 @@ from two_factor.views.utils import (
 from posthog.api.email_verification import EmailVerifier
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
-from posthog.middleware import get_or_set_session_cookie_created_at
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset
@@ -44,12 +43,12 @@ from posthog.utils import get_instance_available_sso_providers
 
 
 @receiver(user_logged_in)
-def post_login(sender, user, request, **kwargs):
+def post_login(sender, user, request: HttpRequest, **kwargs):
     """
     This is the most reliable way of setting this value as it will be called regardless of where the login occurs
     including tests.
     """
-    return get_or_set_session_cookie_created_at(request)
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
 
 @csrf_protect
