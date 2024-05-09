@@ -351,7 +351,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def run(
         self, execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE
     ) -> CR | CacheMissResponse:
-        # TODO: `self.limit_context` should probably just be in get_cache_key()
         cache_key = self.get_cache_key()
         tag_queries(cache_key=cache_key)
         CachedResponse: type[CR] = self.cached_response_type
