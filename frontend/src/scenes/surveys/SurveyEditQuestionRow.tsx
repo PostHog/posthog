@@ -278,6 +278,20 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 Add open-ended choice
                                                             </LemonButton>
                                                         )}
+                                                        <LemonField name="shuffleOptions" className="mt-2">
+                                                            {({
+                                                                value: shuffleOptions,
+                                                                onChange: toggleShuffleOptions,
+                                                            }) => (
+                                                                <LemonCheckbox
+                                                                    checked={!!shuffleOptions}
+                                                                    label="Shuffle Options"
+                                                                    onChange={(checked) =>
+                                                                        toggleShuffleOptions(checked)
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </LemonField>
                                                     </>
                                                 )}
                                             </div>
@@ -294,15 +308,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             question.buttonText === undefined ? survey.appearance.submitButtonText : question.buttonText
                         }
                     />
-                </LemonField>
-                <LemonField name="shuffleOptions">
-                    {({ value: shuffleOptions, onChange: toggleShuffleOptions }) => (
-                        <LemonCheckbox
-                            checked={!!shuffleOptions}
-                            label="Shuffle Options"
-                            onChange={(checked) => toggleShuffleOptions(checked)}
-                        />
-                    )}
                 </LemonField>
             </div>
         </Group>

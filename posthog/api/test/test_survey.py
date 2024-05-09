@@ -1096,6 +1096,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "appearance": {
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                    "shuffleQuestions": True,
                 },
             },
             format="json",
@@ -1117,6 +1118,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["appearance"] == {
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+            "shuffleQuestions": True,
         }
         assert response_data["created_by"]["id"] == self.user.id
 

@@ -117,6 +117,18 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                         checked={appearance?.whiteLabel}
                     />
                 </div>
+
+                <div className="mt-2">
+                    <LemonCheckbox
+                        label={
+                            <div className="flex items-center">
+                                <span>Shuffle Questions</span>
+                            </div>
+                        }
+                        onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
+                        checked={appearance?.shuffleQuestions}
+                    />
+                </div>
             </div>
         </>
     )

@@ -2493,6 +2493,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
