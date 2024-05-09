@@ -25,11 +25,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     (!values.user || values.user.has_password) && !current_password
                         ? 'Please enter your current password'
                         : undefined,
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
             }),
             submit: async ({ password, current_password }, breakpoint) => {
                 await breakpoint(150)
