@@ -253,7 +253,6 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         return 'day'
     }
 
-    // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'
     const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
 

@@ -141,7 +141,7 @@ class SessionRecordingListFromFilters:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=["s", "max_last_timestamp"]),
+                    left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=self._filter.date_to),
                 )
             )
