@@ -13,14 +13,8 @@ import { formatUnitByQuantity } from '../utils'
 import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 export function ProgressBar(): JSX.Element {
-    const {
-        experimentId,
-        experiment,
-        experimentInsightType,
-        funnelResultsPersonsTotal,
-        actualRunningTime,
-        hasRecentEvents,
-    } = useValues(experimentLogic)
+    const { experimentId, experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
+        useValues(experimentLogic)
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
@@ -135,10 +129,6 @@ export function ProgressBar(): JSX.Element {
                         size="small"
                         type="secondary"
                         onClick={openExperimentCollectionGoalModal}
-                        disabledReason={
-                            !hasRecentEvents &&
-                            'It’s not possible to calculate a new estimate because no experiment events have been received in the past 14 days.'
-                        }
                     >
                         Recalculate
                     </LemonButton>

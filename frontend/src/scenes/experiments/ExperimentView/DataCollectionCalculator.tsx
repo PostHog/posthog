@@ -1,7 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -20,33 +19,22 @@ interface ExperimentCalculatorProps {
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
     const {
         minimumDetectableChange,
-        expectedRunningTime,
         experiment,
-        funnelResults,
         conversionMetrics,
         minimumSampleSizePerVariant,
+        recommendedRunningTime,
         variants,
     } = useValues(experimentLogic({ experimentId }))
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
-    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
-    const funnelEntrants = funnelResults?.[0]?.count
-
     const conversionRate = conversionMetrics.totalRate * 100
     const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
-    let runningTime = 0
-    if (experiment?.start_date) {
-        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
-    } else {
-        runningTime = expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
-    }
 
     // Displayed values
     const baselineConversionRate = funnelConversionRate.toFixed(1)
     const minimumAcceptableConversionRate = (funnelConversionRate + (minimumDetectableChange || 5)).toFixed(1)
     const recommendedSampleSize = humanFriendlyNumber(funnelSampleSize || 0)
-    const recommendedRunningTime = humanFriendlyNumber(runningTime || 0)
 
     return (
         <div className="flex flex-wrap">

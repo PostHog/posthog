@@ -966,8 +966,41 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         recommendedRunningTime: [
-            (s) => [s.trendResults, s.recommendedExposureForCountData],
-            (trendResults, recommendedExposureForCountData): number => {
+            (s) => [
+                s.experiment,
+                s.variants,
+                s.experimentInsightType,
+                s.funnelResults,
+                s.conversionMetrics,
+                s.expectedRunningTime,
+                s.trendResults,
+                s.minimumSampleSizePerVariant,
+                s.recommendedExposureForCountData,
+            ],
+            (
+                experiment,
+                variants,
+                experimentInsightType,
+                funnelResults,
+                conversionMetrics,
+                expectedRunningTime,
+                trendResults,
+                minimumSampleSizePerVariant,
+                recommendedExposureForCountData
+            ): number => {
+                if (experimentInsightType === InsightType.FUNNELS) {
+                    const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
+                    const funnelEntrants = funnelResults?.[0]?.count
+
+                    const conversionRate = conversionMetrics.totalRate * 100
+                    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+                    const funnelSampleSize = sampleSizePerVariant * variants.length
+                    if (experiment?.start_date) {
+                        return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0, currentDuration)
+                    }
+                    return expectedRunningTime(funnelEntrants || 1, funnelSampleSize || 0)
+                }
+
                 const trendCount = trendResults[0]?.count
                 const runningTime = recommendedExposureForCountData(trendCount)
                 return runningTime
@@ -1291,17 +1324,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 return dayjs().diff(experiment.start_date, 'day')
-            },
-        ],
-        hasRecentEvents: [
-            (s) => [s.experimentInsightType, s.conversionMetrics, s.trendResults],
-            (experimentInsightType, conversionMetrics, trendResults): boolean => {
-                if (experimentInsightType === InsightType.FUNNELS && !conversionMetrics?.totalRate) {
-                    return false
-                } else if (!trendResults[0]?.count) {
-                    return false
-                }
-                return true
             },
         ],
     }),
