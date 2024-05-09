@@ -73,7 +73,7 @@ def validate_migration_sql(sql) -> bool:
             )  # Ignore for brand-new tables
         ):
             print(
-                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
+                f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables. For an example of how to do this safely see 0412_pluginconfig_match_action.py . \nSource: `{operation_sql}`"
             )
             return True
         if (
