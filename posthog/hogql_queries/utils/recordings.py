@@ -32,7 +32,6 @@ class RecordingsHelper:
             date_to = datetime.now()
 
         query = """
-          -- from {class_name}
           SELECT DISTINCT session_id
           FROM raw_session_replay_events
           WHERE session_id in {session_ids}
@@ -46,7 +45,6 @@ class RecordingsHelper:
                 "session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
                 "date_from": ast.Constant(value=date_from),
                 "date_to": ast.Constant(value=date_to),
-                "class_name": self.__name__,
             },
             team=self.team,
         )
