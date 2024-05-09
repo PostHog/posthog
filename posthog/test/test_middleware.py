@@ -126,6 +126,12 @@ class TestAutoProjectMiddleware(APIBaseTest):
         cls.base_app_num_queries = 43
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
+
+        # some teams have non-standard API tokens
+        cls.third_team = create_team(organization=cls.organization, name="Third Life")
+        cls.third_team.api_token = "sTMFP1234567"
+        cls.third_team.save()
+
         other_org = create_organization(name="test org")
         cls.no_access_team = create_team(organization=other_org)
 
@@ -318,6 +324,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
         res = self.client.get(f"/project/{self.second_team.api_token}/home")
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.second_team.pk}/home"
+
+    def test_project_redirects_to_posthog_org_style_tokens(self):
+        res = self.client.get(
+            f"/project/{self.third_team.api_token}/replay/018f5c3e-1a17-7f2b-ac83-32d06be3269b?t=2601"
+        )
+        assert res.status_code == 302
+        assert res.headers["Location"] == f"/project/{self.third_team.pk}/home"
 
     def test_project_redirects_to_current_team_when_accessing_missing_project_by_token(self):
         res = self.client.get(f"/project/phc_123/home")
