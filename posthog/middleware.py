@@ -163,7 +163,11 @@ class AutoProjectMiddleware:
             project_id_in_url = None
             user = cast(User, request.user)
 
-            if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+            if (
+                len(path_parts) >= 2
+                and path_parts[0] == "project"
+                and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
+            ):
 
                 def do_redirect():
                     new_path = "/".join(path_parts)
