@@ -3,7 +3,7 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
+from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
@@ -28,10 +28,11 @@ class TestTable(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         response = response.json()
 
-        table = DataWarehouseTable.objects.get()
+        table = DataWarehouseTable.objects.get(id=response["id"])
+        credentials = table.credential
+
         self.assertEqual(table.name, "whatever")
         self.assertEqual(table.columns, {"id": "String", "a_column": "String"})
-        credentials = DataWarehouseCredential.objects.get()
         self.assertEqual(credentials.access_key, "_accesskey")
         self.assertEqual(credentials.access_secret, "_accesssecret")
 
