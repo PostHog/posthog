@@ -1,9 +1,7 @@
-from datetime import timedelta
 import time
 from typing import cast
 
 from django.conf import settings
-from django.utils import timezone
 from django.db.models import Model
 from django.core.exceptions import ImproperlyConfigured
 
