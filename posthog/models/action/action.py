@@ -104,9 +104,7 @@ class Action(models.Model):
                 self.bytecode_error = str(e)
 
     def save(self, *args, **kwargs):
-        # NOTE: Eventually we can remove this once we no longer ever reference ActionStep
-        if self.steps_json is not None:
-            self.refresh_bytecode()
+        self.refresh_bytecode()
         super().save(*args, **kwargs)
 
 
