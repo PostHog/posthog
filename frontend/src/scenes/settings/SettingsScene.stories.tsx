@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { UserType } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 
 const meta: Meta = {
     title: 'Scenes-Other/Settings',
