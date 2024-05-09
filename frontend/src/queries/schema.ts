@@ -1360,6 +1360,7 @@ export interface BreakdownFilter {
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
+// TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`
 export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
