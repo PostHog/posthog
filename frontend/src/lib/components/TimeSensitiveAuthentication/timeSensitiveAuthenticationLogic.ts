@@ -1,6 +1,7 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -11,21 +12,24 @@ export interface ReauthenticationForm {
     token?: string
 }
 
+const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
+
 export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationLogicType>([
     path(['lib', 'components', 'timeSensitiveAuthenticationLogic']),
     connect({
-        values: [apiStatusLogic, ['timeSensitiveAuthenticationRequired']],
-        actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired']],
+        values: [apiStatusLogic, ['timeSensitiveAuthenticationRequired'], userLogic, ['user']],
+        actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
     }),
     actions({
-        setDismissedReauthentication: (dismissed: boolean) => ({ dismissed }),
-        setRequiresTwoFactor: (twoFactorRequired: boolean) => ({ twoFactorRequired }),
+        setDismissedReauthentication: (value: boolean) => ({ value }),
+        setRequiresTwoFactor: (value: boolean) => ({ value }),
+        checkReauthentication: true,
     }),
     reducers({
         dismissedReauthentication: [
             false,
             {
-                setDismissedReauthentication: (_, { dismissed }) => dismissed,
+                setDismissedReauthentication: (_, { value }) => value,
                 setTimeSensitiveAuthenticationRequired: () => false,
             },
         ],
@@ -33,7 +37,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         twoFactorRequired: [
             false,
             {
-                setRequiresTwoFactor: (_, { twoFactorRequired }) => twoFactorRequired,
+                setRequiresTwoFactor: (_, { value }) => value,
             },
         ],
     }),
@@ -55,7 +59,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                         await api.create('api/login/token', { token })
                     }
                 } catch (e) {
-                    const { code, status, detail } = e as Record<string, any>
+                    const { code, status } = e as Record<string, any>
                     if (code === '2fa_required') {
                         actions.setRequiresTwoFactor(true)
                         throw e
@@ -68,6 +72,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 }
 
                 actions.setTimeSensitiveAuthenticationRequired(false)
+                // Refresh the user so we know the new session expiry
+                actions.loadUser()
             },
         },
     })),
@@ -79,5 +85,22 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 return timeSensitiveAuthenticationRequired && !dismissedReauthentication
             },
         ],
+
+        sensitiveSessionExpiresAt: [
+            (s) => [s.user],
+            (user): dayjs.Dayjs => {
+                return dayjs(user?.sensitive_session_expires_at)
+            },
+        ],
     }),
+
+    listeners(({ actions, values }) => ({
+        checkReauthentication: () => {
+            if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
+                // Here we try to offer a better UX by forcing re-authentication if they are about to timeout which is nicer
+                // than when they try to do something later and get a 403
+                actions.setTimeSensitiveAuthenticationRequired(true)
+            }
+        },
+    })),
 ])
