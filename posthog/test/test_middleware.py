@@ -117,6 +117,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    third_team: Team
     no_access_team: Team
     base_app_num_queries: int
 
