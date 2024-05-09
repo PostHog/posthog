@@ -17,7 +17,12 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
+from posthog.test.base import (
+    APIBaseTest,
+    FuzzyInt,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+)
 from posthog.utils import generate_cache_key
 
 valid_template: dict = {
@@ -260,7 +265,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
+        self.organization.available_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
@@ -1256,6 +1261,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "color": None,
                 "id": ANY,
                 "insight": {
+                    "columns": None,
                     "created_at": ANY,
                     "created_by": None,
                     "dashboard_tiles": [

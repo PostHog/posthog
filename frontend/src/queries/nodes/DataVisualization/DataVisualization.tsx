@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
@@ -41,8 +41,9 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
 
     const { insightProps: insightLogicProps } = useValues(insightLogic)
 
+    const vizKey = insightVizDataNodeKey(insightLogicProps)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key,
+        key: vizKey,
         query: props.query,
         insightLogicProps,
         setQuery: props.setQuery,
@@ -51,7 +52,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: props.query.source,
-        key,
+        key: vizKey,
         cachedResults: props.cachedResults,
         loadPriority: insightLogicProps.loadPriority,
         dataNodeCollectionId: insightVizDataCollectionId(insightLogicProps, key),
@@ -93,6 +94,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 query={{ kind: NodeKind.DataTableNode, source: query.source }}
                 cachedResults={props.cachedResults}
                 context={{
+                    ...props.context,
                     showQueryEditor: false,
                     showOpenEditorButton: false,
                 }}

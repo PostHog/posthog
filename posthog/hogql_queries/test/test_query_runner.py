@@ -38,7 +38,12 @@ class TestQueryRunner(BaseTest):
             cached_response: TestCachedBasicQueryResponse
 
             def calculate(self):
-                return TestBasicQueryResponse(results=[])
+                return TestBasicQueryResponse(
+                    results=[
+                        ["row", 1, 2, 3],
+                        (i for i in range(10)),  # Test support of cache.set with iterators
+                    ]
+                )
 
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)

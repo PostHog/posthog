@@ -2986,15 +2986,6 @@ export const billingJson: BillingV2Type = {
                             note: null,
                         },
                         {
-                            key: 'team_collaboration',
-                            name: 'Team collaboration features',
-                            description:
-                                'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
@@ -3068,15 +3059,6 @@ export const billingJson: BillingV2Type = {
                             name: 'White labeling',
                             description:
                                 'Use your own branding on surveys, shared dashboards, shared insights, and more.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'team_collaboration',
-                            name: 'Team collaboration features',
-                            description:
-                                'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -3498,15 +3480,6 @@ export const billingJson: BillingV2Type = {
                     name: 'Custom MSA',
                     description:
                         "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'team_collaboration',
-                    name: 'Team collaboration features',
-                    description:
-                        'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
                     images: null,
                     icon_key: null,
                     type: null,

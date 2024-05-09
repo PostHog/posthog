@@ -52,7 +52,6 @@ const getCtaLabel = (
         return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
-    } else {
-        return 'Move to PostHog Cloud'
     }
+    return 'Move to PostHog Cloud'
 }
