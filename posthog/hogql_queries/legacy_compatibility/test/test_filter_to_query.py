@@ -10,6 +10,7 @@ from posthog.schema import (
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
+    DataWarehouseNode,
     DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
@@ -1009,6 +1010,39 @@ class TestFilterToQuery(BaseTest):
                 ActionsNode(id=1, math=BaseMathType.dau),
                 EventsNode(event="$pageview", name="$pageview"),
                 EventsNode(event="$pageview", name="$pageview", math=BaseMathType.dau),
+            ],
+        )
+
+    def test_series_data_warehouse(self):
+        filter = {
+            "data_warehouse": [
+                {
+                    "id": "some_table",
+                    "name": "some_table",
+                    "math": "total",
+                    "id_field": "id",
+                    "table_name": "some_table",
+                    "timestamp_field": "created_at",
+                    "distinct_id_field": "id",
+                }
+            ],
+        }
+
+        query = filter_to_query(filter)
+
+        assert isinstance(query, TrendsQuery)
+        self.assertEqual(
+            query.series,
+            [
+                DataWarehouseNode(
+                    id="some_table",
+                    name="some_table",
+                    math=BaseMathType.total,
+                    table_name="some_table",
+                    id_field="id",
+                    timestamp_field="created_at",
+                    distinct_id_field="id",
+                )
             ],
         )
 
