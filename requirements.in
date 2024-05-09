@@ -91,3 +91,4 @@ openai==1.10.0
 tiktoken==0.6.0
 nh3==0.2.14
 hogql-parser==1.0.7
+django-csp==3.8.0

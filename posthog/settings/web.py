@@ -91,6 +91,7 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "csp.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
