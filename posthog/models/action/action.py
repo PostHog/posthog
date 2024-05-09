@@ -72,8 +72,6 @@ class Action(models.Model):
 
     @property
     def steps(self) -> list[ActionStepJSON]:
-        if not self.steps_json:
-            return []
         return [ActionStepJSON(**step) for step in self.steps_json]
 
     @steps.setter
