@@ -131,7 +131,6 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    TEAM_COLLABORATION = 'team_collaboration',
     ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
@@ -913,6 +912,10 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -3730,6 +3733,7 @@ export type BatchExportServiceRedshift = {
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
 // and update batchExportServiceNames in pipelineNodeNewLogic
+export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake

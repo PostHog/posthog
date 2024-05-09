@@ -195,6 +195,7 @@ export interface HogQLQueryModifiers {
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    s3TableUseInvalidColumns?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1282,6 +1283,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
 export interface DatabaseSchemaQueryResponseField {
     key: string
     type: DatabaseSerializedFieldType
+    schema_valid: boolean
     table?: string
     fields?: string[]
     chain?: string[]

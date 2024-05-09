@@ -489,6 +489,7 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+    s3TableUseInvalidColumns: Optional[bool] = None
 
 
 class Compare(str, Enum):
@@ -1672,6 +1673,7 @@ class DatabaseSchemaQueryResponseField(BaseModel):
     chain: Optional[list[str]] = None
     fields: Optional[list[str]] = None
     key: str
+    schema_valid: bool
     table: Optional[str] = None
     type: DatabaseSerializedFieldType
 

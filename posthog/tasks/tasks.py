@@ -173,8 +173,6 @@ CLICKHOUSE_TABLES = [
     "sharded_session_replay_events",
     "log_entries",
 ]
-if not is_cloud():
-    CLICKHOUSE_TABLES.append("session_recording_events")
 
 
 @shared_task(ignore_result=True)
