@@ -1,4 +1,5 @@
 import re
+from typing import cast
 import uuid
 
 from django.http import JsonResponse
@@ -67,7 +68,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if data.async_:
             query_status = enqueue_process_query_task(
                 team=self.team,
-                user=self.request.user,
+                user=cast(User, self.request.user),
                 query_json=request.data["query"],
                 query_id=client_query_id,
                 refresh_requested=data.refresh or False,

@@ -22,30 +22,28 @@ def build_query(sql):
 
 class TestExecuteProcessQuery(TestCase):
     def setUp(self):
-        user = User.objects.create(email="test@posthog.com")
+        self.user = User.objects.create(email="test@posthog.com")
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
-        self.team_id = self.team.pk
-        self.user_id: int = user.id
         self.query_id = "test_query_id"
         self.query_json = {}
         self.limit_context = None
         self.refresh_requested = False
-        self.manager = QueryStatusManager(self.query_id, self.team_id)
+        self.manager = QueryStatusManager(self.query_id, self.team.id)
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query")
     def test_execute_process_query(self, mock_process_query, mock_redis_client):
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(
-            {"id": self.query_id, "team_id": self.team_id, "complete": False, "error": False}
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
         ).encode()
         mock_redis_client.return_value = mock_redis
 
         mock_process_query.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
 
         execute_process_query(
-            self.team_id, self.user_id, self.query_id, self.query_json, self.limit_context, self.refresh_requested
+            self.team, self.user, self.query_id, self.query_json, self.limit_context, self.refresh_requested
         )
 
         mock_redis_client.assert_called_once()
@@ -60,18 +58,17 @@ class TestExecuteProcessQuery(TestCase):
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
-        user = User.objects.create(email="test@posthog.com", id=1337)
+        self.user = User.objects.create(email="test@posthog.com", id=1337)
         self.organization: Organization = Organization.objects.create(name="test")
         self.team: Team = Team.objects.create(organization=self.organization)
         self.team_id: int = self.team.pk
-        self.user_id: int = user.id
+        self.user_id: int = self.user.id
 
     @snapshot_clickhouse_queries
     def test_async_query_client(self):
         query = build_query("SELECT 1+1")
-        team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
-        result = client.get_query_status(team_id, query_id)
+        query_id = client.enqueue_process_query_task(self.team, self.user, query, _test_only_bypass_celery=True).id
+        result = client.get_query_status(self.team.id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
         assert result.results is not None
@@ -87,21 +84,20 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query_id = uuid.uuid4().hex
         try:
             client.enqueue_process_query_task(
-                self.team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
+                self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True
             )
         except Exception:
             pass
 
-        result = client.get_query_status(self.team_id, query_id)
+        result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
         assert result.error_message
         self.assertRegex(result.error_message, "Unknown table")
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
-        team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
-        result = client.get_query_status(team_id, query_id)
+        query_id = client.enqueue_process_query_task(self.team, self.user, query, _test_only_bypass_celery=True).id
+        result = client.get_query_status(self.team.id, query_id)
         self.assertFalse(result.error, result.error_message or "<no error message>")
         self.assertTrue(result.complete)
         assert result.results is not None
@@ -109,9 +105,8 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     def test_async_query_client_does_not_leak(self):
         query = build_query("SELECT 1+1")
-        team_id = self.team_id
         wrong_team = 5
-        query_id = client.enqueue_process_query_task(team_id, self.user_id, query, _test_only_bypass_celery=True).id
+        query_id = client.enqueue_process_query_task(self.team, self.user, query, _test_only_bypass_celery=True).id
 
         try:
             client.get_query_status(wrong_team, query_id)
@@ -122,20 +117,13 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client_is_lazy(self, execute_sync_mock):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
-        team_id = self.team_id
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Try the same query again
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
@@ -144,20 +132,15 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_sync_mock):
         query = build_query("SELECT 8 + 8")
         query_id = uuid.uuid4().hex
-        team_id = self.team_id
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Try the same query again, but with force
         client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+            self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True, force=True
         )
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
@@ -167,21 +150,16 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
         # in redis. This tests to make sure it is treated as a unique run of that query
         query = build_query("SELECT 8 + 8")
-        team_id = self.team_id
         query_id = "I'm so unique"
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Try the same query again, but with force
         client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True, force=True
+            self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True, force=True
         )
 
         # Try the same query again (for good measure!)
-        client.enqueue_process_query_task(
-            team_id, self.user_id, query, query_id=query_id, _test_only_bypass_celery=True
-        )
+        client.enqueue_process_query_task(self.team, self.user, query, query_id=query_id, _test_only_bypass_celery=True)
 
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
