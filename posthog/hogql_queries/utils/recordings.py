@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
+from collections.abc import Iterable
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -14,7 +15,10 @@ class RecordingsHelper:
         self._ttl = ttl_days(team)
 
     def session_ids_all(
-        self, session_ids: list[str], date_from: datetime | None = None, date_to: datetime | None = None
+        self,
+        session_ids: Iterable[str],
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
     ) -> set[str]:
         if not session_ids:
             # no need to query if we get invalid input

@@ -67,7 +67,9 @@ class ActorsQueryRunner(QueryRunner):
                 )
             yield new_row
 
-    def prepare_recordings(self, column_name, input_columns):
+    def prepare_recordings(
+        self, column_name: str, input_columns: list[str]
+    ) -> tuple[int | None, dict[str, list[dict]] | None]:
         if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
