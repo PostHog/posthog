@@ -14,7 +14,7 @@ class RecordingsHelper:
         self.team = team
         self._ttl_days = ttl_days(team)
 
-    def session_ids_all(
+    def _matching_clickhouse_recordings(
         self,
         session_ids: Iterable[str],
         date_from: datetime | None = None,
@@ -75,7 +75,7 @@ class RecordingsHelper:
 
         return {str(result[0]) for result in response.results}
 
-    def session_ids_deleted(self, session_ids) -> set[str]:
+    def _deleted_session_recordings(self, session_ids) -> set[str]:
         return set(
             SessionRecording.objects.filter(team_id=self.team.pk, session_id__in=session_ids, deleted=True).values_list(
                 "session_id", flat=True
@@ -88,7 +88,9 @@ class RecordingsHelper:
             mapped_events[event[2]].append(event)
 
         raw_session_ids = mapped_events.keys()
-        valid_session_ids = self.session_ids_all(raw_session_ids) - self.session_ids_deleted(raw_session_ids)
+        valid_session_ids = self._matching_clickhouse_recordings(raw_session_ids) - self._deleted_session_recordings(
+            raw_session_ids
+        )
 
         return {
             str(session_id): [
