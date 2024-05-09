@@ -272,12 +272,14 @@ class TestResolver(BaseTest):
 
     def test_join_using(self):
         node = self._select(
-            "with my_table as (select 1 as a) select q1.a from my_table as q1 inner join my_table as q2 USING a"
+            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
         )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        assert constraint.constraint_type == "USING"
+        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
 
-        node = self._select("select q1.event from events as q1 inner join events as q2 USING event")
+        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
 

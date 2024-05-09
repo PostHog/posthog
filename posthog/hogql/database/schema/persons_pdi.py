@@ -47,7 +47,8 @@ def persons_pdi_join(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "id"]),
             right=ast.Field(chain=[to_table, "person_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
