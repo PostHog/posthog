@@ -992,7 +992,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $is_identified: {
             label: 'Is Identified',
-            description: 'Has the user called identify()',
+            description: 'When the person was identified',
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
