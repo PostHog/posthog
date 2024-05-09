@@ -16,7 +16,7 @@ import django.db.models.deletion
 ### ALTER TABLE "posthog_pluginconfig" ADD COLUMN "match_action_id" integer NULL CONSTRAINT "posthog_pluginconfig_match_action_id_1cbf8562_fk_posthog_a" REFERENCES "posthog_action"("id") DEFERRABLE INITIALLY DEFERRED; SET CONSTRAINTS "posthog_pluginconfig_match_action_id_1cbf8562_fk_posthog_a" IMMEDIATE;
 ### CREATE INDEX "posthog_pluginconfig_match_action_id_1cbf8562" ON "posthog_pluginconfig" ("match_action_id");
 ### COMMIT;
-# and then modifiying the SQL to be non-blocking
+# and then modify the migration from the below commented version to a safe non-blocking version
 
 
 # # ORIGINIAL migration
