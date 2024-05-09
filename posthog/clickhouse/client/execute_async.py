@@ -137,7 +137,7 @@ def execute_process_query(
         manager.store_query_status(query_status)
 
 
-def kick_off_task(
+def initiate_process_query_task(
     manager: QueryStatusManager,
     query_id: str,
     query_json: dict,
@@ -145,15 +145,26 @@ def kick_off_task(
     refresh_requested: bool,
     team_id: int,
     user_id: int,
+    _test_only_bypass_celery: bool = False,
 ):
-    task = process_query_task.delay(
-        team_id,
-        user_id,
-        query_id,
-        query_json,
-        limit_context=LimitContext.QUERY_ASYNC,
-        refresh_requested=refresh_requested,
-    )
+    if _test_only_bypass_celery:
+        task = process_query_task(
+            team_id,
+            user_id,
+            query_id,
+            query_json,
+            limit_context=LimitContext.QUERY_ASYNC,
+            refresh_requested=refresh_requested,
+        )
+    else:
+        task = process_query_task.delay(
+            team_id,
+            user_id,
+            query_id,
+            query_json,
+            limit_context=LimitContext.QUERY_ASYNC,
+            refresh_requested=refresh_requested,
+        )
     query_status.task_id = task.id
     manager.store_query_status(query_status)
 
@@ -163,6 +174,7 @@ def enqueue_process_query_task(
     user_id: int,
     query_json: dict,
     query_id: Optional[str] = None,
+    *,
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
@@ -183,19 +195,19 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team_id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
-    if _test_only_bypass_celery:
-        process_query_task(
-            team_id,
-            user_id,
+    transaction.on_commit(
+        partial(
+            initiate_process_query_task,
+            manager,
             query_id,
             query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-            refresh_requested=refresh_requested,
+            query_status,
+            refresh_requested,
+            team_id,
+            user_id,
+            _test_only_bypass_celery,
         )
-    else:
-        transaction.on_commit(
-            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
-        )
+    )
 
     return query_status
 
