@@ -6568,14 +6568,14 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "showMean": {
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "totalIntervals": {
                     "type": "integer"
-                },
-                "showMean": {
-                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -6597,14 +6597,14 @@
                 "returning_entity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "show_mean": {
+                    "type": "boolean"
+                },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "total_intervals": {
                     "type": "integer"
-                },
-                "show_mean": {
-                    "type": "boolean"
                 }
             },
             "type": "object"
