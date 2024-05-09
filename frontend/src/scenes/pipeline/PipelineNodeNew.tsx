@@ -182,7 +182,6 @@ function NodeOptionsTable({
                             return (
                                 <LemonTableLink
                                     to={urls.pipelineNodeNew(stage, target.id)}
-                                    target={target.backend == PipelineBackend.Plugin ? '_blank' : undefined}
                                     title={target.name}
                                     description={target.description}
                                 />
