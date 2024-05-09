@@ -41,11 +41,15 @@ class RecordingsHelper:
             ),
         )
 
-        starts_before_fixed_date_or_now = ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Field(chain=["min_first_timestamp"]),
-            right=ast.Constant(value=date_to if date_to and date_to < current_now else current_now),
-        )
+        # TRICKY: really we should clamp before now, but we can't do that
+        # because the tests set "now" and then setup test data in the future
+        # it's only an optimization though
+        # TODO: let's fix this now since customers are reporting it, and then make test setup sensible
+        # starts_before_fixed_date_or_now = ast.CompareOperation(
+        #     op=ast.CompareOperationOp.LtEq,
+        #     left=ast.Field(chain=["min_first_timestamp"]),
+        #     right=ast.Constant(value=date_to if date_to and date_to <= current_now else current_now),
+        # )
 
         matches_provided_session_ids = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
@@ -65,7 +69,7 @@ class RecordingsHelper:
                 "where_predicates": ast.And(
                     exprs=[
                         starts_since_fixed_date_or_ttl_before_now,
-                        starts_before_fixed_date_or_now,
+                        # starts_before_fixed_date_or_now,
                         matches_provided_session_ids,
                     ]
                 ),
