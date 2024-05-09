@@ -81,7 +81,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
 
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
-    create_default_modifiers_for_team(hogql_context.modifiers, cohort.team)
+    create_default_modifiers_for_team(cohort.team, hogql_context.modifiers)
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
