@@ -138,8 +138,7 @@ def calculate_for_query_based_insight(
         else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     )
 
-    if "results" not in response:
-        # Translating `CacheMissResponse` to legacy insights shape
+    if response.keys() == {"cache_key"}:  # Translating `CacheMissResponse` to legacy insights shape
         return NothingInCacheResult(cache_key=response.get("cache_key"))
 
     return InsightResult(

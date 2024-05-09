@@ -3,7 +3,7 @@ import datetime
 import orjson as json
 import math
 from functools import partial
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 import uuid
 
 import sentry_sdk
@@ -21,6 +21,10 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -236,34 +240,58 @@ def kick_off_task(
 
 
 def enqueue_process_query_task(
-    team_id: int,
-    user_id: int,
+    team: "Team",
+    user: "User",
     query_json: dict,
     query_id: Optional[str] = None,
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
 ) -> QueryStatus:
+    from posthog.api.services.query import process_query
+    from posthog.hogql_queries.query_runner import ExecutionMode
+
     if not query_id:
         query_id = uuid.uuid4().hex
 
-    manager = QueryStatusManager(query_id, team_id)
+    manager = QueryStatusManager(query_id, team.id)
 
     if force:
-        cancel_query(team_id, query_id)
+        cancel_query(team.id, query_id)
 
     if manager.has_results() and not refresh_requested:
         # If we've seen this query before return and don't resubmit it.
         return manager.get_query_status()
 
     # Immediately set status, so we don't have race with celery
-    query_status = QueryStatus(id=query_id, team_id=team_id, start_time=datetime.datetime.now(datetime.timezone.utc))
+    query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
+
+    try:
+        cached_response = process_query(
+            team=team,
+            query_json=query_json,
+            limit_context=LimitContext.QUERY_ASYNC,
+            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+        )
+        if cached_response.keys() != {"cache_key"}:
+            # We got a response with results, rather than a `CacheMissResponse`
+            query_status.complete = True
+            query_status.error = False
+            query_status.results = cached_response
+            query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+            query_status.expiration_time = query_status.end_time + datetime.timedelta(
+                seconds=manager.STATUS_TTL_SECONDS
+            )
+            manager.store_query_status(query_status)
+            return query_status
+    except:
+        sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
 
     if _test_only_bypass_celery:
         process_query_task(
-            team_id,
-            user_id,
+            team.id,
+            user.id,
             query_id,
             query_json,
             limit_context=LimitContext.QUERY_ASYNC,
@@ -271,7 +299,7 @@ def enqueue_process_query_task(
         )
     else:
         transaction.on_commit(
-            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team_id, user_id)
+            partial(kick_off_task, manager, query_id, query_json, query_status, refresh_requested, team.id, user.id)
         )
 
     return query_status

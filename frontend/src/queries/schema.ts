@@ -937,8 +937,11 @@ export type ClickhouseQueryStatus = {
 
 export type QueryStatus = {
     id: string
-    /**  @default true */
-    query_async: boolean
+    /**
+     * ONLY async queries use QueryStatus.
+     * @default true
+     */
+    query_async: true
     team_id: integer
     /**  @default false */
     error: boolean
