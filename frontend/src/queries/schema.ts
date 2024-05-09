@@ -976,8 +976,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    properties?: AnyPropertyFilter[]
-    fixedProperties?: AnyPropertyFilter[]
+    /** Currently only person filters supported, see `filter_conditions()` in actor_strategies.py. */
+    properties?: PersonPropertyFilter[]
+    /** Currently only person filters supported, see `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: PersonPropertyFilter[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
