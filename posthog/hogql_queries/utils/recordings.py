@@ -1,27 +1,53 @@
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
 class RecordingsHelper:
     def __init__(self, team: Team):
         self.team = team
+        self._ttl = ttl_days(team)
 
-    def session_ids_all(self, session_ids) -> set[str]:
+    def session_ids_all(
+        self, session_ids: list[str], date_from: datetime | None = None, date_to: datetime | None = None
+    ) -> set[str]:
+        if not session_ids:
+            # no need to query if we get invalid input
+            return set()
+
+        # we always want to clamp to TTL
+        # technically technically technically we should do what replay listing does and check in postgres too
+        # but pinning to TTL is good enough for 90% of cases
+        if not date_from:
+            date_from = datetime.now() - timedelta(days=self._ttl)
+
+        if not date_to:
+            date_to = datetime.now()
+        elif date_to > datetime.now():
+            date_to = datetime.now()
+
         query = """
+          -- from {class_name}
           SELECT DISTINCT session_id
-          FROM session_replay_events
+          FROM raw_session_replay_events
           WHERE session_id in {session_ids}
+          AND min_first_timestamp >= {date_from}
+          and max_last_timestamp <= {date_to}
           """
-
-        # TODO: Date filters, are they needed?
 
         response = execute_hogql_query(
             query,
-            placeholders={"session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids])},
+            placeholders={
+                "session_ids": ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+                "class_name": self.__name__,
+            },
             team=self.team,
         )
         if not response.results:
