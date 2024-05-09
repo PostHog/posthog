@@ -15,6 +15,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
@@ -57,16 +58,17 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        if insight.query:
-            query_runner = get_query_runner_or_none(insight.query, insight.team)
-            if query_runner is None:
-                return None  # Uncacheable query-based insight
-            if dashboard is not None and dashboard.filters:
-                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-            return query_runner.get_cache_key()
+        with flagged_conversion_to_query_based(insight):
+            if insight.query:
+                query_runner = get_query_runner_or_none(insight.query, insight.team)
+                if query_runner is None:
+                    return None  # Uncacheable query-based insight
+                if dashboard is not None and dashboard.filters:
+                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+                return query_runner.get_cache_key()
 
-        if insight.filters:
-            return generate_insight_cache_key(insight, dashboard)
+            if insight.filters:
+                return generate_insight_cache_key(insight, dashboard)
 
     return None
 
@@ -127,12 +129,10 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    effective_query = insight.get_effective_query(dashboard=dashboard)
-    assert effective_query is not None
-
     response = process_query(
         insight.team,
-        effective_query,
+        insight.query,
+        dashboard_filters_json=dashboard.filters,
         execution_mode=ExecutionMode.CALCULATION_ALWAYS
         if refresh_requested
         else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,

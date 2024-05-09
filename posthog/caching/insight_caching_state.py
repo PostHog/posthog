@@ -112,7 +112,7 @@ def sync_insight_cache_states():
         _execute_insert(batch)
 
 
-def upsert(
+def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     team: Team,
     target: Union[DashboardTile, Insight],
     lazy_loader: Optional[LazyLoader] = None,
