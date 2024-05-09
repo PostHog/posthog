@@ -1468,6 +1468,7 @@ class TestFilterToQuery(BaseTest):
             },
             "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             "period": "Week",
+            "show_mean": True,
         }
 
         query = filter_to_query(filter)
@@ -1493,6 +1494,7 @@ class TestFilterToQuery(BaseTest):
                     "custom_name": None,
                     "order": None,
                 },
+                showMean=True,
             ),
         )
 
