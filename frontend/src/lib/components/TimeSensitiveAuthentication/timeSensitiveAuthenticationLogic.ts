@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -88,7 +88,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
 
         sensitiveSessionExpiresAt: [
             (s) => [s.user],
-            (user): dayjs.Dayjs => {
+            (user): Dayjs => {
                 return dayjs(user?.sensitive_session_expires_at)
             },
         ],

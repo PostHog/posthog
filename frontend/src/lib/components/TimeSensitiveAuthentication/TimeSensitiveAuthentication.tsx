@@ -70,7 +70,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     const { setDismissedReauthentication, checkReauthentication } = useActions(timeSensitiveAuthenticationLogic)
 
     useEffect(() => {
-        checkReauthentication(false)
+        checkReauthentication()
     }, [])
 
     return timeSensitiveAuthenticationRequired ? (
