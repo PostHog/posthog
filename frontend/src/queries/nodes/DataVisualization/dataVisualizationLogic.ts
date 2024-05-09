@@ -84,29 +84,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
     }),
     reducers({
-        columns: [
-            [] as Column[],
-            {
-                loadDataSuccess: (_state, { response }) => {
-                    if (!response) {
-                        return []
-                    }
-
-                    const columns: string[] = response['columns'] ?? []
-                    const types: string[][] = response['types'] ?? []
-
-                    return columns.map((column, index) => {
-                        const type = types[index]?.[1]
-                        return {
-                            name: column,
-                            type,
-                            label: `${column} - ${type}`,
-                            dataIndex: index,
-                        }
-                    })
-                },
-            },
-        ],
         visualizationType: [
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
@@ -170,6 +147,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
     }),
     selectors({
+        columns: [
+            (s) => [s.response],
+            (response): Column[] => {
+                if (!response) {
+                    return []
+                }
+
+                const columns: string[] = response['columns'] ?? []
+                const types: string[][] = response['types'] ?? []
+
+                return columns.map((column, index) => {
+                    const type = types[index]?.[1]
+                    return {
+                        name: column,
+                        type,
+                        label: `${column} - ${type}`,
+                        dataIndex: index,
+                    }
+                })
+            },
+        ],
         query: [(_state, props) => [props.query], (query) => query],
         showEditingUI: [
             (state, props) => [state.insightMode, props.insightLogicProps],
@@ -209,7 +207,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     return null
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 return ySeries
                     .map((name): AxisSeries<number> | null => {
@@ -259,7 +257,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data: any[] = response?.['results'] ?? []
+                const data: any[] = response?.['results'] ?? response?.['result'] ?? []
 
                 const column = columns.find((n) => n.name === xSeries)
                 if (!column) {
