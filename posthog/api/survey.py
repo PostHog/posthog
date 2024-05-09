@@ -32,7 +32,10 @@ from posthog.utils_cors import cors_response
 
 import nh3
 
+from urllib.parse import urlparse
+
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -141,6 +144,14 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             choices = raw_question.get("choices")
             if choices and not isinstance(choices, list):
                 raise serializers.ValidationError("Question choices must be a list of strings")
+
+            link = raw_question.get("link")
+            if link:
+                parsed_url = urlparse(link)
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES or parsed_url.netloc == "":
+                    raise serializers.ValidationError(
+                        f"Link must be a URL to resource with one of these schemes [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                    )
 
             cleaned_questions.append(cleaned_question)
 
