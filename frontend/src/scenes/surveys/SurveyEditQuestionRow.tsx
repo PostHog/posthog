@@ -295,6 +295,15 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         }
                     />
                 </LemonField>
+                <LemonField name="shuffleOptions">
+                    {({ value: shuffleOptions, onChange: toggleShuffleOptions }) => (
+                        <LemonCheckbox
+                            checked={!!shuffleOptions}
+                            label="Shuffle Options"
+                            onChange={(checked) => toggleShuffleOptions(checked)}
+                        />
+                    )}
+                </LemonField>
             </div>
         </Group>
     )
