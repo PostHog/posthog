@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Optional, Union, cast
 
 import jwt
@@ -19,6 +20,10 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
+
+
+class BillingAPIErrorCodes(Enum):
+    OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -121,6 +126,7 @@ class BillingManager:
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)
+
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
@@ -161,13 +167,13 @@ class BillingManager:
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
             # Also update the tiers
-            if product["tiers"]:
+            if product.get("tiers"):
                 product["tiers"] = compute_usage_per_tier(current_usage, product["projected_usage"], product["tiers"])
                 product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
 
             # Update the add on tiers
             # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
-            for addon in product["addons"]:
+            for addon in product.get("addons"):
                 if not addon["subscribed"]:
                     continue
                 addon_usage_key = addon.get("usage_key")
@@ -374,3 +380,16 @@ class BillingManager:
             raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
         return {"Authorization": f"Bearer {billing_service_token}"}
+
+    def get_invoices(self, organization: Organization, status: Optional[str]):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
+            params={"status": status},
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data

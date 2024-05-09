@@ -16,7 +16,6 @@ class AvailableFeature(str, Enum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    TEAM_COLLABORATION = "team_collaboration"
     ADVANCED_PERMISSIONS = "advanced_permissions"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"

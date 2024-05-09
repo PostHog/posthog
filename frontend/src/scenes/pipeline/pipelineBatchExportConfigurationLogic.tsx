@@ -10,6 +10,7 @@ import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
+import { checkPermissions } from './utils'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
@@ -47,7 +48,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
     }),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         batchExportConfig: [
             null as BatchExportConfiguration | null,
             {
@@ -58,6 +59,14 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
+                    if (
+                        !checkPermissions(
+                            PipelineStage.Destination,
+                            !props.id || (!!values.batchExportConfig?.paused && formdata.paused !== true)
+                        )
+                    ) {
+                        return null
+                    }
                     const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
                     const destinationObj = {
                         type: destination,
