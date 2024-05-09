@@ -317,7 +317,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2024-04-18 09:48:39.660558', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2024-05-09 09:48:39.660564', 6, 'UTC')), 0))
+  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2024-04-18 10:00:42.153818', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2024-05-09 10:00:42.153823', 6, 'UTC')), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -1377,7 +1377,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2024-04-18 09:49:35.332055', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2024-05-09 09:49:35.332061', 6, 'UTC')), 0))
+  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2024-04-18 10:01:38.112008', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2024-05-09 10:01:38.112014', 6, 'UTC')), 0))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
