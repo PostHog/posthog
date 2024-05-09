@@ -46,7 +46,7 @@ class Action(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
     bytecode_error: models.TextField = models.TextField(blank=True, null=True)
-    steps_json: models.JSONField = models.JSONField(null=True, blank=True)
+    steps_json: models.JSONField = models.JSONField(default=list)
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating: models.BooleanField = models.BooleanField(default=False)
