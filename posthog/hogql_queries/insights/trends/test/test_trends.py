@@ -8416,6 +8416,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = self._run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
+    @freeze_time("2020-01-01")
     @also_test_with_materialized_columns(
         group_properties=[(0, "industry"), (2, "name")],
         materialize_only_with_person_on_events=True,
