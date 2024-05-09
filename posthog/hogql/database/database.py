@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -58,6 +58,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.warehouse.models.table import DataWarehouseTableColumns
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -232,7 +233,7 @@ def create_hogql_database(
 
     tables: dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+        tables[table.name] = table.hogql_definition(modifiers)
 
     if modifiers.dataWarehouseEventsModifiers:
         for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
@@ -353,6 +354,7 @@ def create_hogql_database(
 class _SerializedFieldBase(TypedDict):
     key: str
     type: DatabaseSerializedFieldType
+    schema_valid: bool
 
 
 class SerializedField(_SerializedFieldBase, total=False):
@@ -382,11 +384,26 @@ def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]
     return tables
 
 
-def serialize_fields(field_input, context: HogQLContext) -> list[SerializedField]:
+def serialize_fields(
+    field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
+) -> list[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
     field_output: list[SerializedField] = []
     for field_key, field in field_input.items():
+        try:
+            if db_columns is not None:
+                column = db_columns[field_key]
+                if isinstance(column, str):
+                    schema_valid = True
+                else:
+                    schema_valid = cast(bool, column.get("valid", True))
+            else:
+                schema_valid = True
+        except KeyError:
+            # We redefine fields on some sourced tables, causing the "hogql" and "clickhouse" field names to be intentionally out of sync
+            schema_valid = True
+
         if field_key == "team_id":
             pass
         elif isinstance(field, DatabaseField):
@@ -394,23 +411,41 @@ def serialize_fields(field_input, context: HogQLContext) -> list[SerializedField
                 continue
 
             if isinstance(field, IntegerDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.integer})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.integer, "schema_valid": schema_valid}
+                )
             elif isinstance(field, FloatDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.float})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.float, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.string})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.string, "schema_valid": schema_valid}
+                )
             elif isinstance(field, DateTimeDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.datetime})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.datetime, "schema_valid": schema_valid}
+                )
             elif isinstance(field, DateDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.date})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.date, "schema_valid": schema_valid}
+                )
             elif isinstance(field, BooleanDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.boolean})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.boolean, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringJSONDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.json})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.json, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringArrayDatabaseField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.array})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.array, "schema_valid": schema_valid}
+                )
             elif isinstance(field, ExpressionField):
-                field_output.append({"key": field_key, "type": DatabaseSerializedFieldType.expression})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.expression, "schema_valid": schema_valid}
+                )
         elif isinstance(field, LazyJoin):
             is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
@@ -419,6 +454,7 @@ def serialize_fields(field_input, context: HogQLContext) -> list[SerializedField
                     "type": DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
                     "table": field.resolve_table(context).to_printed_hogql(),
                     "fields": list(field.resolve_table(context).fields.keys()),
+                    "schema_valid": schema_valid,
                 }
             )
         elif isinstance(field, VirtualTable):
@@ -428,10 +464,16 @@ def serialize_fields(field_input, context: HogQLContext) -> list[SerializedField
                     "type": DatabaseSerializedFieldType.virtual_table,
                     "table": field.to_printed_hogql(),
                     "fields": list(field.fields.keys()),
+                    "schema_valid": schema_valid,
                 }
             )
         elif isinstance(field, FieldTraverser):
             field_output.append(
-                {"key": field_key, "type": DatabaseSerializedFieldType.field_traverser, "chain": field.chain}
+                {
+                    "key": field_key,
+                    "type": DatabaseSerializedFieldType.field_traverser,
+                    "chain": field.chain,
+                    "schema_valid": schema_valid,
+                }
             )
     return field_output
