@@ -396,6 +396,9 @@ export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): st
     if (plugin.is_global) {
         extras.push('global')
     }
+    if (plugin.tag) {
+        extras.push(`tag ${plugin.tag}`)
+    }
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 

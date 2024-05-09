@@ -200,7 +200,7 @@ class Plugin(models.Model):
     # Some plugins are private, only certain organizations should be able to access them
     # Sometimes we want to deprecate plugins, where the first step is limiting access to organizations using them
     # Sometimes we want to test out new plugins by only enabling them for certain organizations at first
-    has_private_access = models.ManyToManyField(Organization)
+    has_private_access = models.ManyToManyField(Organization, blank=True)
 
     objects: PluginManager = PluginManager()
 

@@ -90,18 +90,6 @@ export interface LogEntryPayload {
     timestamp?: string | null
 }
 
-export interface ParsedLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySource
-    type: PluginLogEntryType
-    message: string
-    instance_id: string
-}
-
 export interface CreateUserPayload {
     uuid: UUIDT
     password: string
@@ -1059,7 +1047,7 @@ export class DB {
 
     public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
-        const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
+        const configuredLogLevel = pluginConfig.plugin?.log_level ?? this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
             return

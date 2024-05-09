@@ -214,16 +214,13 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const pluginId = this.pluginConfig.plugin?.id.toString() || 'unknown'
         const timer = new Date()
+        const logEntryExtraInfo = `(instance ID ${this.hub.instanceId}, commitHash ${this.pluginConfig.plugin?.tag})`
         try {
             // Make sure one can't self-replicate resulting in an infinite loop
             if (this.pluginConfig.plugin && this.pluginConfig.plugin.name == 'Replicator') {
-                const host = this.pluginConfig.config['host']
                 const apiKey = String(this.pluginConfig.config['project_api_key'])
                 const team = await this.hub.teamManager.fetchTeam(this.pluginConfig.team_id)
-                // There's a single team with replication for the same api key from US to EU
-                // otherwise we're just checking that token differs to better safeguard against forwarding
-                const isAllowed = team?.uuid == '017955d2-b09f-0000-ec00-2116c7e8a605' && host == 'eu.posthog.com'
-                if (!isAllowed && team?.api_token.trim() == apiKey.trim()) {
+                if (team?.api_token.trim() == apiKey.trim()) {
                     throw Error('Self replication is not allowed')
                 }
                 // Only default org can use higher than 1x replication
@@ -241,10 +238,7 @@ export class LazyPluginVM {
             this.ready = true
 
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
-            await this.createLogEntry(
-                `setupPlugin succeeded (instance ID ${this.hub.instanceId}).`,
-                PluginLogEntryType.Debug
-            )
+            await this.createLogEntry(`setupPlugin succeeded ${logEntryExtraInfo}.`, PluginLogEntryType.Debug)
         } catch (error) {
             pluginSetupMsSummary
                 .labels({ plugin_id: pluginId, status: 'fail' })
@@ -264,7 +258,7 @@ export class LazyPluginVM {
                 const nextRetryInfo = `Retrying in ${nextRetryMs / 1000} s...`
                 status.warn('⚠️', `setupPlugin failed with ${error} for ${logInfo}. ${nextRetryInfo}`)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). ${nextRetryInfo}`,
+                    `setupPlugin failed with ${error} ${logEntryExtraInfo}. ${nextRetryInfo}`,
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
@@ -274,7 +268,7 @@ export class LazyPluginVM {
                 this.inErroredState = true
                 await this.processFatalVmSetupError(error, false)
                 await this.createLogEntry(
-                    `setupPlugin failed with ${error} (instance ID ${this.hub.instanceId}). Disabled the app!`,
+                    `setupPlugin failed with ${error} ${logEntryExtraInfo}. Disabled the app!`,
                     PluginLogEntryType.Error
                 )
                 throw new SetupPluginError(`setupPlugin failed with ${error} for ${logInfo}. Disabled the app!`)
