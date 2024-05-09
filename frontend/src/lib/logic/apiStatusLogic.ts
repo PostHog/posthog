@@ -49,7 +49,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     }
                 }
             } catch (e) {
-                console.error(e)
+                // Pass
             }
 
             if (response?.status === 401) {
