@@ -77,7 +77,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                         }}
                     >
                         {row.map((column, columnIndex) => (
-                            <td key={columnIndex} className={clsx({ 'pt-2': rowIndex === 0 })}>
+                            <td key={columnIndex} className={clsx({ 'pt-2': rowIndex === 0 && showMean })}>
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
