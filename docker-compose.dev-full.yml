@@ -55,10 +55,10 @@ services:
         depends_on:
             - zookeeper
 
-    object_storage:
+    objectstorage:
         extends:
             file: docker-compose.base.yml
-            service: object_storage
+            service: objectstorage
         ports:
             - '19000:19000'
             - '19001:19001'
@@ -89,16 +89,21 @@ services:
         ports:
             - 8000:8000
         build: .
+        command: ./bin/docker-server-unit
         volumes:
             - .:/app/posthog
         environment:
             - DEBUG=1
+            - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
+            - POSTHOG_SKIP_MIGRATION_CHECKS=true
+            - JS_URL=http://localhost:8000
         depends_on:
             - db
             - redis
             - clickhouse
             - kafka
-            - object_storage
+        links:
+            - objectstorage:objectstorage
 
     capture:
         extends:
@@ -120,14 +125,13 @@ services:
         volumes:
             - .:/app/posthog
         environment:
-            - DEBUG=1
             - DOCKER=1
         depends_on:
             - db
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
 
     migrate:
         extends:
@@ -181,5 +185,5 @@ services:
             - redis
             - clickhouse
             - kafka
-            - object_storage
+            - objectstorage
             - temporal

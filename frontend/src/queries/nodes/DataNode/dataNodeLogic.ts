@@ -36,6 +36,7 @@ import {
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    HogQLQueryModifiers,
     InsightVizNode,
     NodeKind,
     PersonsNode,
@@ -63,6 +64,8 @@ export interface DataNodeLogicProps {
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
     loadPriority?: number
+    /** Override modifiers when making the request */
+    modifiers?: HogQLQueryModifiers
 
     dataNodeCollectionId?: string
 }
@@ -76,9 +79,8 @@ const concurrencyController = new ConcurrencyController(Infinity)
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
         return compareInsightQuery(a, b, true)
-    } else {
-        return objectsEqual(a, b)
     }
+    return objectsEqual(a, b)
 }
 
 /** Tests wether a query is valid to prevent unnecessary requests.  */
@@ -86,8 +88,17 @@ const queryValid = (q: DataNode): boolean => {
     if (isFunnelsQuery(q)) {
         // funnels require at least two steps
         return q.series.length >= 2
-    } else {
-        return true
+    }
+    return true
+}
+
+function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNode {
+    if (!modifiers) {
+        return query
+    }
+    return {
+        ...query,
+        modifiers: { ...query.modifiers, ...modifiers },
     }
 }
 
@@ -108,22 +119,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
-        if (oldProps.query && props.query.kind !== oldProps.query.kind) {
+        if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!queryEqual(props.query, oldProps.query)) {
-            if (
-                !props.cachedResults ||
-                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results'])
-            ) {
-                actions.loadData()
-            } else {
-                actions.setResponse(props.cachedResults)
-            }
+        if (
+            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
+            ((!values.response?.['result'] && !values.response?.['results']) ||
+                !queryEqual(props.query, oldProps.query)) &&
+            (!props.cachedResults ||
+                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
+        ) {
+            actions.loadData()
+        } else if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again
+            actions.setResponse(props.cachedResults)
         }
     }),
     actions({
@@ -151,11 +164,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     if (props.cachedResults && !refresh) {
-                        if (
-                            props.cachedResults['result'] ||
-                            props.cachedResults['results'] ||
-                            !isInsightQueryNode(props.query)
-                        ) {
+                        if (props.cachedResults['result'] || props.cachedResults['results']) {
                             return props.cachedResults
                         }
                     }
@@ -191,7 +200,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 try {
                                     breakpoint()
                                     const data =
-                                        (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
+                                        (await query<DataNode>(
+                                            addModifiers(props.query, props.modifiers),
+                                            methodOptions,
+                                            refresh,
+                                            queryId
+                                        )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
                                 } catch (error: any) {
@@ -226,7 +240,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (isEventsQuery(props.query) && values.newQuery) {
                         const now = performance.now()
-                        const newResponse = (await query(values.newQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.newQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
@@ -250,7 +264,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
                     if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as EventsQueryResponse | ActorsQueryResponse
                         return {
@@ -259,7 +273,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
-                        const newResponse = (await query(values.nextQuery)) ?? null
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {
                             // help typescript by asserting we can't have an array here
@@ -406,9 +420,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (firstTimestamp) {
                                 const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
                                 return nextQuery
-                            } else {
-                                return query
                             }
+                            return query
                         }
                     }
                 }
@@ -627,7 +640,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
     })),
     afterMount(({ actions, props }) => {
-        if (Object.keys(props.query || {}).length > 0) {
+        if (props.cachedResults) {
+            // Use cached results if available, otherwise this logic will load the data again.
+            // We need to set them here, as the propsChanged listener will not trigger on mount
+            // and if we never change the props, the cached results will never be used.
+            actions.setResponse(props.cachedResults)
+        } else if (Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
 

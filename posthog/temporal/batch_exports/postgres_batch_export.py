@@ -98,7 +98,7 @@ async def copy_tsv_to_postgres(
             # TODO: Switch to binary encoding as CSV has a million edge cases.
             sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
                 table_name=sql.Identifier(table_name),
-                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+                fields=sql.SQL(",").join(sql.Identifier(column) for column in schema_columns),
             )
         ) as copy:
             while data := tsv_file.read():
@@ -448,6 +448,8 @@ class PostgresBatchExportWorkflow(PostHogWorkflow):
                 "InvalidSchemaName",
                 # Missing permissions to, e.g., insert into table.
                 "InsufficientPrivilege",
+                # Issue with exported data compared to schema, retrying won't help.
+                "NotNullViolation",
             ],
             finish_inputs=finish_inputs,
             # Disable heartbeat timeout until we add heartbeat support.

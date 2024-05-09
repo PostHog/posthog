@@ -1,5 +1,5 @@
-from typing import Counter as TCounter
-from typing import Set, cast
+from collections import Counter as TCounter
+from typing import cast
 
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -20,16 +20,16 @@ from posthog.queries.trends.util import is_series_group_based
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
-    def group_types_to_query(self) -> Set[GroupTypeIndex]:
+    def group_types_to_query(self) -> set[GroupTypeIndex]:
         used_properties = self.used_properties_with_type("group")
         return {cast(GroupTypeIndex, group_type_index) for _, _, group_type_index in used_properties}
 
     @cached_property
-    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
+    def group_on_event_columns_to_query(self) -> set[ColumnName]:
         "Returns a list of event table group columns containing materialized properties that this query needs"
         used_properties = self.used_properties_with_type("group")
 
-        columns_to_query: Set[ColumnName] = set()
+        columns_to_query: set[ColumnName] = set()
 
         for group_type_index in range(5):
             columns_to_query = columns_to_query.union(
@@ -120,7 +120,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 counter += get_action_tables_and_properties(entity.get_action())
 
         if (
-            not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter))
+            not isinstance(self.filter, StickinessFilter | PropertiesTimelineFilter)
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):

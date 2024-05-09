@@ -2,11 +2,8 @@ import json
 from enum import Enum
 from typing import (
     Any,
-    Dict,
-    List,
     Literal,
     Optional,
-    Tuple,
     Union,
     cast,
 )
@@ -27,7 +24,7 @@ class BehavioralPropertyType(str, Enum):
     RESTARTED_PERFORMING_EVENT = "restarted_performing_event"
 
 
-ValueT = Union[str, int, List[str]]
+ValueT = Union[str, int, list[str]]
 PropertyType = Literal[
     "event",
     "feature",
@@ -78,7 +75,7 @@ OperatorType = Literal[
 
 OperatorInterval = Literal["day", "week", "month", "year"]
 GroupTypeName = str
-PropertyIdentifier = Tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
+PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
@@ -92,6 +89,7 @@ VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
+    "data_warehouse_person_property": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
@@ -187,7 +185,7 @@ class Property:
     # Type of `key`
     event_type: Optional[Literal["events", "actions"]]
     # Any extra filters on the event
-    event_filters: Optional[List["Property"]]
+    event_filters: Optional[list["Property"]]
     # Query people who did event '$pageview' 20 times in the last 30 days
     # translates into:
     # key = '$pageview', value = 'performed_event_multiple'
@@ -216,7 +214,7 @@ class Property:
     total_periods: Optional[int]
     min_periods: Optional[int]
     negation: Optional[bool] = False
-    _data: Dict
+    _data: dict
 
     def __init__(
         self,
@@ -239,7 +237,7 @@ class Property:
         seq_time_value: Optional[int] = None,
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
-        event_filters: Optional[List["Property"]] = None,
+        event_filters: Optional[list["Property"]] = None,
         **kwargs,
     ) -> None:
         self.key = key
@@ -298,7 +296,7 @@ class Property:
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())
         return f"Property({params_repr})"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
@@ -331,17 +329,17 @@ class Property:
 
 class PropertyGroup:
     type: PropertyOperatorType
-    values: Union[List[Property], List["PropertyGroup"]]
+    values: Union[list[Property], list["PropertyGroup"]]
 
     def __init__(
         self,
         type: PropertyOperatorType,
-        values: Union[List[Property], List["PropertyGroup"]],
+        values: Union[list[Property], list["PropertyGroup"]],
     ) -> None:
         self.type = type
         self.values = values
 
-    def combine_properties(self, operator: PropertyOperatorType, properties: List[Property]) -> "PropertyGroup":
+    def combine_properties(self, operator: PropertyOperatorType, properties: list[Property]) -> "PropertyGroup":
         if not properties:
             return self
 
@@ -375,7 +373,7 @@ class PropertyGroup:
         return f"PropertyGroup(type={self.type}-{params_repr})"
 
     @cached_property
-    def flat(self) -> List[Property]:
+    def flat(self) -> list[Property]:
         return list(self._property_groups_flat(self))
 
     def _property_groups_flat(self, prop_group: "PropertyGroup"):

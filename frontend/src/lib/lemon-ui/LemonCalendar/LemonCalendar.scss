@@ -56,7 +56,7 @@
     }
 
     &--with-time {
-        padding-right: calc(3 * var(--lemon-calendar-time-column-width));
+        padding-right: calc((3 * var(--lemon-calendar-time-column-width)) + 2px);
     }
 
     .LemonCalendar__time {

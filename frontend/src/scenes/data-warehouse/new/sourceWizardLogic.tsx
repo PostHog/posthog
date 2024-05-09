@@ -140,13 +140,15 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             {
                 name: 'email_address',
                 label: 'Zendesk Email Address',
-                type: 'text',
+                type: 'email',
                 required: true,
                 placeholder: '',
             },
         ],
     },
 }
+
+export type ManualLinkProvider = 'aws' | 'google-cloud'
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
@@ -159,7 +161,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
-        selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
@@ -169,6 +171,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
+        setManualLinkingProvider: (provider: ManualLinkProvider) => ({ provider }),
     }),
     connect({
         values: [
@@ -179,9 +182,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
+        actions: [
+            dataWarehouseTableLogic,
+            ['resetTable', 'createTableSuccess'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
+        manualLinkingProvider: [
+            null as ManualLinkProvider | null,
+            {
+                setManualLinkingProvider: (_, { provider }) => provider,
+            },
+        ],
         selectedConnector: [
             null as SourceConfig | null,
             {
@@ -207,10 +221,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                selectSchema: (state, { schema }) => {
+                toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     const newSchema = state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? !s.should_sync : s.should_sync,
+                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                     return newSchema
                 },
@@ -249,6 +263,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
             (currentStep): boolean => {
@@ -256,8 +271,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         canGoNext: [
-            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId],
-            (currentStep, allSources, sourceId): boolean => {
+            (s) => [s.currentStep, s.dataWarehouseSources, s.sourceId, s.isManualLinkingSelected],
+            (currentStep, allSources, sourceId, isManualLinkingSelected): boolean => {
+                if (isManualLinkingSelected && currentStep == 2) {
+                    return false
+                }
+
                 const source = allSources?.results.find((n) => n.id === sourceId)
 
                 if (currentStep === 4) {
@@ -274,8 +293,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep],
-            (currentStep): string => {
+            (s) => [s.currentStep, s.isManualLinkingSelected],
+            (currentStep, isManualLinkingSelected): string => {
+                if (currentStep === 3 && isManualLinkingSelected) {
+                    return 'Link'
+                }
+
                 if (currentStep === 3) {
                     return 'Import'
                 }
@@ -398,13 +421,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
-            if (values.currentStep === 2) {
-                if (values.selectedConnector?.name) {
-                    actions.submitSourceConnectionDetails()
-                } else {
-                    // Used for manual S3 file links
-                    dataWarehouseTableLogic.actions.submitTable()
-                }
+            if (values.currentStep === 2 && values.selectedConnector?.name) {
+                actions.submitSourceConnectionDetails()
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
@@ -417,11 +435,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
                 actions.setIsLoading(true)
                 actions.createSource()
+            } else if (values.currentStep === 3 && values.isManualLinkFormVisible) {
+                dataWarehouseTableLogic.actions.submitTable()
             }
 
             if (values.currentStep === 4) {
                 actions.closeWizard()
             }
+        },
+        createTableSuccess: () => {
+            actions.onClear()
+            actions.clearSource()
+            actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
         },
         closeWizard: () => {
             actions.onClear()
@@ -448,6 +474,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 lemonToast.success('New Data Resource Created')
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
+                actions.loadSources(null)
                 actions.onNext()
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
@@ -475,14 +502,27 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.getDatabaseSchemas()
         },
         getDatabaseSchemas: async () => {
-            if (values.selectedConnector) {
+            if (!values.selectedConnector) {
+                return
+            }
+
+            actions.setIsLoading(true)
+
+            try {
                 const schemas = await api.externalDataSources.database_schema(
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
             }
+
+            actions.setIsLoading(false)
+        },
+        setManualLinkingProvider: () => {
+            actions.onNext()
         },
     })),
     urlToAction(({ actions }) => ({

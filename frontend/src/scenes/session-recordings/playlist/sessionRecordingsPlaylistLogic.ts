@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -76,7 +77,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     properties: [],
     events: [],
     actions: [],
-    date_from: '-7d',
+    date_from: '-3d',
     date_to: null,
     console_logs: [],
     console_search_query: '',
@@ -215,6 +216,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         person_uuid: props.personUUID ?? '',
                         target_entity_order: values.orderBy,
                         limit: RECORDINGS_LIMIT,
+                        hog_ql_filtering: values.useHogQLFiltering,
                     }
 
                     if (values.orderBy === 'start_time') {
@@ -242,7 +244,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs)
+                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
 
                     breakpoint()
 
@@ -333,10 +335,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         advancedFilters: [
             props.advancedFilters ?? getDefaultFilters(props.personUUID),
             {
-                setAdvancedFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
+                setAdvancedFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
                 resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],
@@ -389,9 +393,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 ...s,
                                 viewed: true,
                             }
-                        } else {
-                            return { ...s }
                         }
+                        return { ...s }
                     }),
 
                 summarizeSessionSuccess: (state, { sessionSummary }) => {
@@ -402,9 +405,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                       ...s,
                                       summary: sessionSummary.content,
                                   }
-                              } else {
-                                  return s
                               }
+                              return s
                           })
                         : state
                 },
@@ -485,6 +487,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        useHogQLFiltering: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],
+        ],
+
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
         filters: [
@@ -514,22 +521,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                 if (hasActions) {
                     return { matchType: 'backend', filters }
-                } else {
-                    if (!hasEvents) {
-                        return { matchType: 'none' }
-                    }
+                }
+                if (!hasEvents) {
+                    return { matchType: 'none' }
+                }
 
-                    if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
-                        return {
-                            matchType: 'name',
-                            eventNames: simpleEventsFilters,
-                        }
-                    } else {
-                        return {
-                            matchType: 'backend',
-                            filters,
-                        }
+                if (hasEvents && hasSimpleEventsFilters && simpleEventsFilters.length === filters.events?.length) {
+                    return {
+                        matchType: 'name',
+                        eventNames: simpleEventsFilters,
                     }
+                }
+                return {
+                    matchType: 'backend',
+                    filters,
                 }
             },
         ],

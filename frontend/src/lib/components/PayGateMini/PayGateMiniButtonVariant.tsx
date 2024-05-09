@@ -24,7 +24,7 @@ export const PayGateMiniButtonVariant = ({
             center
             onClick={onCtaClick}
         >
-            {getCtaLabel(gateVariant, productWithFeature, billing)}
+            {getCtaLabel(gateVariant, billing)}
         </LemonButton>
     )
 }
@@ -46,14 +46,12 @@ const getCtaLink = (
 
 const getCtaLabel = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-    productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
     billing: BillingV2Type | null
 ): string => {
     if (gateVariant === 'add-card') {
-        return billing?.has_active_subscription ? `Upgrade ${productWithFeature?.name}` : 'Subscribe now'
+        return billing?.has_active_subscription ? 'Upgrade now' : 'Subscribe now'
     } else if (gateVariant === 'contact-sales') {
         return 'Contact sales'
-    } else {
-        return 'Move to PostHog Cloud'
     }
+    return 'Move to PostHog Cloud'
 }

@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Any, Dict, List
+from typing import Any, List, Literal  # noqa: UP035
 
 from rest_framework import viewsets, request, response, serializers, status
 
@@ -17,17 +17,17 @@ from posthog.schema import HogQLQueryResponse
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
-            select pointer_target_fixed, relative_client_x, client_y, {aggregation_count}
+            select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
             from (
                      select
                         distinct_id,
                         pointer_target_fixed,
-                        round((x / viewport_width), 2) as relative_client_x,
+                        round((x / viewport_width), 2) as pointer_relative_x,
                         y * scale_factor as client_y
                      from heatmaps
                      where {predicates}
                 )
-            group by `pointer_target_fixed`, relative_client_x, client_y
+            group by `pointer_target_fixed`, pointer_relative_x, client_y
             """
 
 SCROLL_DEPTH_QUERY = """
@@ -56,7 +56,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     viewport_width_max = serializers.IntegerField(required=False)
     type = serializers.CharField(required=False, default="click")
     date_from = serializers.CharField(required=False, default="-7d")
-    date_to = serializers.DateField(required=False)
+    date_to = serializers.CharField(required=False)
     url_exact = serializers.CharField(required=False)
     url_pattern = serializers.CharField(required=False)
     aggregation = serializers.ChoiceField(
@@ -66,7 +66,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         default="total_count",
     )
 
-    def validate_date_from(self, value) -> date:
+    def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
             if isinstance(value, str):
                 parsed_date, _, _ = relative_date_parse_with_delta_mapping(value, self.context["team"].timezone_info)
@@ -76,11 +76,17 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             if isinstance(value, date):
                 return value
             else:
-                raise serializers.ValidationError("Invalid date_from provided: {}".format(value))
+                raise serializers.ValidationError(f"Invalid {label} provided: {value}")
         except Exception:
-            raise serializers.ValidationError("Error parsing provided date_from: {}".format(value))
+            raise serializers.ValidationError(f"Error parsing provided {label}: {value}")
 
-    def validate(self, values) -> Dict:
+    def validate_date_from(self, value) -> date:
+        return self.validate_date(value, "date_from")
+
+    def validate_date_to(self, value) -> date:
+        return self.validate_date(value, "date_to")
+
+    def validate(self, values) -> dict:
         url_exact = values.get("url_exact", None)
         url_pattern = values.get("url_pattern", None)
         if isinstance(url_exact, str) and isinstance(url_pattern, str):
@@ -106,7 +112,7 @@ class HeatmapsResponseSerializer(serializers.Serializer):
 class HeatmapScrollDepthResponseItemSerializer(serializers.Serializer):
     cumulative_count = serializers.IntegerField(required=True)
     bucket_count = serializers.IntegerField(required=True)
-    scroll_depth_bucket = serializers.FloatField(required=True)
+    scroll_depth_bucket = serializers.IntegerField(required=True)
 
 
 class HeatmapsScrollDepthResponseSerializer(serializers.Serializer):
@@ -120,9 +126,6 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = HeatmapsResponseSerializer
 
     authentication_classes = [TemporaryTokenAuthentication]
-
-    def get_queryset(self):
-        return None
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
@@ -154,17 +157,17 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     @staticmethod
-    def _predicate_expressions(placeholders: Dict[str, Expr]) -> List[ast.Expr]:
-        predicate_expressions: List[ast.Expr] = []
+    def _predicate_expressions(placeholders: dict[str, Expr]) -> List[ast.Expr]:  # noqa: UP006
+        predicate_expressions: list[ast.Expr] = []
 
-        predicate_mapping: Dict[str, str] = {
+        predicate_mapping: dict[str, str] = {
             # should always have values
             "date_from": "timestamp >= {date_from}",
             "type": "`type` = {type}",
             # optional
             "date_to": "timestamp <= {date_to} + interval 1 day",
-            "viewport_width_min": "viewport_width >= ceil({viewport_width_min} / 16)",
-            "viewport_width_max": "viewport_width <= ceil({viewport_width_max} / 16)",
+            "viewport_width_min": "viewport_width >= round({viewport_width_min} / 16)",
+            "viewport_width_max": "viewport_width <= round({viewport_width_max} / 16)",
             "url_exact": "current_url = {url_exact}",
             "url_pattern": "match(current_url, {url_pattern})",
         }

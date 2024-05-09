@@ -3,13 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from typing import (
     Any,
-    DefaultDict,
-    Deque,
-    Dict,
-    List,
     Optional,
-    Set,
-    Type,
 )
 
 import mimesis
@@ -38,7 +32,7 @@ class Cluster(ABC):
     end: timezone.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
-    people_matrix: List[List[SimPerson]]  # Grid containing all people in the cluster
+    people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster
 
     random: mimesis.random.Random
     properties_provider: PropertiesProvider
@@ -52,7 +46,7 @@ class Cluster(ABC):
 
     _simulation_time: dt.datetime
     _reached_now: bool
-    _scheduled_effects: Deque[Effect]
+    _scheduled_effects: deque[Effect]
 
     def __init__(self, *, index: int, matrix: "Matrix") -> None:
         self.index = index
@@ -98,7 +92,7 @@ class Cluster(ABC):
         """Return a value between 0 and 1 determining how far into the overall simulation should this cluster be initiated."""
         return self.random.random()
 
-    def list_neighbors(self, person: SimPerson) -> List[SimPerson]:
+    def list_neighbors(self, person: SimPerson) -> list[SimPerson]:
         """Return a list of neighbors of a person at (x, y)."""
         x, y = person.x, person.y
         neighbors = []
@@ -141,7 +135,7 @@ class Cluster(ABC):
         while self._scheduled_effects and self._scheduled_effects[0].timestamp <= until:
             effect = self._scheduled_effects.popleft()
             self.simulation_time = effect.timestamp
-            resolved_targets: List[SimPerson]
+            resolved_targets: list[SimPerson]
             if effect.target == Effect.Target.SELF:
                 resolved_targets = [effect.source]
             elif effect.target == Effect.Target.ALL_NEIGHBORS:
@@ -155,7 +149,7 @@ class Cluster(ABC):
                     effect.callback(target)
 
     @property
-    def people(self) -> Set[SimPerson]:
+    def people(self) -> set[SimPerson]:
         return {person for row in self.people_matrix for person in row}
 
     @property
@@ -198,17 +192,17 @@ class Matrix(ABC):
     """
 
     PRODUCT_NAME: str
-    CLUSTER_CLASS: Type[Cluster]
-    PERSON_CLASS: Type[SimPerson]
+    CLUSTER_CLASS: type[Cluster]
+    PERSON_CLASS: type[SimPerson]
 
     start: dt.datetime
     now: dt.datetime
     end: dt.datetime
     group_type_index_offset: int
     # A mapping of groups. The first key is the group type, the second key is the group key.
-    groups: DefaultDict[str, DefaultDict[str, Dict[str, Any]]]
-    distinct_id_to_person: Dict[str, SimPerson]
-    clusters: List[Cluster]
+    groups: defaultdict[str, defaultdict[str, dict[str, Any]]]
+    distinct_id_to_person: dict[str, SimPerson]
+    clusters: list[Cluster]
     is_complete: Optional[bool]
     server_client: SimServerClient
 
@@ -257,7 +251,7 @@ class Matrix(ABC):
         self.is_complete = None
 
     @property
-    def people(self) -> List[SimPerson]:
+    def people(self) -> list[SimPerson]:
         return [person for cluster in self.clusters for person in cluster.people]
 
     @abstractmethod
@@ -273,7 +267,7 @@ class Matrix(ABC):
             cluster.simulate()
         self.is_complete = True
 
-    def _update_group(self, group_type: str, group_key: str, set_properties: Dict[str, Any]):
+    def _update_group(self, group_type: str, group_key: str, set_properties: dict[str, Any]):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)

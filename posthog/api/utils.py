@@ -4,7 +4,9 @@ import socket
 import urllib.parse
 from enum import Enum, auto
 from ipaddress import ip_address
-from typing import List, Literal, Optional, Union, Tuple
+from requests.adapters import HTTPAdapter
+from typing import Literal, Optional, Union
+from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
 import structlog
@@ -64,7 +66,7 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValidationError("An entity must be provided for target entity to be determined")
 
 
-def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+def entity_from_order(order: Optional[str], entities: list[Entity]) -> Optional[Entity]:
     if not order:
         return None
 
@@ -78,8 +80,8 @@ def retrieve_entity_from(
     entity_id: Optional[str],
     entity_type: Optional[str],
     entity_math: MathType,
-    events: List[Entity],
-    actions: List[Entity],
+    events: list[Entity],
+    actions: list[Entity],
 ) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
@@ -251,7 +253,7 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_expressions: Optional[List[Tuple[str, Literal["ASC", "DESC"]]]] = None,
+    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -305,7 +307,7 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
-def parse_bool(value: Union[str, List[str]]) -> bool:
+def parse_bool(value: Union[str, list[str]]) -> bool:
     if value == "true":
         return True
     return False
@@ -329,3 +331,46 @@ def raise_if_user_provided_url_unsafe(url: str):
     for _, _, _, _, sockaddr in addrinfo:
         if ip_address(sockaddr[0]).is_private:  # Prevent addressing internal services
             raise ValueError("Internal hostname")
+
+
+def raise_if_connected_to_private_ip(conn):
+    """Raise if the HTTPConnection / HTTPSConnection we are given points to a private IP."""
+    if not getattr(conn, "sock", None):  # Force the connection open to check the remote IP
+        conn.connect()
+    addr = ip_address(conn.sock.getpeername()[0])
+    if addr.is_private:
+        raise ValueError("Internal IP")
+
+
+class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
+    def _validate_conn(self, conn):
+        raise_if_connected_to_private_ip(conn)
+        super()._validate_conn(conn)
+
+
+class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
+    def _validate_conn(self, conn):
+        raise_if_connected_to_private_ip(conn)
+        super()._validate_conn(conn)
+
+
+class PublicIPOnlyHttpAdapter(HTTPAdapter):
+    """Transport adapter that enforces that we only connect to public IPs
+
+    Due to the lack of a hook after DNS resolution, we override the connection pool classes
+    to check the remote IP after we connect to it, but before we send the request.
+
+    Intended as a second line of defense after raise_if_user_provided_url_unsafe.
+    """
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+        self.poolmanager.pool_classes_by_scheme = {
+            "http": PublicIPOnlyHTTPConnectionPool,
+            "https": PublicIPOnlyHTTPSConnectionPool,
+        }

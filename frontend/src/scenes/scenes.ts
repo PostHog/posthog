@@ -164,6 +164,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'People & groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
+    [Scene.PipelineNodeNew]: {
+        projectBased: true,
+        name: 'Pipeline new step',
+        activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
+    },
     [Scene.Pipeline]: {
         projectBased: true,
         name: 'Pipeline',
@@ -393,6 +399,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Move to PostHog Cloud',
         hideProjectNotice: true,
     },
+    [Scene.Heatmaps]: {
+        projectBased: true,
+        name: 'Heatmaps',
+        hideProjectNotice: true,
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -507,6 +518,8 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
+    [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
+    [urls.pipelineNodeNew(':stage', ':pluginIdOrBatchExportDestination')]: Scene.PipelineNodeNew,
     [urls.pipeline(':tab')]: Scene.Pipeline,
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
@@ -575,4 +588,5 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
+    [urls.heatmaps()]: Scene.Heatmaps,
 }

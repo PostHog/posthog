@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Tuple, Union
+from typing import Optional, Union
 
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -31,5 +31,5 @@ class GroupsJoinQuery:
         self._join_key = join_key
         self._person_on_events_mode = person_on_events_mode
 
-    def get_join_query(self) -> Tuple[str, Dict]:
+    def get_join_query(self) -> tuple[str, dict]:
         return "", {}

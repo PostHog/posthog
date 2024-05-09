@@ -1,5 +1,7 @@
+from functools import cached_property
 from typing import Optional
 
+from sentry_sdk import capture_exception
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -111,6 +113,15 @@ class Insight(models.Model):
             if state.dashboard_tile_id is None:
                 return state
         return None
+
+    @cached_property
+    def query_from_filters(self):
+        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+
+        try:
+            return {"kind": "InsightVizNode", "source": filter_to_query(self.filters).model_dump(), "full": True}
+        except Exception as e:
+            capture_exception(e)
 
     class Meta:
         db_table = "posthog_dashboarditem"

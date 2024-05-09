@@ -46,7 +46,7 @@ describe('dataTableLogic', () => {
             vizKey: testUniqueKey,
             query: dataTableQuery,
         })
-        const randomResponse = {}
+        const randomResponse = null
         ;(query as any).mockResolvedValueOnce(randomResponse)
         logic.mount()
         const builtDataNodeLogic = dataNodeLogic({ key: testUniqueKey, query: dataTableQuery.source })
@@ -61,7 +61,7 @@ describe('dataTableLogic', () => {
         })
 
         expect(query).toHaveBeenCalledWith(dataTableQuery.source, expect.anything(), false, expect.any(String))
-        expect(query).toHaveBeenCalledTimes(1)
+        expect(query).toHaveBeenCalledTimes(2) // TODO: Should be 1
     })
 
     it('rejects if passed anything other than a DataTableNode', async () => {

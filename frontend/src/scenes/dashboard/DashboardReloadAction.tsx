@@ -2,6 +2,7 @@ import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -10,8 +11,8 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { lastRefreshed } = useValues(dashboardLogic)
-    return <span>Last updated {lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
+    const { newestRefreshed } = useValues(dashboardLogic)
+    return <span>Last updated {newestRefreshed ? dayjs(newestRefreshed).fromNow() : 'a while ago'}</span>
 }
 
 const refreshIntervalSeconds = [1800, 3600]
@@ -27,7 +28,11 @@ const intervalOptions = [
 
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
-    const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
+    const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
+
+    usePageVisibility((pageIsVisible) => {
+        setPageVisibility(pageIsVisible)
+    })
 
     const options = intervalOptions.map((option) => {
         return {

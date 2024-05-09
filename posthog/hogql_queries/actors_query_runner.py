@@ -1,6 +1,7 @@
 import itertools
 from datetime import timedelta
-from typing import Any, List, Generator, Sequence, Iterator, Optional
+from typing import Optional
+from collections.abc import Generator, Sequence, Iterator
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
@@ -8,12 +9,13 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, DashboardFilter
+from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
 
 
 class ActorsQueryRunner(QueryRunner):
     query: ActorsQuery
-    query_type = ActorsQuery
+    response: ActorsQueryResponse
+    cached_response: CachedActorsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -39,21 +41,22 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
+    @staticmethod
+    def _get_recordings(event_results: list, recordings_lookup: dict) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
             for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
         )
 
-    def enrich_with_actors(
+    def _enrich_with_actors(
         self,
         results,
         actor_column_index,
         actors_lookup,
         recordings_column_index: Optional[int],
         recordings_lookup: Optional[dict[str, list[dict]]],
-    ) -> Generator[List, None, None]:
+    ) -> Generator[list, None, None]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
@@ -61,18 +64,18 @@ class ActorsQueryRunner(QueryRunner):
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
-                    self.get_recordings(result[recordings_column_index], recordings_lookup) or None
+                    self._get_recordings(result[recordings_column_index], recordings_lookup) or None
                 )
             yield new_row
 
-    def prepare_recordings(self, column_name, input_columns):
+    def prepare_recordings(
+        self, column_name: str, input_columns: list[str]
+    ) -> tuple[int | None, dict[str, list[dict]] | None]:
         if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
-        matching_events_list = itertools.chain.from_iterable(
-            (row[column_index_events] for row in self.paginator.results)
-        )
+        matching_events_list = itertools.chain.from_iterable(row[column_index_events] for row in self.paginator.results)
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def calculate(self) -> ActorsQueryResponse:
@@ -85,7 +88,7 @@ class ActorsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         missing_actors_count = None
-        results: Sequence[List] | Iterator[List] = self.paginator.results
+        results: Sequence[list] | Iterator[list] = self.paginator.results
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
@@ -95,7 +98,7 @@ class ActorsQueryRunner(QueryRunner):
             recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(
+            results = self._enrich_with_actors(
                 results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
             )
 
@@ -110,14 +113,14 @@ class ActorsQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         if self.query.select:
             return self.query.select
 
         return self.strategy.input_columns()
 
     # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
-    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> List[str]:
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> list[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
             select = source_query.select
@@ -238,10 +241,8 @@ class ActorsQueryRunner(QueryRunner):
         return self.to_query()
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        query_update: dict[str, Any] = {}
         if self.source_query_runner:
-            query_update["source"] = self.source_query_runner.apply_dashboard_filters(dashboard_filter)
-        return self.query.model_copy(update=query_update)
+            self.source_query_runner.apply_dashboard_filters(dashboard_filter)
 
     def _is_stale(self, cached_result_package):
         return True

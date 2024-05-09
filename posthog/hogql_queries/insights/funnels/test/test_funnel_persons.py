@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, cast, Any
+from typing import Optional, cast, Any
 from uuid import UUID
 
 from django.utils import timezone
@@ -32,11 +32,11 @@ PERSON_ID_COLUMN = 2
 
 
 def get_actors(
-    filters: Dict[str, Any],
+    filters: dict[str, Any],
     team: Team,
     funnelStep: Optional[int] = None,
-    funnelCustomSteps: Optional[List[int]] = None,
-    funnelStepBreakdown: Optional[str | float | List[str | float]] = None,
+    funnelCustomSteps: Optional[list[int]] = None,
+    funnelStepBreakdown: Optional[str | float | list[str | float]] = None,
     funnelTrendsDropOff: Optional[bool] = None,
     funnelTrendsEntrancePeriodStart: Optional[str] = None,
     offset: Optional[int] = None,
@@ -527,13 +527,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
-        timestamp = datetime(2021, 1, 3, 0, 0, 0)
+
         produce_replay_summary(
             team_id=self.team.pk,
             session_id="s2",
             distinct_id="user_1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            first_timestamp=timezone.now() + timedelta(days=1),
         )
 
         # First event, but no recording

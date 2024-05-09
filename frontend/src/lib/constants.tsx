@@ -154,7 +154,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
-    SIGNUP_BENEFITS: 'signup-benefits', // experiment, owner: @zlwaterfield
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
     WEB_ANALYTICS_SAMPLING: 'web-analytics-sampling', // owner @robbie-c #team-web-analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -182,7 +181,6 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
@@ -202,16 +200,16 @@ export const FEATURE_FLAGS = {
     BILLING_UPGRADE_LANGUAGE: 'billing-upgrade-language', // owner: @biancayang
     NEW_EXPERIMENTS_UI: 'new-experiments-ui', // owner: @jurajmajerik #team-feature-success
     SESSION_REPLAY_FILTER_ORDERING: 'session-replay-filter-ordering', // owner: #team-replay
-    SESSION_REPLAY_LINKED_VARIANTS: 'session-replay-linked-variants', // owner: #team-replay
     REPLAY_ERROR_CLUSTERING: 'session-replay-error-clustering', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     REVERSE_PROXY_ONBOARDING: 'reverse-proxy-onboarding', // owner: @zlwaterfield
     SESSION_REPLAY_MOBILE_ONBOARDING: 'session-replay-mobile-onboarding', // owner: #team-replay
-    IP_ALLOWLIST_SETTING: 'ip-allowlist-setting', // owner: @benjackwhite
     EMAIL_VERIFICATION_TICKET_SUBMISSION: 'email-verification-ticket-submission', // owner: #team-growth
-    TOOLBAR_HEATMAPS: 'toolbar-heatmaps', // owner: #team-replay
+    HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
     THEME: 'theme', // owner: @aprilfools
+    SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
+    SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

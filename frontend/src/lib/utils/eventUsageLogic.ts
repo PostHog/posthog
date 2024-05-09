@@ -37,12 +37,16 @@ import {
     InsightType,
     ItemMode,
     PersonType,
+    PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
+    RecordingDurationFilter,
+    RecordingFilters,
     RecordingReportLoadTimes,
     Resource,
     SessionPlayerData,
     SessionRecordingPlayerTab,
+    SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
 } from '~/types'
@@ -100,7 +104,7 @@ interface RecordingViewedProps {
     page_change_events_length: number
     recording_width?: number
     loadedFromBlobStorage: boolean
-
+    snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
@@ -342,6 +346,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
+        reportPoEModeUpdated: (mode: string) => ({ mode }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -355,12 +360,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             playerData: SessionPlayerData,
             durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
+            metadata: SessionRecordingType | null,
             delay?: number
-        ) => ({ playerData, durations, type, delay }),
+        ) => ({ playerData, durations, type, delay, metadata }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
-        reportRecordingsListFetched: (loadTime: number) => ({
+        reportRecordingsListFetched: (
+            loadTime: number,
+            filters: RecordingFilters,
+            defaultDurationFilter: RecordingDurationFilter
+        ) => ({
             loadTime,
+            filters,
+            defaultDurationFilter,
         }),
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
@@ -455,6 +467,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportIngestionContinueWithoutVerifying: true,
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
+        reportHeatmapsToggled: (heatmaps_opt_in: boolean) => ({ heatmaps_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
@@ -808,7 +821,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             posthog.capture('test account filters updated', payload)
         },
-
+        reportPoEModeUpdated: async ({ mode }) => {
+            posthog.capture('persons on events mode updated', { mode })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -848,7 +863,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, durations, type }) => {
+        reportRecording: ({ playerData, durations, type, metadata }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
@@ -863,6 +878,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 page_change_events_length: eventIndex.pageChangeEvents().length,
                 recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
                 load_time: durations.firstPaint ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
+                // older recordings did not store this and so "null" is equivalent to web
+                // but for reporting we want to distinguish between not loaded and no value to load
+                snapshot_source: metadata?.snapshot_source || 'unknown',
             }
             posthog.capture(`recording ${type}`, payload)
         },
@@ -897,8 +915,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })
         },
-        reportRecordingsListFetched: ({ loadTime }) => {
-            posthog.capture('recording list fetched', { load_time: loadTime, listing_version: '3' })
+        reportRecordingsListFetched: ({ loadTime, filters, defaultDurationFilter }) => {
+            const filterBreakdown =
+                filters && defaultDurationFilter
+                    ? {
+                          hasEventsFilters: !!filters.events?.length,
+                          hasActionsFilters: !!filters.actions?.length,
+                          hasPropertiesFilters: !!filters.properties?.length,
+                          hasCohortFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Cohort),
+                          hasPersonFilter: filters.properties?.some((p) => p.type === PropertyFilterType.Person),
+                          hasDurationFilters:
+                              (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
+                          hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+                          isLiveMode: !!filters.live_mode,
+                      }
+                    : {}
+            posthog.capture('recording list fetched', {
+                load_time: loadTime,
+                listing_version: '3',
+                filters,
+                ...filterBreakdown,
+            })
         },
         reportRecordingsListPropertiesFetched: ({ loadTime }) => {
             posthog.capture('recording list properties fetched', { load_time: loadTime })
@@ -1096,6 +1133,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureExceptionsToggled: ({ autocapture_opt_in }) => {
             posthog.capture('autocapture exceptions toggled', {
                 autocapture_opt_in,
+            })
+        },
+        reportHeatmapsToggled: ({ heatmaps_opt_in }) => {
+            posthog.capture('heatmaps toggled', {
+                heatmaps_opt_in,
             })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {

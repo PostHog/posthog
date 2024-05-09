@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, cast
+from typing import Any, Optional, cast
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -37,7 +37,7 @@ PERSON_ID_COLUMN = 2
 
 
 def get_actors(
-    filters: Dict[str, Any],
+    filters: dict[str, Any],
     team: Team,
     funnelCorrelationType: Optional[FunnelCorrelationResultsType] = FunnelCorrelationResultsType.events,
     funnelCorrelationNames=None,
@@ -524,13 +524,11 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="41111111-1111-1111-1111-111111111111",
         )
-        timestamp = datetime(2021, 1, 2, 0, 0, 0)
+
         produce_replay_summary(
             team_id=self.team.pk,
             session_id="s2",
             distinct_id="user_1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
         )
 
         # Second user with strict funnel drop off, but completed the step events for a normal funnel
@@ -559,13 +557,11 @@ class TestFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s3", "$window_id": "w2"},
             event_uuid="71111111-1111-1111-1111-111111111111",
         )
-        timestamp1 = datetime(2021, 1, 2, 0, 0, 0)
+
         produce_replay_summary(
             team_id=self.team.pk,
             session_id="s3",
             distinct_id="user_2",
-            first_timestamp=timestamp1,
-            last_timestamp=timestamp1,
         )
 
         # Success filter

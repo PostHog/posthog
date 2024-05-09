@@ -6,7 +6,6 @@ import uuid
 from string import Template
 
 import pyarrow as pa
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
@@ -14,12 +13,14 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
-    count_failed_batch_export_runs,
-    create_batch_export_backfill,
-    create_batch_export_run,
-    pause_batch_export,
-    update_batch_export_backfill_status,
-    update_batch_export_run,
+    acount_failed_batch_export_runs,
+    acreate_batch_export_backfill,
+    acreate_batch_export_run,
+    apause_batch_export,
+    aupdate_batch_export_backfill_status,
+    aupdate_batch_export_run,
+    cancel_running_batch_export_backfill,
+    running_backfills_for_batch_export,
 )
 from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
@@ -47,13 +48,22 @@ SELECT_QUERY_TEMPLATE = Template(
     """
 )
 
-TIMESTAMP_PREDICATES = """
+TIMESTAMP_PREDICATES = Template("""
 -- These 'timestamp' checks are a heuristic to exploit the sort key.
 -- Ideally, we need a schema that serves our needs, i.e. with a sort key on the _timestamp field used for batch exports.
 -- As a side-effect, this heuristic will discard historical loads older than a day.
-AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL 4 DAY
+AND timestamp >= toDateTime64({data_interval_start}, 6, 'UTC') - INTERVAL $lookback_days DAY
 AND timestamp < toDateTime64({data_interval_end}, 6, 'UTC') + INTERVAL 1 DAY
-"""
+""")
+
+
+def get_timestamp_predicates_for_team(team_id: int) -> str:
+    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+        return ""
+    else:
+        return TIMESTAMP_PREDICATES.substitute(
+            lookback_days=settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS),
+        )
 
 
 async def get_rows_count(
@@ -82,9 +92,7 @@ async def get_rows_count(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
+    timestamp_predicates = get_timestamp_predicates_for_team(team_id)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
@@ -183,19 +191,17 @@ def iter_records(
         include_events_statement = ""
         events_to_include_tuple = ()
 
-    timestamp_predicates = TIMESTAMP_PREDICATES
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        timestamp_predicates = ""
+    timestamp_predicates = timestamp_predicates = get_timestamp_predicates_for_team(team_id)
 
     if fields is None:
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
     else:
         if "_inserted_at" not in [field["alias"] for field in fields]:
             control_fields = [BatchExportField(expression="COALESCE(inserted_at, _timestamp)", alias="_inserted_at")]
         else:
             control_fields = []
 
-        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields + control_fields))
+        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
     query = SELECT_QUERY_TEMPLATE.substitute(
         fields=query_fields,
@@ -219,8 +225,7 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    for record_batch in client.stream_query_as_arrow(query, query_parameters=query_parameters):
-        yield record_batch
+    yield from client.stream_query_as_arrow(query, query_parameters=query_parameters)
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -353,10 +358,7 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> tuple[Bat
             inputs.data_interval_end,
         )
 
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_run)(
+    run = await acreate_batch_export_run(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -415,7 +417,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         for key, value in dataclasses.asdict(inputs).items()
         if key not in not_model_params and value is not None
     }
-    batch_export_run = await sync_to_async(update_batch_export_run)(
+    batch_export_run = await aupdate_batch_export_run(
         run_id=uuid.UUID(inputs.id),
         finished_at=dt.datetime.now(),
         **update_params,
@@ -429,30 +431,53 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
 
         from posthog.tasks.email import send_batch_export_run_failure
 
+        if batch_export_run.status == BatchExportRun.Status.FAILED:
+            from posthog.tasks.email import send_batch_export_run_failure
+
+        from posthog.tasks.email import send_batch_export_run_failure
+
         try:
             await send_batch_export_run_failure(inputs.id)
         except Exception:
             logger.exception("Failure email notification could not be sent")
 
+        is_over_failure_threshold = await check_if_over_failure_threshold(
+            inputs.batch_export_id,
+            check_window=inputs.failure_check_window,
+            failure_threshold=inputs.failure_threshold,
+        )
+        if not is_over_failure_threshold:
+            return
+
         try:
-            was_paused = await pause_batch_export_if_over_failure_threshold(
-                inputs.batch_export_id,
-                check_window=inputs.failure_check_window,
-                failure_threshold=inputs.failure_threshold,
-            )
+            was_paused = await pause_batch_export_over_failure_threshold(inputs.batch_export_id)
         except Exception:
             # Pausing could error if the underlying schedule is deleted.
             # Our application logic should prevent that, but I want to log it in case it ever happens
             # as that would indicate a bug.
             logger.exception("Batch export could not be automatically paused")
-            was_paused = False
+        else:
+            if was_paused:
+                logger.warning(
+                    "Batch export was automatically paused due to exceeding failure threshold and exhausting "
+                    "all automated retries."
+                    "The batch export can be unpaused after addressing any errors."
+                )
 
-        if was_paused:
-            logger.warning(
-                "Batch export was automatically paused due to exceeding failure threshold and exhausting "
-                "all automated retries."
-                "The batch export can be manually unpaused after addressing any errors."
+        try:
+            total_cancelled = await cancel_running_backfills(
+                inputs.batch_export_id,
             )
+        except Exception:
+            logger.exception("Ongoing backfills could not be automatically cancelled")
+        else:
+            if total_cancelled > 0:
+                logger.warning(
+                    f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
+                    f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
+                    " and exhausting all automated retries."
+                    "The backfill can be triggered again after addressing any errors."
+                )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         logger.warning("Batch export was cancelled")
@@ -465,10 +490,8 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
 
-async def pause_batch_export_if_over_failure_threshold(
-    batch_export_id: str, check_window: int, failure_threshold: int = 10
-) -> bool:
-    """Pause a batch export if it exceeds failure threshold.
+async def check_if_over_failure_threshold(batch_export_id: str, check_window: int, failure_threshold: int):
+    """Check if a given batch export is over failure threshold.
 
     A 'check_window' was added to account for batch exports that have a history of failures but have some
     occassional successes in the middle. This is relevant particularly for low-volume exports:
@@ -477,11 +500,6 @@ async def pause_batch_export_if_over_failure_threshold(
 
     Keep in mind that if 'check_window' is less than 'failure_threshold', there is no point in even counting,
     so we raise an exception.
-
-    We check if the count of failed runs in the last 'check_window' runs exceeds 'failure_threshold'. This means
-    that 'pause_batch_export_if_over_failure_threshold' should only be called when handling a failed run,
-    otherwise we could be pausing a batch export that is just now recovering (as old failed runs in 'check_window'
-    contribute to exceeding 'failure_threshold').
 
     Arguments:
         batch_export_id: The ID of the batch export to check and pause.
@@ -498,11 +516,22 @@ async def pause_batch_export_if_over_failure_threshold(
     if check_window < failure_threshold:
         raise ValueError("'failure_threshold' cannot be higher than 'check_window'")
 
-    count = await sync_to_async(count_failed_batch_export_runs)(uuid.UUID(batch_export_id), last_n=check_window)
+    count = await acount_failed_batch_export_runs(uuid.UUID(batch_export_id), last_n=check_window)
 
     if count < failure_threshold:
         return False
+    return True
 
+
+async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> bool:
+    """Pause a batch export once it exceeds failure threshold.
+
+    Arguments:
+        batch_export_id: The ID of the batch export to check and pause.
+
+    Returns:
+        A bool indicating if the batch export was paused or not.
+    """
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
@@ -512,10 +541,41 @@ async def pause_batch_export_if_over_failure_threshold(
         settings.TEMPORAL_CLIENT_KEY,
     )
 
-    await sync_to_async(pause_batch_export)(
+    was_paused = await apause_batch_export(
         client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
     )
-    return True
+
+    return was_paused
+
+
+async def cancel_running_backfills(batch_export_id: str) -> int:
+    """Cancel any running batch export backfills.
+
+    This is intended to be called once a batch export failure threshold has been exceeded.
+
+    Arguments:
+        batch_export_id: The ID of the batch export whose backfills will be cancelled.
+
+    Returns:
+        The number of cancelled backfills, if any.
+    """
+    client = await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_ROOT_CA,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+    )
+
+    total_cancelled = 0
+
+    async for backfill in running_backfills_for_batch_export(uuid.UUID(batch_export_id)):
+        await cancel_running_batch_export_backfill(client, backfill)
+
+        total_cancelled += 1
+
+    return total_cancelled
 
 
 @dataclasses.dataclass
@@ -540,10 +600,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
-    # But one of our dependencies is pinned to asgiref==3.3.2.
-    # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_backfill)(
+    run = await acreate_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -565,9 +622,7 @@ class UpdateBatchExportBackfillStatusInputs:
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
-    backfill = await sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )
+    backfill = await aupdate_batch_export_backfill_status(backfill_id=uuid.UUID(inputs.id), status=inputs.status)
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status in (BatchExportBackfill.Status.FAILED, BatchExportBackfill.Status.FAILED_RETRYABLE):

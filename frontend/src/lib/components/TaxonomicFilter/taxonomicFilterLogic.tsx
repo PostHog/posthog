@@ -11,7 +11,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -168,6 +170,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 teamId,
@@ -177,7 +180,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns,
                 metadataSource,
                 excludedProperties,
-                propertyAllowList
+                propertyAllowList,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -486,18 +490,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Notebooks',
                     },
                     {
-                        name: 'Sessions',
+                        name: 'Session properties',
                         searchPlaceholder: 'sessions',
-                        type: TaxonomicFilterGroupType.Sessions,
-                        options: [
-                            {
-                                name: 'Session duration',
-                                value: '$session_duration',
-                            },
-                        ],
+                        type: TaxonomicFilterGroupType.SessionProperties,
+                        options: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                            ? undefined
+                            : [
+                                  {
+                                      id: '$session_duration',
+                                      name: '$session_duration',
+                                      property_type: 'Duration',
+                                      is_numerical: true,
+                                  },
+                              ],
                         getName: (option: any) => option.name,
-                        getValue: (option: any) => option.value,
+                        getValue: (option) => option.name,
                         getPopoverHeader: () => 'Session',
+                        endpoint: featureFlags[FEATURE_FLAGS.SESSION_TABLE_PROPERTY_FILTERS]
+                            ? `api/projects/${teamId}/sessions/property_definitions`
+                            : undefined,
+                        getIcon: getPropertyDefinitionIcon,
                     },
                     {
                         name: 'HogQL',

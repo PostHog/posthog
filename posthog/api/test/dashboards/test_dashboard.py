@@ -1,5 +1,4 @@
 import json
-from typing import Dict
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
@@ -18,10 +17,15 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries, FuzzyInt
+from posthog.test.base import (
+    APIBaseTest,
+    FuzzyInt,
+    QueryMatchingTest,
+    snapshot_postgres_queries,
+)
 from posthog.utils import generate_cache_key
 
-valid_template: Dict = {
+valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
     "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
@@ -261,7 +265,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
-        self.organization.available_features = [AvailableFeature.TEAM_COLLABORATION]
+        self.organization.available_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
@@ -1186,7 +1190,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
-        template: Dict = {**valid_template, "tiles": []}
+        template: dict = {**valid_template, "tiles": []}
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
@@ -1195,7 +1199,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400, response.json()
 
     def test_create_from_template_json_can_provide_text_tile(self) -> None:
-        template: Dict = {
+        template: dict = {
             **valid_template,
             "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}],
         }
@@ -1226,7 +1230,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
 
     def test_create_from_template_json_can_provide_query_tile(self) -> None:
-        template: Dict = {
+        template: dict = {
             **valid_template,
             # client provides an incorrect "empty" filter alongside a query
             "tiles": [
@@ -1257,6 +1261,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "color": None,
                 "id": ANY,
                 "insight": {
+                    "columns": None,
                     "created_at": ANY,
                     "created_by": None,
                     "dashboard_tiles": [

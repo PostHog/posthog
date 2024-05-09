@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from django.conf import settings
 from django.db import connection
@@ -40,7 +40,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         redis_alive = is_redis_alive()
         postgres_alive = is_postgres_alive()
 
-        metrics: List[Dict[str, Union[str, bool, int, float, Dict[str, Any]]]] = []
+        metrics: list[dict[str, Union[str, bool, int, float, dict[str, Any]]]] = []
 
         metrics.append(
             {"key": "posthog_git_sha", "metric": "PostHog Git SHA", "value": get_git_commit_short() or "unknown"}

@@ -46,6 +46,7 @@ kafka-python==2.0.2
 kombu==5.3.2
 lzstring==1.0.4
 natsort==8.4.0
+nanoid==2.0.0
 numpy==1.23.3
 openpyxl==3.1.2
 orjson==3.9.10
@@ -53,7 +54,7 @@ pandas==2.2.0
 Pillow==10.2.0
 posthoganalytics==3.5.0
 psycopg2-binary==2.9.7
-psycopg[binary]==3.1.13
+psycopg[binary]==3.1.18
 pyarrow==15.0.0
 pydantic==2.5.3
 pyjwt==2.4.0

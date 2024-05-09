@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Literal, Optional, Dict
+from typing import cast, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import parse
@@ -17,6 +17,8 @@ from posthog.utils import (
     relative_date_parse,
     relative_date_parse_with_delta_mapping,
 )
+
+IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -58,10 +60,13 @@ class QueryDateRange:
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
 
-            if not self.is_hourly:
+            if self.interval_name not in ("hour", "minute"):
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
             elif is_relative:
-                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                if self.interval_name == "hour":
+                    date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+                else:
+                    date_to = date_to.replace(second=59, microsecond=999999)
 
         return date_to
 
@@ -78,7 +83,8 @@ class QueryDateRange:
                 self._team.timezone_info,
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
-                always_truncate=True,
+                # when we look at graphs by minute (last hour or last three hours), don't truncate
+                always_truncate=self.interval_name != "minute",
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -108,18 +114,16 @@ class QueryDateRange:
         return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
-    def is_hourly(self) -> bool:
-        return self.interval_name == "hour"
-
-    @cached_property
     def interval_type(self) -> IntervalType:
         return self._interval or IntervalType.day
 
     @cached_property
-    def interval_name(self) -> Literal["hour", "day", "week", "month"]:
-        return self.interval_type.name
+    def interval_name(self) -> IntervalLiteral:
+        return cast(IntervalLiteral, self.interval_type.name)
 
     def align_with_interval(self, start: datetime) -> datetime:
+        if self.interval_name == "minute":
+            return start.replace(second=0, microsecond=0)
         if self.interval_name == "hour":
             return start.replace(minute=0, second=0, microsecond=0)
         elif self.interval_name == "day":
@@ -140,6 +144,7 @@ class QueryDateRange:
             weeks=1 if self.interval_name == "week" else 0,
             months=1 if self.interval_name == "month" else 0,
             hours=1 if self.interval_name == "hour" else 0,
+            minutes=1 if self.interval_name == "minute" else 0,
         )
 
     def all_values(self) -> list[datetime]:
@@ -211,20 +216,17 @@ class QueryDateRange:
 
         is_delta_hours = delta_mapping.get("hours", None) is not None
 
-        if interval == IntervalType.hour:
+        if interval in (IntervalType.hour, IntervalType.minute):
             return False
         elif interval == IntervalType.day:
             if is_delta_hours:
                 return False
-            else:
-                return True
-        elif interval == IntervalType.week or interval == IntervalType.month:
-            return True
-
         return True
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
+            case "minute":
+                return ast.Call(name="toStartOfMinute", args=[date])
             case "hour":
                 return ast.Call(name="toStartOfHour", args=[date])
             case "day":
@@ -248,7 +250,7 @@ class QueryDateRange:
             args=[self.date_to_start_of_interval_hogql(self.date_to_as_hogql()), self.one_interval_period()],
         )
 
-    def to_placeholders(self) -> Dict[str, ast.Expr]:
+    def to_placeholders(self) -> dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),
@@ -285,6 +287,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     @staticmethod
     def determine_time_delta(total_intervals: int, period: str) -> timedelta:
         period_map = {
+            "minute": timedelta(minutes=1),
             "hour": timedelta(hours=1),
             "day": timedelta(days=1),
             "week": timedelta(weeks=1),
@@ -299,7 +302,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
     def date_from(self) -> datetime:
         delta = self.determine_time_delta(self.total_intervals, self._interval.name)
 
-        if self._interval == IntervalType.hour:
+        if self._interval in (IntervalType.hour, IntervalType.minute):
             return self.date_to() - delta
         elif self._interval == IntervalType.week:
             date_from = self.date_to() - delta
@@ -317,7 +320,9 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         delta = self.determine_time_delta(1, self._interval.name)
         date_to = super().date_to() + delta
 
-        if self.is_hourly:
+        if self.interval_name == "minute":
+            return date_to.replace(second=0, microsecond=0)
+        if self.interval_name == "hour":
             return date_to.replace(minute=0, second=0, microsecond=0)
         return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
 

@@ -4,6 +4,7 @@ from functools import partial
 from typing import Optional
 import uuid
 
+import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
@@ -85,8 +86,13 @@ def execute_process_query(
 
     from posthog.api.services.query import process_query, ExecutionMode
     from posthog.models import Team
+    from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
+    user = User.objects.get(pk=user_id)
+
+    sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
+    sentry_sdk.set_tag("team_id", team_id)
 
     query_status = manager.get_query_status()
 

@@ -1,4 +1,4 @@
-from typing import Dict, List, cast, Literal, Optional
+from typing import cast, Literal, Optional
 
 from django.db.models import Prefetch
 
@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.recordings import RecordingsHelper
+from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team, Person, Group
 from posthog.schema import ActorsQuery
 
@@ -21,19 +21,19 @@ class ActorStrategy:
         self.paginator = paginator
         self.query = query
 
-    def get_actors(self, actor_ids) -> Dict[str, Dict]:
+    def get_actors(self, actor_ids) -> dict[str, dict]:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
         return {}
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         raise NotImplementedError()
 
-    def filter_conditions(self) -> List[ast.Expr]:
+    def filter_conditions(self) -> list[ast.Expr]:
         return []
 
-    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+    def order_by(self) -> Optional[list[ast.OrderExpr]]:
         return None
 
 
@@ -42,7 +42,7 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    def get_actors(self, actor_ids) -> Dict[str, Dict]:
+    def get_actors(self, actor_ids) -> dict[str, dict]:
         return {
             str(p.uuid): {
                 "id": p.uuid,
@@ -58,11 +58,11 @@ class PersonStrategy(ActorStrategy):
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
         return RecordingsHelper(self.team).get_recordings(matching_events)
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         return ["person", "id", "created_at", "person.$delete"]
 
-    def filter_conditions(self) -> List[ast.Expr]:
-        where_exprs: List[ast.Expr] = []
+    def filter_conditions(self) -> list[ast.Expr]:
+        where_exprs: list[ast.Expr] = []
 
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
@@ -98,7 +98,7 @@ class PersonStrategy(ActorStrategy):
             )
         return where_exprs
 
-    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+    def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
             return None
 
@@ -125,7 +125,7 @@ class GroupStrategy(ActorStrategy):
         self.group_type_index = group_type_index
         super().__init__(**kwargs)
 
-    def get_actors(self, actor_ids) -> Dict[str, Dict]:
+    def get_actors(self, actor_ids) -> dict[str, dict]:
         return {
             str(p["group_key"]): {
                 "id": p["group_key"],
@@ -140,11 +140,11 @@ class GroupStrategy(ActorStrategy):
             .iterator(chunk_size=self.paginator.limit)
         }
 
-    def input_columns(self) -> List[str]:
+    def input_columns(self) -> list[str]:
         return ["group"]
 
-    def filter_conditions(self) -> List[ast.Expr]:
-        where_exprs: List[ast.Expr] = []
+    def filter_conditions(self) -> list[ast.Expr]:
+        where_exprs: list[ast.Expr] = []
 
         if self.query.search is not None and self.query.search != "":
             where_exprs.append(
@@ -166,7 +166,7 @@ class GroupStrategy(ActorStrategy):
 
         return where_exprs
 
-    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+    def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
             return None
 

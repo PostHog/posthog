@@ -1,14 +1,47 @@
 from decimal import Decimal
-from typing import Dict, List, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from posthog.constants import AvailableFeature
 
 
 class Tier(TypedDict):
-    flat_amount_usd: Decimal
-    unit_amount_usd: Decimal
-    current_amount_usd: Decimal
+    flat_amount_usd: str
+    unit_amount_usd: str
+    current_amount_usd: str
     up_to: Optional[int]
+    current_usage: int
+    projected_usage: Optional[int]
+    projected_amount_usd: Optional[str]
+
+
+class CustomerProductAddon(TypedDict):
+    name: str
+    description: str
+    price_description: Optional[str]
+    image_url: Optional[str]
+    icon_key: str
+    docs_url: Optional[str]
+    type: str
+    tiers: Optional[Tier]
+    tiered: bool
+    included_with_main_product: (
+        bool  # if the addon is included in the main product subscription, not paid for separately
+    )
+    inclusion_only: (
+        # if the addon subscription state is dependent on the main product subscription state.
+        # Ie. addon is automatically sub'd when parent is sub'd.
+        bool
+    )
+    subscribed: bool
+    unit: Optional[str]
+    unit_amount_usd: Optional[Decimal]
+    current_amount_usd: Optional[Decimal]
+    current_usage: int
+    projected_usage: Optional[int]
+    projected_amount_usd: Optional[Decimal]
+    contact_support: bool
+    usage_key: Optional[str]
+    usage_limit: Optional[int]
 
 
 class CustomerProduct(TypedDict):
@@ -18,7 +51,7 @@ class CustomerProduct(TypedDict):
     image_url: Optional[str]
     type: str
     free_allocation: int
-    tiers: List[Tier]
+    tiers: list[Tier]
     tiered: bool
     unit_amount_usd: Optional[Decimal]
     current_amount_usd: Decimal
@@ -28,7 +61,9 @@ class CustomerProduct(TypedDict):
     percentage_usage: float
     projected_usage: int
     projected_amount: Decimal
+    projected_amount_usd: Decimal
     usage_key: str
+    addons: list[CustomerProductAddon]
 
 
 class LicenseInfo(TypedDict):
@@ -51,16 +86,16 @@ class CustomerInfo(TypedDict):
     deactivated: bool
     has_active_subscription: bool
     billing_period: BillingPeriod
-    available_features: List[AvailableFeature]
+    available_features: list[AvailableFeature]
     current_total_amount_usd: Optional[str]
     current_total_amount_usd_after_discount: Optional[str]
-    products: Optional[List[CustomerProduct]]
-    custom_limits_usd: Optional[Dict[str, str]]
-    usage_summary: Optional[Dict[str, Dict[str, Optional[int]]]]
+    products: Optional[list[CustomerProduct]]
+    custom_limits_usd: Optional[dict[str, str]]
+    usage_summary: Optional[dict[str, dict[str, Optional[int]]]]
     free_trial_until: Optional[str]
     discount_percent: Optional[int]
     discount_amount_usd: Optional[str]
-    customer_trust_scores: Dict[str, int]
+    customer_trust_scores: dict[str, int]
 
 
 class BillingStatus(TypedDict):

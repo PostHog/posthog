@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest import mock
 from unittest.case import skip
 from unittest.mock import patch
@@ -11,6 +11,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
 from rest_framework import status
+from parameterized import parameterized
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
@@ -35,8 +36,11 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     EventsQuery,
+    FilterLogicalOperator,
     HogQLFilters,
     HogQLQuery,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     TrendsQuery,
 )
 from posthog.test.base import (
@@ -282,6 +286,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
 
+        # We need at least one more insight to make sure we're not just getting the first one
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id="not-that-one",
+        )
+
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
         new_team = Team.objects.create(organization=self.organization)
         Insight.objects.create(
@@ -343,7 +354,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
-        query_counts: List[int] = []
+        query_counts: list[int] = []
         queries = []
 
         for i in range(5):
@@ -1132,8 +1143,26 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            [  # Property group filter, which is what's actually used these days
+                PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.OR,
+                            values=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
+                        )
+                    ],
+                )
+            ],
+            [  # Classic list of filters
+                [EventPropertyFilter(key="another", value="never_return_this", operator="is_not")]
+            ],
+        ]
+    )
     @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
-    def test_insight_refreshing_query(self, spy_execute_hogql_query) -> None:
+    def test_insight_refreshing_query(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         with freeze_time("2012-01-14T03:21:34.000Z"):
@@ -1160,9 +1189,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             series=[
                 EventsNode(
                     event="$pageview",
-                    properties=[EventPropertyFilter(key="another", value="never_return_this", operator="is_not")],
                 )
-            ]
+            ],
+            properties=properties_filter,
         ).model_dump()
 
         with freeze_time("2012-01-15T04:01:34.000Z"):
@@ -1246,12 +1275,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         #  Test property filter
 
-        dashboard = Dashboard.objects.get(pk=dashboard_id)
-        dashboard.filters = {
-            "properties": [{"key": "prop", "value": "val"}],
-            "date_from": "-14d",
-        }
-        dashboard.save()
+        Dashboard.objects.update(
+            id=dashboard_id,
+            filters={
+                "properties": [{"key": "prop", "value": "val"}],
+                "date_from": "-14d",
+            },
+        )
         with freeze_time("2012-01-16T05:01:34.000Z"):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
@@ -2059,7 +2089,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def _create_one_person_cohort(self, properties: List[Dict[str, Any]]) -> int:
+    def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
@@ -2426,7 +2456,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # assert that undeletes end up in the activity log
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
         # we will have three logged activities (in reverse order) undelete, delete, create
         assert [a["activity"] for a in activity] == ["updated", "updated", "created"]
         undelete_change_log = activity[0]["detail"]["changes"][0]
@@ -2478,10 +2508,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
         self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
-    def assert_insight_activity(self, insight_id: Optional[int], expected: List[Dict]):
+    def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
-        activity: List[Dict] = activity_response["results"]
+        activity: list[dict] = activity_response["results"]
 
         self.maxDiff = None
         assert activity == expected

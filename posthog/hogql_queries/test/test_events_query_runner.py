@@ -1,14 +1,14 @@
-from typing import Tuple, Any, cast
+from typing import Any, cast
 
 from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.hogql_queries.query_runner import CachedQueryResponse
 from posthog.models import Person, Team
 from posthog.models.organization import Organization
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventsQuery,
     EventPropertyFilter,
     PropertyOperator,
@@ -25,7 +25,7 @@ from posthog.test.base import (
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _create_events(self, data: list[Tuple[str, str, Any]], event="$pageview"):
+    def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
         person_result = []
         for distinct_id, timestamp, event_properties in data:
             with freeze_time(timestamp):
@@ -86,7 +86,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
-            assert isinstance(response, CachedQueryResponse)
+            assert isinstance(response, CachedEventsQueryResponse)
             results = response.results
             return results
 

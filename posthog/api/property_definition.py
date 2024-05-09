@@ -1,9 +1,8 @@
 import dataclasses
 import json
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Optional, cast
 
 from django.db import connection
-from django.db.models import Prefetch
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -17,7 +16,7 @@ from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
-from posthog.models import EventProperty, PropertyDefinition, TaggedItem, User
+from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 
@@ -35,7 +34,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group"],
+        choices=["event", "person", "group", "session"],
         help_text="What property definitions to return",
         default="event",
     )
@@ -125,7 +124,7 @@ class QueryContext:
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
-    params: Dict = dataclasses.field(default_factory=dict)
+    params: dict = dataclasses.field(default_factory=dict)
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> "QueryContext":
         if properties_to_filter:
@@ -192,6 +191,16 @@ class QueryContext:
                     "group_type_index": group_type_index,
                 },
             )
+        elif type == "session":
+            return dataclasses.replace(
+                self,
+                should_join_event_property=False,
+                params={
+                    **self.params,
+                    "type": PropertyDefinition.Type.SESSION,
+                    "group_type_index": -1,
+                },
+            )
 
     def with_event_property_filter(
         self, event_names: Optional[str], filter_by_event_names: Optional[bool]
@@ -206,7 +215,7 @@ class QueryContext:
             event_names = json.loads(event_names)
 
         if event_names and len(event_names) > 0:
-            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
+            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
         return dataclasses.replace(
@@ -219,7 +228,7 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
+    def with_search(self, search_query: str, search_kwargs: dict) -> "QueryContext":
         return dataclasses.replace(
             self,
             search_query=search_query,
@@ -443,7 +452,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
 
         return self.count
 
-    def paginate_queryset(self, queryset, request, view=None) -> Optional[List[Any]]:
+    def paginate_queryset(self, queryset, request, view=None) -> Optional[list[Any]]:
         """
         Assumes the queryset has already had pagination applied
         """
@@ -477,10 +486,10 @@ class PropertyDefinitionViewSet(
     ordering = "name"
     search_fields = ["name"]
     pagination_class = NotCountingLimitOffsetPaginator
+    queryset = PropertyDefinition.objects.all()
 
-    def get_queryset(self):
-        queryset = PropertyDefinition.objects
-
+    def dangerously_get_queryset(self):
+        queryset = PropertyDefinition.objects.all()
         property_definition_fields = ", ".join(
             [
                 f'posthog_propertydefinition."{f.column}"'
@@ -506,13 +515,8 @@ class PropertyDefinitionViewSet(
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects.prefetch_related(
-                    Prefetch(
-                        "tagged_items",
-                        queryset=TaggedItem.objects.select_related("tag"),
-                        to_attr="prefetched_tags",
-                    )
-                )
+                queryset = EnterprisePropertyDefinition.objects
+
                 order_by_verified = True
             except ImportError:
                 use_enterprise_taxonomy = False
@@ -570,7 +574,7 @@ class PropertyDefinitionViewSet(
 
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
-    def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
+    def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
@@ -583,7 +587,7 @@ class PropertyDefinitionViewSet(
                 serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
-    def get_object(self):
+    def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:

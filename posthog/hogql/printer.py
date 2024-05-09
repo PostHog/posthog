@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, date
 from difflib import get_close_matches
-from typing import List, Literal, Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -73,7 +73,7 @@ def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -92,7 +92,7 @@ def prepare_ast_for_printing(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> ast.Expr:
     with context.timings.measure("create_hogql_database"):
@@ -130,7 +130,7 @@ def print_prepared_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.SelectQuery]] = None,
+    stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
@@ -158,13 +158,13 @@ class _Printer(Visitor):
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[List[AST]] = None,
+        stack: Optional[list[AST]] = None,
         settings: Optional[HogQLGlobalSettings] = None,
         pretty: bool = False,
     ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[AST] = stack or []  # Keep track of all traversed nodes.
+        self.stack: list[AST] = stack or []  # Keep track of all traversed nodes.
         self.settings = settings
         self.pretty = pretty
         self._indent = -1
@@ -773,7 +773,7 @@ class _Printer(Visitor):
 
             if self.dialect == "clickhouse":
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
-                    args: List[str] = []
+                    args: list[str] = []
                     for idx, arg in enumerate(node.args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
@@ -783,7 +783,7 @@ class _Printer(Visitor):
                         else:
                             args.append(self.visit(arg))
                 elif node.name == "concat":
-                    args: List[str] = []
+                    args = []
                     for arg in node.args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
@@ -804,6 +804,9 @@ class _Printer(Visitor):
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
                     args = [self.visit(arg) for arg in node.args]
+
+                if func_meta.suffix_args:
+                    args += [self.visit(arg) for arg in func_meta.suffix_args]
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -855,7 +858,7 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
         elif func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
@@ -1002,7 +1005,7 @@ class _Printer(Visitor):
         while isinstance(table, ast.TableAliasType):
             table = table.table_type
 
-        args: List[str] = []
+        args: list[str] = []
 
         if self.context.modifiers.materializationMode != "disabled":
             # find a materialized property for the first part of the chain
@@ -1090,11 +1093,16 @@ class _Printer(Visitor):
     def visit_field_traverser_type(self, type: ast.FieldTraverserType):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
+    def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
+        if self.dialect == "clickhouse":
+            raise QueryError(f"Unable to resolve field: {type.name}")
+        return self._print_identifier(type.name)
+
     def visit_unknown(self, node: AST):
         raise ImpossibleASTError(f"Unknown AST node {type(node).__name__}")
 
     def visit_window_expr(self, node: ast.WindowExpr):
-        strings: List[str] = []
+        strings: list[str] = []
         if node.partition_by is not None:
             if len(node.partition_by) == 0:
                 raise ImpossibleASTError("PARTITION BY must have at least one argument")
@@ -1168,7 +1176,7 @@ class _Printer(Visitor):
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
-    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: List[str]) -> str:
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
         return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
 
     def _get_materialized_column(
@@ -1209,7 +1217,7 @@ class _Printer(Visitor):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, (int, float, str)):
+            if not isinstance(value, int | float | str):
                 raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")

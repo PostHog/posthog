@@ -3,7 +3,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import DashboardFilter, NodeKind
 
-DATA_TABLE_LIKE_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode]
+WRAPPER_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode, NodeKind.InsightVizNode]
 
 
 # Apply the filters from the django-style Dashboard object
@@ -11,7 +11,7 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
     if not filters:
         return query
 
-    if query.get("kind") in DATA_TABLE_LIKE_NODE_KINDS:
+    if query.get("kind") in WRAPPER_NODE_KINDS:
         source = apply_dashboard_filters_to_dict(query["source"], filters, team)
         return {**query, "source": source}
 
@@ -20,4 +20,5 @@ def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> d
     except ValueError:
         capture_exception()
         return query
-    return query_runner.apply_dashboard_filters(DashboardFilter(**filters)).dict()
+    query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+    return query_runner.query.model_dump()

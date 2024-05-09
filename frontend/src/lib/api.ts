@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
+import { DatabaseSerializedFieldType, QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
     ActivityScope,
@@ -71,6 +71,7 @@ import {
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
+    SessionRecordingSnapshotParams,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
     SessionRecordingType,
@@ -127,12 +128,16 @@ export class ApiError extends Error {
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
 
+    /** Link to external resources, e.g. stripe invoices */
+    link: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
+        this.link = data?.link || null
     }
 }
 
@@ -386,6 +391,10 @@ class ApiRequest {
             .addPathComponent('property_definitions')
             .addPathComponent('seen_together')
             .withQueryString(queryParams)
+    }
+
+    public sessionPropertyDefinitions(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('sessions').addPathComponent('property_definitions')
     }
 
     public dataManagementActivity(teamId?: TeamType['id']): ApiRequest {
@@ -1212,6 +1221,23 @@ const api = {
         },
     },
 
+    sessions: {
+        async propertyDefinitions({
+            teamId = ApiConfig.getCurrentTeamId(),
+            search,
+            properties,
+        }: {
+            teamId?: TeamType['id']
+            search?: string
+            properties?: string[]
+        }): Promise<CountedPaginatedResponse<PropertyDefinition>> {
+            return new ApiRequest()
+                .sessionPropertyDefinitions(teamId)
+                .withQueryString(toParams({ search, ...(properties ? { properties: properties.join(',') } : {}) }))
+                .get()
+        },
+    },
+
     cohorts: {
         async get(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDetail(cohortId).get()
@@ -1646,16 +1672,19 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async listSnapshots(
+        async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
+            if (params.source) {
+                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
+            }
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },
 
-        async getBlobSnapshots(
+        async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any>
+            params: SessionRecordingSnapshotParams
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
@@ -1675,16 +1704,10 @@ const api = {
                 // we assume it is gzipped, swallow the error, and carry on below
             }
 
+            // TODO can be removed after 01-08-2024 when we know no valid snapshots are stored in the old format
             return strFromU8(decompressSync(contentBuffer)).trim().split('\n')
         },
 
-        async updateRecording(
-            recordingId: SessionRecordingType['id'],
-            recording: Partial<SessionRecordingType>,
-            params?: string
-        ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
-        },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
             return await new ApiRequest().recordingPlaylists().withQueryString(params).get()
         },
@@ -1887,6 +1910,12 @@ const api = {
             data: Pick<DataWarehouseTable, 'name'>
         ): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).update({ data })
+        },
+        async updateSchema(
+            tableId: DataWarehouseTable['id'],
+            updates: Record<string, DatabaseSerializedFieldType>
+        ): Promise<void> {
+            await new ApiRequest().dataWarehouseTable(tableId).withAction('update_schema').create({ data: { updates } })
         },
     },
 

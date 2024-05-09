@@ -43,7 +43,7 @@ const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
-export function queryExportContext<N extends DataNode = DataNode>(
+export function queryExportContext<N extends DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -89,9 +89,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.source.sessionEnd ?? now().toISOString(),
             },
         }
-    } else {
-        return { source: query }
     }
+    return { source: query }
 }
 
 const SYNC_ONLY_QUERY_KINDS = [
@@ -104,7 +103,7 @@ const SYNC_ONLY_QUERY_KINDS = [
 /**
  * Execute a query node and return the response, use async query if enabled
  */
-async function executeQuery<N extends DataNode = DataNode>(
+async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -137,7 +136,7 @@ async function executeQuery<N extends DataNode = DataNode>(
 }
 
 // Return data for a given query
-export async function query<N extends DataNode = DataNode>(
+export async function query<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
@@ -416,9 +415,8 @@ export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: Legac
         return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
     } else if (isPathsFilter(filters)) {
         return `api/projects/${currentTeamId}/insights/path${refresh ? '?refresh=true' : ''}`
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export function legacyInsightQueryData({
@@ -469,9 +467,8 @@ export function legacyInsightQueryExportContext({
             method: 'POST',
             body: filters,
         }
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
     }
+    throw new Error(`Unsupported insight type: ${filters.insight}`)
 }
 
 export async function legacyInsightQuery({
