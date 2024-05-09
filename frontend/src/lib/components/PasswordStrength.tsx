@@ -8,7 +8,7 @@ export type ValidatedPasswordResult = {
     feedback?: string
 }
 
-export function validatePassword(password: string): ValidatedPasswordResult {
+export function validatePassword(password: string = ''): ValidatedPasswordResult {
     // Checks the validation against the zxcvbn library
     // and any other custom validation we have
 
