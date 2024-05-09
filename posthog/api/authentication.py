@@ -7,12 +7,14 @@ from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import (
     PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
 )
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.dispatch import receiver
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_protect
@@ -34,10 +36,20 @@ from two_factor.views.utils import (
 from posthog.api.email_verification import EmailVerifier
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.middleware import get_or_set_session_cookie_created_at
 from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+
+@receiver(user_logged_in)
+def post_login(sender, user, request, **kwargs):
+    """
+    This is the most reliable way of setting this value as it will be called regardless of where the login occurs
+    including tests.
+    """
+    return get_or_set_session_cookie_created_at(request)
 
 
 @csrf_protect
@@ -65,12 +77,6 @@ def axes_locked_out(*args, **kwargs):
         },
         status=status.HTTP_403_FORBIDDEN,
     )
-
-
-def do_login(request: HttpRequest, user: User) -> None:
-    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-    # Update the session start time
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
@@ -157,7 +163,7 @@ class LoginSerializer(serializers.Serializer):
             request.session["user_authenticated_time"] = time.time()
             raise TwoFactorRequired()
 
-        do_login(request, user)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
         report_user_logged_in(user, social_provider="")
         return user
@@ -210,7 +216,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     permission_classes = (permissions.AllowAny,)
 
     def _token_is_valid(self, request, user: User, device) -> Response:
-        do_login(request, user)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         otp_login(request, device)
         report_user_logged_in(user, social_provider="")
         device.throttle_reset()
@@ -333,7 +339,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        do_login(self.context["request"], user)
+        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_password_reset(user)
         return True
 
