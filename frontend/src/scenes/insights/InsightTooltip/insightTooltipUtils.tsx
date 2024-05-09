@@ -55,7 +55,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     date?: string
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
-    entitiesAsColumnsOverride?: boolean
+    formula?: boolean
     groupTypeLabel?: string
     timezone?: string | null
 }
