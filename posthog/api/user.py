@@ -136,7 +136,7 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def get_has_password(self, instance: User) -> bool:
-        return instance.has_usable_password()
+        return bool(instance.password) and instance.has_usable_password()
 
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:

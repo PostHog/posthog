@@ -4,17 +4,18 @@ import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useEffect } from 'react'
 
+import { SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
-    const { showAuthenticationModal, isReauthenticationSubmitting, twoFactorRequired } = useValues(
+    const { showAuthenticationModal, isReauthenticationSubmitting, twoFactorRequired, user } = useValues(
         timeSensitiveAuthenticationLogic
     )
     const { submitReauthentication, setDismissedReauthentication } = useActions(timeSensitiveAuthenticationLogic)
 
     return (
         <LemonModal
-            title="Authenticate account"
+            title="Re-authenticate account"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
             footer={
@@ -30,37 +31,49 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         >
             <p>You are accessing a sensitive part of PostHog. For your security we require you to re-authenticate.</p>
 
-            <Form
-                logic={timeSensitiveAuthenticationLogic}
-                formKey="reauthentication"
-                className="space-y-4"
-                enableFormOnSubmit
-            >
-                {!twoFactorRequired ? (
-                    <LemonField name="password" label="Re-enter password">
-                        <LemonInput
-                            type="password"
-                            className="ph-ignore-input"
-                            data-attr="password"
-                            placeholder="••••••••••"
-                            autoComplete="current-password"
-                        />
-                    </LemonField>
-                ) : null}
+            {user?.has_password ? (
+                <Form
+                    logic={timeSensitiveAuthenticationLogic}
+                    formKey="reauthentication"
+                    className="space-y-4"
+                    enableFormOnSubmit
+                >
+                    {!twoFactorRequired ? (
+                        <LemonField name="password" label="Re-enter password">
+                            <LemonInput
+                                type="password"
+                                className="ph-ignore-input"
+                                data-attr="password"
+                                placeholder="••••••••••"
+                                autoComplete="current-password"
+                            />
+                        </LemonField>
+                    ) : null}
 
-                {twoFactorRequired ? (
-                    <LemonField name="token" label="Authenticator token">
-                        <LemonInput
-                            className="ph-ignore-input"
-                            autoFocus
-                            data-attr="token"
-                            placeholder="123456"
-                            inputMode="numeric"
-                            autoComplete="one-time-code"
-                        />
-                    </LemonField>
-                ) : null}
-            </Form>
+                    {twoFactorRequired ? (
+                        <LemonField name="token" label="Authenticator token">
+                            <LemonInput
+                                className="ph-ignore-input"
+                                autoFocus
+                                data-attr="token"
+                                placeholder="123456"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                            />
+                        </LemonField>
+                    ) : null}
+                </Form>
+            ) : null}
+
+            {user?.has_social_auth ? (
+                <SocialLoginButtons
+                    caption={user.has_password ? 'Or re-authenticate with' : undefined}
+                    topDivider={user.has_password}
+                    redirectQueryParams={{
+                        next: window.location.pathname,
+                    }}
+                />
+            ) : null}
         </LemonModal>
     )
 }

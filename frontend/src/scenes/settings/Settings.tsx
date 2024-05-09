@@ -8,7 +8,6 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
-import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { settingsLogic } from './settingsLogic'
@@ -23,12 +22,6 @@ export function Settings({
     )
     const { selectSection, selectLevel, openCompactNavigation } = useActions(settingsLogic(props))
     const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeam } = useActions(teamLogic)
-
-    useEffect(() => {
-        // Ensure we have the latest team info
-        loadCurrentTeam()
-    }, [])
 
     const { ref, size } = useResizeBreakpoints(
         {
