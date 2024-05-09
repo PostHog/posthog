@@ -65,7 +65,7 @@ class TableSerializer(serializers.ModelSerializer):
         else:
             fields = table.hogql_definition().fields
 
-        return serialize_fields(fields, HogQLContext(database=database, team_id=self.context["team_id"]))
+        return serialize_fields(fields, HogQLContext(database=database, team_id=self.context["team_id"]), table.columns)
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -87,6 +87,11 @@ class TableSerializer(serializers.ModelSerializer):
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+
+        for column in table.columns.keys():
+            table.columns[column]["valid"] = table.validate_column_type(column)
+        table.save()
+
         return table
 
 
@@ -99,11 +104,13 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "name", "columns", "row_count"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = create_hogql_database(team_id=self.context["team_id"])
+        database = self.context.get("database", None)
+        team_id = self.context.get("team_id", None)
 
-        return serialize_fields(table.hogql_definition().fields, hogql_context)
+        if not database:
+            database = create_hogql_database(team_id=self.context["team_id"])
+
+        return serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -121,6 +128,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = create_hogql_database(team_id=self.team_id)
+        context["team_id"] = self.team_id
         return context
 
     def safely_get_queryset(self, queryset):
@@ -174,6 +182,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             columns[key]["clickhouse"] = f"Nullable({SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]})"
             columns[key]["hogql"] = CLICKHOUSE_HOGQL_MAPPING[SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING[value]].__name__
+
+        table.columns = columns
+        table.save()
+
+        # Have to update the `valid` value separately to the `columns` value as the columns are required in the `ast.S3Table` class when querying ClickHouse
+        for key in updates.keys():
+            columns[key]["valid"] = table.validate_column_type(key)
 
         table.columns = columns
         table.save()

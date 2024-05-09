@@ -2,7 +2,7 @@ import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { useCallback } from 'react'
@@ -109,7 +109,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Type',
                     key: 'type',
                     dataIndex: 'type',
-                    render: function RenderType(_, { key, type }) {
+                    render: function RenderType(_, { key, type, schema_valid }) {
                         if (inEditSchemaMode && !isNonEditableSchemaType(type)) {
                             return (
                                 <LemonSelect
@@ -143,8 +143,11 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                                 </LemonTag>
                             )
                         }
+
+                        const tagType: LemonTagType = schema_valid ? 'success' : 'danger'
+
                         return (
-                            <LemonTag type="success" className="uppercase">
+                            <LemonTag type={tagType} className="uppercase">
                                 {type}
                             </LemonTag>
                         )
@@ -174,6 +177,16 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         } else if (table == 'persons' && type == 'json' && field.key == 'properties') {
                             return <Link to={urls.propertyDefinitions('person')}>Manage person properties</Link>
                         }
+
+                        if (!field.schema_valid && !inEditSchemaMode) {
+                            return (
+                                <>
+                                    <code>{field.key}</code> can't be parsed as a <code>{field.type}</code>. It will not
+                                    be queryable until this is fixed.
+                                </>
+                            )
+                        }
+
                         return ''
                     },
                 },
