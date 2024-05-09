@@ -1,4 +1,4 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -25,8 +25,8 @@ import {
     PluginType,
 } from '~/types'
 
+import { pipelineLogic } from './pipelineLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
-import { pipelineTransformationsLogic } from './transformationsLogic'
 import {
     Destination,
     ImportApp,
@@ -307,7 +307,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -341,7 +341,7 @@ export function pipelinePluginBackedNodeMenuCommonItems(
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
 
     return [
         {
@@ -374,4 +374,21 @@ export function pipelinePluginBackedNodeMenuCommonItems(
               ]
             : []),
     ]
+}
+
+export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
+    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
+    if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
+        lemonToast.error('Import apps are deprecated and cannot be enabled.')
+        return false
+    }
+    if (!canConfigurePlugins) {
+        lemonToast.error(`You don't have permission to enable or disable ${stage}s`)
+        return false
+    }
+    if (togglingToEnabledOrNew && stage === PipelineStage.Destination && !canEnableNewDestinations) {
+        lemonToast.error(`Data pipelines add-on is required for enabling new ${stage}s`)
+        return false
+    }
+    return true
 }
