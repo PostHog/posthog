@@ -2271,6 +2271,9 @@
                 "key": {
                     "type": "string"
                 },
+                "schema_valid": {
+                    "type": "boolean"
+                },
                 "table": {
                     "type": "string"
                 },
@@ -2278,7 +2281,7 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["key", "type"],
+            "required": ["key", "type", "schema_valid"],
             "type": "object"
         },
         "DatabaseSerializedFieldType": {
@@ -3919,6 +3922,9 @@
                         "person_id_override_properties_joined"
                     ],
                     "type": "string"
+                },
+                "s3TableUseInvalidColumns": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4590,7 +4596,7 @@
             "type": "object"
         },
         "IntervalType": {
-            "enum": ["hour", "day", "week", "month"],
+            "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "LifecycleFilter": {

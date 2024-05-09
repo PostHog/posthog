@@ -58,10 +58,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
-        isTrends &&
-        !breakdownFilter?.breakdown_type &&
-        !trendsFilter?.compare &&
-        (!display || display === ChartDisplayType.ActionsLineGraph)
+        isTrends && !breakdownFilter?.breakdown_type && (!display || display === ChartDisplayType.ActionsLineGraph)
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
