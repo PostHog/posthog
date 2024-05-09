@@ -31,7 +31,7 @@ class TestResolver(BaseTest):
     def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
-            clone_expr(parse_select(query, placeholders=placeholders, backend="python"), clear_locations=True),
+            clone_expr(parse_select(query, placeholders=placeholders), clear_locations=True),
         )
 
     def _print_hogql(self, select: str):
@@ -268,17 +268,18 @@ class TestResolver(BaseTest):
                     UNION ALL
                     SELECT * FROM (SELECT 1 AS a) AS cte1
                         """),
-            )
+        )
 
     def test_join_using(self):
-        self.assertEqual(
-            self._print_hogql(
-                "with my_table as (select 1 as a) select q1.a from my_table as q1 inner join my_table as q2 USING a"
-            ),
-            self._print_hogql(
-                "with my_table as (select 1 as a) select q1.a from my_table as q1 inner join my_table as q2 USING a"
-            ),
+        node = self._select(
+            "with my_table as (select 1 as a) select q1.a from my_table as q1 inner join my_table as q2 USING a"
         )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+
+        node = self._select("select q1.event from events as q1 inner join events as q2 USING event")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")

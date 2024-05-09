@@ -312,7 +312,7 @@ class Resolver(CloningVisitor):
                 node_type = node_table_type
 
             node = cast(ast.JoinExpr, clone_expr(node))
-            if node.constraint and node.constraint.join_type == "USING":
+            if node.constraint and node.constraint.constraint_type == "USING":
                 # visit constraint before adding the table to not have ambiguous names
                 # TODO: add a test for it
                 node.constraint = self.visit(node.constraint)
@@ -336,7 +336,7 @@ class Resolver(CloningVisitor):
             if is_global:
                 node.next_join.join_type = "GLOBAL JOIN"
 
-            if node.constraint and node.constraint.join_type == "ON":
+            if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit(node.constraint)
             node.sample = self.visit(node.sample)
 
@@ -348,7 +348,7 @@ class Resolver(CloningVisitor):
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectUnionQuery):
             node = cast(ast.JoinExpr, clone_expr(node))
-            if node.constraint and node.constraint.join_type == "USING":
+            if node.constraint and node.constraint.constraint_type == "USING":
                 # visit constraint before adding the table to not have ambiguous names
                 node.constraint = self.visit(node.constraint)
 
@@ -375,7 +375,7 @@ class Resolver(CloningVisitor):
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
-            if node.constraint and node.constraint.join_type == "ON":
+            if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit(node.constraint)
             node.sample = self.visit(node.sample)
 
