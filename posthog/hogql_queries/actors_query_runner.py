@@ -41,14 +41,15 @@ class ActorsQueryRunner(QueryRunner):
             return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
-    def get_recordings(self, event_results, recordings_lookup) -> Generator[dict, None, None]:
+    @staticmethod
+    def _get_recordings(event_results: list, recordings_lookup: dict) -> Generator[dict, None, None]:
         return (
             {"session_id": session_id, "events": recordings_lookup[session_id]}
             for session_id in {event[2] for event in event_results}
             if session_id in recordings_lookup
         )
 
-    def enrich_with_actors(
+    def _enrich_with_actors(
         self,
         results,
         actor_column_index,
@@ -97,7 +98,7 @@ class ActorsQueryRunner(QueryRunner):
             recordings_column_index, recordings_lookup = self.prepare_recordings(column_name, input_columns)
 
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(
+            results = self._enrich_with_actors(
                 results, actor_column_index, actors_lookup, recordings_column_index, recordings_lookup
             )
 

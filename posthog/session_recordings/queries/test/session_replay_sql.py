@@ -94,7 +94,7 @@ def _sensible_last_timestamp(
             if isinstance(first_timestamp, str):
                 first_timestamp = parse(first_timestamp)
 
-            sensible_timestamp = (first_timestamp - relativedelta(seconds=3600)).isoformat()
+            sensible_timestamp = (first_timestamp + relativedelta(seconds=3600)).isoformat()
 
     return format_clickhouse_timestamp(cast_timestamp_or_now(sensible_timestamp))
 

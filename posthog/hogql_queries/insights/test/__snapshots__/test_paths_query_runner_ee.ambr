@@ -2457,7 +2457,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['s3', 's1', 's5']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2011-12-11 03:21:34.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0))
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), in(session_replay_events.session_id, ['s3', 's1', 's5']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2719,25 +2719,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['s1']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2011-12-11 03:21:34.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=1000000,
-                     max_expanded_ast_elements=1000000,
-                     max_query_size=524288
-  '''
-# ---
-# name: TestClickhousePaths.test_recording_for_dropoff.3
-  '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2874,7 +2856,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2011-12-11 03:21:34.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0))
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(NULL, toIntervalDay(21))), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), in(session_replay_events.session_id, ['']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3020,7 +3002,7 @@
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 2), in(session_replay_events.session_id, ['s1']), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2011-12-11 03:21:34.000000', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.max_last_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0))
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), 0), ifNull(lessOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

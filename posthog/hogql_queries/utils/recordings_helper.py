@@ -24,28 +24,30 @@ class RecordingsHelper:
             # no need to query if we get invalid input
             return set()
 
+        current_now = datetime.now()
+
         # we always want to clamp to TTL
         # technically technically technically we should do what replay listing does and check in postgres too
         # but pinning to TTL is good enough for 90% of cases
-        fixed_date_from_or_since_ttl_days = ast.CompareOperation(
+        starts_since_fixed_date_or_ttl_before_now = ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
             left=ast.Field(chain=["min_first_timestamp"]),
             right=ast.Constant(value=date_from)
             if date_from
             else ast.ArithmeticOperation(
                 op=ast.ArithmeticOperationOp.Sub,
-                left=ast.Constant(value=date_from),
+                left=ast.Constant(value=current_now),
                 right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=self._ttl_days)]),
             ),
         )
-        fixed_date_to_or_before_now = ast.CompareOperation(
+
+        starts_before_fixed_date_or_now = ast.CompareOperation(
             op=ast.CompareOperationOp.LtEq,
-            left=ast.Field(chain=["max_last_timestamp"]),
-            right=ast.Call(name="now", args=[])
-            if not date_to or date_to > datetime.now()
-            else ast.Constant(value=date_to),
+            left=ast.Field(chain=["min_first_timestamp"]),
+            right=ast.Constant(value=date_to if date_to and date_to < current_now else current_now),
         )
-        matching_provided_session_ids = ast.CompareOperation(
+
+        matches_provided_session_ids = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["session_id"]),
             right=ast.Array(exprs=[ast.Constant(value=s) for s in session_ids]),
@@ -62,9 +64,9 @@ class RecordingsHelper:
             placeholders={
                 "where_predicates": ast.And(
                     exprs=[
-                        fixed_date_from_or_since_ttl_days,
-                        fixed_date_to_or_before_now,
-                        matching_provided_session_ids,
+                        starts_since_fixed_date_or_ttl_before_now,
+                        starts_before_fixed_date_or_now,
+                        matches_provided_session_ids,
                     ]
                 ),
             },
