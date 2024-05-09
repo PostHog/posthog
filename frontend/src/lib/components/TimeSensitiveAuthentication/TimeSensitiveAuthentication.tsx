@@ -67,8 +67,8 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
             {user?.has_social_auth ? (
                 <SocialLoginButtons
+                    className="mt-4"
                     caption={user.has_password ? 'Or re-authenticate with' : undefined}
-                    topDivider={user.has_password}
                     redirectQueryParams={{
                         next: window.location.pathname,
                     }}
