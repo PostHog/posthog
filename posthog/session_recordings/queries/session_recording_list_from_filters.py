@@ -278,14 +278,17 @@ class EventsSubQuery:
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            prewhere=self._prewhere_predicates(),
             where=self._where_predicates(),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
         )
 
-    def _prewhere_predicates(self) -> ast.Expr:
+    def _where_predicates(self) -> ast.Expr:
         exprs: list[ast.Expr] = [
+            ast.Call(
+                name="notEmpty",
+                args=[ast.Field(chain=["$session_id"])],
+            ),
             # regardless of any other filters limit between TTL and current time
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -319,16 +322,6 @@ class EventsSubQuery:
                     right=ast.Constant(value=self._filter.date_to),
                 )
             )
-
-        return ast.And(exprs=exprs)
-
-    def _where_predicates(self) -> ast.Expr:
-        exprs: list[ast.Expr] = [
-            ast.Call(
-                name="notEmpty",
-                args=[ast.Field(chain=["$session_id"])],
-            )
-        ]
 
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
