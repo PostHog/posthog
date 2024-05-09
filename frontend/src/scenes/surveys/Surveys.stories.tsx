@@ -247,6 +247,27 @@ export const NewSurveyCustomisationSection: StoryFn = () => {
     return <App />
 }
 
+export const NewMultiQuestionSurveySection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.MultipleChoice,
+                question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                choices: [
+                    'I no longer need the product',
+                    'I found a better product',
+                    'I found the product too difficult to use',
+                    'Other',
+                ],
+            } as MultipleSurveyQuestion,
+        ])
+    }, [])
+    return <App />
+}
+
 export const NewSurveyPresentationSection: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.survey('new'))
