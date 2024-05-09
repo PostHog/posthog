@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication, SessionAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
@@ -267,6 +267,9 @@ class TimeSensitiveActionPermission(BasePermission):
     message = "This action requires you to be recently authenticated."
 
     def has_permission(self, request, view) -> bool:
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return True
+
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
 
         if not session_created_at:
