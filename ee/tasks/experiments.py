@@ -22,6 +22,9 @@ def send_experiment_finished_email_results(experiment, results) -> None:
 
 @shared_task(ignore_result=True)
 def schedule_results_email(pk) -> None:
-    experiment: Experiment = Experiment.objects.get(pk=pk)
-    results = calculate_experiment_results(experiment, True)
-    send_experiment_finished_email_results(experiment, results)
+    try:
+        experiment: Experiment = Experiment.objects.get(pk=pk)
+        results = calculate_experiment_results(experiment, True)
+        send_experiment_finished_email_results(experiment, results)
+    except Exception as e:
+        logger.error("Failed to schedule email results for experiment", error=e, exc_info=True)
