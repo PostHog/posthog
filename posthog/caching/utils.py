@@ -45,17 +45,17 @@ def active_teams() -> set[int]:
     redis = get_client()
     all_teams: list[tuple[bytes, float]] = redis.zrange(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, 0, -1, withscores=True)
     if not all_teams:
+        # NOTE: `active_teams()` doesn't cooperate with freezegun (aka `freeze_time()`), because of
+        # the ClickHouse `now()` function being used below
         teams_by_recency = sync_execute(
             """
-                SELECT team_id, date_diff('second', max(timestamp), toDateTime(%(now)s, 'UTC')) AS age
-                FROM events
-                WHERE timestamp > date_sub(DAY, 3, toDateTime(%(now)s, 'UTC')) AND timestamp < toDateTime(%(now)s, 'UTC')
-                GROUP BY team_id
-                ORDER BY age;
-            """,
-            {"now": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},  # Allow mocking datetime in tests
+            SELECT team_id, date_diff('second', max(timestamp), now()) AS age
+            FROM events
+            WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
+            GROUP BY team_id
+            ORDER BY age;
+        """
         )
-
         if not teams_by_recency:
             return set()
         redis.zadd(
