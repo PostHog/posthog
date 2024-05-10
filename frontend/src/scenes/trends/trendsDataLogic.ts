@@ -123,13 +123,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
-                    indexedResults.sort((a, b) =>
-                        a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
-                            ? BREAKDOWN_OTHER_NUMERIC_LABEL
-                            : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
-                            ? BREAKDOWN_NULL_NUMERIC_LABEL
-                            : b.aggregated_value - a.aggregated_value
-                    )
+                    indexedResults.sort((a, b) => {
+                        const aValue =
+                            a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
+                                ? -BREAKDOWN_OTHER_NUMERIC_LABEL
+                                : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
+                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                : a.aggregated_value
+                        const bValue =
+                            b.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
+                                ? -BREAKDOWN_OTHER_NUMERIC_LABEL
+                                : b.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
+                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                : b.aggregated_value
+                        return bValue - aValue
+                    })
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>

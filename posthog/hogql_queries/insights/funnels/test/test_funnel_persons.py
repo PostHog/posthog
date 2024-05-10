@@ -527,13 +527,12 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
-        timestamp = datetime(2021, 1, 3, 0, 0, 0)
+
         produce_replay_summary(
             team_id=self.team.pk,
             session_id="s2",
             distinct_id="user_1",
-            first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            first_timestamp=timezone.now() + timedelta(days=1),
         )
 
         # First event, but no recording
