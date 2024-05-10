@@ -14,6 +14,53 @@ import { EntityTypes, FilterableLogLevel, RecordingFilters } from '~/types'
 
 import { DurationFilter } from './DurationFilter'
 
+function DateAndDurationFilters({
+    filters,
+    setFilters,
+}: {
+    filters: RecordingFilters
+    setFilters: (filters: RecordingFilters) => void
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonLabel>Time and duration</LemonLabel>
+            <div className="flex flex-row flex-wrap gap-2">
+                <DateFilter
+                    dateFrom={filters.date_from ?? '-3d'}
+                    dateTo={filters.date_to}
+                    disabled={filters.live_mode}
+                    onChange={(changedDateFrom, changedDateTo) => {
+                        setFilters({
+                            date_from: changedDateFrom,
+                            date_to: changedDateTo,
+                        })
+                    }}
+                    dateOptions={[
+                        { key: 'Custom', values: [] },
+                        { key: 'Last 24 hours', values: ['-24h'] },
+                        { key: 'Last 3 days', values: ['-3d'] },
+                        { key: 'Last 7 days', values: ['-7d'] },
+                        { key: 'Last 30 days', values: ['-30d'] },
+                        { key: 'All time', values: ['-90d'] },
+                    ]}
+                    dropdownPlacement="bottom-start"
+                />
+                <DurationFilter
+                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                        setFilters({
+                            session_recording_duration: newRecordingDurationFilter,
+                            duration_type_filter: newDurationType,
+                        })
+                    }}
+                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
+                    durationTypeFilter={filters.duration_type_filter || 'duration'}
+                    pageKey="session-recordings"
+                />
+            </div>
+        </div>
+    )
+}
+
 export const AdvancedSessionRecordingsFilters = ({
     filters,
     setFilters,
@@ -80,39 +127,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 />
             )}
 
-            <LemonLabel>Time and duration</LemonLabel>
-
-            <div className="flex flex-wrap gap-2">
-                <DateFilter
-                    dateFrom={filters.date_from ?? '-7d'}
-                    dateTo={filters.date_to ?? undefined}
-                    onChange={(changedDateFrom, changedDateTo) => {
-                        setFilters({
-                            date_from: changedDateFrom,
-                            date_to: changedDateTo,
-                        })
-                    }}
-                    dateOptions={[
-                        { key: 'Custom', values: [] },
-                        { key: 'Last 24 hours', values: ['-24h'] },
-                        { key: 'Last 7 days', values: ['-7d'] },
-                        { key: 'Last 30 days', values: ['-30d'] },
-                        { key: 'All time', values: ['-90d'] },
-                    ]}
-                    dropdownPlacement="bottom-start"
-                />
-                <DurationFilter
-                    onChange={(newRecordingDurationFilter, newDurationType) => {
-                        setFilters({
-                            session_recording_duration: newRecordingDurationFilter,
-                            duration_type_filter: newDurationType,
-                        })
-                    }}
-                    recordingDurationFilter={filters.session_recording_duration || defaultRecordingDurationFilter}
-                    durationTypeFilter={filters.duration_type_filter || 'duration'}
-                    pageKey="session-recordings"
-                />
-            </div>
+            <DateAndDurationFilters filters={filters} setFilters={setFilters} />
 
             <ConsoleFilters filters={filters} setFilters={setFilters} />
         </div>

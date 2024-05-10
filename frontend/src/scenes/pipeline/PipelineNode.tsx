@@ -2,9 +2,7 @@ import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PipelineNodeLogs } from 'scenes/pipeline/PipelineNodeLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -49,11 +47,6 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     const { stage, id } = paramsToProps({ params })
 
     const { currentTab, node } = useValues(pipelineNodeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
