@@ -121,8 +121,9 @@ def send_experiment_email(
     results: dict,
 ) -> None:
     experiment_results = results["result"]
-
     filters = experiment_results["filters"]
+
+    next_steps_title, next_steps_message = _get_next_steps(experiment, experiment_results)
 
     message = EmailMessage(
         campaign_key=f"experiment_result_{experiment.pk}",
@@ -134,7 +135,8 @@ def send_experiment_email(
             "experiment_ran_to": filters.get("date_to"),
             "significance_message": _get_significance_message(experiment_results),
             "is_success": experiment_results["significant"],
-            "next_steps": _get_next_steps(experiment, experiment_results),
+            "next_steps_title": next_steps_title,
+            "next_steps_message": next_steps_message,
             "control_probability": percentage(experiment_results["probability"].get("control")),
             "test_probability": percentage(1 - experiment_results["probability"].get("control")),
         },
