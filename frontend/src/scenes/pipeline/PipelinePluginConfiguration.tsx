@@ -1,5 +1,5 @@
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
@@ -42,13 +42,15 @@ export function PipelinePluginConfiguration({
         return <NotFound object="pipeline stage" />
     }
 
-    if (loading) {
-        return <Spinner />
+    if (loading && !plugin) {
+        return <SpinnerOverlay />
     }
 
     if (!plugin) {
         return <NotFound object={`pipeline ${stage}`} />
     }
+
+    const loadingOrSubmitting = loading || isConfigurationSubmitting
 
     const configSchemaArray = getConfigSchemaArray(plugin.config_schema)
     const fields = configSchemaArray.map((fieldConfig, index) => (
@@ -76,7 +78,7 @@ export function PipelinePluginConfiguration({
                     help={fieldConfig.hint && <LemonMarkdown className="mt-0.5">{fieldConfig.hint}</LemonMarkdown>}
                     showOptional={!requiredFields.includes(fieldConfig.key)}
                 >
-                    <PluginField fieldConfig={fieldConfig} />
+                    <PluginField fieldConfig={fieldConfig} disabled={loadingOrSubmitting} />
                 </LemonField>
             ) : (
                 <>
@@ -117,18 +119,23 @@ export function PipelinePluginConfiguration({
                     label="Name"
                     info="Customising the name can be useful if multiple instances of the same type are used."
                 >
-                    <LemonInput type="text" />
+                    <LemonInput type="text" disabled={loadingOrSubmitting} />
                 </LemonField>
                 <LemonField
                     name="description"
                     label="Description"
                     info="Add a description to share context with other team members"
                 >
-                    <LemonTextArea />
+                    <LemonTextArea disabled={loadingOrSubmitting} />
                 </LemonField>
                 <LemonField name="enabled">
                     {({ value, onChange }) => (
-                        <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                        <LemonCheckbox
+                            label="Enabled"
+                            onChange={() => onChange(!value)}
+                            checked={value}
+                            disabled={loadingOrSubmitting}
+                        />
                     )}
                 </LemonField>
                 <>{fields}</>
