@@ -274,6 +274,15 @@ class ExperimentFinishActionType(str, Enum):
     SEND_EMAIL = "send_email"
 
 
+class ExperimentFinishSendEmailType(str, Enum):
+    ALL = "all"
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+
+ExperimentFinishActionEmailValue = dict[ExperimentFinishSendEmailType, list[str]]
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"

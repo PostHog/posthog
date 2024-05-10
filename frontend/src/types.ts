@@ -2899,6 +2899,28 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
+export enum ExperimentFinishActionType {
+    SEND_EMAIL = 'send_email',
+}
+
+export enum ExperimentFinishSendEmailType {
+    ALL = 'all',
+    SUCCESS = 'success',
+    FAILURE = 'failure',
+}
+
+export type ExperimentFinishActionEmailValue = Record<ExperimentFinishSendEmailType, string[]>
+
+type ExperimentFinishActionValue = {
+    [ExperimentFinishActionType.SEND_EMAIL]?: ExperimentFinishActionEmailValue
+    [key: string]: any
+}
+
+export interface ExperimentFinishAction {
+    action: ExperimentFinishActionType
+    value?: ExperimentFinishActionValue
+}
+
 export interface Experiment {
     id: number | 'new'
     name: string
@@ -2922,6 +2944,7 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
+    finish_actions?: ExperimentFinishAction[] | [] | null
 }
 
 export interface FunnelExperimentVariant {

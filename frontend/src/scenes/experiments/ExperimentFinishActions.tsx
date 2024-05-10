@@ -78,28 +78,32 @@ function ExperimentFinishEmailOverviewRenderer({
 }: {
     finishAction: ExperimentFinishAction
 }): JSX.Element {
-    const allEmailParticipants = finishAction.value?.ALL
-    const successEmailParticipants = finishAction.value?.SUCCESS
-    const failureEmailParticipants = finishAction.value?.FAILURE
+    const values = finishAction.value as ExperimentFinishActionEmailValue | undefined
 
     return (
         <div key={finishAction.action} className="mt-2">
             We will send an email to:
-            <ExperimentFinishEmailRenderer
-                label="All these members:"
-                tooltip="All members will receive the email, regardless of the outcome"
-                emailParticipants={allEmailParticipants}
-            />
-            <ExperimentFinishEmailRenderer
-                label="If it was successful:"
-                tooltip="If the experiment results are statistically significant, and the experiment succeeded, these members will receive the email"
-                emailParticipants={successEmailParticipants}
-            />
-            <ExperimentFinishEmailRenderer
-                label="If it failed:"
-                tooltip="If the experiment results are NOT statistically significant, and the experiment failed, these members will receive the email"
-                emailParticipants={failureEmailParticipants}
-            />
+            {values?.all && (
+                <ExperimentFinishEmailRenderer
+                    label="All these members:"
+                    tooltip="All members will receive the email, regardless of the outcome"
+                    emailParticipants={values.all}
+                />
+            )}
+            {values?.success && (
+                <ExperimentFinishEmailRenderer
+                    label="If it was successful:"
+                    tooltip="If the experiment results are statistically significant, and the experiment succeeded, these members will receive the email"
+                    emailParticipants={values.success}
+                />
+            )}
+            {values?.failure && (
+                <ExperimentFinishEmailRenderer
+                    label="If it failed:"
+                    tooltip="If the experiment results are NOT statistically significant, and the experiment failed, these members will receive the email"
+                    emailParticipants={values.failure}
+                />
+            )}
         </div>
     )
 }
@@ -151,7 +155,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                         onChange={(newValues: string[]) => {
                             addOnFinishActionEmails(ExperimentFinishSendEmailType.ALL, newValues)
                         }}
-                        value={values?.ALL}
+                        value={values?.all}
                     />
                 </LemonField>
                 <LemonButton icon={<IconTrash />} size="small" onClick={() => removeOnFinishExperimentAction(action)} />
@@ -164,7 +168,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                         onChange={(newValues: string[]) => {
                             addOnFinishActionEmails(ExperimentFinishSendEmailType.SUCCESS, newValues)
                         }}
-                        value={values?.SUCCESS}
+                        value={values?.success}
                     />
                 </LemonField>
             </div>
@@ -175,7 +179,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                         onChange={(newValues: string[]) => {
                             addOnFinishActionEmails(ExperimentFinishSendEmailType.FAILURE, newValues)
                         }}
-                        value={values?.FAILURE}
+                        value={values?.failure}
                     />
                 </LemonField>
             </div>
