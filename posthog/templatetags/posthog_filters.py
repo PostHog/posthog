@@ -3,6 +3,8 @@ from typing import Optional, Union
 from django import template
 
 from posthog.utils import compact_number
+from dateutil.relativedelta import relativedelta
+from django.template.defaultfilters import pluralize
 from dateutil.parser import parse
 
 register = template.Library()
@@ -31,48 +33,35 @@ def percentage(value: Optional[Number], decimals: int = 1) -> str:
 def humanize_time_diff(date_from, date_to):
     """
     Returns a humanized string representing time difference
-    between now() and the input timestamp.
+    between the given timestamps
 
     The output rounds up to days, hours, minutes, or seconds.
+    1 month 20 days returns '1 month'
     4 days 5 hours returns '4 days'
     0 days 4 hours 3 minutes returns '4 hours', etc...
     """
 
-    timeDiff = parse(date_to) - parse(date_from)
-    days = timeDiff.days
-    hours = timeDiff.seconds / 3600
-    minutes = timeDiff.seconds % 3600 / 60
-    seconds = timeDiff.seconds % 3600 % 60
+    time_diff = relativedelta(parse(date_to), parse(date_from))
+
+    years = time_diff.years
+    months = time_diff.months
+    days = time_diff.days
+    hours = time_diff.hours
 
     str = ""
     tStr = ""
-    if days > 0:
-        if days == 1:
-            tStr = "day"
-        else:
-            tStr = "days"
-        str = str + "{} {}".format(days, tStr)
-        return str
-    elif hours > 0:
-        if hours == 1:
-            tStr = "hour"
-        else:
-            tStr = "hours"
-        str = str + "{} {}".format(hours, tStr)
-        return str
-    elif minutes > 0:
-        if minutes == 1:
-            tStr = "min"
-        else:
-            tStr = "mins"
-        str = str + "{} {}".format(minutes, tStr)
-        return str
-    elif seconds > 0:
-        if seconds == 1:
-            tStr = "sec"
-        else:
-            tStr = "secs"
-        str = str + "{} {}".format(seconds, tStr)
-        return str
+
+    if years > 0:
+        tStr = "year{}".format(pluralize(years))
+        str = "{} {}".format(years, tStr)
+    elif months > 0:
+        tStr = "month{}".format(pluralize(months))
+        str = "{} {}".format(months, tStr)
+    elif days > 0:
+        tStr = "day{}".format(pluralize(days))
+        str = "{} {}".format(days, tStr)
     else:
-        return None
+        tStr = "hour{}".format(pluralize(hours or 1))
+        str = "{} {}".format(hours or 1, tStr)
+
+    return str
