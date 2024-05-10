@@ -266,7 +266,9 @@ class TrendsActorsQueryBuilder:
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert self.time_frame, "A `day` is required for trends actors queries without total value aggregation"
+            assert (
+                self.time_frame is not None
+            ), "A `day` is required for trends actors queries without total value aggregation"
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

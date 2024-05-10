@@ -174,7 +174,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             where=events_filter,
             group_by=[],
         )
-        assert default_query.group_by
+        assert default_query.group_by is not None
 
         day_start = ast.Alias(
             alias="day_start",
