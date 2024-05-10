@@ -10,7 +10,7 @@ aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
     #   s3fs
-aiohttp==3.9.3
+aiohttp==3.9.4
     # via
     #   -r requirements.in
     #   aiobotocore
@@ -264,6 +264,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
