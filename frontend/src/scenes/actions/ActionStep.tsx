@@ -11,7 +11,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
-import { ActionStepType, StringMatching } from '~/types'
+import { ActionStepStringMatching, ActionStepType } from '~/types'
 
 import { LemonEventName } from './EventName'
 
@@ -342,7 +342,8 @@ function StringMatchingSelection({
     const handleURLMatchChange = (value: string): void => {
         sendStep({ ...step, [key]: value })
     }
-    const defaultValue = field === 'url' ? StringMatching.Contains : StringMatching.Exact
+    const defaultValue: ActionStepStringMatching = field === 'url' ? 'contains' : 'exact'
+
     return (
         <div className="flex flex-1 justify-end">
             <LemonSegmentedButton

@@ -5,7 +5,6 @@ import { beforeUnload, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
-import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -13,7 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { ActionType } from '~/types'
+import { ActionStepType, ActionType } from '~/types'
 
 import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
@@ -29,6 +28,11 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id?: number
     action: ActionEditType
+}
+
+export const DEFAULT_ACTION_STEP: ActionStepType = {
+    event: '$pageview',
+    href_matching: 'contains',
 }
 
 export const actionEditLogic = kea<actionEditLogicType>([
@@ -66,7 +70,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     forms(({ actions, props }) => ({
         action: {
-            defaults: { ...props.action } as ActionEditType,
+            defaults: {
+                steps: [{ event: '$pageview' }],
+                ...props.action,
+            } as ActionEditType,
             submit: (action) => {
                 actions.saveAction(action)
             },
@@ -149,7 +156,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     afterMount(({ actions, props }) => {
         if (!props.id) {
-            actions.setAction({ name: '', steps: [{ isNew: uuid() }] }, { merge: false })
+            actions.setActionValue('steps', [{ ...DEFAULT_ACTION_STEP }])
         }
     }),
 

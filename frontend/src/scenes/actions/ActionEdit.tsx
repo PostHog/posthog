@@ -11,14 +11,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
-import { uuid } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, AvailableFeature } from '~/types'
 
-import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
+import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
@@ -143,7 +142,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     htmlType="submit"
                                     loading={actionLoading}
                                     onClick={submitAction}
-                                    disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                                    disabledReason={!actionChanged && !id ? 'No changes to save' : undefined}
                                 >
                                     Save
                                 </LemonButton>
@@ -192,7 +191,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                         icon={<IconPlus />}
                                         type="secondary"
                                         onClick={() => {
-                                            onChange([...(action.steps || []), { isNew: uuid() }])
+                                            onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
                                         }}
                                         center
                                         className="w-full h-full"
