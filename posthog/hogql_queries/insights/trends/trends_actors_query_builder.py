@@ -245,19 +245,17 @@ class TrendsActorsQueryBuilder:
 
     def _date_where_expr(self) -> list[ast.Expr]:
         # types
-        date_range: QueryDateRange = self.trends_date_range
+        date_range: QueryDateRange = (
+            self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range
+        )
+        query_from, query_to = date_range.date_from(), date_range.date_to()
         actors_from: datetime
         actors_from_expr: ast.Expr
         actors_to: datetime
         actors_to_expr: ast.Expr
-        actors_to_op: ast.CompareOperationOp
+        actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         conditions: list[ast.Expr] = []
-
-        if self.is_compare_previous:
-            date_range = self.trends_previous_date_range
-
-        query_from, query_to = date_range.date_from(), date_range.date_to()
 
         if self.is_total_value:
             assert (
@@ -270,7 +268,7 @@ class TrendsActorsQueryBuilder:
         else:
             assert self.time_frame, "A `day` is required for trends actors queries without total value aggregation"
 
-            # use previous day/week/... for time_fame and date_range
+            # use previous day/week/... for time_frame
             if self.is_compare_previous:
                 relative_delta = relativedelta(**date_range.date_from_delta_mappings())  # type: ignore
                 previous_time_frame = self.time_frame - relative_delta
@@ -281,7 +279,6 @@ class TrendsActorsQueryBuilder:
 
             actors_from = self.time_frame
             actors_to = actors_from + date_range.interval_relativedelta()
-            actors_to_op = ast.CompareOperationOp.Lt
 
             # exclude events before the query start and after the query end
             if self.is_explicit and not self.is_active_users_math:
