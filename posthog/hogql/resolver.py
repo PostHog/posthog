@@ -275,6 +275,11 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
+
             table_name = node.table.chain[0]
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
@@ -311,11 +316,6 @@ class Resolver(CloningVisitor):
             else:
                 node_type = node_table_type
 
-            node = cast(ast.JoinExpr, clone_expr(node))
-            if node.constraint and node.constraint.constraint_type == "USING":
-                # visit USING constraint before adding the table to avoid ambiguous names
-                node.constraint = self.visit(node.constraint)
-
             scope.tables[table_alias] = node_type
 
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
@@ -336,7 +336,7 @@ class Resolver(CloningVisitor):
                 node.next_join.join_type = "GLOBAL JOIN"
 
             if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit(node.constraint)
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             # In case we had a function call table, and had to add an alias where none was present, mark it here
@@ -349,7 +349,7 @@ class Resolver(CloningVisitor):
             node = cast(ast.JoinExpr, clone_expr(node))
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
-                node.constraint = self.visit(node.constraint)
+                node.constraint = self.visit_join_constraint(node.constraint)
 
             node.table = super().visit(node.table)
             if isinstance(node.table, ast.SelectQuery) and node.table.view_name is not None and node.alias is not None:
@@ -375,7 +375,7 @@ class Resolver(CloningVisitor):
             # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
             node.next_join = self.visit(node.next_join)
             if node.constraint and node.constraint.constraint_type == "ON":
-                node.constraint = self.visit(node.constraint)
+                node.constraint = self.visit_join_constraint(node.constraint)
             node.sample = self.visit(node.sample)
 
             return node
