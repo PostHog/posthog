@@ -559,6 +559,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadExperiment()
             }
         },
+        closeExperimentCollectionGoalModal: () => {
+            if (values.experimentValuesChangedLocally) {
+                actions.loadExperiment()
+            }
+        },
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
