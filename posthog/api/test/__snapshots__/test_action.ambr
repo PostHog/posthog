@@ -167,30 +167,6 @@
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.12
   '''
-  SELECT "posthog_actionstep"."id",
-         "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
-         "posthog_actionstep"."text",
-         "posthog_actionstep"."text_matching",
-         "posthog_actionstep"."href",
-         "posthog_actionstep"."href_matching",
-         "posthog_actionstep"."selector",
-         "posthog_actionstep"."url",
-         "posthog_actionstep"."url_matching",
-         "posthog_actionstep"."event",
-         "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
-  FROM "posthog_actionstep"
-  WHERE "posthog_actionstep"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC
-  '''
-# ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.13
-  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -220,7 +196,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.14
+# name: TestActionApi.test_listing_actions_is_not_nplus1.13
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -275,7 +251,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.15
+# name: TestActionApi.test_listing_actions_is_not_nplus1.14
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -307,7 +283,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 2
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.16
+# name: TestActionApi.test_listing_actions_is_not_nplus1.15
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -333,7 +309,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.17
+# name: TestActionApi.test_listing_actions_is_not_nplus1.16
   '''
   SELECT COUNT(*)
   FROM
@@ -346,7 +322,7 @@
      GROUP BY 1) subquery
   '''
 # ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.18
+# name: TestActionApi.test_listing_actions_is_not_nplus1.17
   '''
   SELECT "posthog_action"."id",
          "posthog_action"."name",
@@ -400,6 +376,30 @@
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   LIMIT 100
+  '''
+# ---
+# name: TestActionApi.test_listing_actions_is_not_nplus1.18
+  '''
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."team_id",
+         "posthog_pluginconfig"."plugin_id",
+         "posthog_pluginconfig"."enabled",
+         "posthog_pluginconfig"."order",
+         "posthog_pluginconfig"."config",
+         "posthog_pluginconfig"."error",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginconfig"."created_at",
+         "posthog_pluginconfig"."updated_at",
+         "posthog_pluginconfig"."name",
+         "posthog_pluginconfig"."description",
+         "posthog_pluginconfig"."deleted",
+         "posthog_pluginconfig"."match_action_id"
+  FROM "posthog_pluginconfig"
+  WHERE "posthog_pluginconfig"."match_action_id" IN (1,
+                                                     2,
+                                                     3,
+                                                     4,
+                                                     5 /* ... */)
   '''
 # ---
 # name: TestActionApi.test_listing_actions_is_not_nplus1.19

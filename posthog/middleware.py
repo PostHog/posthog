@@ -35,7 +35,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, DEBUG
+from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -155,6 +155,7 @@ class AutoProjectMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
+        self.token_allowlist = PROJECT_SWITCHING_TOKEN_ALLOWLIST
 
     def __call__(self, request: HttpRequest):
         if request.user.is_authenticated:
@@ -162,7 +163,11 @@ class AutoProjectMiddleware:
             project_id_in_url = None
             user = cast(User, request.user)
 
-            if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].startswith("phc_"):
+            if (
+                len(path_parts) >= 2
+                and path_parts[0] == "project"
+                and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
+            ):
 
                 def do_redirect():
                     new_path = "/".join(path_parts)
@@ -640,11 +645,25 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
         return response
 
 
+def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
+    return request.session.setdefault(settings.SESSION_COOKIE_CREATED_AT_KEY, time.time())
+
+
+class SessionAgeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
+        get_or_set_session_cookie_created_at(request=request)
+        return self.get_response(request)
+
+
 def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
     if not is_impersonated_session(request):
         return None
 
-    init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
+    init_time = get_or_set_session_cookie_created_at(request=request)
 
     return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
@@ -667,7 +686,10 @@ class AutoLogoutImpersonateMiddleware:
             # 2. For any other endpoint we want to redirect to the logout page
             # 3. BUT we wan't to intercept the /logout endpoint so that we can restore the original login
 
-            if request.path.startswith("/api/"):
+            if request.path.startswith("/static/"):
+                # Skip static files
+                pass
+            elif request.path.startswith("/api/"):
                 return HttpResponse(
                     "Impersonation session has expired. Please log in again.",
                     status=401,
@@ -677,10 +699,5 @@ class AutoLogoutImpersonateMiddleware:
             else:
                 restore_original_login(request)
                 return redirect("/admin/")
-
-        expire_since_last_activity = settings.IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY
-
-        if expire_since_last_activity:
-            request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
 
         return self.get_response(request)

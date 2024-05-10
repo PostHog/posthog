@@ -258,16 +258,12 @@ class EventsQueryRunner(QueryRunner):
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        new_query = self.query.model_copy()  # Shallow copy!
-
         if dashboard_filter.date_to or dashboard_filter.date_from:
-            new_query.before = dashboard_filter.date_to
-            new_query.after = dashboard_filter.date_from
+            self.query.before = dashboard_filter.date_to
+            self.query.after = dashboard_filter.date_from
 
         if dashboard_filter.properties:
-            new_query.properties = (new_query.properties or []) + dashboard_filter.properties
-
-        return new_query
+            self.query.properties = (self.query.properties or []) + dashboard_filter.properties
 
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select

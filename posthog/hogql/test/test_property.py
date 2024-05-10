@@ -25,6 +25,7 @@ from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity, EmptyPropertyFilter
 from posthog.test.base import BaseTest
+from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -690,4 +691,41 @@ class TestProperty(BaseTest):
                 scope="event",
             ),
             self._parse_expr("session.$session_duration = 10"),
+        )
+
+    def test_data_warehouse_person_property(self):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="extended_properties",
+            columns={
+                "string_prop": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)"},
+                "int_prop": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)"},
+                "bool_prop": {"hogql": "BooleanDatabaseField", "clickhouse": "Nullable(Bool)"},
+            },
+            credential=credential,
+            url_pattern="",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="extended_properties",
+            joining_table_key="string_prop",
+            field_name="extended_properties",
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "data_warehouse_person_property",
+                    "key": "extended_properties: bool_prop",
+                    "value": "true",
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr("person.extended_properties.bool_prop = true"),
         )

@@ -1,4 +1,4 @@
-import { LemonMenuItem, LemonSkeleton, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -25,8 +25,8 @@ import {
     PluginType,
 } from '~/types'
 
+import { pipelineLogic } from './pipelineLogic'
 import { PipelineLogLevel } from './pipelineNodeLogsLogic'
-import { pipelineTransformationsLogic } from './transformationsLogic'
 import {
     Destination,
     ImportApp,
@@ -166,9 +166,19 @@ export function RenderBatchExportIcon({ type }: { type: BatchExportService['type
 
     return (
         <div className="flex items-center gap-4">
-            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
-                <img src={icon} alt={type} height={60} width={60} />
-            </Link>
+            <Tooltip
+                title={
+                    <>
+                        {type}
+                        <br />
+                        Click to view docs
+                    </>
+                }
+            >
+                <Link to={getBatchExportUrl(type)}>
+                    <img src={icon} alt={type} height={60} width={60} />
+                </Link>
+            </Tooltip>
         </div>
     )
 }
@@ -297,7 +307,7 @@ function pluginMenuItems(node: PluginBasedNode): LemonMenuItem[] {
 }
 
 export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | ImportApp | Destination): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
 
     const items: LemonMenuItem[] = [
         {
@@ -320,13 +330,18 @@ export function pipelineNodeMenuCommonItems(node: Transformation | SiteApp | Imp
     return items
 }
 
+export async function loadPluginsFromUrl(url: string): Promise<Record<number, PluginType>> {
+    const results: PluginType[] = await api.loadPaginatedResults<PluginType>(url)
+    return Object.fromEntries(results.map((plugin) => [plugin.id, plugin]))
+}
+
 export function pipelinePluginBackedNodeMenuCommonItems(
     node: Transformation | SiteApp | ImportApp | WebhookDestination,
     toggleEnabled: any,
     loadPluginConfigs: any,
     inOverview?: boolean
 ): LemonMenuItem[] {
-    const { canConfigurePlugins } = useValues(pipelineTransformationsLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
 
     return [
         {
@@ -359,4 +374,12 @@ export function pipelinePluginBackedNodeMenuCommonItems(
               ]
             : []),
     ]
+}
+
+export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
+    if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
+        lemonToast.error('Import apps are deprecated and cannot be enabled.')
+        return false
+    }
+    return true
 }

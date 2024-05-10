@@ -927,6 +927,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                           hasDurationFilters:
                               (filters.session_recording_duration?.value || -1) > defaultDurationFilter.value,
                           hasConsoleLogsFilters: !!filters.console_logs?.length || !!filters.console_search_query,
+                          isLiveMode: !!filters.live_mode,
                       }
                     : {}
             posthog.capture('recording list fetched', {
