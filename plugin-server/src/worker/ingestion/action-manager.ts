@@ -216,10 +216,10 @@ export async function fetchPluginConfigsWithMatchActions(
 ): Promise<Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[]> {
     const { rows }: { rows: Pick<PluginConfig, 'id' | 'team_id' | 'match_action_id'>[] } = await postgres.query(
         PostgresUse.COMMON_READ,
-        `SELECT posthog_pluginconfig.id, posthog_pluginconfig.team_id, posthog_pluginconfig.match_action_id 
+        `SELECT id, team_id, match_action_id 
             FROM posthog_pluginconfig
-            WHERE posthog_pluginconfig.match_action_id IS NOT NULL 
-            AND posthog_pluginconfig.enabled`,
+            WHERE match_action_id IS NOT NULL 
+            AND enabled`,
         undefined,
         'fetchPluginConfigsWithMatchActions'
     )

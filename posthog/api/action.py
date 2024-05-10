@@ -107,9 +107,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         if validated_data.get("deleted"):
             if instance.plugin_configs.count():
-                raise serializers.ValidationError(
-                    "Actions with plugins cannot be deleted. Remove it or disable the plugin first."
-                )
+                raise serializers.ValidationError("Actions with plugins cannot be deleted. Remove the plugin first.")
 
         instance = super().update(instance, validated_data)
 
