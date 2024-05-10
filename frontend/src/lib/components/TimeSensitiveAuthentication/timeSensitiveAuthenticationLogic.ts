@@ -1,8 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import type { timeSensitiveAuthenticationLogicType } from './timeSensitiveAuthenticationLogicType'
@@ -70,6 +72,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     throw e
                 }
 
+                posthog.capture('reauthentication_completed')
+
                 actions.setTimeSensitiveAuthenticationRequired(false)
                 // Refresh the user so we know the new session expiry
                 actions.loadUser()
@@ -93,7 +97,20 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         ],
     }),
 
+    subscriptions({
+        showAuthenticationModal: (shown) => {
+            if (shown) {
+                posthog.capture('reauthentication_modal_shown')
+            }
+        },
+    }),
+
     listeners(({ actions, values }) => ({
+        setDismissedReauthentication: ({ value }) => {
+            if (value) {
+                posthog.capture('reauthentication_modal_dismissed')
+            }
+        },
         checkReauthentication: () => {
             if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
                 // Here we try to offer a better UX by forcing re-authentication if they are about to timeout which is nicer
