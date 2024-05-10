@@ -143,7 +143,7 @@ export function NotebookHistoryWarning(): JSX.Element | null {
 
     return (
         <LemonBanner type="info" className="my-4">
-            <span className="flex items-center gap-2">
+            <span className="flex flex-col gap-2">
                 <span className="flex-1">
                     <b>Hello time traveller!</b>
                     <br /> You are viewing an older revision of this Notebook. You can choose to revert to this version,
