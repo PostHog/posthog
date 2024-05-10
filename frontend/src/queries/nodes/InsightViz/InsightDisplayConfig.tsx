@@ -16,6 +16,7 @@ import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentSta
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -131,6 +132,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
+                        <RetentionMeanCheckbox />
                     </ConfigFilter>
                 )}
 

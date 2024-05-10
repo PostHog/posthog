@@ -1,13 +1,14 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, UserType } from '~/types'
 
 const meta: Meta = {
     title: 'Scenes-Other/Settings',
@@ -73,5 +74,33 @@ export const SettingsOrganization: StoryFn = () => {
     return <App />
 }
 SettingsOrganization.parameters = {
+    testOptions: { waitForSelector: '.Settings__sections button' },
+}
+
+export const SettingsSessionTimeout: StoryFn = () => {
+    const timedOutSessionUser: UserType = {
+        ...MOCK_DEFAULT_USER,
+        sensitive_session_expires_at: '2023-05-25T00:00:00Z',
+        has_social_auth: true,
+    }
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                realm: 'cloud',
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
+            '/api/users/@me': timedOutSessionUser,
+        },
+    })
+
+    useEffect(() => {
+        router.actions.push(urls.settings('project'))
+    }, [])
+
+    return <App />
+}
+SettingsSessionTimeout.parameters = {
     testOptions: { waitForSelector: '.Settings__sections button' },
 }
