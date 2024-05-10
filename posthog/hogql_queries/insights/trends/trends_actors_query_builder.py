@@ -116,8 +116,12 @@ class TrendsActorsQueryBuilder:
         return self.entity.math == BaseMathType.monthly_active
 
     @cached_property
+    def is_hourly(self) -> bool:
+        return self.trends_date_range.is_hourly
+
+    @cached_property
     def is_explicit(self) -> bool:
-        return self.trends_date_range.explicit()
+        return self.trends_date_range.explicit
 
     @cached_property
     def is_total_value(self) -> bool:
@@ -245,11 +249,13 @@ class TrendsActorsQueryBuilder:
         if self.compare_value == Compare.previous:
             date_range = self.trends_previous_date_range
             delta_mappings = date_range.date_from_delta_mappings()
-            assert delta_mappings
             relative_delta = relativedelta(**delta_mappings)
             parsed_dt = isoparse(self.time_frame)
             parse_dt_with_relative_delta = parsed_dt - relative_delta
-            self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
+            if self.is_hourly:
+                self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d %H:%M:%S.%f")
+            else:
+                self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
         else:
             date_range = self.trends_date_range
 
@@ -261,7 +267,6 @@ class TrendsActorsQueryBuilder:
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
             assert self.time_frame
-
             actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt

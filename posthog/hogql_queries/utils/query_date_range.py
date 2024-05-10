@@ -86,12 +86,6 @@ class QueryDateRange:
 
         return date_from
 
-    def explicit(self) -> bool:
-        if self._date_range is None or self._date_range.explicitDate is None:
-            return False
-
-        return self._date_range.explicitDate
-
     @cached_property
     def previous_period_date_from(self) -> datetime:
         return self.date_from() - (self.date_to() - self.date_from())
@@ -123,6 +117,13 @@ class QueryDateRange:
     @cached_property
     def interval_name(self) -> Literal["hour", "day", "week", "month"]:
         return self.interval_type.name
+
+    @cached_property
+    def explicit(self) -> bool:
+        if self._date_range is None or self._date_range.explicitDate is None:
+            return False
+
+        return self._date_range.explicitDate
 
     def align_with_interval(self, start: datetime) -> datetime:
         if self.interval_name == "hour":

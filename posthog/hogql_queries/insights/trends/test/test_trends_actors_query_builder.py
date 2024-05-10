@@ -92,14 +92,14 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(update={"trendsFilter": TrendsFilter(compare=True)}, deep=True)
 
         self.assertEqual(
-            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-08", compare_value=Compare.current),
-            "greaterOrEquals(timestamp, toDateTime('2023-05-07 22:00:00.000000')), less(timestamp, toDateTime('2023-05-08 22:00:00.000000'))",
+            self._get_date_where_sql(trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.current),
+            "greaterOrEquals(timestamp, toDateTime('2023-05-09 22:00:00.000000')), less(timestamp, toDateTime('2023-05-10 22:00:00.000000'))",
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-08", compare_value=Compare.previous
+                trends_query=trends_query, time_frame="2023-05-10", compare_value=Compare.previous
             ),
-            "greaterOrEquals(timestamp, toDateTime('2023-04-30 22:00:00.000000')), less(timestamp, toDateTime('2023-05-01 22:00:00.000000'))",
+            "greaterOrEquals(timestamp, toDateTime('2023-05-02 22:00:00.000000')), less(timestamp, toDateTime('2023-05-03 22:00:00.000000'))",
         )
 
     def test_date_range_compare_previous_hourly(self):
@@ -109,15 +109,15 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-08T15:00:00", compare_value=Compare.current
+                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.current
             ),
-            "greaterOrEquals(timestamp, toDateTime('2023-05-08 13:00:00.000000')), less(timestamp, toDateTime('2023-05-08 14:00:00.000000'))",
+            "greaterOrEquals(timestamp, toDateTime('2023-05-10 13:00:00.000000')), less(timestamp, toDateTime('2023-05-10 14:00:00.000000'))",
         )
         self.assertEqual(
             self._get_date_where_sql(
-                trends_query=trends_query, time_frame="2023-05-08T15:00:00", compare_value=Compare.previous
+                trends_query=trends_query, time_frame="2023-05-10T15:00:00", compare_value=Compare.previous
             ),
-            "greaterOrEquals(timestamp, toDateTime('2023-04-30 13:00:00.000000')), less(timestamp, toDateTime('2023-04-30 14:00:00.000000'))",
+            "greaterOrEquals(timestamp, toDateTime('2023-05-03 13:00:00.000000')), less(timestamp, toDateTime('2023-05-03 14:00:00.000000'))",
         )
 
     def test_date_range_total_value(self):
