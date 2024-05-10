@@ -20,8 +20,8 @@ import { urls } from 'scenes/urls'
 
 import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
-import { StatusTag } from './Experiment'
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import { StatusTag } from './ExperimentView/components'
 
 export const scene: SceneExport = {
     component: Experiments,

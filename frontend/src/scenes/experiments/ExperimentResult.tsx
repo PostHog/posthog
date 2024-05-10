@@ -14,9 +14,8 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightShortId, InsightType } from '~/types'
 
-import { LoadingState } from './Experiment'
 import { experimentLogic } from './experimentLogic'
-import { NoResultsEmptyState } from './ExperimentView/components'
+import { LoadingState, NoResultsEmptyState } from './ExperimentView/components'
 import { getExperimentInsightColour } from './utils'
 
 interface ExperimentResultProps {

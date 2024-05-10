@@ -1,7 +1,17 @@
 import '../Experiment.scss'
 
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonSkeleton,
+    LemonTag,
+    LemonTagType,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
@@ -17,10 +27,10 @@ import { urls } from 'scenes/urls'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
+import { Experiment as ExperimentType, ExperimentResults, FilterType, InsightShortId, InsightType } from '~/types'
 
-import { ResetButton } from '../Experiment'
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour, transformResultFilters } from '../utils'
 
 export function VariantTag({ variantKey }: { variantKey: string }): JSX.Element {
@@ -524,4 +534,65 @@ export function ActionBanner(): JSX.Element {
     }
 
     return <></>
+}
+
+export const ResetButton = ({
+    experiment,
+    onConfirm,
+}: {
+    experiment: ExperimentType
+    onConfirm: () => void
+}): JSX.Element => {
+    const onClickReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset this experiment?',
+            content: (
+                <>
+                    <div className="text-sm text-muted">
+                        All collected data so far will be discarded and the experiment will go back to draft mode.
+                    </div>
+                    {experiment.archived && (
+                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                    )}
+                </>
+            ),
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                onClick: onConfirm,
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    return (
+        <LemonButton type="secondary" onClick={onClickReset}>
+            Reset
+        </LemonButton>
+    )
+}
+
+export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
+    const status = getExperimentStatus(experiment)
+    return (
+        <LemonTag type={getExperimentStatusColor(status)}>
+            <b className="uppercase">{status}</b>
+        </LemonTag>
+    )
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3 h-4" />
+        </div>
+    )
 }

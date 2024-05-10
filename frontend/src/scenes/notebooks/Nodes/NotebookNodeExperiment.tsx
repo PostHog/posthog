@@ -15,9 +15,9 @@ import { EXPERIMENT_INSIGHT_ID } from 'scenes/experiments/constants'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { ExperimentResult } from 'scenes/experiments/ExperimentResult'
-import { ResultsTag, StatusTag } from 'scenes/experiments/Experiment'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconFlask } from '@posthog/icons'
+import { ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
