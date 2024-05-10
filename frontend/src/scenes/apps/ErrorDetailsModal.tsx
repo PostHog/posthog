@@ -55,7 +55,8 @@ export function ErrorDetailsModal(): JSX.Element {
                 // eslint-disable-next-line react/forbid-dom-props
                 <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
-                        <LemonLabel>When:</LemonLabel> <TZLabel time={activeErrorDetails.timestamp} showSeconds />
+                        <LemonLabel>When:</LemonLabel>{' '}
+                        <TZLabel time={activeErrorDetails.timestamp} showSecondsInPopover />
                     </div>
 
                     {activeErrorDetails.error_details.eventCount && (

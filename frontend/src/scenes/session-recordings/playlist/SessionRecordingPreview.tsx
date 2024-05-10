@@ -200,7 +200,7 @@ export function SessionRecordingPreview({
                             className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
                             time={recording.start_time}
                             placement="right"
-                            showPopover={false}
+                            hidePopover
                         />
                     </div>
 

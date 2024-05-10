@@ -170,9 +170,11 @@ export function PlayerMeta({ linkIconsOnly = false }: { linkIconsOnly?: boolean 
                                     ·
                                     <TZLabel
                                         time={dayjs(startTime)}
-                                        formatDate="MMMM DD, YYYY"
-                                        formatTime="h:mm A"
-                                        showPopover={false}
+                                        absolute
+                                        hidePopover
+                                        // formatDate="MMMM DD, YYYY"
+                                        // formatTime="h:mm A"
+                                        // hidePopover={false}
                                     />
                                 </div>
                             )}

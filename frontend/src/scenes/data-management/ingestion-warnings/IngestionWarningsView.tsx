@@ -251,7 +251,7 @@ export function IngestionWarningsView(): JSX.Element {
                                 title: 'Last Seen',
                                 dataIndex: 'lastSeen',
                                 render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <TZLabel time={summary.lastSeen} showSeconds />
+                                    return <TZLabel time={summary.lastSeen} showSecondsInPopover />
                                 },
                                 align: 'right',
                                 sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
@@ -299,7 +299,7 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
                     title: 'Time',
                     dataIndex: 'timestamp',
                     render: function Render(_, warning: IngestionWarning) {
-                        return <TZLabel time={warning.timestamp} showSeconds />
+                        return <TZLabel time={warning.timestamp} showSecondsInPopover />
                     },
                     align: 'right',
                 },

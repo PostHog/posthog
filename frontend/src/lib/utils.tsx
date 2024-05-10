@@ -497,11 +497,11 @@ export function humanFriendlyDetailedTime(
         return 'Never'
     }
     const parsedDate = dayjs(date)
-    const today = dayjs().startOf('day')
-    const yesterday = today.clone().subtract(1, 'days').startOf('day')
     if (parsedDate.isSame(dayjs(), 'm')) {
         return 'Just now'
     }
+    const today = dayjs().startOf('day')
+    const yesterday = today.clone().subtract(1, 'days').startOf('day')
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
         formatString = `[Today] ${formatTime}`

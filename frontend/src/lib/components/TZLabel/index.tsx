@@ -19,21 +19,26 @@ const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 
 export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
+    /** The time to be rendered */
     time: string | dayjs.Dayjs
-    showSeconds?: boolean
-    formatDate?: string
-    formatTime?: string
-    showPopover?: boolean
-    noStyles?: boolean
+    /** Render as an absolute time instead of the default relative time  @default false*/
+    absolute?: boolean
+
+    /** Whether to show seconds in the popover content  */
+    hidePopover?: boolean
+    /** Whether to show seconds in the popover content  */
+    showSecondsInPopover?: boolean
+
+    // formatDate?: string
+    // formatTime?: string
     className?: string
-    children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
-    showSeconds,
+    showSecondsInPopover,
     time,
-}: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
-    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
+}: Pick<TZLabelProps, 'showSecondsInPopover'> & { time: dayjs.Dayjs }): JSX.Element {
+    const DATE_OUTPUT_FORMAT = !showSecondsInPopover ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
@@ -42,7 +47,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     }, [])
 
     return (
-        <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
+        <div className={clsx('TZLabelPopover', showSecondsInPopover && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
@@ -86,16 +91,18 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 /** Return a simple label component with timezone conversion UI. */
 function TZLabelRaw({
     time,
-    showSeconds,
-    formatDate,
-    formatTime,
-    showPopover = true,
-    noStyles = false,
+    showSecondsInPopover: showSeconds,
+    absolute = false,
+    // formatDate,
+    // formatTime,
+    hidePopover = true,
     className,
-    children,
     ...dropdownProps
 }: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
+
+    const formatDate = absolute ? 'ddd, MMM D, YYYY' : undefined
+    const formatTime = absolute ? 'h:mm A' : undefined
 
     const format = useCallback(() => {
         return formatDate || formatTime
@@ -106,35 +113,33 @@ function TZLabelRaw({
     const [formattedContent, setFormattedContent] = useState(format())
 
     useEffect(() => {
+        const diff = Math.abs(dayjs().diff(parsedTime, 'seconds'))
+        const intervalTime = diff < 60 ? 1000 : 60000
+
         // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
         const interval = setInterval(() => {
             if (format() !== formattedContent) {
                 setFormattedContent(format())
             }
-        }, 1000)
+        }, intervalTime)
+        console.log('TZLabelRaw -> interval', intervalTime, diff)
         return () => clearInterval(interval)
-    }, [parsedTime, format])
+    }, [parsedTime, format, formattedContent])
 
-    const innerContent = children ?? (
-        <span
-            className={
-                !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
-                    : className
-            }
-        >
+    const innerContent = (
+        <span className={clsx('whitespace-nowrap align-middle', !hidePopover && 'border-dotted border-b', className)}>
             {formattedContent}
         </span>
     )
 
-    if (showPopover) {
+    if (!hidePopover) {
         return (
             <LemonDropdown
                 placement="top"
                 showArrow
                 {...dropdownProps}
                 trigger="hover"
-                overlay={<TZLabelPopoverContent time={parsedTime} showSeconds={showSeconds} />}
+                overlay={<TZLabelPopoverContent time={parsedTime} showSecondsInPopover={showSeconds} />}
             >
                 {innerContent}
             </LemonDropdown>

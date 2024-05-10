@@ -304,7 +304,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
                 <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
                         <span className="font-semibold">When:</span>{' '}
-                        <TZLabel time={activeErrorDetails.timestamp} showSeconds />
+                        <TZLabel time={activeErrorDetails.timestamp} showSecondsInPopover />
                     </div>
 
                     {activeErrorDetails.error_details.eventCount && (
