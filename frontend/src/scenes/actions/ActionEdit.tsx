@@ -187,11 +187,12 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 <div>
                                     <LemonButton
                                         icon={<IconPlus />}
+                                        type="secondary"
                                         onClick={() => {
                                             onChange([...(action.steps || []), { isNew: uuid() }])
                                         }}
                                         center
-                                        className="w-full h-full border-dashed border"
+                                        className="w-full h-full"
                                     >
                                         Add match group
                                     </LemonButton>
