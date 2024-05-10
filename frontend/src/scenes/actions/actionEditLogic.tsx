@@ -70,11 +70,10 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     forms(({ actions, props }) => ({
         action: {
-            defaults: {
+            defaults: props.action ?? {
                 name: '',
                 steps: [{ event: '$pageview' }],
-                ...props.action,
-            } as ActionEditType,
+            },
 
             submit: async (updatedAction, breakpoint) => {
                 let action: ActionType
