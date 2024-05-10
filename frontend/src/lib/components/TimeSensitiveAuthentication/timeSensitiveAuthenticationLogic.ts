@@ -59,15 +59,14 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                         await api.create('api/login/token', { token })
                     }
                 } catch (e) {
-                    const { code, status } = e as Record<string, any>
+                    const { code } = e as Record<string, any>
                     if (code === '2fa_required') {
                         actions.setRequiresTwoFactor(true)
-                        throw e
+                    }
+                    if (code === 'invalid_credentials') {
+                        actions.setReauthenticationManualErrors({ password: 'Incorrect password' })
                     }
 
-                    if (status === 401) {
-                        return { password: 'Incorrect password' }
-                    }
                     throw e
                 }
 
