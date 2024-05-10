@@ -338,9 +338,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _handle_timezone_update(self, team: Team) -> None:
-        # TODO: Remove when legacy insight calculation is no more,
-        # as the HogQL backend's caching always includes timezone in the cache key
+    def _clear_team_insight_caching_states(self, team: Team) -> None:
+        # TODO: Remove this method - we should 100% rely on cache keys being different for materially different queries,
+        # not on remembering to call this method when project settings change. We probably already are in the clear
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
@@ -350,7 +350,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
             "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
         ):
-            self._clear_team_insight_cache(instance)
+            self._clear_team_insight_caching_states(instance)
 
         if (
             "session_replay_config" in validated_data
