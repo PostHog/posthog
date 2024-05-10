@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional, cast
 
 from freezegun import freeze_time
@@ -63,6 +64,26 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         builder = self._get_builder(**kwargs)
         date_expr = builder._date_where_expr()
         return self._print_hogql_expr(date_expr)
+
+    def _get_utc_string(self, dt: datetime | None) -> str | None:
+        if dt is None:
+            return None
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+
+    def test_time_frame(self):
+        self.team.timezone = "Europe/Berlin"
+
+        builder = self._get_builder(time_frame="2023-05-08")
+        self.assertEqual(self._get_utc_string(builder.time_frame), "2023-05-07 22:00:00Z")
+
+        builder = self._get_builder(time_frame="2023-05-08 15:00:00")
+        self.assertEqual(self._get_utc_string(builder.time_frame), "2023-05-08 13:00:00Z")
+
+        builder = self._get_builder(time_frame="2023-05-08T15:00:00Z")
+        self.assertEqual(self._get_utc_string(builder.time_frame), "2023-05-08 15:00:00Z")
+
+        builder = self._get_builder(time_frame="2023-05-08T15:00:00-07:00")
+        self.assertEqual(self._get_utc_string(builder.time_frame), "2023-05-08 22:00:00Z")
 
     def test_date_range(self):
         self.assertEqual(

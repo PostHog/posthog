@@ -1,7 +1,7 @@
 from functools import cached_property
 from typing import Optional
 
-from dateutil.parser import parse, isoparse
+from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import datetime
 
@@ -36,7 +36,7 @@ class TrendsActorsQueryBuilder:
     limit_context: LimitContext
 
     entity: EventsNode | ActionsNode
-    time_frame: Optional[str]
+    time_frame: Optional[datetime]
     breakdown_value: Optional[str | int] = None
     compare_value: Optional[Compare] = None
 
@@ -47,7 +47,7 @@ class TrendsActorsQueryBuilder:
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         series_index: int,
-        time_frame: Optional[str],
+        time_frame: Optional[str | datetime],
         breakdown_value: Optional[str | int] = None,
         compare_value: Optional[Compare] = None,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -66,7 +66,16 @@ class TrendsActorsQueryBuilder:
         else:
             self.entity = entity
 
-        self.time_frame = time_frame
+        if time_frame is None or isinstance(time_frame, datetime):
+            self.time_frame = time_frame
+        else:
+            parsed_time_frame = parse(time_frame)
+
+            if parsed_time_frame.tzinfo is None:
+                parsed_time_frame = parsed_time_frame.replace(tzinfo=self.team.timezone_info)
+
+            self.time_frame = parsed_time_frame
+
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
 
@@ -236,7 +245,7 @@ class TrendsActorsQueryBuilder:
 
     def _date_where_expr(self) -> list[ast.Expr]:
         # types
-        date_range: QueryDateRange
+        date_range: QueryDateRange = self.trends_date_range
         actors_from: datetime
         actors_from_expr: ast.Expr
         actors_to: datetime
@@ -258,14 +267,11 @@ class TrendsActorsQueryBuilder:
             if not self.is_total_value:
                 delta_mappings = date_range.date_from_delta_mappings()
                 relative_delta = relativedelta(**delta_mappings)
-                parsed_dt = isoparse(self.time_frame)
-                parse_dt_with_relative_delta = parsed_dt - relative_delta
+                previous_time_frame = self.time_frame - relative_delta
                 if self.is_hourly:
-                    self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d %H:%M:%S.%f")
+                    self.time_frame = previous_time_frame
                 else:
-                    self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
-        else:
-            date_range = self.trends_date_range
+                    self.time_frame = previous_time_frame.replace(hour=0, minute=0, second=0, microsecond=0)
 
         query_from, query_to = date_range.date_from(), date_range.date_to()
 
@@ -275,7 +281,7 @@ class TrendsActorsQueryBuilder:
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
             assert self.time_frame
-            actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
+            actors_from = self.time_frame
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
 
