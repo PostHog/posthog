@@ -377,17 +377,8 @@ export function pipelinePluginBackedNodeMenuCommonItems(
 }
 
 export function checkPermissions(stage: PipelineStage, togglingToEnabledOrNew: boolean): boolean {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
     if (stage === PipelineStage.ImportApp && togglingToEnabledOrNew) {
         lemonToast.error('Import apps are deprecated and cannot be enabled.')
-        return false
-    }
-    if (!canConfigurePlugins) {
-        lemonToast.error(`You don't have permission to enable or disable ${stage}s`)
-        return false
-    }
-    if (togglingToEnabledOrNew && stage === PipelineStage.Destination && !canEnableNewDestinations) {
-        lemonToast.error(`Data pipelines add-on is required for enabling new ${stage}s`)
         return false
     }
     return true
