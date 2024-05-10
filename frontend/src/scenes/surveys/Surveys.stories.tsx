@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     FeatureFlagBasicType,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
     Survey,
