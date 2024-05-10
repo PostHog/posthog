@@ -13,6 +13,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -77,7 +78,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext) -> str
     query = get_query_runner(
         persons_query, team=cast(Team, cohort.team), limit_context=LimitContext.COHORT_CALCULATION
     ).to_query()
+
     hogql_context.enable_select_queries = True
+    hogql_context.limit_top_select = False
+    create_default_modifiers_for_team(cohort.team, hogql_context.modifiers)
     return print_ast(query, context=hogql_context, dialect="clickhouse")
 
 
