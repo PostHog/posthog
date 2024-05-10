@@ -143,6 +143,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "p99_count_per_actor",
         ]
 
+    def is_active_users_math(self):
+        return self.series.math in ["weekly_active", "monthly_active"]
+
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])

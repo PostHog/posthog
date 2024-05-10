@@ -103,6 +103,26 @@ class TrendsActorsQueryBuilder:
             self.trends_display.is_total_value(),
         )
 
+    @cached_property
+    def is_active_users_math(self) -> bool:
+        return self.trends_aggregation_operations.is_active_users_math()
+
+    @cached_property
+    def is_weekly_active_math(self) -> bool:
+        return self.entity.math == BaseMathType.weekly_active
+
+    @cached_property
+    def is_monthly_active_math(self) -> bool:
+        return self.entity.math == BaseMathType.monthly_active
+
+    @cached_property
+    def is_explicit(self) -> bool:
+        return self.trends_date_range.explicit()
+
+    @cached_property
+    def is_total_value(self) -> bool:
+        return self.trends_display.is_total_value()
+
     def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add matching_events only when including recordings
         return parse_select(
@@ -204,6 +224,7 @@ class TrendsActorsQueryBuilder:
         return conditions
 
     def _date_where_expr(self) -> list[ast.Expr]:
+        # types
         date_range: QueryDateRange
         actors_from: datetime
         actors_from_expr: ast.Expr
@@ -214,10 +235,10 @@ class TrendsActorsQueryBuilder:
         conditions: list[ast.Expr] = []
 
         # validate inputs
-        if not self.time_frame and not self.trends_display.is_total_value():
+        if not self.time_frame and not self.is_total_value:
             raise ValueError("A `day` is required for trends actors queries without total value aggregation")
 
-        if self.time_frame and self.trends_display.is_total_value():
+        if self.time_frame and self.is_total_value:
             raise ValueError("A `day` is forbidden for trends actors queries with total value aggregation")
 
         # adjust self.time_frame for compare_value
@@ -234,7 +255,7 @@ class TrendsActorsQueryBuilder:
 
         query_from, query_to = date_range.date_from(), date_range.date_to()
 
-        if self.trends_display.is_total_value():
+        if self.is_total_value:
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
@@ -245,9 +266,7 @@ class TrendsActorsQueryBuilder:
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
 
-            if self.trends_date_range.explicit() and not (
-                self.entity.math == BaseMathType.weekly_active or self.entity.math == BaseMathType.monthly_active
-            ):
+            if self.is_explicit and not self.is_active_users_math:
                 # exclude events before the query start
                 if query_from > actors_from:
                     actors_from = query_from
@@ -258,26 +277,22 @@ class TrendsActorsQueryBuilder:
                     actors_to = query_to
 
         # adjust date_from for weekly and monthly active calculations
-        if self.entity.math == BaseMathType.weekly_active or self.entity.math == BaseMathType.monthly_active:
-            # if self.trends_display.is_total_value():
-            # if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
-            #     BaseMathType.weekly_active,
-            #     BaseMathType.monthly_active,
-            # ):
+        if self.is_active_users_math:
+            # if self.is_total_value:
             #     # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
             #     # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
             #     # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
             #     # This way we at least ensure the date range is the probably expected 7 or 30 days.
             #     date_from_with_lookback = "{date_to} - {inclusive_lookback}"
 
-            if self.entity.math == BaseMathType.weekly_active:
+            if self.is_weekly_active_math:
                 actors_from_expr = ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Constant(value=actors_from),
                     right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
                 )
                 actors_to_expr = ast.Constant(value=actors_to)
-            elif self.entity.math == BaseMathType.monthly_active:
+            elif self.is_monthly_active_math:
                 actors_from_expr = ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Constant(value=actors_from),
@@ -285,7 +300,7 @@ class TrendsActorsQueryBuilder:
                 )
                 actors_to_expr = ast.Constant(value=actors_to)
 
-            if self.trends_date_range.explicit():
+            if self.is_explicit:
                 actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
                 actors_to_expr = ast.Call(
                     name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)]
