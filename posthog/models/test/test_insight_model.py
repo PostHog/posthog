@@ -166,11 +166,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {},
                 {
-                    "dateRange": {
-                        "date_from": None,
-                        "date_to": None,
-                        "explicitDate": None,
-                    },
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": None,
                 },
@@ -180,7 +176,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
@@ -190,7 +186,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
                 },
@@ -200,7 +196,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },

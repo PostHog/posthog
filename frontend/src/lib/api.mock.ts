@@ -1,4 +1,5 @@
 import apiReal from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
@@ -130,6 +131,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
