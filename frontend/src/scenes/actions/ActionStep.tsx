@@ -33,7 +33,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     }
 
     return (
-        <div className="bg-bg-light rounded border p-4 relative">
+        <div className="bg-bg-light rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
                 <div className="absolute top-1/2 -ml-9">
                     <OperandTag operand="or" />
@@ -44,7 +44,13 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     <b>Match Group #{index + 1}</b>
 
                     {!isOnlyStep && (
-                        <LemonButton icon={<IconX />} size="small" aria-label="delete" onClick={onDelete} />
+                        <LemonButton
+                            className="absolute top-2 right-2"
+                            icon={<IconX />}
+                            size="small"
+                            aria-label="delete"
+                            onClick={onDelete}
+                        />
                     )}
                 </div>
                 <TypeSwitcher step={step} sendStep={sendStep} />

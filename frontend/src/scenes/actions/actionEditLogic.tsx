@@ -9,7 +9,6 @@ import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -61,12 +60,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
             false,
             {
                 setCreateNew: (_, { createNew }) => createNew,
-            },
-        ],
-        wasDeleted: [
-            false,
-            {
-                deleteAction: () => true,
             },
         ],
     }),
@@ -134,12 +127,18 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
+            const actionId = values.action.id
             await deleteWithUndo({
                 endpoint: api.actions.determineDeleteEndpoint(),
                 object: values.action,
-                callback: () => {
-                    router.actions.push(urls.actions())
-                    actions.loadActions()
+                callback: (undo: boolean) => {
+                    if (undo) {
+                        router.actions.push(urls.action(actionId))
+                    } else {
+                        actions.resetAction()
+                        router.actions.push(urls.actions())
+                        actions.loadActions()
+                    }
                 },
             })
         },
@@ -178,8 +177,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
         },
     })),
 
-    beforeUnload(({ values }) => ({
-        enabled: () => values.activeScene !== Scene.Action && values.actionChanged && !values.wasDeleted,
-        message: `Leave action?\nChanges you made will be discarded.`,
+    beforeUnload(({ actions, values }) => ({
+        enabled: () => values.actionChanged,
+        message: 'Leave action?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            actions.resetAction()
+        },
     })),
 ])

@@ -27,7 +27,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
         action: loadedAction,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading } = useValues(logic)
+    const { action, actionLoading, actionChanged } = useValues(logic)
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { tags } = useValues(tagsModel)
@@ -142,6 +142,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 htmlType="submit"
                                 loading={actionLoading}
                                 onClick={submitAction}
+                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
                             >
                                 Save
                             </LemonButton>
@@ -201,36 +202,37 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                         )}
                     </LemonField>
                 </div>
-                <LemonField name="post_to_slack">
-                    {({ value, onChange }) => (
-                        <div className="my-4">
-                            <LemonCheckbox
-                                id="webhook-checkbox"
-                                checked={action.bytecode_error ? false : !!value}
-                                onChange={onChange}
-                                disabledReason={
-                                    !slackEnabled
-                                        ? 'Configure webhooks in project settings'
-                                        : action.bytecode_error ?? null
-                                }
-                                label={
-                                    <>
-                                        <span>Post to webhook when this action is triggered.</span>
-                                        {action.bytecode_error ? (
-                                            <IconWarning className="text-warning text-xl ml-1" />
-                                        ) : null}
-                                    </>
-                                }
-                            />
-                            <div className="mt-1 pl-6">
+
+                <div className="mb-4 space-y-2">
+                    <h2 className="subtitle">Webhook delivery</h2>
+                    <LemonField name="post_to_slack">
+                        {({ value, onChange }) => (
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <LemonCheckbox
+                                    id="webhook-checkbox"
+                                    bordered
+                                    checked={action.bytecode_error ? false : !!value}
+                                    onChange={onChange}
+                                    disabledReason={
+                                        !slackEnabled
+                                            ? 'Configure webhooks in project settings'
+                                            : action.bytecode_error ?? null
+                                    }
+                                    label={
+                                        <>
+                                            <span>Post to webhook when this action is triggered.</span>
+                                            {action.bytecode_error ? (
+                                                <IconWarning className="text-warning text-xl ml-1" />
+                                            ) : null}
+                                        </>
+                                    }
+                                />
                                 <Link to={urls.settings('project-integrations', 'integration-webhooks')}>
                                     {slackEnabled ? 'Configure' : 'Enable'} webhooks in project settings.
                                 </Link>
                             </div>
-                        </div>
-                    )}
-                </LemonField>
-                <div>
+                        )}
+                    </LemonField>
                     {action.post_to_slack && (
                         <>
                             {!action.bytecode_error && action.post_to_slack && (
