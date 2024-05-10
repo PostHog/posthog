@@ -38,7 +38,12 @@ export default function PasswordStrength({
         <Tooltip
             title={
                 <>
-                    Your password scores a <strong>{score}/5</strong>
+                    Your password scores a{" "}
+                    <strong className="space-x-0.5">
+                        <span>{score}</span>
+                        <span>/</span>
+                        <span>5</span>
+                    </strong>
                     {feedback ? (
                         <>
                             <LemonDivider />
