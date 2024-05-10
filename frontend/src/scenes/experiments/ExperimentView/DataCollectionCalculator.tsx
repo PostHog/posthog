@@ -18,7 +18,7 @@ interface ExperimentCalculatorProps {
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
     const {
-        minimumDetectableChange,
+        minimumDetectableEffect,
         experiment,
         conversionMetrics,
         minimumSampleSizePerVariant,
@@ -33,7 +33,7 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 
     // Displayed values
     const baselineConversionRate = funnelConversionRate.toFixed(1)
-    const minimumAcceptableConversionRate = (funnelConversionRate + (minimumDetectableChange || 5)).toFixed(1)
+    const minimumAcceptableConversionRate = (funnelConversionRate + (minimumDetectableEffect || 5)).toFixed(1)
     const recommendedSampleSize = humanFriendlyNumber(funnelSampleSize || 0)
 
     return (
@@ -69,7 +69,7 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 }
 
 function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { minimumDetectableChange, experiment, trendResults, recommendedExposureForCountData } = useValues(
+    const { minimumDetectableEffect, experiment, trendResults, recommendedExposureForCountData } = useValues(
         experimentLogic({ experimentId })
     )
 
@@ -79,7 +79,7 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
     // Displayed values
     const baselineCount = humanFriendlyNumber(trendCount || 0)
     const minimumAcceptableCount = humanFriendlyNumber(
-        trendCount + Math.ceil(trendCount * ((minimumDetectableChange || 5) / 100)) || 0
+        trendCount + Math.ceil(trendCount * ((minimumDetectableEffect || 5) / 100)) || 0
     )
     const recommendedRunningTime = humanFriendlyNumber(trendExposure || 0)
 
@@ -108,7 +108,7 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { experimentInsightType, minimumDetectableChange, experiment, conversionMetrics } = useValues(
+    const { experimentInsightType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
@@ -143,7 +143,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                     </div>
                     <div className="flex gap-4">
                         <LemonSlider
-                            value={minimumDetectableChange}
+                            value={minimumDetectableEffect}
                             min={1}
                             max={sliderMaxValue}
                             step={1}
@@ -165,7 +165,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                             max={sliderMaxValue}
                             defaultValue={5}
                             suffix={<span>%</span>}
-                            value={minimumDetectableChange}
+                            value={minimumDetectableEffect}
                             onChange={(value) => {
                                 if (value) {
                                     setExperiment({

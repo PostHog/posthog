@@ -12,7 +12,7 @@ import { experimentLogic } from '../experimentLogic'
 import { formatUnitByQuantity } from '../utils'
 import { DataCollectionCalculator } from './DataCollectionCalculator'
 
-export function ProgressBar(): JSX.Element {
+export function DataCollection(): JSX.Element {
     const { experimentId, experiment, experimentInsightType, funnelResultsPersonsTotal, actualRunningTime } =
         useValues(experimentLogic)
 

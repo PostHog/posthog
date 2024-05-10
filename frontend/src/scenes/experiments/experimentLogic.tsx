@@ -315,11 +315,11 @@ export const experimentLogic = kea<experimentLogicType>([
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             // Minimum Detectable Effect is calculated based on a loaded insight
             // Terminate if the insight did not manage to load in time
-            if (!minimumDetectableChange) {
+            if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
                 return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
@@ -338,7 +338,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ...values.experiment?.parameters,
                                 recommended_running_time: recommendedRunningTime,
                                 recommended_sample_size: recommendedSampleSize,
-                                minimum_detectable_effect: minimumDetectableChange,
+                                minimum_detectable_effect: minimumDetectableEffect,
                             },
                             ...(!draft && { start_date: dayjs() }),
                             // backwards compatibility: Remove any global properties set on the experiment.
@@ -365,7 +365,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...values.experiment?.parameters,
                             recommended_running_time: recommendedRunningTime,
                             recommended_sample_size: recommendedSampleSize,
-                            minimum_detectable_effect: minimumDetectableChange,
+                            minimum_detectable_effect: minimumDetectableEffect,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
@@ -502,8 +502,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             })
 
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
-            if (!minimumDetectableChange) {
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+            if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
                 return lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
@@ -519,20 +519,20 @@ export const experimentLogic = kea<experimentLogicType>([
                     ...values.experiment?.parameters,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: minimumDetectableChange,
+                    minimum_detectable_effect: minimumDetectableEffect,
                 },
             })
             actions.closeExperimentGoalModal()
         },
         updateExperimentCollectionGoal: async () => {
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableChange } = values
+            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
 
             actions.updateExperiment({
                 parameters: {
                     ...values.experiment?.parameters,
                     recommended_running_time: recommendedRunningTime,
                     recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: minimumDetectableChange || 0,
+                    minimum_detectable_effect: minimumDetectableEffect || 0,
                 },
             })
             actions.closeExperimentCollectionGoalModal()
@@ -857,7 +857,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         // TODO: unify naming (Minimum detectable change/Minimum detectable effect/Minimum acceptable improvement)
-        minimumDetectableChange: [
+        minimumDetectableEffect: [
             (s) => [s.experiment, s.experimentInsightType, s.conversionMetrics, s.trendResults],
             (newExperiment, experimentInsightType, conversionMetrics, trendResults): number => {
                 return (
@@ -869,7 +869,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumSampleSizePerVariant: [
-            (s) => [s.minimumDetectableChange],
+            (s) => [s.minimumDetectableEffect],
             (mde) => (conversionRate: number) => {
                 // Using the rule of thumb: sampleSize = 16 * sigma^2 / (mde^2)
                 // refer https://en.wikipedia.org/wiki/Sample_size_determination with default beta and alpha
@@ -1012,7 +1012,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         recommendedExposureForCountData: [
-            (s) => [s.minimumDetectableChange],
+            (s) => [s.minimumDetectableEffect],
             (mde) =>
                 (baseCountData: number): number => {
                     // http://www.columbia.edu/~cjd11/charles_dimaggio/DIRE/styled-4/code-12/
