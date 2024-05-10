@@ -122,7 +122,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
                     <LemonCheckbox
                         label={
                             <div className="flex items-center">
-                                <span>Shuffle Questions</span>
+                                <span>Shuffle questions</span>
                             </div>
                         }
                         onChange={(checked) => onAppearanceChange({ ...appearance, shuffleQuestions: checked })}
