@@ -79,7 +79,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertRaises(
             ExposedHogQLError,
             client.enqueue_process_query_task,
-            **{"team_id": self.team_id, "user_id": self.user_id, "query_json": query, "_test_only_bypass_celery": True},
+            **{"team": self.team, "user": self.user, "query_json": query, "_test_only_bypass_celery": True},
         )
         query_id = uuid.uuid4().hex
         try:
