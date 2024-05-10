@@ -66,7 +66,7 @@ class ActorsQueryRunner(QueryRunner):
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
-                    self._get_recordings(result[recordings_column_index], recordings_lookup) or None
+                    self._get_recordings(result[recordings_column_index], recordings_lookup) or []
                 )
 
             enriched.append(new_row)

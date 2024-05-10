@@ -46,11 +46,11 @@ def get_actors(
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
         funnelStep=funnel_step,
-        funnel_custom_steps=funnel_custom_steps,
-        funnel_step_breakdown=funnel_step_breakdown,
-        funnel_trends_drop_off=funnel_trends_drop_off,
-        funnel_trends_entrance_period_start=funnel_trends_entrance_period_start,
-        include_recordings=include_recordings,
+        funnelCustomSteps=funnel_custom_steps,
+        funnelStepBreakdown=funnel_step_breakdown,
+        funnelTrendsDropOff=funnel_trends_drop_off,
+        funnelTrendsEntrancePeriodStart=funnel_trends_entrance_period_start,
+        includeRecordings=include_recordings,
     )
     actors_query = ActorsQuery(
         source=funnel_actors_query,
