@@ -21,6 +21,9 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
 
+VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+
+
 def totp_str(key):
     return str(totp(key)).zfill(totp_digits())
 
@@ -509,7 +512,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.user.requested_password_reset_at = datetime.datetime.now()
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
-        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "00112233"})
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
 
@@ -520,7 +523,7 @@ class TestPasswordResetAPI(APIBaseTest):
 
         # check password was changed
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("00112233"))
+        self.assertTrue(self.user.check_password(VALID_TEST_PASSWORD))
         self.assertFalse(self.user.check_password(self.CONFIG_PASSWORD))  # type: ignore
         self.assertEqual(self.user.requested_password_reset_at, None)
 
@@ -530,7 +533,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         # new password can be used immediately
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": "00112233"})
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # assert events were captured
