@@ -104,6 +104,13 @@ class TrendsActorsQueryBuilder:
         )
 
     @cached_property
+    def is_compare_previous(self) -> bool:
+        return (
+            bool(self.trends_query.trendsFilter and self.trends_query.trendsFilter.compare)
+            and self.compare_value == Compare.previous
+        )
+
+    @cached_property
     def is_active_users_math(self) -> bool:
         return self.trends_aggregation_operations.is_active_users_math()
 
@@ -245,17 +252,18 @@ class TrendsActorsQueryBuilder:
         if self.time_frame and self.is_total_value:
             raise ValueError("A `day` is forbidden for trends actors queries with total value aggregation")
 
-        # adjust self.time_frame for compare_value
-        if self.compare_value == Compare.previous:
+        # use previous day/week/... for time_fame and date_range
+        if self.is_compare_previous:
             date_range = self.trends_previous_date_range
-            delta_mappings = date_range.date_from_delta_mappings()
-            relative_delta = relativedelta(**delta_mappings)
-            parsed_dt = isoparse(self.time_frame)
-            parse_dt_with_relative_delta = parsed_dt - relative_delta
-            if self.is_hourly:
-                self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d %H:%M:%S.%f")
-            else:
-                self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
+            if not self.is_total_value:
+                delta_mappings = date_range.date_from_delta_mappings()
+                relative_delta = relativedelta(**delta_mappings)
+                parsed_dt = isoparse(self.time_frame)
+                parse_dt_with_relative_delta = parsed_dt - relative_delta
+                if self.is_hourly:
+                    self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d %H:%M:%S.%f")
+                else:
+                    self.time_frame = parse_dt_with_relative_delta.strftime("%Y-%m-%d")
         else:
             date_range = self.trends_date_range
 

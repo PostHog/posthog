@@ -132,6 +132,22 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
             )
 
+    def test_date_range_total_value_compare_previous(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={"trendsFilter": TrendsFilter(display=ChartDisplayType.BoldNumber, compare=True)}, deep=True
+        )
+
+        with freeze_time("2022-06-15T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.current),
+                "greaterOrEquals(timestamp, toDateTime('2022-06-07 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-15 21:59:59.999999'))",
+            )
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.previous),
+                "greaterOrEquals(timestamp, toDateTime('2022-05-31 22:00:00.000000')), lessOrEquals(timestamp, toDateTime('2022-06-08 21:59:59.999999'))",
+            )
+
     def test_date_range_weekly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
