@@ -225,6 +225,12 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 {...commonDivProps}
                 data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                 onClick={() => {
+                    console.log({
+                        listGroupType,
+                        group,
+                        itemValue,
+                        item,
+                    })
                     return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
                 }}
             >
@@ -263,6 +269,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
     return (
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
+            <p>TODO</p>
             {showEmptyState ? (
                 <div className="no-infinite-results">
                     <Empty

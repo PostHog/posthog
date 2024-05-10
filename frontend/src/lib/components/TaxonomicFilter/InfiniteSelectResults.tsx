@@ -29,15 +29,13 @@ function CategoryPill({
     const { totalResultCount, totalListCount } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
-
-    // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
-    const canInteract = totalListCount > 0
+    const noResults = totalListCount > 0
 
     return (
         <LemonTag
-            type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
+            type={isActive ? 'primary' : noResults ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
-            onClick={canInteract ? onClick : undefined}
+            onClick={onClick}
             weight="normal"
         >
             {group?.render ? (
