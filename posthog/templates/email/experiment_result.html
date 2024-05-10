@@ -19,7 +19,7 @@
 <ul>
     <li>{{ significance_message }}</li>
     <li>
-        The experiment ran for
+        The experiment ran for around
         ~{{ experiment_ran_from|humanize_time_diff:experiment_ran_to }}.
     </li>
     {% if is_success %}
@@ -36,44 +36,45 @@
 </ul>
 
 <div class="mb mt text-center">
-  <a
-    class="button"
-    href="{% absolute_uri '/project' %}/{{ experiment.team.id }}/experiments/{{ experiment.pk }}"
-    target="_blank"
-    >Check the results</a
-  >
+    <a
+      class="button"
+      href="{% absolute_uri '/project' %}/{{ experiment.team.id }}/experiments/{{ experiment.pk }}"
+      target="_blank"
+    >
+        Check the results
+    </a>
 </div>
 
 {% if is_success %}
 <div>
-  <p>
-    Congratulations! Your experiment was a success! Here are a few next steps
-    you can consider:
-  </p>
-  <ul>
-    <li>
-      Roll out the winning variant of your experiment by setting the feature
-      flag conditions accordingly. This ensures that your users see the winning
-      variant without needing to make any code changes.
-    </li>
-    <li>
-      Remove the experiment and losing variant's code to launch the winning
-      variant to all your users.
-    </li>
-    <li>
-      Document conclusions and findings in the "description" field your PostHog
-      experiment. This will help preserve historical context for future team
-      members.
-    </li>
-    <li>Archive the experiment.</li>
-  </ul>
+    <p>
+        Congratulations! Your experiment was a success! Here are a few next steps
+        you can consider:
+    </p>
+    <ul>
+        <li>
+            Roll out the winning variant of your experiment by setting the feature
+            flag conditions accordingly. This ensures that your users see the winning
+            variant without needing to make any code changes.
+        </li>
+        <li>
+            Remove the experiment and losing variant's code to launch the winning
+            variant to all your users.
+        </li>
+        <li>
+            Document conclusions and findings in the "description" field your PostHog
+            experiment. This will help preserve historical context for future team
+            members.
+        </li>
+        <li>Archive the experiment.</li>
+    </ul>
 </div>
-{% else %}
+{% else %} <!-- else is_success -->
 <div class="mt">
-  <h2>What's next?</h2>
-  <b class="mt">{{ next_steps.0 }}</b>
-  <p>{{ next_steps.1 }}</p>
+    <h2>What's next?</h2>
+    <b class="mt">{{ next_steps.0 }}</b>
+    <p>{{ next_steps.1 }}</p>
 </div>
-{% endif %} 
+{% endif %} <!-- end is_success-->
 
 {% endblock %} <!-- end section -->
