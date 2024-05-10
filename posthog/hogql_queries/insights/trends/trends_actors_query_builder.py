@@ -254,43 +254,40 @@ class TrendsActorsQueryBuilder:
 
         conditions: list[ast.Expr] = []
 
-        # validate inputs
-        if not self.time_frame and not self.is_total_value:
-            raise ValueError("A `day` is required for trends actors queries without total value aggregation")
-
-        if self.time_frame and self.is_total_value:
-            raise ValueError("A `day` is forbidden for trends actors queries with total value aggregation")
-
-        # use previous day/week/... for time_fame and date_range
         if self.is_compare_previous:
             date_range = self.trends_previous_date_range
-            if not self.is_total_value:
-                delta_mappings = date_range.date_from_delta_mappings()
-                relative_delta = relativedelta(**delta_mappings)
+
+        query_from, query_to = date_range.date_from(), date_range.date_to()
+
+        if self.is_total_value:
+            assert (
+                self.time_frame is None
+            ), "A `day` is forbidden for trends actors queries with total value aggregation"
+
+            actors_from = query_from
+            actors_to = query_to
+            actors_to_op = ast.CompareOperationOp.LtEq
+        else:
+            assert self.time_frame, "A `day` is required for trends actors queries without total value aggregation"
+
+            # use previous day/week/... for time_fame and date_range
+            if self.is_compare_previous:
+                relative_delta = relativedelta(**date_range.date_from_delta_mappings())  # type: ignore
                 previous_time_frame = self.time_frame - relative_delta
                 if self.is_hourly:
                     self.time_frame = previous_time_frame
                 else:
                     self.time_frame = previous_time_frame.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        query_from, query_to = date_range.date_from(), date_range.date_to()
-
-        if self.is_total_value:
-            actors_from = query_from
-            actors_to = query_to
-            actors_to_op = ast.CompareOperationOp.LtEq
-        else:
-            assert self.time_frame
             actors_from = self.time_frame
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
 
+            # exclude events before the query start and after the query end
             if self.is_explicit and not self.is_active_users_math:
-                # exclude events before the query start
                 if query_from > actors_from:
                     actors_from = query_from
 
-                # exclude events after the query end
                 if query_to < actors_to:
                     actors_to_op = ast.CompareOperationOp.LtEq
                     actors_to = query_to
