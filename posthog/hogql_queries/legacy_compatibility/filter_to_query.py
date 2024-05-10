@@ -358,6 +358,7 @@ def _insight_filter(filter: dict):
                     else None
                 ),
                 period=filter.get("period"),
+                showMean=filter.get("show_mean"),
             )
         }
     elif _insight_type(filter) == "PATHS":

@@ -99,10 +99,8 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         defaultConfigForPlugin(values.plugin),
                         config
                     )
-                    for (const key in formdata) {
-                        formData.append(key, formdata[key])
-                    }
-                    formData.append('enabled', enabled)
+                    // NOTE: getPluginConfigFormData already appends enabled
+                    // formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
                     // if enabling a transformation we need to set the order to be last

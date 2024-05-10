@@ -15,9 +15,8 @@ function getHogQLValue(groupIndex?: number, aggregationQuery?: string): string {
         return `$group_${groupIndex}`
     } else if (aggregationQuery) {
         return aggregationQuery
-    } else {
-        return UNIQUE_USERS
     }
+    return UNIQUE_USERS
 }
 
 function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQuery?: string } {
@@ -25,9 +24,8 @@ function hogQLToFilterValue(value?: string): { groupIndex?: number; aggregationQ
         return { groupIndex: parseInt(value.replace('$group_', '')) }
     } else if (value === 'person_id') {
         return {}
-    } else {
-        return { aggregationQuery: value }
     }
+    return { aggregationQuery: value }
 }
 
 const UNIQUE_USERS = 'person_id'

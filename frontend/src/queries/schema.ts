@@ -756,6 +756,7 @@ export type RetentionFilter = {
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     period?: RetentionFilterLegacy['period']
+    showMean?: RetentionFilterLegacy['show_mean']
 }
 
 export interface RetentionValue {

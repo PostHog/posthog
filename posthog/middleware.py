@@ -645,11 +645,25 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
         return response
 
 
+def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
+    return request.session.setdefault(settings.SESSION_COOKIE_CREATED_AT_KEY, time.time())
+
+
+class SessionAgeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
+        get_or_set_session_cookie_created_at(request=request)
+        return self.get_response(request)
+
+
 def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
     if not is_impersonated_session(request):
         return None
 
-    init_time = request.session.setdefault(settings.IMPERSONATION_SESSION_KEY, time.time())
+    init_time = get_or_set_session_cookie_created_at(request=request)
 
     return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
@@ -685,10 +699,5 @@ class AutoLogoutImpersonateMiddleware:
             else:
                 restore_original_login(request)
                 return redirect("/admin/")
-
-        expire_since_last_activity = settings.IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY
-
-        if expire_since_last_activity:
-            request.session[settings.IMPERSONATION_SESSION_KEY] = time.time()
 
         return self.get_response(request)
