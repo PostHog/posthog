@@ -249,11 +249,13 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedRetentionProps.returning_entity = queryCopy.retentionFilter?.returningEntity
         camelCasedRetentionProps.target_entity = queryCopy.retentionFilter?.targetEntity
         camelCasedRetentionProps.total_intervals = queryCopy.retentionFilter?.totalIntervals
+        camelCasedRetentionProps.show_mean = queryCopy.retentionFilter?.showMean
         delete queryCopy.retentionFilter?.retentionReference
         delete queryCopy.retentionFilter?.retentionType
         delete queryCopy.retentionFilter?.returningEntity
         delete queryCopy.retentionFilter?.targetEntity
         delete queryCopy.retentionFilter?.totalIntervals
+        delete queryCopy.retentionFilter?.showMean
     } else if (isPathsQuery(queryCopy)) {
         camelCasedPathsProps.edge_limit = queryCopy.pathsFilter?.edgeLimit
         camelCasedPathsProps.paths_hogql_expression = queryCopy.pathsFilter?.pathsHogQLExpression

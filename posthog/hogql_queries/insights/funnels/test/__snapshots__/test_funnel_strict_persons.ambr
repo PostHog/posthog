@@ -134,12 +134,8 @@
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s1']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s1']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -284,12 +280,8 @@
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -434,12 +426,8 @@
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM
-    (SELECT session_replay_events.session_id AS session_id
-     FROM session_replay_events
-     WHERE equals(session_replay_events.team_id, 2)
-     GROUP BY session_replay_events.session_id) AS session_replay_events
-  WHERE ifNull(in(session_replay_events.session_id, ['s2']), 0)
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 2), ifNull(greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), 0), in(session_replay_events.session_id, ['s2']))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
