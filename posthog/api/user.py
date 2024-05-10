@@ -68,6 +68,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -98,6 +99,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "sensitive_session_expires_at",
             "team",
             "organization",
             "organizations",
@@ -121,6 +123,8 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "has_password",
             "is_impersonated",
+            "is_impersonated_until",
+            "sensitive_session_expires_at",
             "team",
             "organization",
             "organizations",
@@ -132,7 +136,7 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def get_has_password(self, instance: User) -> bool:
-        return instance.has_usable_password()
+        return bool(instance.password) and instance.has_usable_password()
 
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:
@@ -143,9 +147,26 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):
             return None
 
-        time = get_impersonated_session_expires_at(self.context["request"])
+        expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
-        return time.replace(tzinfo=timezone.utc).isoformat() if time else None
+        return expires_at_time.replace(tzinfo=timezone.utc).isoformat() if expires_at_time else None
+
+    def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
+        if "request" not in self.context:
+            return None
+
+        session_created_at: int = self.context["request"].session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return None
+
+        # Session expiry is the time when the session was created plus the
+        session_expiry_time = datetime.fromtimestamp(session_created_at) + timedelta(
+            seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
+        )
+
+        return session_expiry_time.replace(tzinfo=timezone.utc).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
