@@ -55,7 +55,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     date?: string
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
-    entitiesAsColumnsOverride?: boolean
+    formula?: boolean
     groupTypeLabel?: string
     timezone?: string | null
 }
@@ -79,6 +79,7 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+    minute: 'DD MMM YYYY HH:mm:00',
     hour: 'DD MMM YYYY HH:00',
     day: 'DD MMM YYYY',
     week: 'DD MMM YYYY',

@@ -632,7 +632,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         -- because any not-the-lowest min value is _more_ greater than the min value
         -- and any not-the-highest max value is _less_ lower than the max value
         AND s.min_first_timestamp >= %(start_time)s
-        AND s.max_last_timestamp <= %(end_time)s
+        AND s.min_first_timestamp <= %(end_time)s
         {persons_sub_query}
         {events_sub_query}
     {provided_session_ids_clause}
