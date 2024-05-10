@@ -520,7 +520,7 @@ export function LineGraph_({
                                             )} (${percentageLabel}%)`
                                         })
                                     }
-                                    entitiesAsColumnsOverride={formula ? false : undefined}
+                                    formula={!!formula}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
                                     groupTypeLabel={
                                         labelGroupType === 'people'
@@ -712,13 +712,15 @@ export function LineGraph_({
                             if (d.actions?.[i]?.custom_name) {
                                 labelDescriptors = [
                                     d.actions?.[i]?.custom_name,
-                                    d.breakdownValues?.[i],
+                                    d.breakdownLabels?.[i],
                                     d.compareLabels?.[i],
                                 ]
+                            } else if (d.breakdownLabels?.[i]) {
+                                labelDescriptors = [d.breakdownLabels[i], d.compareLabels?.[i]]
                             } else if (d.labels?.[i]) {
                                 labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
                             } else {
-                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownValues?.[i], d.compareLabels?.[i]]
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownLabels?.[i], d.compareLabels?.[i]]
                             }
                             return labelDescriptors.filter((l) => !!l).join(' - ')
                         },

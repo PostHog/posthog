@@ -9,6 +9,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
+    DataWarehouseNode,
     DateRange,
     EventsNode,
     FunnelExclusionActionsNode,
@@ -56,7 +57,7 @@ def clean_display(display: str):
 
 def legacy_entity_to_node(
     entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
-) -> EventsNode | ActionsNode:
+) -> EventsNode | ActionsNode | DataWarehouseNode:
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
@@ -92,6 +93,15 @@ def legacy_entity_to_node(
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
+    elif entity.type == "data_warehouse":
+        return DataWarehouseNode(
+            id=entity.id,
+            id_field=entity.id_field,
+            distinct_id_field=entity.distinct_id_field,
+            timestamp_field=entity.timestamp_field,
+            table_name=entity.table_name,
+            **shared,
+        )
     else:
         return EventsNode(event=entity.id, **shared)
 
@@ -202,6 +212,12 @@ def _entities(filter: dict):
     if isinstance(events, str):
         events = json.loads(events)
     processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
+
+    # add data warehouse
+    warehouse = filter.get("data_warehouse", [])
+    if isinstance(warehouse, str):
+        warehouse = json.loads(warehouse)
+    processed_entities.extend([LegacyEntity({**entity, "type": "data_warehouse"}) for entity in warehouse])
 
     # order by order
     processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
@@ -342,6 +358,7 @@ def _insight_filter(filter: dict):
                     else None
                 ),
                 period=filter.get("period"),
+                showMean=filter.get("show_mean"),
             )
         }
     elif _insight_type(filter) == "PATHS":
