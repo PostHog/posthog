@@ -2,6 +2,7 @@ import datetime
 import uuid
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
@@ -808,3 +809,28 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+
+
+class TestTimeSensitivePermissions(APIBaseTest):
+    def test_after_timeout_modifications_require_reauthentication(self):
+        now = datetime.datetime.now()
+        with freeze_time(now):
+            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            assert res.status_code == 200
+
+        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch("/api/projects/@current", {"name": "new name"})
+            assert res.status_code == 403
+            assert res.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "This action requires you to be recently authenticated.",
+                "attr": None,
+            }
+
+            res = self.client.get("/api/projects/@current")
+            assert res.status_code == 200
