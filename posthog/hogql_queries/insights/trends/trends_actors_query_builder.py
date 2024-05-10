@@ -291,12 +291,12 @@ class TrendsActorsQueryBuilder:
 
         # adjust date_from for weekly and monthly active calculations
         if self.is_active_users_math:
-            # if self.is_total_value:
-            #     # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
-            #     # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
-            #     # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
-            #     # This way we at least ensure the date range is the probably expected 7 or 30 days.
-            #     date_from_with_lookback = "{date_to} - {inclusive_lookback}"
+            if self.is_total_value:
+                # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
+                # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
+                # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
+                # This way we at least ensure the date range is the probably expected 7 or 30 days.
+                actors_from = actors_to
 
             if self.is_weekly_active_math:
                 actors_from_expr = ast.ArithmeticOperation(
