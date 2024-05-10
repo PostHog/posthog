@@ -43,7 +43,7 @@ class TestExecuteProcessQuery(TestCase):
         mock_process_query.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
 
         execute_process_query(
-            self.team, self.user, self.query_id, self.query_json, self.limit_context, self.refresh_requested
+            self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context, self.refresh_requested
         )
 
         mock_redis_client.assert_called_once()
