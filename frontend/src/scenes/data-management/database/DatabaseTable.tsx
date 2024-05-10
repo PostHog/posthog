@@ -2,15 +2,14 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
 
 interface DatabaseTableProps {
     table: string
-    tables: DatabaseTableListRow[]
+    tables: DatabaseSchemaTable[]
     inEditSchemaMode: boolean
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
 }
@@ -34,7 +33,7 @@ const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditable
 }
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
-    const dataSource = tables.find(({ name }) => name === table)?.columns ?? []
+    const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
 
     return (
         <LemonTable
@@ -43,7 +42,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                 {
                     title: 'Column',
                     key: 'key',
-                    dataIndex: 'key',
+                    dataIndex: 'name',
                     render: function RenderColumn(column) {
                         return <code>{column}</code>
                     },
@@ -52,7 +51,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     title: 'Type',
                     key: 'type',
                     dataIndex: 'type',
-                    render: function RenderType(_, { key, type, schema_valid }) {
+                    render: function RenderType(_, { name, type, schema_valid }) {
                         if (inEditSchemaMode && !isNonEditableSchemaType(type)) {
                             return (
                                 <LemonSelect
@@ -60,7 +59,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                                     value={type}
                                     onChange={(newValue) => {
                                         if (schemaOnChange) {
-                                            schemaOnChange(key, newValue as DatabaseSerializedFieldType)
+                                            schemaOnChange(name, newValue as DatabaseSerializedFieldType)
                                         }
                                     }}
                                 />
@@ -115,17 +114,17 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                             )
                         } else if (type === 'field_traverser' && Array.isArray((field as any).chain)) {
                             return <code>{(field as any).chain.join('.')}</code>
-                        } else if (table == 'events' && type == 'json' && field.key == 'properties') {
+                        } else if (table == 'events' && type == 'json' && field.name == 'properties') {
                             return <Link to={urls.propertyDefinitions('event')}>Manage event properties</Link>
-                        } else if (table == 'persons' && type == 'json' && field.key == 'properties') {
+                        } else if (table == 'persons' && type == 'json' && field.name == 'properties') {
                             return <Link to={urls.propertyDefinitions('person')}>Manage person properties</Link>
                         }
 
                         if (!field.schema_valid && !inEditSchemaMode) {
                             return (
                                 <>
-                                    <code>{field.key}</code> can't be parsed as a <code>{field.type}</code>. It will not
-                                    be queryable until this is fixed.
+                                    <code>{field.name}</code> can't be parsed as a <code>{field.type}</code>. It will
+                                    not be queryable until this is fixed.
                                 </>
                             )
                         }
@@ -141,7 +140,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         if (data.type === 'view') {
                             return (
                                 <div className="flex flex-row justify-between">
-                                    <ViewLinkDeleteButton table={table} column={data.key} />
+                                    <ViewLinkDeleteButton table={table} column={data.name} />
                                 </div>
                             )
                         }

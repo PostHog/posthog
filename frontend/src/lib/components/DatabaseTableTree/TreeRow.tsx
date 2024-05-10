@@ -5,14 +5,15 @@ import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { useCallback, useState } from 'react'
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+
+import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf } from './DatabaseTableTree'
 
 export interface TreeRowProps {
     item: TreeItemLeaf
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
+    onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
 }
 
@@ -34,8 +35,8 @@ export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element 
 export interface TreeFolderRowProps {
     item: TreeItemFolder
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
-    selectedRow?: DataWarehouseTableType | null
+    onClick?: (row: DatabaseSchemaTable) => void
+    selectedRow?: DatabaseSchemaTable | null
 }
 
 export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {

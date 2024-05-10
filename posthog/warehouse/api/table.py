@@ -60,11 +60,23 @@ class TableSerializer(serializers.ModelSerializer):
         if not database:
             database = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(
+        fields = serialize_fields(
             table.hogql_definition().fields,
             HogQLContext(database=database, team_id=self.context["team_id"]),
             table.columns,
         )
+
+        return [
+            SerializedField(
+                key=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
     def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
@@ -109,7 +121,18 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         if not database:
             database = create_hogql_database(team_id=self.context["team_id"])
 
-        return serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
+        fields = serialize_fields(table.hogql_definition().fields, HogQLContext(database=database, team_id=team_id))
+        return [
+            SerializedField(
+                key=field.name,
+                type=field.type,
+                schema_valid=field.schema_valid,
+                fields=field.fields,
+                table=field.table,
+                chain=field.chain,
+            )
+            for field in fields
+        ]
 
 
 class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

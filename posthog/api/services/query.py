@@ -16,6 +16,7 @@ from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    DatabaseSchemaQueryResponse,
     HogQLAutocomplete,
     HogQLMetadata,
     QuerySchemaRoot,
@@ -70,7 +71,7 @@ def process_query_model(
         elif isinstance(query, DatabaseSchemaQuery):
             database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = serialize_database(context)
+            result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
         elif isinstance(query, TimeToSeeDataSessionsQuery):
             sessions_query_serializer = SessionsQuerySerializer(data=query)
             sessions_query_serializer.is_valid(raise_exception=True)
@@ -92,5 +93,5 @@ def process_query_model(
         result = query_runner.run(execution_mode=execution_mode)
 
     if isinstance(result, BaseModel):
-        return result.model_dump()
+        return result.model_dump(by_alias=True)
     return result

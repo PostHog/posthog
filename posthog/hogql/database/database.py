@@ -1,7 +1,8 @@
-from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
+from django.db.models import Q
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -57,8 +58,20 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers, PersonsOnEventsMode
-from posthog.warehouse.models.table import DataWarehouseTableColumns
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaField,
+    DatabaseSchemaPostHogTable,
+    DatabaseSchemaSchema,
+    DatabaseSchemaSource,
+    DatabaseSerializedFieldType,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+)
+from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -143,6 +156,9 @@ class Database(BaseModel):
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
+
+    def get_warehouse_tables(self) -> list[str]:
+        return self._warehouse_table_names
 
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
@@ -351,26 +367,32 @@ def create_hogql_database(
     return database
 
 
-class _SerializedFieldBase(TypedDict):
+class SerializedField(BaseModel):
     key: str
     type: DatabaseSerializedFieldType
     schema_valid: bool
+    fields: Optional[list[str]] = None
+    table: Optional[str] = None
+    chain: Optional[list[str | int]] = None
 
 
-class SerializedField(_SerializedFieldBase, total=False):
-    fields: list[str]
-    table: str
-    chain: list[str | int]
+DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable
 
 
-def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]]:
-    tables: dict[str, list[SerializedField]] = {}
+def serialize_database(
+    context: HogQLContext,
+) -> dict[str, DatabaseSchemaTable]:
+    tables: dict[str, DatabaseSchemaTable] = {}
 
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
 
-    table_names = context.database.get_posthog_tables()
-    for table_key in table_names:
+    if context.team_id is None:
+        raise ResolutionError("Must provide team_id to serialize_database")
+
+    # PostHog Tables
+    posthog_tables = context.database.get_posthog_tables()
+    for table_key in posthog_tables:
         field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
@@ -378,18 +400,95 @@ def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: list[SerializedField] = serialize_fields(field_input, context)
-        tables[table_key] = field_output
+        fields = serialize_fields(field_input, context)
+        fields_dict = {field.name: field for field in fields}
+        tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
+
+    # Data Warehouse Tables
+    warehouse_table_names = context.database.get_warehouse_tables()
+    warehouse_tables = (
+        list(
+            DataWarehouseTable.objects.prefetch_related("external_data_source")
+            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+            .all()
+        )
+        if len(warehouse_table_names) > 0
+        else []
+    )
+    warehouse_schemas = (
+        list(ExternalDataSchema.objects.filter(table_id__in=[table.id for table in warehouse_tables]).all())
+        if len(warehouse_tables) > 0
+        else []
+    )
+    for warehouse_table in warehouse_tables:
+        table_key = warehouse_table.name
+
+        field_input = {}
+        table = getattr(context.database, table_key, None)
+        if isinstance(table, FunctionCallTable):
+            field_input = table.get_asterisk()
+        elif isinstance(table, Table):
+            field_input = table.fields
+
+        fields = serialize_fields(field_input, context)
+        fields_dict = {field.name: field for field in fields}
+
+        # Schema
+        schema_filter: list[ExternalDataSchema] = list(
+            filter(lambda schema: schema.table_id == warehouse_table.id, warehouse_schemas)
+        )
+        if len(schema_filter) == 0:
+            schema: DatabaseSchemaSchema | None = None
+        else:
+            db_schema = schema_filter[0]
+            schema = DatabaseSchemaSchema(
+                id=str(db_schema.id),
+                name=db_schema.name,
+                should_sync=db_schema.should_sync,
+                incremental=db_schema.is_incremental,
+                status=db_schema.status,
+                last_synced_at=str(db_schema.last_synced_at),
+            )
+
+        # Source
+        if warehouse_table.external_data_source is None:
+            source: DatabaseSchemaSource | None = None
+        else:
+            db_source: ExternalDataSource = warehouse_table.external_data_source
+            latest_completed_run = (
+                ExternalDataJob.objects.filter(pipeline_id=db_source.pk, status="Completed", team_id=context.team_id)
+                .order_by("-created_at")
+                .first()
+            )
+            source = DatabaseSchemaSource(
+                id=str(db_source.source_id),
+                status=db_source.status,
+                source_type=db_source.source_type,
+                prefix=db_source.prefix,
+                last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
+            )
+
+        tables[table_key] = DatabaseSchemaDataWarehouseTable(
+            fields=fields_dict,
+            id=str(warehouse_table.id),
+            name=table_key,
+            format=warehouse_table.format,
+            url_pattern=warehouse_table.url_pattern,
+            schema=schema,
+            source=source,
+        )
+
+    # TODO(tom): Add in views here (note: views get added with "data warehouse tables" at the moment, see L295)
 
     return tables
 
 
 def serialize_fields(
     field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
-) -> list[SerializedField]:
+) -> list[DatabaseSchemaField]:
     from posthog.hogql.database.models import SavedQuery
 
-    field_output: list[SerializedField] = []
+    field_output: list[DatabaseSchemaField] = []
     for field_key, field in field_input.items():
         try:
             if db_columns is not None:
@@ -412,68 +511,86 @@ def serialize_fields(
 
             if isinstance(field, IntegerDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.integer, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.integer, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, FloatDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.float, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.float, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, StringDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.string, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.string, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, DateTimeDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.datetime, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.datetime, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, DateDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.date, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.date, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, BooleanDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.boolean, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.boolean, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, StringJSONDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.json, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.json, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.array, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.array, schema_valid=schema_valid
+                    )
                 )
             elif isinstance(field, ExpressionField):
                 field_output.append(
-                    {"key": field_key, "type": DatabaseSerializedFieldType.expression, "schema_valid": schema_valid}
+                    DatabaseSchemaField(
+                        name=field_key, type=DatabaseSerializedFieldType.expression, schema_valid=schema_valid
+                    )
                 )
         elif isinstance(field, LazyJoin):
             is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
-                {
-                    "key": field_key,
-                    "type": DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
-                    "table": field.resolve_table(context).to_printed_hogql(),
-                    "fields": list(field.resolve_table(context).fields.keys()),
-                    "schema_valid": schema_valid,
-                }
+                DatabaseSchemaField(
+                    name=field_key,
+                    type=DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
+                    schema_valid=schema_valid,
+                    table=field.resolve_table(context).to_printed_hogql(),
+                    fields=list(field.resolve_table(context).fields.keys()),
+                )
             )
         elif isinstance(field, VirtualTable):
             field_output.append(
-                {
-                    "key": field_key,
-                    "type": DatabaseSerializedFieldType.virtual_table,
-                    "table": field.to_printed_hogql(),
-                    "fields": list(field.fields.keys()),
-                    "schema_valid": schema_valid,
-                }
+                DatabaseSchemaField(
+                    name=field_key,
+                    type=DatabaseSerializedFieldType.virtual_table,
+                    schema_valid=schema_valid,
+                    table=field.to_printed_hogql(),
+                    fields=list(field.fields.keys()),
+                )
             )
         elif isinstance(field, FieldTraverser):
             field_output.append(
-                {
-                    "key": field_key,
-                    "type": DatabaseSerializedFieldType.field_traverser,
-                    "chain": field.chain,
-                    "schema_valid": schema_valid,
-                }
+                DatabaseSchemaField(
+                    name=field_key,
+                    type=DatabaseSerializedFieldType.field_traverser,
+                    schema_valid=schema_valid,
+                    chain=field.chain,
+                )
             )
     return field_output
