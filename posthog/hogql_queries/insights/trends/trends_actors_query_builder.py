@@ -208,6 +208,7 @@ class TrendsActorsQueryBuilder:
         actors_from: datetime
         actors_from_expr: ast.Expr
         actors_to: datetime
+        actors_to_expr: ast.Expr
         actors_to_op: ast.CompareOperationOp
 
         conditions: list[ast.Expr] = []
@@ -240,21 +241,13 @@ class TrendsActorsQueryBuilder:
         else:
             assert self.time_frame
 
-            # if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
-            #     BaseMathType.weekly_active,
-            #     BaseMathType.monthly_active,
-            # ):
-            #     # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
-            #     # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
-            #     # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
-            #     # This way we at least ensure the date range is the probably expected 7 or 30 days.
-            #     date_from_with_lookback = "{date_to} - {inclusive_lookback}"
-
             actors_from = parse(self.time_frame, tzinfos={None: self.team.timezone_info})
             actors_to = actors_from + date_range.interval_relativedelta()
             actors_to_op = ast.CompareOperationOp.Lt
 
-            if self.trends_date_range.explicit():
+            if self.trends_date_range.explicit() and not (
+                self.entity.math == BaseMathType.weekly_active or self.entity.math == BaseMathType.monthly_active
+            ):
                 # exclude events before the query start
                 if query_from > actors_from:
                     actors_from = query_from
@@ -266,23 +259,40 @@ class TrendsActorsQueryBuilder:
 
         # adjust date_from for weekly and monthly active calculations
         if self.entity.math == BaseMathType.weekly_active or self.entity.math == BaseMathType.monthly_active:
+            # if self.trends_display.is_total_value():
+            # if self.chart_display_type in NON_TIME_SERIES_DISPLAY_TYPES and self.series.math in (
+            #     BaseMathType.weekly_active,
+            #     BaseMathType.monthly_active,
+            # ):
+            #     # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
+            #     # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
+            #     # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
+            #     # This way we at least ensure the date range is the probably expected 7 or 30 days.
+            #     date_from_with_lookback = "{date_to} - {inclusive_lookback}"
+
             if self.entity.math == BaseMathType.weekly_active:
                 actors_from_expr = ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Constant(value=actors_from),
                     right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
                 )
+                actors_to_expr = ast.Constant(value=actors_to)
             elif self.entity.math == BaseMathType.monthly_active:
                 actors_from_expr = ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Constant(value=actors_from),
                     right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
                 )
+                actors_to_expr = ast.Constant(value=actors_to)
 
             if self.trends_date_range.explicit():
                 actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
+                actors_to_expr = ast.Call(
+                    name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)]
+                )
         else:
             actors_from_expr = ast.Constant(value=actors_from)
+            actors_to_expr = ast.Constant(value=actors_to)
 
         conditions.extend(
             [
@@ -294,7 +304,7 @@ class TrendsActorsQueryBuilder:
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
                     op=actors_to_op,
-                    right=ast.Constant(value=actors_to),
+                    right=actors_to_expr,
                 ),
             ]
         )

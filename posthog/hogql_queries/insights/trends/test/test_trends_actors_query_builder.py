@@ -24,6 +24,8 @@ default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=Da
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):
+    maxDiff = None
+
     def setUp(self):
         super().setUp()
 
@@ -155,7 +157,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-26 22:00:00.000000'), toIntervalDay(29))), less(timestamp, toDateTime('2024-05-27 22:00:00.000000'))",
             )
 
-    def test_date_range_explicit_dates(self):
+    def test_date_range_explicit_date_from(self):
         self.team.timezone = "Europe/Berlin"
 
         trends_query = default_query.model_copy(
@@ -168,6 +170,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, toDateTime('2024-05-08 14:29:13.634000')), lessOrEquals(timestamp, toDateTime('2024-05-08 15:32:00.000000'))",
             )
 
+    def test_date_range_explicit_date_to(self):
         trends_query = default_query.model_copy(
             update={
                 "dateRange": DateRange(
@@ -182,6 +185,8 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, toDateTime('2024-05-08 14:29:13.634000')), lessOrEquals(timestamp, toDateTime('2024-05-08 14:32:57.692000'))",
             )
 
+    def test_date_range_explicit_monthly_active_users_math(self):
+        self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.monthly_active)],
@@ -194,5 +199,5 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         with freeze_time("2024-05-08T15:32:00.000Z"):
             self.assertEqual(
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
-                "greaterOrEquals(timestamp, toDateTime('2024-05-08 14:29:13.634000')), lessOrEquals(timestamp, toDateTime('2024-05-08 14:32:57.692000'))",
+                "greaterOrEquals(timestamp, greatest(minus(toDateTime('2024-05-07 22:00:00.000000'), toIntervalDay(29)), toDateTime('2024-05-08 14:29:13.634000'))), less(timestamp, least(toDateTime('2024-05-08 22:00:00.000000'), toDateTime('2024-05-08 14:32:57.692000')))",
             )
