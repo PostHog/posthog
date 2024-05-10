@@ -10,10 +10,12 @@ from ee.clickhouse.queries.experiments.secondary_experiment_result import (
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_results import calculate_experiment_results, experiment_results_cached
+from ee.tasks.experiments import schedule_results_email
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.constants import ExperimentFinishActionType
 from posthog.models.experiment import Experiment
 from posthog.models.filters.filter import Filter
 
@@ -131,7 +133,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Experiment, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         has_start_date = validated_data.get("start_date") is not None
+        has_end_date = validated_data.get("end_date") is not None
+
         feature_flag = instance.feature_flag
+        finish_actions = instance.finish_actions or []
 
         expected_keys = {
             "name",
@@ -142,6 +147,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "parameters",
             "archived",
             "secondary_metrics",
+            "finish_actions",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -166,6 +172,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
         properties = validated_data.get("filters", {}).get("properties")
         if properties:
             raise ValidationError("Experiments do not support global filter properties")
+
+        if has_end_date:
+            for finish_action in finish_actions:
+                if finish_action.get("action") == ExperimentFinishActionType.SEND_EMAIL:
+                    schedule_results_email(instance.pk)
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

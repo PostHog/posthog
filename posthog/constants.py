@@ -270,6 +270,10 @@ class ExperimentNoResultsErrorKeys(str, Enum):
     NO_RESULTS = "no-results"
 
 
+class ExperimentFinishActionType(str, Enum):
+    SEND_EMAIL = "send_email"
+
+
 class PropertyOperatorType(str, Enum):
     AND = "AND"
     OR = "OR"

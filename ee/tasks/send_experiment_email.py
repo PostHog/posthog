@@ -1,4 +1,4 @@
-from posthog.constants import ExperimentSignificanceCode
+from posthog.constants import ExperimentFinishActionType, ExperimentSignificanceCode
 from posthog.email import EmailMessage
 
 from django import template
@@ -97,7 +97,7 @@ def _get_email_recepients(experiment, experiment_results):
     significant = experiment_results["significant"]
     finish_actions = experiment.finish_actions
 
-    email_action = next(filter(lambda x: x.get("action") == "SEND_EMAIL", finish_actions))
+    email_action = next(filter(lambda x: x.get("action") == ExperimentFinishActionType.SEND_EMAIL, finish_actions))
 
     value = email_action.get("value")
     email_recepients = value.get("ALL")
