@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 
@@ -290,7 +291,7 @@ class TestDatabase(BaseTest):
 
         printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
-        assert printed == self.snapshot
+        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(

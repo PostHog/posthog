@@ -547,6 +547,7 @@ class InsightType(str, Enum):
 
 
 class IntervalType(str, Enum):
+    minute = "minute"
     hour = "hour"
     day = "day"
     week = "week"
@@ -2336,6 +2337,7 @@ class RetentionFilter(BaseModel):
     retentionReference: Optional[RetentionReference] = None
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = None
 
@@ -2348,6 +2350,7 @@ class RetentionFilterLegacy(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
+    show_mean: Optional[bool] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 

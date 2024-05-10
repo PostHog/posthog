@@ -202,7 +202,10 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [{"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"}]
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "posthog.auth.ZxcvbnValidator"},
+]
 
 PASSWORD_RESET_TIMEOUT = 86_400  # 1 day
 
@@ -361,3 +364,5 @@ IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
 )
 
 IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
+
+PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))

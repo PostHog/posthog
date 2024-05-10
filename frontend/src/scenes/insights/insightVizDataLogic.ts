@@ -9,7 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
@@ -62,7 +62,7 @@ import {
     isTrendsQuery,
     nodeKindToFilterProperty,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
@@ -284,8 +284,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath],
-            (activeUsersMath) => {
+            (s) => [s.activeUsersMath, s.isTrends],
+            (activeUsersMath, isTrends): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
 
                 if (activeUsersMath) {
@@ -303,6 +303,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
                         }
+                    }
+                }
+
+                if (!isTrends) {
+                    enabledIntervals.minute = {
+                        ...enabledIntervals.minute,
+                        hidden: true,
                     }
                 }
 
@@ -462,6 +469,10 @@ const handleQuerySourceUpdateSideEffects = (
 
     const interval = (currentState as TrendsQuery).interval
 
+    const oneHourDateRange = {
+        date_from: '-1h',
+    }
+
     /*
      * Series change side effects.
      */
@@ -469,17 +480,20 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user just flipped an event action to use WAUs/MAUs math and their
     // current interval is unsupported by the math type, switch their interval
     // to an appropriate allowed interval and inform them of the change via a toast
-    if (maybeChangedActiveUsersMath !== null && (interval === 'hour' || interval === 'month')) {
-        if (interval === 'hour') {
+    if (
+        maybeChangedActiveUsersMath !== null &&
+        (interval === 'hour' || interval === 'month' || interval === 'minute')
+    ) {
+        if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+            ;(mergedUpdate as TrendsQuery).interval = 'day'
         } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = 'week'
+            ;(mergedUpdate as TrendsQuery).interval = 'week'
         }
     }
 
@@ -498,27 +512,29 @@ const handleQuerySourceUpdateSideEffects = (
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
             if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'hour'
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'day'
+                ;(mergedUpdate as TrendsQuery).interval = 'day'
             } else {
-                ;(mergedUpdate as Partial<TrendsQuery>).interval = 'month'
+                ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
         } else {
             // get a defaultInterval for dateOptions that have a default value
-            let newDefaultInterval: IntervalType = 'day'
-            for (const { key, values, defaultInterval } of dateMapping) {
-                if (
+            const selectedDateMapping = dateMapping.find(
+                ({ key, values, defaultInterval }) =>
                     values[0] === date_from &&
                     values[1] === (date_to || undefined) &&
                     key !== 'Custom' &&
                     defaultInterval
-                ) {
-                    newDefaultInterval = defaultInterval
-                    break
-                }
+            )
+
+            if (!selectedDateMapping && isTrendsQuery(currentState) && is12HoursOrLess(date_from)) {
+                ;(mergedUpdate as TrendsQuery).interval = 'minute'
+            } else if (!selectedDateMapping && isLessThan2Days(date_from)) {
+                ;(mergedUpdate as TrendsQuery).interval = 'hour'
+            } else {
+                ;(mergedUpdate as TrendsQuery).interval = selectedDateMapping?.defaultInterval || 'day'
             }
-            ;(mergedUpdate as Partial<TrendsQuery>).interval = newDefaultInterval
         }
     }
 
@@ -552,6 +568,51 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         mergedUpdate['breakdownFilter'] = null
         mergedUpdate['properties'] = []
+    }
+
+    // Don't allow minutes on anything other than Trends
+    if (
+        currentState.kind == NodeKind.TrendsQuery &&
+        kind !== NodeKind.TrendsQuery &&
+        (('interval' in mergedUpdate && mergedUpdate?.interval) || interval) == 'minute'
+    ) {
+        ;(mergedUpdate as TrendsQuery).interval = 'hour'
+    }
+
+    // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
+    if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
+        const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+
+        if (
+            // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
+            (!date_from && !date_to) ||
+            // If the interval is set manually to a range greater than 12 hours, change it to an hour
+            (date_from &&
+                date_to &&
+                dayjs(date_from).isValid() &&
+                dayjs(date_to).isValid() &&
+                dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
+        ) {
+            ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
+        } else {
+            if (!is12HoursOrLess(date_from)) {
+                ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
+            }
+        }
+    }
+
+    // If we've changed interval, clear smoothings
+    if (kind == NodeKind.TrendsQuery) {
+        if (
+            (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
+            (mergedUpdate as TrendsQuery)?.interval !== undefined &&
+            (mergedUpdate as TrendsQuery).interval !== interval
+        ) {
+            ;(mergedUpdate as TrendsQuery).trendsFilter = {
+                ...(mergedUpdate as TrendsQuery).trendsFilter,
+                smoothingIntervals: undefined,
+            }
+        }
     }
 
     return mergedUpdate
