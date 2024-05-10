@@ -391,7 +391,7 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="port" label="Port">
-                            <LemonInput placeholder="5432" type="number" min="0" max="65535" />
+                            <LemonInput placeholder="5432" type="tel" min="0" max="65535" />
                         </LemonField>
 
                         <LemonField name="database" label="Database">
@@ -456,7 +456,7 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <LemonField name="port" label="Port">
-                            <LemonInput placeholder="5439" type="number" min="0" max="65535" />
+                            <LemonInput placeholder="5439" type="tel" min="0" max="65535" />
                         </LemonField>
 
                         <LemonField name="database" label="Database">
