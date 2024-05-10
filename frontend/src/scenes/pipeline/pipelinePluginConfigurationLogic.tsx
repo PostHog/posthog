@@ -32,6 +32,7 @@ export interface PipelinePluginConfigurationLogicProps {
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
+        match_action: pluginConfig.match_action,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
         name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
@@ -102,18 +103,20 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     ) {
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, ...config } = formdata
+                    const { enabled, order, name, description, match_action, ...config } = formdata
+
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
                         defaultConfigForPlugin(values.plugin),
                         config
                     )
-                    for (const key in formdata) {
-                        formData.append(key, formdata[key])
-                    }
-                    formData.append('enabled', enabled)
+                    // Enabled is already part of getPluginConfigFormData
+                    // formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
+                    if (match_action) {
+                        formData.append('match_action', match_action ?? null)
+                    }
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
                     // it doesn't matter for other stages so we can use any value

@@ -44,7 +44,7 @@ export function PipelinePluginConfiguration({
         return <NotFound object="pipeline stage" />
     }
 
-    if (loading) {
+    if (loading && !plugin) {
         return <Spinner />
     }
 
@@ -119,18 +119,23 @@ export function PipelinePluginConfiguration({
                     label="Name"
                     info="Customising the name can be useful if multiple instances of the same type are used."
                 >
-                    <LemonInput type="text" />
+                    <LemonInput type="text" disabled={loading} />
                 </LemonField>
                 <LemonField
                     name="description"
                     label="Description"
                     info="Add a description to share context with other team members"
                 >
-                    <LemonInput type="text" />
+                    <LemonInput type="text" disabled={loading} />
                 </LemonField>
                 <LemonField name="enabled">
                     {({ value, onChange }) => (
-                        <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                        <LemonCheckbox
+                            label="Enabled"
+                            onChange={() => onChange(!value)}
+                            checked={value}
+                            disabled={loading}
+                        />
                     )}
                 </LemonField>
 
@@ -140,7 +145,7 @@ export function PipelinePluginConfiguration({
                         label="Filter events by action"
                         info="Create or select an action to filter events by. Only events that match this action will be processed."
                     >
-                        <LemonSelectAction allowClear />
+                        <LemonSelectAction allowClear disabled={loading} />
                     </LemonField>
                 ) : null}
 

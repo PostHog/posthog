@@ -75,7 +75,6 @@ export function PluginDrawer(): JSX.Element {
             form.setFieldsValue({
                 ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
                 __enabled: editingPlugin.pluginConfig.enabled,
-                __matchActionId: editingPlugin.pluginConfig.match_action,
                 ...editingPluginInitialChanges,
             })
             generateApiKeysIfNeeded(form)
