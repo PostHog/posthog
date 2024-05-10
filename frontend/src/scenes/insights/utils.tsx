@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
@@ -20,6 +21,7 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    InsightModel,
     InsightShortId,
     InsightType,
     PathType,
@@ -358,4 +360,11 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
     }
 
     return insightParams ? urls.insightNew(insightParams) : undefined
+}
+
+export function canEditInsight(insight: Partial<InsightModel>): boolean {
+    return (
+        insight.effective_privilege_level == undefined ||
+        insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    )
 }

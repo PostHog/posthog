@@ -5,7 +5,6 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
@@ -52,7 +51,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, getInsightId } from './utils'
+import { canEditInsight, extractObjectDiffKeys, getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -399,12 +398,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
         isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
-        canEditInsight: [
-            (s) => [s.insight],
-            (insight) =>
-                insight.effective_privilege_level == undefined ||
-                insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
-        ],
+        canEditInsight: [(s) => [s.insight], (insight) => canEditInsight(insight)],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
             (insight, savedInsight): boolean => {

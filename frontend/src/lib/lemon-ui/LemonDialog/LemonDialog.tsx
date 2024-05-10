@@ -14,13 +14,21 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         onSubmit: (values: Record<string, any>) => void | Promise<void>
     }
 
+export type LemonDialogButtonProps = LemonButtonProps & {
+    closeOnClick?: boolean
+}
+
+export type LemonDialogReturnType = {
+    close: () => void
+}
+
 export type LemonDialogProps = Pick<
     LemonModalProps,
     'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer'
 > & {
-    primaryButton?: LemonButtonProps | null
-    secondaryButton?: LemonButtonProps | null
-    tertiaryButton?: LemonButtonProps | null
+    primaryButton?: LemonDialogButtonProps | null
+    secondaryButton?: LemonDialogButtonProps | null
+    tertiaryButton?: LemonDialogButtonProps | null
     initialFormValues?: Record<string, any>
     content?: ReactNode
     onClose?: () => void
@@ -38,11 +46,16 @@ export function LemonDialog({
     initialFormValues,
     closeOnNavigate = true,
     footer,
+    setIsOpenCallback,
     ...props
-}: LemonDialogProps): JSX.Element {
+}: LemonDialogProps & {
+    setIsOpenCallback?: (setIsOpen: (isOpen: boolean) => void) => void
+}): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
+
+    setIsOpenCallback?.(setIsOpen)
 
     primaryButton =
         primaryButton ||
@@ -55,17 +68,21 @@ export function LemonDialog({
         primaryButton.type = primaryButton.type || 'primary'
     }
 
-    const renderButton = (button: LemonButtonProps | null | undefined): JSX.Element | null => {
+    const renderButton = (button: LemonDialogButtonProps | null | undefined): JSX.Element | null => {
         if (!button) {
             return null
         }
+
+        const { closeOnClick, ...props } = button || {}
         return (
             <LemonButton
                 type="secondary"
-                {...button}
+                {...props}
                 onClick={(e) => {
-                    button.onClick?.(e)
-                    setIsOpen(false)
+                    props.onClick?.(e)
+                    if (closeOnClick !== false) {
+                        setIsOpen(false)
+                    }
                 }}
             />
         )
@@ -106,7 +123,9 @@ export const LemonFormDialog = ({
     onSubmit,
     errors,
     ...props
-}: LemonFormDialogProps): JSX.Element => {
+}: LemonFormDialogProps & {
+    setIsOpenCallback?: (setIsOpen: (isOpen: boolean) => void) => void
+}): JSX.Element => {
     const logic = lemonDialogLogic({ errors })
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
@@ -151,12 +170,20 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     return { root, onDestroy: destroy }
 }
 
-LemonDialog.open = (props: LemonDialogProps) => {
+LemonDialog.open = (props: LemonDialogProps): LemonDialogReturnType => {
     const { root, onDestroy } = createAndInsertRoot()
-    root.render(<LemonDialog {...props} onAfterClose={onDestroy} />)
+    let setIsOpen: (isOpen: boolean) => void = () => {}
+    root.render(<LemonDialog {...props} onAfterClose={onDestroy} setIsOpenCallback={(cb) => (setIsOpen = cb)} />)
+    return {
+        close: () => setIsOpen(false),
+    }
 }
 
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
-    root.render(<LemonFormDialog {...props} onAfterClose={onDestroy} />)
+    let setIsOpen: (isOpen: boolean) => void = () => {}
+    root.render(<LemonFormDialog {...props} onAfterClose={onDestroy} setIsOpenCallback={(cb) => (setIsOpen = cb)} />)
+    return {
+        close: () => setIsOpen(false),
+    }
 }

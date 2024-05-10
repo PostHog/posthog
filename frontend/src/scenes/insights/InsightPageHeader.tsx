@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
-import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
+import { AddToDashboardButton } from 'lib/components/AddToDashboard/AddToDashboard'
+import { openAddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -14,7 +14,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -54,8 +53,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
-    const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
-
     return (
         <>
             {hasDashboardItemId && (
@@ -73,12 +70,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
-                    />
-                    <AddToDashboardModal
-                        isOpen={addToDashboardModalOpen}
-                        closeModal={() => setAddToDashboardModalOpenModal(false)}
-                        insight={insight}
-                        canEditInsight={canEditInsight}
                     />
                     <NewDashboardModal />
                 </>
@@ -108,10 +99,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             >
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
-                                            <LemonButton
-                                                onClick={() => setAddToDashboardModalOpenModal(true)}
-                                                fullWidth
-                                            >
+                                            <LemonButton onClick={() => openAddToDashboardModal(insight)} fullWidth>
                                                 Add to dashboard
                                             </LemonButton>
                                             <LemonDivider />
@@ -241,7 +229,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     }}
                                     type="secondary"
                                 />
-                                <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
+                                <AddToDashboardButton insight={insight} />
                             </>
                         )}
 

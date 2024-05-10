@@ -1,27 +1,21 @@
 import { IconHome } from '@posthog/icons'
+import { LemonDialog } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { CSSProperties } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { canEditInsight } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardBasicType, InsightModel } from '~/types'
-
-interface SaveToDashboardModalProps {
-    isOpen: boolean
-    closeModal: () => void
-    insight: Partial<InsightModel>
-    canEditInsight: boolean
-}
 
 interface DashboardRelationRowProps {
     dashboard: DashboardBasicType
@@ -95,18 +89,15 @@ const DashboardRelationRow = ({
     )
 }
 
-export function AddToDashboardModal({
-    isOpen,
-    closeModal,
-    insight,
-    canEditInsight,
-}: SaveToDashboardModalProps): JSX.Element {
+export function AddToDashboardContent({ insight }: { insight: Partial<InsightModel> }): JSX.Element {
     const logic = addToDashboardModalLogic({
         insight: insight,
     })
 
+    const _canEditInsight = canEditInsight(insight)
+
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
-    const { setSearchQuery, addNewDashboard } = useActions(logic)
+    const { setSearchQuery } = useActions(logic)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
@@ -114,7 +105,7 @@ export function AddToDashboardModal({
                 key={rowIndex}
                 dashboard={orderedDashboards[rowIndex]}
                 insight={insight}
-                canEditInsight={canEditInsight}
+                canEditInsight={_canEditInsight}
                 isHighlighted={rowIndex === scrollIndex}
                 isAlreadyOnDashboard={currentDashboards.some(
                     (currentDashboard) => currentDashboard.id === orderedDashboards[rowIndex].id
@@ -125,64 +116,60 @@ export function AddToDashboardModal({
     }
 
     return (
-        <LemonModal
-            onClose={() => {
-                closeModal()
-                setSearchQuery('')
-            }}
-            isOpen={isOpen}
-            title="Add to dashboard"
-            footer={
-                <>
-                    <div className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            onClick={addNewDashboard}
-                            disabledReason={
-                                !canEditInsight
-                                    ? 'You do not have permission to add this insight to dashboards'
-                                    : undefined
-                            }
-                        >
-                            Add to a new dashboard
-                        </LemonButton>
-                    </div>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="space-y-2 w-192 max-w-full">
-                <LemonInput
-                    data-attr="dashboard-searchfield"
-                    type="search"
-                    fullWidth
-                    placeholder="Search for dashboards..."
-                    value={searchQuery}
-                    onChange={(newValue) => setSearchQuery(newValue)}
-                />
-                <div className="text-muted-alt">
-                    This insight is referenced on <strong className="text-default">{currentDashboards.length}</strong>{' '}
-                    {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
-                </div>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ minHeight: 420 }}>
-                    <AutoSizer>
-                        {({ height, width }) => (
-                            <List
-                                width={width}
-                                height={height}
-                                rowCount={orderedDashboards.length}
-                                overscanRowCount={100}
-                                rowHeight={40}
-                                rowRenderer={renderItem}
-                                scrollToIndex={scrollIndex}
-                            />
-                        )}
-                    </AutoSizer>
-                </div>
+        <div className="space-y-2 w-192 max-w-full">
+            <LemonInput
+                data-attr="dashboard-searchfield"
+                type="search"
+                fullWidth
+                placeholder="Search for dashboards..."
+                value={searchQuery}
+                onChange={(newValue) => setSearchQuery(newValue)}
+            />
+            <div className="text-muted-alt">
+                This insight is referenced on <strong className="text-default">{currentDashboards.length}</strong>{' '}
+                {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
             </div>
-        </LemonModal>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div style={{ minHeight: 420 }}>
+                <AutoSizer>
+                    {({ height, width }) => (
+                        <List
+                            width={width}
+                            height={height}
+                            rowCount={orderedDashboards.length}
+                            overscanRowCount={100}
+                            rowHeight={40}
+                            rowRenderer={renderItem}
+                            scrollToIndex={scrollIndex}
+                        />
+                    )}
+                </AutoSizer>
+            </div>
+        </div>
     )
+}
+
+export function openAddToDashboardModal(insight: Partial<InsightModel>): void {
+    const _canEditInsight = canEditInsight(insight)
+    LemonDialog.open({
+        title: 'Add to dashboard',
+        content: (
+            <>
+                <AddToDashboardContent insight={insight} />
+            </>
+        ),
+        primaryButton: {
+            type: 'secondary',
+            children: 'Close',
+        },
+        tertiaryButton: {
+            children: 'Add to a new dashboard',
+            disabledReason: !_canEditInsight
+                ? 'You do not have permission to add this insight to dashboards'
+                : undefined,
+
+            onClick: () => addToDashboardModalLogic.findMounted({ insight })?.actions.addNewDashboard(),
+            closeOnClick: false,
+        },
+    })
 }

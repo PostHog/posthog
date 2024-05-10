@@ -19,6 +19,7 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { openAddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -524,6 +525,14 @@ export function SavedInsights(): JSX.Element {
                                     fullWidth
                                 >
                                     Duplicate
+                                </LemonButton>
+
+                                <LemonButton
+                                    onClick={() => openAddToDashboardModal(insight)}
+                                    data-attr="duplicate-insight-from-list-view"
+                                    fullWidth
+                                >
+                                    Add to dashboard
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
