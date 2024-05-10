@@ -2497,6 +2497,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2526,6 +2527,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    shuffleOptions?: boolean
     hasOpenChoice?: boolean
 }
 
