@@ -136,16 +136,18 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                 </LemonButton>
                             ) : null}
                             {id ? deleteButton() : cancelButton()}
-                            <LemonButton
-                                data-attr="save-action-button"
-                                type="primary"
-                                htmlType="submit"
-                                loading={actionLoading}
-                                onClick={submitAction}
-                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
-                            >
-                                Save
-                            </LemonButton>
+                            {actionChanged || !id ? (
+                                <LemonButton
+                                    data-attr="save-action-button"
+                                    type="primary"
+                                    htmlType="submit"
+                                    loading={actionLoading}
+                                    onClick={submitAction}
+                                    disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                                >
+                                    Save
+                                </LemonButton>
+                            ) : null}
                         </>
                     }
                 />

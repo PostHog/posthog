@@ -128,6 +128,9 @@ export const actionEditLogic = kea<actionEditLogicType>([
     listeners(({ values, actions }) => ({
         deleteAction: async () => {
             const actionId = values.action.id
+            if (!actionId) {
+                return
+            }
             await deleteWithUndo({
                 endpoint: api.actions.determineDeleteEndpoint(),
                 object: values.action,

@@ -35,7 +35,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     return (
         <div className="bg-bg-light rounded border p-3 relative">
             {index > 0 && !(index % 2 === 0) && (
-                <div className="absolute top-1/2 -ml-9">
+                <div className="absolute top-1/2 -left-5">
                     <OperandTag operand="or" />
                 </div>
             )}
