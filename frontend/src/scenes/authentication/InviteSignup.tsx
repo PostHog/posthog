@@ -226,9 +226,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     label={
                         <div className="flex flex-1 items-center justify-between">
                             <span>Password</span>
-                            <span className="w-20">
-                                <PasswordStrength validatedPassword={validatedPassword} />
-                            </span>
+                            <PasswordStrength validatedPassword={validatedPassword} />
                         </div>
                     }
                 >

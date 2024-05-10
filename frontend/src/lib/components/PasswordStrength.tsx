@@ -38,7 +38,7 @@ export default function PasswordStrength({
         <Tooltip
             title={
                 <>
-                    Your password scores a{" "}
+                    Your password scores a{' '}
                     <strong className="space-x-0.5">
                         <span>{score}</span>
                         <span>/</span>
@@ -55,10 +55,12 @@ export default function PasswordStrength({
                 </>
             }
         >
-            <LemonProgress
-                percent={score * 20}
-                strokeColor={score <= 2 ? 'var(--danger)' : score <= 3 ? 'var(--warning)' : 'var(--success)'}
-            />
+            <span className="py-2 w-20">
+                <LemonProgress
+                    percent={score * 20}
+                    strokeColor={score <= 2 ? 'var(--danger)' : score <= 3 ? 'var(--warning)' : 'var(--success)'}
+                />
+            </span>
         </Tooltip>
     )
 }
