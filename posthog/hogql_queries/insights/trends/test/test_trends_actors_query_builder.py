@@ -200,6 +200,22 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 "greaterOrEquals(timestamp, minus(toDateTime('2024-05-30 21:59:59.999999'), toIntervalDay(6))), lessOrEquals(timestamp, toDateTime('2024-05-30 21:59:59.999999'))",
             )
 
+    def test_date_range_weekly_active_users_math_total_value_compare_previous(self):
+        self.team.timezone = "Europe/Berlin"
+        trends_query = default_query.model_copy(
+            update={
+                "series": [EventsNode(event="$pageview", math=BaseMathType.weekly_active)],
+                "trendsFilter": TrendsFilter(compare=True, display=ChartDisplayType.BoldNumber),
+            },
+            deep=True,
+        )
+
+        with freeze_time("2024-05-30T12:00:00.000Z"):
+            self.assertEqual(
+                self._get_date_where_sql(trends_query=trends_query, compare_value=Compare.previous),
+                "greaterOrEquals(timestamp, minus(toDateTime('2024-05-23 21:59:59.999999'), toIntervalDay(6))), lessOrEquals(timestamp, toDateTime('2024-05-23 21:59:59.999999'))",
+            )
+
     def test_date_range_monthly_active_users_math(self):
         self.team.timezone = "Europe/Berlin"
         trends_query = default_query.model_copy(
