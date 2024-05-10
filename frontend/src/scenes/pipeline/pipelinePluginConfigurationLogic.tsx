@@ -29,6 +29,8 @@ export interface PipelinePluginConfigurationLogicProps {
     pluginConfigId: number | null
 }
 
+const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
 function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginInfoNew): Record<string, any> {
     return {
         ...pluginConfig.config,
@@ -230,7 +232,8 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                 const actionMatchingFlag = featureFlags[FEATURE_FLAGS.PLUGINS_ACTION_MATCHING]
                 const actionMatchingEnabled =
                     (actionMatchingFlag || pluginConfig?.match_action) &&
-                    plugin?.capabilities?.methods?.includes('composeWebhook')
+                    plugin?.url === PLUGIN_URL_LEGACY_ACTION_WEBHOOK
+
                 return actionMatchingEnabled
             },
         ],
