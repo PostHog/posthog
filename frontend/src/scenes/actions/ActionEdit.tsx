@@ -149,7 +149,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     }
                 />
 
-                <div>
+                <div className="@container">
                     <h2 className="subtitle">Match groups</h2>
                     <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
@@ -159,7 +159,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     </p>
                     <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <div className="grid lg:grid-cols-2 gap-3">
+                            <div className=" grid @4xl:grid-cols-2 gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
                                     const identifier = String(JSON.stringify(step))
                                     return (
