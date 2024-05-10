@@ -132,12 +132,26 @@ export class SessionManager {
         // We add a jitter multiplier to the buffer age so that we don't have all sessions flush at the same time
         this.flushJitterMultiplier = 1 - Math.random() * serverConfig.SESSION_RECORDING_BUFFER_AGE_JITTER
 
-        status.info('📦', '[session-manager] started new manager', {
+        this.info('📦', '[session-manager] started new manager', {
             partition,
             topic,
             sessionId,
             teamId,
         })
+    }
+
+    private info(icon: string, message: string, extra: object): void {
+        if (!this.debug) {
+            return
+        }
+        status.info(icon, message, extra)
+    }
+
+    private warn(icon: string, message: string, extra: object): void {
+        if (!this.debug) {
+            return
+        }
+        status.warn(icon, message, extra)
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -158,11 +172,9 @@ export class SessionManager {
 
     public async add(message: IncomingRecordingMessage): Promise<void> {
         if (this.destroying) {
-            if (this.debug) {
-                status.warn('🚽', '[session-manager] add called but we are in a destroying state', {
-                    ...this.logContext(),
-                })
-            }
+            this.warn('🚽', '[session-manager] add called but we are in a destroying state', {
+                ...this.logContext(),
+            })
             return
         }
 
@@ -210,13 +222,12 @@ export class SessionManager {
         if (shouldAttemptFlush) {
             await this.flush('buffer_size')
         }
-        if (this.debug) {
-            status.info('🚽', `[session-manager] added message`, {
-                ...this.logContext(),
-                metadata: message.metadata,
-                shouldAttemptFlush,
-            })
-        }
+
+        this.info('🚽', `[session-manager] added message`, {
+            ...this.logContext(),
+            metadata: message.metadata,
+            shouldAttemptFlush,
+        })
     }
 
     public get isEmpty(): boolean {
@@ -245,16 +256,14 @@ export class SessionManager {
             flushThresholdMemoryMs,
         }
 
-        if (this.debug) {
-            status.info('🚽', `[session-manager]  - [PARTITION DEBUG] - flushIfSessionBufferIsOld?`, { logContext })
-        }
+        this.info('🚽', `[session-manager]  - [PARTITION DEBUG] - flushIfSessionBufferIsOld?`, { logContext })
 
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
                 throw new Error('Session buffer has messages but oldest timestamp is null. A paradox!')
             }
-            status.warn('🚽', `[session-manager] buffer has no oldestKafkaTimestamp yet`, { logContext })
+            this.warn('🚽', `[session-manager] buffer has no oldestKafkaTimestamp yet`, { logContext })
             return
         }
 
@@ -301,14 +310,14 @@ export class SessionManager {
     ): Promise<void> {
         // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
-            status.warn('🚽', '[session-manager] flush called but we already have a flush buffer', {
+            this.warn('🚽', '[session-manager] flush called but we already have a flush buffer', {
                 ...this.logContext(),
             })
             return
         }
 
         if (this.destroying) {
-            status.warn('🚽', '[session-manager] flush called but we are in a destroying state', {
+            this.warn('🚽', '[session-manager] flush called but we are in a destroying state', {
                 ...this.logContext(),
             })
             return
@@ -503,7 +512,7 @@ export class SessionManager {
             return
         }
 
-        status.info('⚡️', `[session-manager][realtime] Started `, { sessionId: this.sessionId })
+        this.info('⚡️', `[session-manager][realtime] Started `, { sessionId: this.sessionId })
 
         this.realtimeTail = new Tail(this.buffer.file('jsonl'), {
             fromBeginning: true,
