@@ -270,6 +270,11 @@ class TimeSensitiveActionPermission(BasePermission):
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
+        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        if allow_safe_methods and request.method in SAFE_METHODS:
+            return True
+
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
 
         if not session_created_at:
