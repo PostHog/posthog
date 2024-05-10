@@ -275,11 +275,6 @@ class Resolver(CloningVisitor):
                 return response
 
         if isinstance(node.table, ast.Field):
-            node = cast(ast.JoinExpr, clone_expr(node))
-            if node.constraint and node.constraint.constraint_type == "USING":
-                # visit USING constraint before adding the table to avoid ambiguous names
-                node.constraint = self.visit_join_constraint(node.constraint)
-
             table_name = node.table.chain[0]
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
@@ -315,6 +310,11 @@ class Resolver(CloningVisitor):
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
+
+            node = cast(ast.JoinExpr, clone_expr(node))
+            if node.constraint and node.constraint.constraint_type == "USING":
+                # visit USING constraint before adding the table to avoid ambiguous names
+                node.constraint = self.visit_join_constraint(node.constraint)
 
             scope.tables[table_alias] = node_type
 
