@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -57,7 +59,14 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
     }),
     path((id) => ['scenes', 'pipeline', 'pipelinePluginConfigurationLogic', id]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], pipelineTransformationsLogic, ['nextAvailableOrder']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            pipelineTransformationsLogic,
+            ['nextAvailableOrder'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     loaders(({ props, values }) => ({
         pluginFromPluginId: [
@@ -211,6 +220,17 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
         ],
         isNew: [(_, p) => [p.pluginConfigId], (pluginConfigId): boolean => !pluginConfigId],
         stage: [(_, p) => [p.stage], (stage) => stage],
+
+        actionMatchingEnabled: [
+            (s) => [s.featureFlags, s.pluginConfig, s.plugin],
+            (featureFlags, pluginConfig, plugin) => {
+                const actionMatchingFlag = featureFlags[FEATURE_FLAGS.PLUGINS_ACTION_MATCHING]
+                const actionMatchingEnabled =
+                    (actionMatchingFlag || pluginConfig?.match_action) &&
+                    plugin?.capabilities?.methods?.includes('composeWebhook')
+                return actionMatchingEnabled
+            },
+        ],
     })),
     forms(({ asyncActions, values }) => ({
         configuration: {

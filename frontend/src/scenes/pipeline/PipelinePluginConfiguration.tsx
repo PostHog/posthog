@@ -2,6 +2,7 @@ import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -35,6 +36,7 @@ export function PipelinePluginConfiguration({
         requiredFields,
         loading,
         configurationChanged,
+        actionMatchingEnabled,
     } = useValues(logic)
     const { submitConfiguration, resetConfiguration } = useActions(logic)
 
@@ -131,6 +133,17 @@ export function PipelinePluginConfiguration({
                         <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
                     )}
                 </LemonField>
+
+                {actionMatchingEnabled ? (
+                    <LemonField
+                        name="match_action"
+                        label="Filter events by action"
+                        info="Create or select an action to filter events by. Only events that match this action will be processed."
+                    >
+                        <LemonSelectAction allowClear />
+                    </LemonField>
+                ) : null}
+
                 <>{fields}</>
                 <div className="flex gap-2">
                     <LemonButton

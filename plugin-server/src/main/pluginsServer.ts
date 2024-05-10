@@ -362,6 +362,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncWebhooksHandlers) {
+            // If we have a hub, then reuse some of it's attributes, otherwise
             // we need to create them. We only initialize the ones we need.
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
