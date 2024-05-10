@@ -1,3 +1,4 @@
+import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -35,6 +36,7 @@ import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
     HogQLQuery,
+    HogQLQueryModifiers,
     InsightVizNode,
     Node,
 } from './queries/schema'
@@ -129,7 +131,6 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    TEAM_COLLABORATION = 'team_collaboration',
     ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
@@ -149,6 +150,7 @@ export enum AvailableFeature {
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
+    AUTOMATIC_PROVISIONING = 'automatic_provisioning',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -160,6 +162,7 @@ export enum ProductKey {
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
     HISTORY = 'history',
+    HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
     PERSONS = 'persons',
     SURVEYS = 'surveys',
@@ -248,6 +251,7 @@ export interface UserType extends UserBaseType {
     has_password: boolean
     is_staff: boolean
     is_impersonated: boolean
+    is_impersonated_until?: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -468,6 +472,8 @@ export interface TeamType extends TeamBasicType {
     person_on_events_querying_enabled: boolean
     groups_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
+    modifiers?: HogQLQueryModifiers
+    default_modifiers?: HogQLQueryModifiers
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight
@@ -505,8 +511,6 @@ export enum StringMatching {
 
 export interface ActionStepType {
     event?: string | null
-    id?: number
-    name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
     /** @deprecated Only `selector` should be used now. */
@@ -535,7 +539,7 @@ export interface ElementType {
     text?: string
 }
 
-export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarUserIntent = 'add-action' | 'edit-action' | 'heatmaps'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -620,7 +624,7 @@ export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',
-    ImportApp = 'import-app',
+    ImportApp = 'legacy-source',
 }
 
 export enum PipelineNodeTab {
@@ -816,6 +820,18 @@ export interface SessionRecordingSnapshotSource {
     blob_key?: string
 }
 
+export type SessionRecordingSnapshotParams =
+    | {
+          source: 'blob'
+          blob_key?: string
+      }
+    | {
+          source: 'realtime'
+          // originally realtime snapshots were returned in a different format than blob snapshots
+          // since version 2024-04-30 they are returned in the same format
+          version: '2024-04-30'
+      }
+
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
     snapshots?: RecordingSnapshot[]
@@ -896,6 +912,10 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1496,6 +1516,7 @@ export interface BillingV2PlanType {
     docs_url: string | null
     note: string | null
     unit: string | null
+    flat_rate: boolean
     product_key: ProductKeyUnion
     current_plan?: boolean | null
     tiers?: BillingV2TierType[] | null
@@ -1872,7 +1893,7 @@ export enum ChartDisplayCategory {
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
-export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -2089,6 +2110,9 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+
+    //frontend only
+    show_mean?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -3711,6 +3735,8 @@ export type BatchExportServiceRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
+// and update batchExportServiceNames in pipelineNodeNewLogic
+export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -3858,7 +3884,7 @@ export enum SidePanelTab {
 export interface SourceFieldConfig {
     name: string
     label: string
-    type: string
+    type: LemonInputProps['type']
     required: boolean
     placeholder: string
 }
@@ -3868,4 +3894,27 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+}
+
+export interface ProductPricingTierSubrows {
+    columns: LemonTableColumns<BillingTableTierAddonRow>
+    rows: BillingTableTierAddonRow[]
+}
+
+export type BillingTableTierAddonRow = {
+    productName: string
+    price: string
+    usage: string
+    total: string
+    projectedTotal: string
+    icon?: string
+}
+
+export type BillingTableTierRow = {
+    volume: string
+    basePrice: string
+    usage: string
+    total: string
+    projectedTotal: string
+    subrows: ProductPricingTierSubrows
 }

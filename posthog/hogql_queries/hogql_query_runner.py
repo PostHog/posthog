@@ -12,6 +12,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
+    CachedHogQLQueryResponse,
     HogQLQuery,
     HogQLQueryResponse,
     DashboardFilter,
@@ -22,7 +23,8 @@ from posthog.schema import (
 
 class HogQLQueryRunner(QueryRunner):
     query: HogQLQuery
-    query_type = HogQLQuery
+    response: HogQLQueryResponse
+    cached_response: CachedHogQLQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         if self.timings is None:
@@ -72,15 +74,14 @@ class HogQLQueryRunner(QueryRunner):
     def _refresh_frequency(self):
         return timedelta(minutes=1)
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> HogQLQuery:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()
-        self.query.filters.dateRange = self.query.filters.dateRange or DateRange()
 
         if dashboard_filter.date_to or dashboard_filter.date_from:
+            if self.query.filters.dateRange is None:
+                self.query.filters.dateRange = DateRange()
             self.query.filters.dateRange.date_to = dashboard_filter.date_to
             self.query.filters.dateRange.date_from = dashboard_filter.date_from
 
         if dashboard_filter.properties:
             self.query.filters.properties = (self.query.filters.properties or []) + dashboard_filter.properties
-
-        return self.query

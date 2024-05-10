@@ -98,6 +98,7 @@ MIDDLEWARE = [
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -157,7 +158,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
-SOCIAL_AUTH_REDIRECT_IS_HTTPS = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
+SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
 
 AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesBackend",
@@ -187,13 +188,13 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
     "organization_name",
 ]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
-SOCIAL_AUTH_GITHUB_KEY = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
-SOCIAL_AUTH_GITHUB_SECRET = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
+SOCIAL_AUTH_GITHUB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
+SOCIAL_AUTH_GITHUB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITHUB_SECRET")
 
 SOCIAL_AUTH_GITLAB_SCOPE = ["read_user"]
-SOCIAL_AUTH_GITLAB_KEY = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
-SOCIAL_AUTH_GITLAB_SECRET = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
-SOCIAL_AUTH_GITLAB_API_URL = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
+SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
+SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
+SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
 # 2FA
 TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
@@ -350,3 +351,15 @@ POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
+
+IMPERSONATION_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_TIMEOUT_SECONDS", 15 * 60, type_cast=int)
+
+# If False, will expire once the session age is greater than IMPERSONATION_TIMEOUT_SECONDS
+# If True, will expire IMPERSONATION_TIMEOUT_SECONDS after the last activity
+IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY = get_from_env(
+    "IMPERSONATION_EXPIRE_AFTER_LAST_ACTIVITY", False, type_cast=str_to_bool
+)
+
+IMPERSONATION_SESSION_KEY = get_from_env("IMPERSONATION_SESSION_KEY", "loginas_started_at")
+
+PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))

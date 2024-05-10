@@ -83,9 +83,10 @@ export function ActionsLineGraph({
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
 
     const legend: _DeepPartialObject<LegendOptions<ChartType>> = {
-        display: !!showLegend,
+        display: false,
     }
-    if (isLifecycle) {
+    if (isLifecycle && !!showLegend) {
+        legend.display = true
         legend.labels = {
             generateLabels: (chart: Chart) => {
                 const labelElements = defaults.plugins.legend.labels.generateLabels(chart)
@@ -171,12 +172,13 @@ export function ActionsLineGraph({
                               openPersonsModal({
                                   title,
                                   query: datasetToActorsQuery({ dataset, query: query.source, day }),
-                                  additionalSelect: isLifecycle
-                                      ? {}
-                                      : {
-                                            value_at_data_point: 'event_count',
-                                            matched_recordings: 'matched_recordings',
-                                        },
+                                  additionalSelect:
+                                      isLifecycle || isStickiness
+                                          ? {}
+                                          : {
+                                                value_at_data_point: 'event_count',
+                                                matched_recordings: 'matched_recordings',
+                                            },
                               })
                           } else {
                               const datasetUrls = urlsForDatasets(

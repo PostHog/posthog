@@ -140,7 +140,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
             {
                 name: 'email_address',
                 label: 'Zendesk Email Address',
-                type: 'text',
+                type: 'email',
                 required: true,
                 placeholder: '',
             },
@@ -161,7 +161,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
-        selectSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
+        toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
@@ -182,7 +182,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             preflightLogic,
             ['preflight'],
         ],
-        actions: [dataWarehouseTableLogic, ['resetTable'], dataWarehouseSettingsLogic, ['loadSources']],
+        actions: [
+            dataWarehouseTableLogic,
+            ['resetTable', 'createTableSuccess'],
+            dataWarehouseSettingsLogic,
+            ['loadSources'],
+        ],
     }),
     reducers({
         manualLinkingProvider: [
@@ -216,10 +221,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                selectSchema: (state, { schema }) => {
+                toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     const newSchema = state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? !s.should_sync : s.should_sync,
+                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
                     return newSchema
                 },
@@ -438,6 +443,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.closeWizard()
             }
         },
+        createTableSuccess: () => {
+            actions.onClear()
+            actions.clearSource()
+            actions.loadSources(null)
+            actions.resetSourceConnectionDetails()
+        },
         closeWizard: () => {
             actions.onClear()
             actions.clearSource()
@@ -491,14 +502,24 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.getDatabaseSchemas()
         },
         getDatabaseSchemas: async () => {
-            if (values.selectedConnector) {
+            if (!values.selectedConnector) {
+                return
+            }
+
+            actions.setIsLoading(true)
+
+            try {
                 const schemas = await api.externalDataSources.database_schema(
                     values.selectedConnector.name,
                     values.source.payload ?? {}
                 )
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
+            } catch (e: any) {
+                lemonToast.error(e.data?.message ?? e.message)
             }
+
+            actions.setIsLoading(false)
         },
         setManualLinkingProvider: () => {
             actions.onNext()

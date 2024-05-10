@@ -184,6 +184,10 @@ export function sanitizeJsonbValue(value: any): any {
     }
 }
 
+export function sanitizeString(value: string) {
+    return value.replace(/\u0000/g, '\uFFFD')
+}
+
 export const surrogatesSubstitutedCounter = new Counter({
     name: 'surrogates_substituted_total',
     help: 'Stray UTF16 surrogates detected and removed from user input.',

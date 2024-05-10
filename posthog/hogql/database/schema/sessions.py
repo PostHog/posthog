@@ -61,16 +61,18 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
     "$urls": StringArrayDatabaseField(name="$urls"),
-    "$entry_url": StringDatabaseField(name="$entry_url"),
-    "$exit_url": StringDatabaseField(name="$exit_url"),
-    "$initial_utm_source": StringDatabaseField(name="$initial_utm_source"),
-    "$initial_utm_campaign": StringDatabaseField(name="$initial_utm_campaign"),
-    "$initial_utm_medium": StringDatabaseField(name="$initial_utm_medium"),
-    "$initial_utm_term": StringDatabaseField(name="$initial_utm_term"),
-    "$initial_utm_content": StringDatabaseField(name="$initial_utm_content"),
-    "$initial_referring_domain": StringDatabaseField(name="$initial_referring_domain"),
-    "$initial_gclid": StringDatabaseField(name="$initial_gclid"),
-    "$initial_gad_source": StringDatabaseField(name="$initial_gad_source"),
+    "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
+    "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
+    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
+    "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
+    "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
+    "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
+    "$entry_utm_term": StringDatabaseField(name="$entry_utm_term"),
+    "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
+    "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
+    "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
@@ -79,6 +81,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
 }
 
 
@@ -118,7 +121,7 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
-    aggregate_fields = {
+    aggregate_fields: dict[str, ast.Expr] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
@@ -131,48 +134,80 @@ def select_from_sessions_table(
                 )
             ],
         ),
-        "$entry_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
-        "$exit_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
-        "$initial_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-        "$initial_utm_campaign": ast.Call(
+        "$entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
+        "$entry_pathname": ast.Call(
+            name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
+        ),
+        "$exit_current_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+        "$exit_pathname": ast.Call(
+            name="path",
+            args=[
+                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
+            ],
+        ),
+        "$entry_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
+        "$entry_utm_campaign": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]
         ),
-        "$initial_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-        "$initial_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
-        "$initial_utm_content": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]
-        ),
-        "$initial_referring_domain": ast.Call(
+        "$entry_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
+        "$entry_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
+        "$entry_utm_content": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]),
+        "$entry_referring_domain": ast.Call(
             name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
         ),
-        "$initial_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-        "$initial_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+        "$entry_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
+        "$entry_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
-        "$session_duration": ast.Call(
-            name="dateDiff",
-            args=[
-                ast.Constant(value="second"),
-                ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
-                ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
-            ],
-        ),
-        "$channel_type": create_channel_type_expr(
-            campaign=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]),
-            medium=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-            source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-            referring_domain=ast.Call(
-                name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
-            ),
-            gclid=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-            gad_source=ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
-        ),
     }
+    # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
+    # for now just remove the duplicate definitions from the code
+    aggregate_fields["$session_duration"] = ast.Call(
+        name="dateDiff",
+        args=[
+            ast.Constant(value="second"),
+            aggregate_fields["$start_timestamp"],
+            aggregate_fields["$end_timestamp"],
+        ],
+    )
     aggregate_fields["duration"] = aggregate_fields["$session_duration"]
+    aggregate_fields["$is_bounce"] = ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="equals", args=[aggregate_fields["$pageview_count"], ast.Constant(value=0)]),
+            ast.Constant(value=None),
+            ast.Call(
+                name="not",
+                args=[
+                    ast.Call(
+                        name="or",
+                        args=[
+                            ast.Call(name="greater", args=[aggregate_fields["$pageview_count"], ast.Constant(value=1)]),
+                            ast.Call(
+                                name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
+                            ),
+                            ast.Call(
+                                name="greaterOrEquals",
+                                args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
+    aggregate_fields["$channel_type"] = create_channel_type_expr(
+        campaign=aggregate_fields["$entry_utm_campaign"],
+        medium=aggregate_fields["$entry_utm_medium"],
+        source=aggregate_fields["$entry_utm_source"],
+        referring_domain=aggregate_fields["$entry_referring_domain"],
+        gclid=aggregate_fields["$entry_gclid"],
+        gad_source=aggregate_fields["$entry_gad_source"],
+    )
 
     select_fields: list[ast.Expr] = []
     group_by_fields: list[ast.Expr] = [ast.Field(chain=[table_name, "session_id"])]
@@ -272,27 +307,27 @@ def get_lazy_session_table_properties(search: Optional[str]):
 
 
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
-    "$initial_referring_domain": "finalizeAggregation(initial_referring_domain)",
-    "$initial_utm_source": "finalizeAggregation(initial_utm_source)",
-    "$initial_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
-    "$initial_utm_medium": "finalizeAggregation(initial_utm_medium)",
-    "$initial_utm_term": "finalizeAggregation(initial_utm_term)",
-    "$initial_utm_content": "finalizeAggregation(initial_utm_content)",
-    "$initial_gclid": "finalizeAggregation(initial_gclid)",
-    "$initial_gad_source": "finalizeAggregation(initial_gad_source)",
-    "$initial_gclsrc": "finalizeAggregation(initial_gclsrc)",
-    "$initial_dclid": "finalizeAggregation(initial_dclid)",
-    "$initial_gbraid": "finalizeAggregation(initial_gbraid)",
-    "$initial_wbraid": "finalizeAggregation(initial_wbraid)",
-    "$initial_fbclid": "finalizeAggregation(initial_fbclid)",
-    "$initial_msclkid": "finalizeAggregation(initial_msclkid)",
-    "$initial_twclid": "finalizeAggregation(initial_twclid)",
-    "$initial_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
-    "$initial_mc_cid": "finalizeAggregation(initial_mc_cid)",
-    "$initial_igshid": "finalizeAggregation(initial_igshid)",
-    "$initial_ttclid": "finalizeAggregation(initial_ttclid)",
-    "$entry_url": "finalizeAggregation(entry_url)",
-    "$exit_url": "finalizeAggregation(exit_url)",
+    "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
+    "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
+    "$entry_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
+    "$entry_utm_medium": "finalizeAggregation(initial_utm_medium)",
+    "$entry_utm_term": "finalizeAggregation(initial_utm_term)",
+    "$entry_utm_content": "finalizeAggregation(initial_utm_content)",
+    "$entry_gclid": "finalizeAggregation(initial_gclid)",
+    "$entry_gad_source": "finalizeAggregation(initial_gad_source)",
+    "$entry_gclsrc": "finalizeAggregation(initial_gclsrc)",
+    "$entry_dclid": "finalizeAggregation(initial_dclid)",
+    "$entry_gbraid": "finalizeAggregation(initial_gbraid)",
+    "$entry_wbraid": "finalizeAggregation(initial_wbraid)",
+    "$entry_fbclid": "finalizeAggregation(initial_fbclid)",
+    "$entry_msclkid": "finalizeAggregation(initial_msclkid)",
+    "$entry_twclid": "finalizeAggregation(initial_twclid)",
+    "$entry_li_fat_id": "finalizeAggregation(initial_li_fat_id)",
+    "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
+    "$entry_igshid": "finalizeAggregation(initial_igshid)",
+    "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
+    "$entry_current_url": "finalizeAggregation(entry_url)",
+    "$exit_current_url": "finalizeAggregation(exit_url)",
 }
 
 
@@ -302,16 +337,16 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
     if key == "$channel_type":
         return [[name] for name in POSSIBLE_CHANNEL_TYPES if not search_term or search_term.lower() in name.lower()]
 
-    expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
-
-    if not expr:
-        return []
-
     field_definition = LAZY_SESSIONS_FIELDS.get(key)
     if not field_definition:
         return []
 
     if isinstance(field_definition, StringDatabaseField):
+        expr = SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP.get(key)
+
+        if not expr:
+            return []
+
         if search_term:
             return insight_sync_execute(
                 SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER.format(property_expr=expr),
@@ -325,5 +360,8 @@ def get_lazy_session_table_values(key: str, search_term: Optional[str], team: "T
             query_type="get_session_property_values",
             team_id=team.pk,
         )
+    if isinstance(field_definition, BooleanDatabaseField):
+        # ideally we'd be able to just send [[True], [False]]
+        return [["1"], ["0"]]
 
     return []

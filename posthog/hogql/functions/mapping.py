@@ -48,6 +48,8 @@ class HogQLFunctionMeta:
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
     case_sensitive: bool = True
     """Not all ClickHouse functions are case-insensitive. See https://clickhouse.com/docs/en/sql-reference/syntax#keywords."""
+    suffix_args: Optional[list[ast.Constant]] = None
+    """Additional arguments that are added to the end of the arguments provided by the caller"""
 
 
 HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
@@ -156,10 +158,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "xor": HogQLFunctionMeta("xor", 2, None),
     "not": HogQLFunctionMeta("not", 1, 1, case_sensitive=False),
     # type conversions
-    "toInt": HogQLFunctionMeta("toInt64OrNull", 1, 1),
+    "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
-    "toFloat": HogQLFunctionMeta("toFloat64OrNull", 1, 1),
-    "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 1, 1),
+    "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toDecimal": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Decimal64")]),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
@@ -174,7 +176,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime")],
         tz_aware=True,
     ),
-    "toUUID": HogQLFunctionMeta("toUUIDOrNull", 1, 1),
+    "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
     "toString": HogQLFunctionMeta("toString", 1, 1),
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
@@ -579,7 +581,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # Standard aggregate functions
     "count": HogQLFunctionMeta("count", 0, 1, aggregate=True, case_sensitive=False),
     "countIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
-    "countDistinctIf": HogQLFunctionMeta("countIf", 1, 2, aggregate=True),
+    "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
@@ -613,6 +615,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMaxIf": HogQLFunctionMeta("argMaxIf", 3, 3, aggregate=True),
     "argMinMerge": HogQLFunctionMeta("argMinMerge", 1, 1, aggregate=True),
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
+    "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
+    "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
     "avgWeighted": HogQLFunctionMeta("avgWeighted", 2, 2, aggregate=True),
     "avgWeightedIf": HogQLFunctionMeta("avgWeightedIf", 3, 3, aggregate=True),
     # "topK": HogQLFunctionMeta("topK", 1, 1, aggregate=True),

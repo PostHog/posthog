@@ -19,6 +19,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
+import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, TrendResult } from '~/types'
@@ -235,5 +236,22 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 )}
             </span>
         </LemonRow>
+    )
+}
+
+export function HogQLBoldNumber(): JSX.Element {
+    const { response, responseLoading } = useValues(dataVisualizationLogic)
+
+    const displayValue =
+        ((!response || responseLoading) && 'loading...') || response?.[0]?.[0] || response?.results?.[0]?.[0] || 'Error'
+
+    return (
+        <div className="BoldNumber LemonTable HogQL">
+            <div className="BoldNumber__value">
+                <Textfit min={32} max={120}>
+                    {`${displayValue}`}
+                </Textfit>
+            </div>
+        </div>
     )
 }

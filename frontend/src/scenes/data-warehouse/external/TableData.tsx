@@ -16,19 +16,27 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 
 export function TableData(): JSX.Element {
     const {
-        allTables,
         selectedRow: table,
         isEditingSavedQuery,
         dataWarehouseSavedQueriesLoading,
+        inEditSchemaMode,
+        editSchemaIsLoading,
     } = useValues(dataWarehouseSceneLogic)
-    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const {
         deleteDataWarehouseSavedQuery,
         deleteDataWarehouseTable,
         setIsEditingSavedQuery,
         updateDataWarehouseSavedQuery,
+        toggleEditSchemaMode,
+        updateSelectedSchema,
+        saveSchema,
+        cancelEditSchema,
     } = useActions(dataWarehouseSceneLogic)
+    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [localQuery, setLocalQuery] = useState<HogQLQuery>()
+
+    const isExternalTable = table?.type === DataWarehouseRowType.ExternalTable
+    const isManuallyLinkedTable = isExternalTable && !table.payload.external_data_source
 
     useEffect(() => {
         if (table && 'query' in table.payload) {
@@ -76,13 +84,38 @@ export function TableData(): JSX.Element {
 
     return table ? (
         <div className="px-4 py-3 col-span-2">
-            <div className="flex flex-row justify-between items-center">
-                <h3 className="w-3/4 text-wrap break-all">{table.name}</h3>
-                {isEditingSavedQuery ? (
-                    <LemonButton type="secondary" onClick={() => setIsEditingSavedQuery(false)}>
-                        Cancel
-                    </LemonButton>
-                ) : (
+            <div className="flex flex-row justify-between items-center gap-2">
+                <h3 className="text-wrap break-all leading-4">{table.name}</h3>
+                {isEditingSavedQuery && (
+                    <div className="flex flex-row gap-2 justify-between">
+                        <LemonButton type="secondary" onClick={() => setIsEditingSavedQuery(false)}>
+                            Cancel
+                        </LemonButton>
+                    </div>
+                )}
+                {inEditSchemaMode && (
+                    <div className="flex flex-row gap-2 justify-between">
+                        <LemonButton
+                            type="primary"
+                            loading={editSchemaIsLoading}
+                            onClick={() => {
+                                saveSchema()
+                            }}
+                        >
+                            Save schema
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            disabledReason={editSchemaIsLoading && 'Schema is saving...'}
+                            onClick={() => {
+                                cancelEditSchema()
+                            }}
+                        >
+                            Cancel edit
+                        </LemonButton>
+                    </div>
+                )}
+                {!inEditSchemaMode && !isEditingSavedQuery && (
                     <div className="flex flex-row gap-2 justify-between">
                         {deleteButton(table)}
                         <LemonButton
@@ -92,8 +125,18 @@ export function TableData(): JSX.Element {
                                 toggleJoinTableModal()
                             }}
                         >
-                            Add Join
+                            Add join
                         </LemonButton>
+                        {isManuallyLinkedTable && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    toggleEditSchemaMode()
+                                }}
+                            >
+                                Edit schema
+                            </LemonButton>
+                        )}
                         <Link
                             to={urls.insightNew(
                                 undefined,
@@ -123,35 +166,42 @@ export function TableData(): JSX.Element {
             </div>
             {table.type == DataWarehouseRowType.ExternalTable && (
                 <div className="flex flex-col">
-                    <>
-                        <span className="card-secondary mt-2">Last Synced At</span>
-                        <span>
-                            {table.payload.external_schema?.last_synced_at
-                                ? humanFriendlyDetailedTime(
-                                      table.payload.external_schema?.last_synced_at,
-                                      'MMMM DD, YYYY',
-                                      'h:mm A'
-                                  )
-                                : 'Not yet synced'}
-                        </span>
-                    </>
+                    {table.payload.external_data_source && (
+                        <>
+                            <span className="card-secondary mt-2">Last Synced At</span>
+                            <span>
+                                {table.payload.external_schema?.last_synced_at
+                                    ? humanFriendlyDetailedTime(
+                                          table.payload.external_schema?.last_synced_at,
+                                          'MMMM DD, YYYY',
+                                          'h:mm A'
+                                      )
+                                    : 'Not yet synced'}
+                            </span>
+                        </>
+                    )}
 
-                    <>
-                        <span className="card-secondary mt-2">Files URL pattern</span>
-                        <span>{table.payload.url_pattern}</span>
-                    </>
+                    {!table.payload.external_data_source && (
+                        <>
+                            <span className="card-secondary mt-2">Files URL pattern</span>
+                            <span className="break-all">{table.payload.url_pattern}</span>
 
-                    <>
-                        <span className="card-secondary mt-2">File format</span>
-                        <span>{table.payload.format}</span>
-                    </>
+                            <span className="card-secondary mt-2">File format</span>
+                            <span>{table.payload.format}</span>
+                        </>
+                    )}
                 </div>
             )}
 
             {!isEditingSavedQuery && (
                 <div className="mt-2">
                     <span className="card-secondary">Columns</span>
-                    <DatabaseTable table={table.name} tables={allTables} />
+                    <DatabaseTable
+                        table={table.name}
+                        tables={[table]}
+                        inEditSchemaMode={inEditSchemaMode}
+                        schemaOnChange={(key, type) => updateSelectedSchema(key, type)}
+                    />
                 </div>
             )}
 

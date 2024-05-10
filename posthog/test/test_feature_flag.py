@@ -4745,6 +4745,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def create_feature_flag(self, key="beta-feature", **kwargs):
         return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
 
+    @pytest.mark.skip("This case doesn't work yet, which is a bit problematic")
+    @snapshot_postgres_queries
+    def test_property_with_double_underscores(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={"org__member_count": 15},
+        )
+        # double scores in key name are interpreted in the ORM as a nested property.
+        # Unclear if there's a way to solve this, other than moving away from the ORM.
+        # But, we're doing that anyway with the rust rewrite, so not fixing for now.
+
+        feature_flag1 = self.create_feature_flag(
+            key="random1",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "org__member_count",
+                                "value": "9",
+                                "operator": "gt",
+                                "type": "person",
+                            },
+                        ]
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(
+            self.match_flag(feature_flag1, "307"),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
     def test_numeric_operator(self):
         Person.objects.create(
             team=self.team,
