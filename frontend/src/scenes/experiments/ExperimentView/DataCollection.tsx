@@ -3,6 +3,8 @@ import '../Experiment.scss'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -10,6 +12,7 @@ import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { formatUnitByQuantity } from '../utils'
+import { EllipsisAnimation } from './components'
 import { DataCollectionCalculator } from './DataCollectionCalculator'
 
 export function DataCollection(): JSX.Element {
@@ -140,7 +143,7 @@ export function DataCollection(): JSX.Element {
 }
 
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { isExperimentCollectionGoalModalOpen } = useValues(experimentLogic({ experimentId }))
+    const { isExperimentCollectionGoalModalOpen, goalInsightDataLoading } = useValues(experimentLogic({ experimentId }))
     const { closeExperimentCollectionGoalModal, updateExperimentCollectionGoal } = useActions(
         experimentLogic({ experimentId })
     )
@@ -171,7 +174,17 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
                 </div>
             }
         >
-            <DataCollectionCalculator experimentId={experimentId} />
+            {goalInsightDataLoading ? (
+                <div className="flex flex-col flex-1 justify-center items-center mb-6">
+                    <Animation type={AnimationType.LaptopHog} />
+                    <div className="text-xs text-muted w-60">
+                        <span className="mr-1">Fetching past events for the estimation</span>
+                        <EllipsisAnimation />
+                    </div>
+                </div>
+            ) : (
+                <DataCollectionCalculator experimentId={experimentId} />
+            )}
         </LemonModal>
     )
 }
