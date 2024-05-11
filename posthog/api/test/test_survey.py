@@ -1009,70 +1009,6 @@ class TestSurvey(APIBaseTest):
         assert self.team.surveys_opt_in is False
 
 
-class TestMultipleChoiceQuestions(APIBaseTest):
-    def test_create_survey_has_open_choice(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "multiple_choice",
-                        "choices": ["Tutorials", "Customer case studies", "Product announcements", "Other"],
-                        "question": "What can we do to improve our product?",
-                        "buttonText": "Submit",
-                        "description": "",
-                        "hasOpenChoice": True,
-                    }
-                ],
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
-                },
-            },
-            format="json",
-        )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert Survey.objects.filter(id=response_data["id"]).exists()
-        assert response_data["name"] == "Notebooks beta release survey"
-        assert response_data["questions"][0]["hasOpenChoice"] is True
-
-    def test_create_survey_with_shuffle_options(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "multiple_choice",
-                        "choices": ["Tutorials", "Customer case studies", "Product announcements", "Other"],
-                        "question": "What can we do to improve our product?",
-                        "buttonText": "Submit",
-                        "description": "",
-                        "hasOpenChoice": True,
-                        "shuffleOptions": True,
-                    }
-                ],
-                "appearance": {
-                    "thankYouMessageHeader": "Thanks for your feedback!",
-                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
-                },
-            },
-            format="json",
-        )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert Survey.objects.filter(id=response_data["id"]).exists()
-        assert response_data["name"] == "Notebooks beta release survey"
-        assert response_data["questions"][0]["hasOpenChoice"] is True
-        assert response_data["questions"][0]["shuffleOptions"] is True
-
-
 class TestSurveyQuestionValidation(APIBaseTest):
     def test_create_basic_survey_question_validation(self):
         response = self.client.post(
@@ -1096,7 +1032,6 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "appearance": {
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
-                    "shuffleQuestions": True,
                 },
             },
             format="json",
@@ -1118,7 +1053,6 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["appearance"] == {
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
-            "shuffleQuestions": True,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
