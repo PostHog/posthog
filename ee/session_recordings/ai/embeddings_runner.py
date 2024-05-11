@@ -29,6 +29,7 @@ _encoding: Optional[tiktoken.Encoding] = None
 def get_encoding() -> tiktoken.Encoding:
     global _encoding
     if not _encoding:
+        # NOTE: This does an API request so we want to ensure we load it lazily and not at startup
         # tiktoken.encoding_for_model(model_name) specifies encoder
         # model_name = "text-embedding-3-small" for this usecase
         _encoding = tiktoken.get_encoding("cl100k_base")
