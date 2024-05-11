@@ -221,7 +221,6 @@ export const experimentLogic = kea<experimentLogicType>([
                             ...existingActions,
                             {
                                 action: ExperimentFinishActionType.SEND_EMAIL,
-                                subAction: ExperimentFinishSendEmailType.ALL,
                             },
                         ],
                     }

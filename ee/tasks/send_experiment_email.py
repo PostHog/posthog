@@ -1,14 +1,14 @@
+from django import template
+
+from posthog.models.experiment import Experiment
 from posthog.constants import (
     ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
     ExperimentFinishSendEmailType,
     ExperimentSignificanceCode,
 )
+
 from posthog.email import EmailMessage
-
-from django import template
-
-from posthog.models.experiment import Experiment
 from posthog.templatetags.posthog_filters import percentage
 
 register = template.Library()

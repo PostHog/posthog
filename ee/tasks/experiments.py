@@ -1,9 +1,11 @@
-from ee.clickhouse.views.experiment_results import calculate_experiment_results
-from posthog.models.experiment import Experiment
-import structlog
 from celery import shared_task
 
+from ee.clickhouse.views.experiment_results import calculate_experiment_results
+
+from posthog.models.experiment import Experiment
 from posthog.tasks.utils import CeleryQueue
+
+import structlog
 
 logger = structlog.get_logger(__name__)
 

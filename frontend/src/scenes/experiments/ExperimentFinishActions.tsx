@@ -25,9 +25,7 @@ export function AddNewExperimentFinishAction(): JSX.Element {
             <LemonButton
                 data-attr="experiment-add-actions"
                 type="secondary"
-                onClick={() => {
-                    addOnFinishExperimentAction()
-                }}
+                onClick={addOnFinishExperimentAction}
                 disabledReason={
                     experiment.finish_actions?.length === FINISH_EXPERIMENT_ACTIONS.length
                         ? 'There are no more supported actions at present.'
@@ -196,7 +194,7 @@ export function ExperimentFinishActionTypeRenderer({
         case ExperimentFinishActionType.SEND_EMAIL:
             return <ExperimentFinishEmailActionTypeRenderer finishAction={finishAction} />
         default:
-            return <div>Unknown action type</div>
+            return <></>
     }
 }
 
@@ -209,6 +207,6 @@ export function ExperimentFinishActionDisplayTypeRenderer({
         case ExperimentFinishActionType.SEND_EMAIL:
             return <ExperimentFinishEmailOverviewRenderer finishAction={finishAction} />
         default:
-            return <div>Unknown action type</div>
+            return <></>
     }
 }
