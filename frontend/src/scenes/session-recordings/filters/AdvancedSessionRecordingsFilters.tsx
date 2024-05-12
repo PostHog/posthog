@@ -87,6 +87,11 @@ export const AdvancedSessionRecordingsFilters = ({
         allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
     }
 
+    const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
+    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]) {
+        addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
     return (
         <div className="space-y-2 bg-light p-3">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
@@ -117,7 +122,9 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            <LemonLabel info="Show recordings by persons who match the set criteria">Persons and cohorts</LemonLabel>
+            <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                Properties
+            </LemonLabel>
 
             <TestAccountFilter
                 filters={filters}
@@ -127,8 +134,8 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText="Person or cohort"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    buttonText="Add filter"
+                    taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
                         setFilters({ properties })
