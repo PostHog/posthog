@@ -14,15 +14,6 @@ from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 
 
-"""
-if we allow session properties in the events query then we get something like
-
-[{"id":"$pageview","name":"$pageview","uuid":"beff1e20-a87e-4bde-b5c0-b268ac393ad3","type":"events","order":0,
-"properties":[{"key":"$session_duration","value":11,"operator":"gt","type":"session"}]}]
-
-"""
-
-
 class SessionRecordingQueryResult(NamedTuple):
     results: list
     has_more_recording: bool
