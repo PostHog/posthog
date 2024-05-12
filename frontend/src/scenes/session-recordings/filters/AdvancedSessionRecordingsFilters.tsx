@@ -83,12 +83,15 @@ export const AdvancedSessionRecordingsFilters = ({
         TaxonomicFilterGroupType.HogQLExpression,
         ...groupsTaxonomicTypes,
     ]
-    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]) {
+
+    const hasHogQLFiltering = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]
+
+    if (hasHogQLFiltering) {
         allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
     }
 
     const addFilterTaxonomyTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
-    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]) {
+    if (hasHogQLFiltering) {
         addFilterTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
     }
 
@@ -122,9 +125,15 @@ export const AdvancedSessionRecordingsFilters = ({
                 buttonProps={{ type: 'secondary', size: 'small' }}
             />
 
-            <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
-                Properties
-            </LemonLabel>
+            {hasHogQLFiltering ? (
+                <LemonLabel info="Show recordings by persons, cohorts, and more that match the set criteria">
+                    Properties
+                </LemonLabel>
+            ) : (
+                <LemonLabel info="Show recordings by persons who match the set criteria">
+                    Persons and cohorts
+                </LemonLabel>
+            )}
 
             <TestAccountFilter
                 filters={filters}
