@@ -60,7 +60,7 @@ export function HedgehogAccessories({ isDarkModeOn }: { isDarkModeOn: boolean })
                 <div key={group}>
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
-                    <div className="flex gap-2 pb-2 pt-px overflow-y-auto">
+                    <div className="flex gap-2 pb-2 pt-px overflow-y-auto flex-wrap">
                         {Object.keys(standardAccessories)
                             .filter((acc) => standardAccessories[acc].group === group)
                             .map((acc) => (

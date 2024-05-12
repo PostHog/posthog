@@ -1,4 +1,5 @@
 import { IconLock } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -34,11 +35,13 @@ export function HedgehogBuddyAccessory({
     const imgSize = 60
     const hedgehogImgSize = imgSize * 4
 
+    const enabled = accessories.includes(accessory)
+
     return (
         <LemonButton
+            className={clsx('border border-2', enabled ? 'border-primary' : 'border-transparent')}
             size="small"
             onClick={onClick}
-            active={accessories.includes(accessory)}
             noPadding
             tooltip={
                 <>
