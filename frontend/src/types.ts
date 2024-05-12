@@ -1944,6 +1944,10 @@ export interface Breakdown {
     normalize_url?: boolean
 }
 
+export interface Comparison {
+    period_start_date: string
+}
+
 export interface FilterType {
     // used by all
     from_dashboard?: boolean | number
@@ -2003,6 +2007,7 @@ export interface TrendsFilterType extends FilterType {
     // 7 days to remove weekly variation. Smoothing is performed as a moving average.
     smoothing_intervals?: number
     compare?: boolean
+    comparison?: Comparison
     formula?: string
     /** @deprecated */
     shown_as?: ShownAsValue
