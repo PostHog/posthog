@@ -36,7 +36,6 @@ export function HedgehogBuddyAccessory({
 
     return (
         <LemonButton
-            type="secondary"
             size="small"
             onClick={onClick}
             active={accessories.includes(accessory)}
