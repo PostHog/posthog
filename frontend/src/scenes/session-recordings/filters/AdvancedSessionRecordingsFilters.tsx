@@ -143,7 +143,7 @@ export const AdvancedSessionRecordingsFilters = ({
             {showPropertyFilters && (
                 <PropertyFilters
                     pageKey="session-recordings"
-                    buttonText="Add filter"
+                    buttonText={hasHogQLFiltering ? 'Add filter' : 'Person or cohort'}
                     taxonomicGroupTypes={addFilterTaxonomyTypes}
                     propertyFilters={filters.properties}
                     onChange={(properties) => {
