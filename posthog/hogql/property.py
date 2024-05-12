@@ -152,6 +152,11 @@ def property_to_expr(
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay":
             chain = ["events", "properties"]
+        elif property.type == "session" and scope == "replay":
+            # TODO we should be able to also join directly from session_replay_events to sessions
+            # as well as being able to query events based on their session properties
+            # which is what this is allowing
+            chain = ["events", "session"]
         elif property.type == "data_warehouse_person_property":
             if isinstance(property.key, str):
                 table, key = property.key.split(": ")

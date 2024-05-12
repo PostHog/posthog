@@ -3,7 +3,9 @@ import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -72,6 +74,19 @@ export const AdvancedSessionRecordingsFilters = ({
 }): JSX.Element => {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const allowedPropertyTaxonomyTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
+        ...groupsTaxonomicTypes,
+    ]
+    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING]) {
+        allowedPropertyTaxonomyTypes.push(TaxonomicFilterGroupType.SessionProperties)
+    }
+
     return (
         <div className="space-y-2 bg-light p-3">
             <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
@@ -92,13 +107,7 @@ export const AdvancedSessionRecordingsFilters = ({
                 hideDuplicate
                 showNestedArrow={false}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
-                propertiesTaxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.EventProperties,
-                    TaxonomicFilterGroupType.EventFeatureFlags,
-                    TaxonomicFilterGroupType.Elements,
-                    TaxonomicFilterGroupType.HogQLExpression,
-                    ...groupsTaxonomicTypes,
-                ]}
+                propertiesTaxonomicGroupTypes={allowedPropertyTaxonomyTypes}
                 propertyFiltersPopover
                 addFilterDefaultOptions={{
                     id: '$pageview',
