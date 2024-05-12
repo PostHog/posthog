@@ -57,6 +57,7 @@ export function HedgehogBuddyAccessory({
                 style={{
                     width: imgSize,
                     height: imgSize,
+                    margin: -2,
                 }}
             >
                 <img
