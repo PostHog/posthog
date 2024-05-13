@@ -2,6 +2,7 @@ import { URL } from 'url'
 
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
@@ -72,6 +73,11 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
 
     let heatmapData = $heatmap_data as HeatmapData | null
 
+    if (typeof distinct_id !== 'string' || isDistinctIdIllegal(distinct_id)) {
+        // TODO should this be an ingestion warning
+        return []
+    }
+
     if ($prev_pageview_pathname && $current_url) {
         // We are going to add the scroll depth info derived from the previous pageview to the current pageview's heatmap data
         if (!heatmapData) {
@@ -95,29 +101,44 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     Object.entries(heatmapData).forEach(([url, items]) => {
+        if (url.trim() === '') {
+            return
+        }
+
         if (Array.isArray(items)) {
             heatmapEvents = heatmapEvents.concat(
-                (items as any[]).map(
-                    (hme: {
-                        x: number
-                        y: number
-                        target_fixed: boolean
-                        type: string
-                    }): RawClickhouseHeatmapEvent => ({
-                        type: hme.type,
-                        x: Math.round(hme.x / SCALE_FACTOR),
-                        y: Math.round(hme.y / SCALE_FACTOR),
-                        pointer_target_fixed: hme.target_fixed,
-                        viewport_height: Math.round($viewport_height / SCALE_FACTOR),
-                        viewport_width: Math.round($viewport_width / SCALE_FACTOR),
-                        current_url: url,
-                        session_id: $session_id,
-                        scale_factor: SCALE_FACTOR,
-                        timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
-                        team_id: teamId,
-                        distinct_id: distinct_id,
-                    })
-                )
+                (items as any[])
+                    .map(
+                        (hme: {
+                            x: number
+                            y: number
+                            target_fixed: boolean
+                            type: string
+                        }): RawClickhouseHeatmapEvent | null => {
+                            if (isNaN(hme.x) || isNaN(hme.y)) {
+                                return null
+                            }
+                            if (hme.type.trim() === '' || hme.type.length > 255) {
+                                return null
+                            }
+
+                            return {
+                                type: String(hme.type),
+                                x: Math.round(hme.x / SCALE_FACTOR),
+                                y: Math.round(hme.y / SCALE_FACTOR),
+                                pointer_target_fixed: hme.target_fixed,
+                                viewport_height: Math.round($viewport_height / SCALE_FACTOR),
+                                viewport_width: Math.round($viewport_width / SCALE_FACTOR),
+                                current_url: String(url),
+                                session_id: String($session_id),
+                                scale_factor: SCALE_FACTOR,
+                                timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
+                                team_id: teamId,
+                                distinct_id: distinct_id,
+                            }
+                        }
+                    )
+                    .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
             )
         }
     })
