@@ -56,6 +56,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "finish_actions",
         ]
         read_only_fields = [
             "id",
