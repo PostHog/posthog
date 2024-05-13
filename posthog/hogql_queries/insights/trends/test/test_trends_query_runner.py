@@ -1962,19 +1962,23 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # date_to starts at specific time
-        response = runner.to_actors_query(time_frame="2020-01-09", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-09", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 9, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 10, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
 
         # date_from ends at specific time
-        response = runner.to_actors_query(time_frame="2020-01-20", series_index=0, breakdown_value=None, compare=None)
-        assert response.select_from.table.where.exprs[0].right.value == datetime(  # type: ignore
-            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        response = runner.to_actors_query(
+            time_frame="2020-01-20", series_index=0, breakdown_value=None, compare_value=None
         )
         assert response.select_from.table.where.exprs[1].right.value == datetime(  # type: ignore
+            2020, 1, 20, 0, 0, tzinfo=zoneinfo.ZoneInfo(key="UTC")
+        )
+        assert response.select_from.table.where.exprs[2].right.value == datetime(  # type: ignore
             2020, 1, 20, 12, 37, 42, tzinfo=zoneinfo.ZoneInfo(key="UTC")
         )
