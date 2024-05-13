@@ -60,8 +60,6 @@ jobs:
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@v4
-              with:
-                  version: 8.x.x
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
@@ -143,8 +141,6 @@ jobs:
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
               uses: pnpm/action-setup@v4
-              with:
-                  version: 8.x.x
 
             - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
