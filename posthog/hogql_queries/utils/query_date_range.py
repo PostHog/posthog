@@ -121,6 +121,13 @@ class QueryDateRange:
         return cast(IntervalLiteral, self.interval_type.name)
 
     @cached_property
+    def is_hourly(self) -> bool:
+        if self._interval is None:
+            return False
+
+        return self._interval == IntervalType.hour
+
+    @cached_property
     def explicit(self) -> bool:
         if self._date_range is None or self._date_range.explicitDate is None:
             return False

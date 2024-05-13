@@ -1,9 +1,9 @@
+from datetime import datetime
 from functools import cached_property
 from typing import Optional
 
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
-from django.utils.timezone import datetime
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
