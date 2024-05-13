@@ -109,6 +109,8 @@ services:
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - /etc/caddy/data:/data
+            - /etc/caddy/config:/config            
         depends_on:
             - web
     objectstorage:
