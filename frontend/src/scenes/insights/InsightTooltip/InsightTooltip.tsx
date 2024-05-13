@@ -82,7 +82,7 @@ export function InsightTooltip({
     embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    entitiesAsColumnsOverride,
+    formula,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
@@ -90,9 +90,9 @@ export function InsightTooltip({
 }: InsightTooltipProps): JSX.Element {
     // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
     // If only a single entity exists, itemize entity counts as rows.
-    // Throw these rules out the window if `entitiesAsColumnsOverride` is set
+    // Throw these rules out the window if `formula` is set
     const itemizeEntitiesAsColumns =
-        entitiesAsColumnsOverride ??
+        !!formula ||
         ((seriesData?.length ?? 0) > 1 &&
             (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
 
@@ -153,7 +153,7 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
-                        const seriesColumnData = datum.seriesData?.[colIdx]
+                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData?.[colIdx]
                         return renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,

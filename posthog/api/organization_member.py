@@ -15,7 +15,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import extract_organization
+from posthog.permissions import TimeSensitiveActionPermission, extract_organization
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -88,7 +88,7 @@ class OrganizationMemberViewSet(
 ):
     scope_object = "organization_member"
     serializer_class = OrganizationMemberSerializer
-    permission_classes = [OrganizationMemberObjectPermissions]
+    permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
         OrganizationMembership.objects.order_by("user__first_name", "-joined_at")
         .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)

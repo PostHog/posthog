@@ -16,7 +16,6 @@ class AvailableFeature(str, Enum):
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    TEAM_COLLABORATION = "team_collaboration"
     ADVANCED_PERMISSIONS = "advanced_permissions"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
@@ -34,6 +33,7 @@ class AvailableFeature(str, Enum):
     SURVEYS_STYLING = "surveys_styling"
     SURVEYS_TEXT_HTML = "surveys_text_html"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
+    AUTOMATIC_PROVISIONING = "automatic_provisioning"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

@@ -215,15 +215,20 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
-class DatabaseSchemaQueryResponseField(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chain: Optional[list[str]] = None
-    fields: Optional[list[str]] = None
-    key: str
-    table: Optional[str] = None
-    type: str
+class DatabaseSerializedFieldType(str, Enum):
+    integer = "integer"
+    float = "float"
+    string = "string"
+    datetime = "datetime"
+    date = "date"
+    boolean = "boolean"
+    array = "array"
+    json = "json"
+    lazy_table = "lazy_table"
+    virtual_table = "virtual_table"
+    field_traverser = "field_traverser"
+    expression = "expression"
+    view = "view"
 
 
 class DateRange(BaseModel):
@@ -484,6 +489,7 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+    s3TableUseInvalidColumns: Optional[bool] = None
 
 
 class Compare(str, Enum):
@@ -541,6 +547,7 @@ class InsightType(str, Enum):
 
 
 class IntervalType(str, Enum):
+    minute = "minute"
     hour = "hour"
     day = "day"
     week = "week"
@@ -1660,6 +1667,18 @@ class DataWarehousePropertyFilter(BaseModel):
     value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
+class DatabaseSchemaQueryResponseField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chain: Optional[list[str]] = None
+    fields: Optional[list[str]] = None
+    key: str
+    schema_valid: bool
+    table: Optional[str] = None
+    type: DatabaseSerializedFieldType
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2318,6 +2337,7 @@ class RetentionFilter(BaseModel):
     retentionReference: Optional[RetentionReference] = None
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = None
 
@@ -2330,6 +2350,7 @@ class RetentionFilterLegacy(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
+    show_mean: Optional[bool] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -2674,17 +2695,6 @@ class DataWarehouseNode(BaseModel):
     response: Optional[dict[str, Any]] = None
     table_name: str
     timestamp_field: str
-
-
-class DatabaseSchemaQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
 
 
 class EntityNode(BaseModel):
@@ -3283,6 +3293,17 @@ class DataVisualizationNode(BaseModel):
     display: Optional[ChartDisplayType] = None
     kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
     source: HogQLQuery
+
+
+class DatabaseSchemaQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[dict[str, list[DatabaseSchemaQueryResponseField]]] = None
 
 
 class FunnelsFilter(BaseModel):

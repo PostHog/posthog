@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -13,42 +13,28 @@ from posthog.auth import (
 )
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action, ActionStep
+from posthog.models import Action
+from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
 
-class ActionStepSerializer(serializers.HyperlinkedModelSerializer):
-    id = serializers.CharField(read_only=False, required=False)
-
-    class Meta:
-        model = ActionStep
-        fields = [
-            "id",
-            "event",
-            "tag_name",
-            "text",
-            "text_matching",
-            "href",
-            "href_matching",
-            "selector",
-            "url",
-            "name",
-            "url_matching",
-            "properties",
-        ]
-        extra_kwargs = {
-            "event": {"trim_whitespace": False},
-            "tag_name": {"trim_whitespace": False},
-            "text": {"trim_whitespace": False},
-            "href": {"trim_whitespace": False},
-            "name": {"trim_whitespace": False},
-        }
+class ActionStepJSONSerializer(serializers.Serializer):
+    event = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
+    properties = serializers.ListField(child=serializers.DictField(), required=False, allow_null=True)
+    selector = serializers.CharField(required=False, allow_null=True)
+    tag_name = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
+    text = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
+    text_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
+    href = serializers.CharField(required=False, allow_null=True, trim_whitespace=False)
+    href_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
+    url = serializers.CharField(required=False, allow_null=True)
+    url_matching = serializers.ChoiceField(choices=ACTION_STEP_MATCHING_OPTIONS, required=False, allow_null=True)
 
 
 class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
-    steps = ActionStepSerializer(many=True, required=False)
+    steps = ActionStepJSONSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
     is_action = serializers.BooleanField(read_only=True, default=True)
@@ -105,15 +91,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return attrs
 
     def create(self, validated_data: Any) -> Any:
-        steps = validated_data.pop("steps", [])
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
-
-        for step in steps:
-            ActionStep.objects.create(
-                action=instance,
-                **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
-            )
 
         report_user_action(
             validated_data["created_by"],
@@ -124,29 +103,8 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
         return instance
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
-        steps = validated_data.pop("steps", None)
-        # If there's no steps property at all we just ignore it
-        # If there is a step property but it's an empty array [], we'll delete all the steps
-        if steps is not None:
-            # remove steps not in the request
-            step_ids = [step["id"] for step in steps if step.get("id")]
-            instance.steps.exclude(pk__in=step_ids).delete()
-
-            for step in steps:
-                if step.get("id"):
-                    step_instance = ActionStep.objects.get(pk=step["id"])
-                    step_serializer = ActionStepSerializer(instance=step_instance)
-                    step_serializer.update(step_instance, step)
-                else:
-                    ActionStep.objects.create(
-                        action=instance,
-                        **{key: value for key, value in step.items() if key not in ("isNew", "selection")},
-                    )
-
-        # bytecode might have been altered in the action steps
-        instance.refresh_from_db(fields=["bytecode", "bytecode_error"])
         instance = super().update(instance, validated_data)
-        instance.refresh_from_db()
+
         report_user_action(
             self.context["request"].user,
             "action updated",
@@ -176,7 +134,6 @@ class ActionViewSet(
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-        queryset = queryset.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

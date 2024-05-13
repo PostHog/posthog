@@ -1,4 +1,4 @@
-import { LemonInputProps } from '@posthog/lemon-ui'
+import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { eventWithTime } from '@rrweb/types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
@@ -131,7 +131,6 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    TEAM_COLLABORATION = 'team_collaboration',
     ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
@@ -151,6 +150,7 @@ export enum AvailableFeature {
     PRIORITY_SUPPORT = 'priority_support',
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
+    AUTOMATIC_PROVISIONING = 'automatic_provisioning',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -252,6 +252,7 @@ export interface UserType extends UserBaseType {
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
+    sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -511,8 +512,6 @@ export enum StringMatching {
 
 export interface ActionStepType {
     event?: string | null
-    id?: number
-    name?: string
     properties?: AnyPropertyFilter[]
     selector?: string | null
     /** @deprecated Only `selector` should be used now. */
@@ -626,7 +625,7 @@ export enum PipelineStage {
     Transformation = 'transformation',
     Destination = 'destination',
     SiteApp = 'site-app',
-    ImportApp = 'import-app',
+    ImportApp = 'legacy-source',
 }
 
 export enum PipelineNodeTab {
@@ -914,6 +913,10 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1891,7 +1894,7 @@ export enum ChartDisplayCategory {
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
-export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -2108,6 +2111,9 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+
+    //frontend only
+    show_mean?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -3730,6 +3736,8 @@ export type BatchExportServiceRedshift = {
 // When adding a new option here also add a icon for it to
 // src/scenes/pipeline/icons/
 // and update RenderBatchExportIcon
+// and update batchExportServiceNames in pipelineNodeNewLogic
+export const BATCH_EXPORT_SERVICE_NAMES = ['S3', 'Snowflake', 'Postgres', 'BigQuery', 'Redshift', 'HTTP']
 export type BatchExportService =
     | BatchExportServiceS3
     | BatchExportServiceSnowflake
@@ -3887,4 +3895,27 @@ export interface SourceConfig {
     caption: string | React.ReactNode
     fields: SourceFieldConfig[]
     disabledReason?: string | null
+}
+
+export interface ProductPricingTierSubrows {
+    columns: LemonTableColumns<BillingTableTierAddonRow>
+    rows: BillingTableTierAddonRow[]
+}
+
+export type BillingTableTierAddonRow = {
+    productName: string
+    price: string
+    usage: string
+    total: string
+    projectedTotal: string
+    icon?: string
+}
+
+export type BillingTableTierRow = {
+    volume: string
+    basePrice: string
+    usage: string
+    total: string
+    projectedTotal: string
+    subrows: ProductPricingTierSubrows
 }
