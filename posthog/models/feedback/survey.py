@@ -40,6 +40,14 @@ class Survey(UUIDModel):
         related_name="surveys_targeting_flag",
         related_query_name="survey_targeting_flag",
     )
+    custom_targeting_flag: models.ForeignKey = models.ForeignKey(
+        "posthog.FeatureFlag",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="surveys_custom_targeting_flag",
+        related_query_name="survey_custom_targeting_flag",
+    )
     type: models.CharField = models.CharField(max_length=40, choices=SurveyType.choices)
     conditions: models.JSONField = models.JSONField(blank=True, null=True)
     questions: models.JSONField = models.JSONField(blank=True, null=True)

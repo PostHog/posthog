@@ -42,6 +42,7 @@ class SurveySerializer(serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    custom_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -54,6 +55,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "linked_flag",
             "linked_flag_id",
             "targeting_flag",
+            "custom_targeting_flag",
             "questions",
             "conditions",
             "appearance",
@@ -71,6 +73,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+    custom_targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
+    custom_targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
 
     class Meta:
@@ -85,6 +89,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "targeting_flag_id",
             "targeting_flag",
             "targeting_flag_filters",
+            "custom_targeting_flag_id",
+            "custom_targeting_flag",
+            "custom_targeting_flag_filters",
             "remove_targeting_flag",
             "questions",
             "conditions",
@@ -213,7 +220,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
-        self._add_user_survey_interacted_filters(instance, validated_data.get("targeting_flag_filters"))
+        self._add_user_survey_interacted_filters(instance)
 
         return instance
 
@@ -257,7 +264,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
         self._add_user_survey_interacted_filters(instance)
         return instance
 
-    def _add_user_survey_interacted_filters(self, instance: Survey, targeting_flag_filters=None):
+    def _add_user_survey_interacted_filters(self, instance: Survey):
         user_submitted_dismissed_filter = {
             "groups": [
                 {
@@ -281,23 +288,29 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             ]
         }
 
-        if instance.targeting_flag:
-            existing_targeting_flag = instance.targeting_flag
+        if instance.custom_targeting_flag:
+            existing_targeting_flag = instance.custom_targeting_flag
             serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
 
-            targeting_feature_flag = self._create_or_update_targeting_flag(
-                instance.targeting_flag, serialized_data_filters
+            custom_targeting_flag = self._create_or_update_targeting_flag(
+                instance.custom_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
-            instance.targeting_flag_id = targeting_feature_flag.id
+            instance.custom_targeting_flag_id = custom_targeting_flag.id
             instance.save()
         else:
             new_flag = self._create_or_update_targeting_flag(
-                None, user_submitted_dismissed_filter, instance.name, bool(instance.start_date)
+                None,
+                user_submitted_dismissed_filter,
+                instance.name,
+                bool(instance.start_date),
+                flag_name_suffix="-custom",
             )
-            instance.targeting_flag_id = new_flag.id
+            instance.custom_targeting_flag_id = new_flag.id
             instance.save()
 
-    def _create_or_update_targeting_flag(self, existing_flag=None, filters=None, name=None, active=False):
+    def _create_or_update_targeting_flag(
+        self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
+    ):
         with create_flag_with_survey_errors():
             if existing_flag:
                 existing_flag_serializer = FeatureFlagSerializer(
@@ -310,7 +323,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 return existing_flag_serializer.save()
             elif name and filters:
                 random_id = generate("1234567890abcdef", 10)
-                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}")
+                feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{random_id}{flag_name_suffix}")
                 feature_flag_serializer = FeatureFlagSerializer(
                     data={
                         "key": feature_flag_key,
