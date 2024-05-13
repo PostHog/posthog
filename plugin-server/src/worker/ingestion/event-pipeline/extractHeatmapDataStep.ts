@@ -1,5 +1,6 @@
 import { URL } from 'url'
 
+import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
@@ -67,6 +68,16 @@ function isValidNumber(n: unknown): n is number {
 }
 
 function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
+    function drop(cause: string): RawClickhouseHeatmapEvent[] {
+        eventDroppedCounter
+            .labels({
+                event_type: 'heatmap_event_extraction',
+                drop_cause: cause,
+            })
+            .inc()
+        return []
+    }
+
     const { teamId, timestamp, properties, distinctId } = event
     const {
         $viewport_height,
@@ -82,11 +93,11 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
 
     if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
         // TODO should this be an ingestion warning
-        return []
+        return drop('invalid_distinct_id')
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        return []
+        return drop('invalid_viewport_dimensions')
     }
 
     if ($prev_pageview_pathname && $current_url) {
