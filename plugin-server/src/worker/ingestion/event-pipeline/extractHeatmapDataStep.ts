@@ -115,10 +115,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (isNaN(hme.x) || isNaN(hme.y)) {
-                                return null
-                            }
-                            if (hme.type.trim() === '' || hme.type.length > 255) {
+                            if (isNaN(hme.x) || isNaN(hme.y) || hme.type.trim() === '') {
                                 return null
                             }
 
