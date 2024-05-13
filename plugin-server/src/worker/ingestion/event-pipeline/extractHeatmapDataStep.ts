@@ -58,13 +58,20 @@ function replacePathInUrl(url: string, newPath: string): string {
     return parsedUrl.toString()
 }
 
+function isValidString(x: unknown): x is string {
+    return typeof x === 'string' && !!x.trim().length
+}
+
+function isValidNumber(n: unknown): n is number {
+    return typeof n === 'number' && !isNaN(n)
+}
+
 function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
-    const { teamId, timestamp, properties } = event
+    const { teamId, timestamp, properties, distinctId } = event
     const {
         $viewport_height,
         $viewport_width,
         $session_id,
-        distinct_id,
         $prev_pageview_pathname,
         $prev_pageview_max_scroll,
         $current_url,
@@ -73,8 +80,12 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
 
     let heatmapData = $heatmap_data as HeatmapData | null
 
-    if (typeof distinct_id !== 'string' || isDistinctIdIllegal(distinct_id)) {
+    if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
         // TODO should this be an ingestion warning
+        return []
+    }
+
+    if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
         return []
     }
 
@@ -101,7 +112,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     Object.entries(heatmapData).forEach(([url, items]) => {
-        if (url.trim() === '') {
+        if (!isValidString(url)) {
             return
         }
 
@@ -115,12 +126,12 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (isNaN(hme.x) || isNaN(hme.y) || hme.type.trim() === '') {
+                            if (isValidNumber(hme.x) || isValidNumber(hme.y) || !isValidString(hme.type)) {
                                 return null
                             }
 
                             return {
-                                type: String(hme.type),
+                                type: hme.type,
                                 x: Math.round(hme.x / SCALE_FACTOR),
                                 y: Math.round(hme.y / SCALE_FACTOR),
                                 pointer_target_fixed: hme.target_fixed,
@@ -131,7 +142,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                                 scale_factor: SCALE_FACTOR,
                                 timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
                                 team_id: teamId,
-                                distinct_id: distinct_id,
+                                distinct_id: distinctId,
                             }
                         }
                     )
