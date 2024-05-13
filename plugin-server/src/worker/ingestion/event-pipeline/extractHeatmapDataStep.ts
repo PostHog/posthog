@@ -92,7 +92,6 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     let heatmapData = $heatmap_data as HeatmapData | null
 
     if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
-        // TODO should this be an ingestion warning
         return drop('invalid_distinct_id')
     }
 
