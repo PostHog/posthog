@@ -54,7 +54,10 @@ services:
             service: kafka
         depends_on:
             - zookeeper
-
+        environment:
+            KAFKA_LOG_RETENTION_MS: 3600000
+            KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+            KAFKA_LOG_RETENTION_HOURS: 1        
     worker:
         extends:
             file: docker-compose.base.yml
