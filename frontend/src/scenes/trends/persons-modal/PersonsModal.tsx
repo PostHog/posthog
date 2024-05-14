@@ -251,7 +251,15 @@ export function PersonsModal({
                                     startExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
-                                            ? { source: actorsQuery as Record<string, any> }
+                                            ? {
+                                                  source: {
+                                                      ...actorsQuery,
+                                                      select: actorsQuery!.select?.filter(
+                                                          (c) => c !== 'matched_recordings'
+                                                      ),
+                                                      source: { ...actorsQuery!.source, includeRecordings: false },
+                                                  },
+                                              }
                                             : { path: originalUrl },
                                     })
                                 }}
