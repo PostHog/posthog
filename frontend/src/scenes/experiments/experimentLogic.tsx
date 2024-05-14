@@ -34,6 +34,8 @@ import {
     CohortType,
     CountPerActorMathType,
     Experiment,
+    ExperimentFinishAction,
+    ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
     ExperimentFinishSendEmailType,
     ExperimentResults,
@@ -51,7 +53,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID } from './constants'
+import { EXPERIMENT_EXPOSURE_INSIGHT_ID, EXPERIMENT_INSIGHT_ID, FINISH_EXPERIMENT_ACTIONS } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { getMinimumDetectableEffect } from './utils'
@@ -156,7 +158,10 @@ export const experimentLogic = kea<experimentLogicType>([
         addExperimentGroup: true,
         addOnFinishExperimentAction: true,
         removeOnFinishExperimentAction: (action: ExperimentFinishActionType) => ({ action }),
-        addOnFinishActionEmails: (subAction: ExperimentFinishSendEmailType, value: string[]) => ({ subAction, value }),
+        updateOnFinishActionEmail: (emailTargettingCriteria: ExperimentFinishSendEmailType, value: string[]) => ({
+            emailTargettingCriteria,
+            value,
+        }),
         archiveExperiment: true,
         resetRunningExperiment: true,
         checkFlagImplementationWarning: true,
@@ -214,13 +219,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
                 addOnFinishExperimentAction: (state) => {
                     const existingActions = state.finish_actions || []
+                    const pendingActions = FINISH_EXPERIMENT_ACTIONS.filter((action) => {
+                        return (
+                            existingActions.findIndex((existingAction) => {
+                                return existingAction.action === action.value
+                            }) === -1
+                        )
+                    })
+
+                    if (pendingActions.length == 0) {
+                        return state
+                    }
 
                     return {
                         ...state,
                         finish_actions: [
                             ...existingActions,
                             {
-                                action: ExperimentFinishActionType.SEND_EMAIL,
+                                action: pendingActions[0].value,
                             },
                         ],
                     }
@@ -238,7 +254,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         finish_actions: actions,
                     }
                 },
-                addOnFinishActionEmails: (state, { subAction, value }) => {
+                updateOnFinishActionEmail: (state, { emailTargettingCriteria, value }) => {
                     const newFinishActions = [...(state.finish_actions || [])]
 
                     const actionIndex = newFinishActions.findIndex(
@@ -251,7 +267,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     newFinishActions[actionIndex].value = {
                         ...(newFinishActions[actionIndex].value || {}),
-                        [subAction]: value,
+                        [emailTargettingCriteria]: value,
                     }
 
                     return {
@@ -381,6 +397,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
+
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -394,6 +411,15 @@ export const experimentLogic = kea<experimentLogicType>([
                                 minimum_detectable_effect: minimumDetectableEffect,
                             },
                             ...(!draft && { start_date: dayjs() }),
+                            finish_actions: values.experiment.finish_actions
+                                ?.map((finishAction) => {
+                                    if (finishAction.action === ExperimentFinishActionType.SEND_EMAIL) {
+                                        return sanitizeExperimentFinishEmailAction(finishAction)
+                                    }
+
+                                    return finishAction
+                                })
+                                .filter(Boolean),
                             // backwards compatibility: Remove any global properties set on the experiment.
                             // These were used to change feature flag targeting, but this is controlled directly
                             // on the feature flag now.
@@ -1431,4 +1457,25 @@ function percentageDistribution(variantCount: number): number[] {
     const percentages = new Array(variantCount).fill(percentageRounded)
     percentages[variantCount - 1] = percentageRounded - delta
     return percentages
+}
+
+function sanitizeExperimentFinishEmailAction(finishAction: ExperimentFinishAction): ExperimentFinishAction | null {
+    const valuesWithoutEmptyRecords = Object.entries(finishAction.value ?? {}).reduce(
+        (acc, [key, value]: [string, string[]]) => {
+            if (value.length === 0) {
+                return acc
+            }
+            return { ...acc, [key]: value }
+        },
+        {}
+    ) as ExperimentFinishActionEmailValue
+
+    if (Object.keys(valuesWithoutEmptyRecords).length === 0) {
+        return null
+    }
+
+    return {
+        action: finishAction.action,
+        value: valuesWithoutEmptyRecords,
+    }
 }

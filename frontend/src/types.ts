@@ -2944,7 +2944,7 @@ export interface Experiment {
     created_at: string | null
     created_by: UserBasicType | null
     updated_at: string | null
-    finish_actions?: ExperimentFinishAction[] | [] | null
+    finish_actions?: ExperimentFinishAction[] | null
 }
 
 export interface FunnelExperimentVariant {

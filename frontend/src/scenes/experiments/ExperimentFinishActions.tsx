@@ -137,7 +137,7 @@ function ExperimentFinishEmailActionTypeRenderer({
     const { action } = finishAction
     const values = finishAction.value as ExperimentFinishActionEmailValue | undefined
 
-    const { addOnFinishActionEmails, removeOnFinishExperimentAction } = useActions(experimentLogic)
+    const { updateOnFinishActionEmail, removeOnFinishExperimentAction } = useActions(experimentLogic)
 
     useEffect(() => {
         membersLogic.actions.loadAllMembers()
@@ -151,7 +151,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-to">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.ALL, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.ALL, newValues)
                         }}
                         value={values?.all}
                     />
@@ -164,7 +164,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-success">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.SUCCESS, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.SUCCESS, newValues)
                         }}
                         value={values?.success}
                     />
@@ -175,7 +175,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-failure">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            addOnFinishActionEmails(ExperimentFinishSendEmailType.FAILURE, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.FAILURE, newValues)
                         }}
                         value={values?.failure}
                     />
