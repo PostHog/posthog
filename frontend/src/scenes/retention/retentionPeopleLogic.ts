@@ -8,7 +8,7 @@ import { queryForActors } from 'scenes/retention/queries'
 import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind, RetentionQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
@@ -33,7 +33,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (selectedInterval: number) => {
                 if (values.isHogQLInsight && values.isRetention) {
-                    return await queryForActors(values.querySource!, selectedInterval)
+                    return await queryForActors(values.querySource as RetentionQuery, selectedInterval)
                 }
 
                 const urlParams = toParams({ ...values.apiFilters, selected_interval: selectedInterval })

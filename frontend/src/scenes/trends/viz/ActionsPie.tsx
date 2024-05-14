@@ -105,7 +105,7 @@ export function ActionsPie({
                   if (isHogQLInsight) {
                       openPersonsModal({
                           title: label || '',
-                          query: datasetToActorsQuery({ dataset, query: querySource, index }),
+                          query: datasetToActorsQuery({ dataset, query: querySource!, index }),
                           additionalSelect: {
                               value_at_data_point: 'event_count',
                               matched_recordings: 'matched_recordings',

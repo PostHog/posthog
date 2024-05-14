@@ -141,7 +141,7 @@ export function ActionsLineGraph({
                           if (isHogQLInsight) {
                               openPersonsModal({
                                   title,
-                                  query: datasetToActorsQuery({ dataset, query: querySource, day }),
+                                  query: datasetToActorsQuery({ dataset, query: querySource!, day }),
                                   additionalSelect:
                                       isLifecycle || isStickiness
                                           ? {}
