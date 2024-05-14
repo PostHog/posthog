@@ -114,6 +114,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                           value_at_data_point: 'event_count',
                                           matched_recordings: 'matched_recordings',
                                       },
+                                      orderBy: ['event_count DESC, actor_id DESC'],
                                   })
                               } else if (resultSeries.persons?.url) {
                                   openPersonsModal({
@@ -203,6 +204,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                         value_at_data_point: 'event_count',
                                         matched_recordings: 'matched_recordings',
                                     },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
                                 })
                             } else if (previousPeriodSeries.persons?.url) {
                                 openPersonsModal({

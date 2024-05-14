@@ -111,6 +111,7 @@ export function ActionsPie({
                               value_at_data_point: 'event_count',
                               matched_recordings: 'matched_recordings',
                           },
+                          orderBy: ['event_count DESC, actor_id DESC'],
                       })
                   } else if (selectedUrl) {
                       openPersonsModal({

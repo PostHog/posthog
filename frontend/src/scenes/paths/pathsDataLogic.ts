@@ -149,6 +149,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                     value_at_data_point: 'event_count',
                     matched_recordings: 'matched_recordings',
                 }
+                modalProps['orderBy'] = ['event_count DESC, actor_id DESC']
             }
             openPersonsModal(modalProps)
         },
