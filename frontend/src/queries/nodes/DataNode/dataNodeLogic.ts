@@ -396,11 +396,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsRetentionFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
-                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
-        ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
             (s, p) => [p.query, s.response],
