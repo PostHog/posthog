@@ -333,7 +333,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tag_queries(cache_key=cache_key)
         CachedResponse: type[CR] = self.cached_response_type
 
-        if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
+        if execution_mode != ExecutionMode.CALCULATION_ALWAYS and self.limit_context != LimitContext.EXPORT:
             # Let's look in the cache first
             cached_response: CR | CacheMissResponse
             cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
