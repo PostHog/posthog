@@ -342,7 +342,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related("linked_flag", "targeting_flag").all()
+    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "custom_targeting_flag").all()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
@@ -355,6 +355,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         related_targeting_flag = instance.targeting_flag
         if related_targeting_flag:
             related_targeting_flag.delete()
+
+        related_custom_targeting_flag = instance.related_custom_targeting_flag
+        if related_custom_targeting_flag:
+            related_custom_targeting_flag.delete()
 
         return super().destroy(request, *args, **kwargs)
 
@@ -387,6 +391,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
+    custom_targeting_flag_key = serializers.CharField(source="custom_targeting_flag.key", read_only=True)
 
     class Meta:
         model = Survey
@@ -397,6 +402,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "type",
             "linked_flag_key",
             "targeting_flag_key",
+            "custom_targeting_flag_key",
             "questions",
             "conditions",
             "appearance",
@@ -436,7 +442,9 @@ def surveys(request: Request):
         )
 
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team_id=team.id).exclude(archived=True).select_related("linked_flag", "targeting_flag"),
+        Survey.objects.filter(team_id=team.id)
+        .exclude(archived=True)
+        .select_related("linked_flag", "targeting_flag", "custom_targeting_flag"),
         many=True,
     ).data
 

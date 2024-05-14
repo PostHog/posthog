@@ -1530,6 +1530,9 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
         targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
+        custom_targeting_flag = FeatureFlag.objects.create(
+            team=self.team, key="custom-targeting-flag", created_by=self.user
+        )
 
         survey_with_flags = Survey.objects.create(
             team=self.team,
@@ -1538,6 +1541,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             type="popover",
             linked_flag=linked_flag,
             targeting_flag=targeting_flag,
+            custom_targeting_flag=custom_targeting_flag,
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
         self.client.logout()
@@ -1570,6 +1574,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "questions": [{"type": "open", "question": "What's a hedgehog?"}],
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
+                        "custom_targeting_flag_key": "custom=targeting-flag",
                         "start_date": None,
                         "end_date": None,
                     },
