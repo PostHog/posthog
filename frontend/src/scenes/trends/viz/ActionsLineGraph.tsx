@@ -4,8 +4,6 @@ import { useValues } from 'kea'
 import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,7 +11,6 @@ import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
@@ -28,7 +25,6 @@ export function ActionsLineGraph({
     context,
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { query } = useValues(insightDataLogic(insightProps))
@@ -46,9 +42,9 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isTrends,
         isDataWarehouseSeries,
         showLegend,
+        isHogQLInsight,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -57,27 +53,6 @@ export function ActionsLineGraph({
             indexedResults.find((x) => x.compare_label === 'current')?.days) ||
         (indexedResults[0] && indexedResults[0].labels) ||
         []
-
-    const isLifecycleQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]) &&
-        isLifecycle &&
-        query &&
-        isInsightVizNode(query) &&
-        isLifecycleQuery(query.source)
-
-    const isStickinessQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) &&
-        isStickiness &&
-        query &&
-        isInsightVizNode(query) &&
-        isStickinessQuery(query.source)
-
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
 
     const shortenLifecycleLabels = (s: string | undefined): string =>
         capitalizeFirstLetter(s?.split(' - ')?.[1] ?? s ?? 'None')
@@ -164,11 +139,7 @@ export function ActionsLineGraph({
                               )
                           )
 
-                          if (
-                              isLifecycleQueryWithFeatureFlagOn ||
-                              isStickinessQueryWithFeatureFlagOn ||
-                              isTrendsQueryWithFeatureFlagOn
-                          ) {
+                          if (isHogQLInsight) {
                               openPersonsModal({
                                   title,
                                   query: datasetToActorsQuery({ dataset, query: query.source, day }),
