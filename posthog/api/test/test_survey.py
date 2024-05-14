@@ -75,7 +75,8 @@ class TestSurvey(APIBaseTest):
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert Survey.objects.filter(id=response_data["id"]).exists()
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
@@ -86,7 +87,7 @@ class TestSurvey(APIBaseTest):
             }
         ]
         assert response_data["created_by"]["id"] == self.user.id
-        assert FeatureFlag.objects.filter(id=response_data["custom_targeting_flag"]["id"]).exists()
+        assert survey.custom_targeting_flag
         survey_id = response_data["id"]
         user_submitted_dismissed_filter = {
             "groups": [
@@ -111,10 +112,19 @@ class TestSurvey(APIBaseTest):
             ]
         }
 
-        assert (
-            FeatureFlag.objects.filter(id=response_data["custom_targeting_flag"]["id"]).get().filters
-            == user_submitted_dismissed_filter
+        assert survey.custom_targeting_flag.filters == user_submitted_dismissed_filter
+
+        assert survey.custom_targeting_flag.active is False
+
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
         )
+        survey = Survey.objects.get(id=response_data["id"])
+        assert survey.custom_targeting_flag.active is True
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)

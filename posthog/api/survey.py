@@ -73,8 +73,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
     linked_flag_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
-    custom_targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
-    custom_targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
 
     class Meta:
@@ -89,9 +87,6 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "targeting_flag_id",
             "targeting_flag",
             "targeting_flag_filters",
-            "custom_targeting_flag_id",
-            "custom_targeting_flag",
-            "custom_targeting_flag_filters",
             "remove_targeting_flag",
             "questions",
             "conditions",
@@ -295,7 +290,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             custom_targeting_flag = self._create_or_update_targeting_flag(
                 instance.custom_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
+            custom_targeting_flag.active = bool(instance.start_date)
+            custom_targeting_flag.save()
+
             instance.custom_targeting_flag_id = custom_targeting_flag.id
+
             instance.save()
         else:
             new_flag = self._create_or_update_targeting_flag(
