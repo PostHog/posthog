@@ -72,8 +72,9 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                 loading={loading}
                 columns={[
                     {
-                        title: 'Order',
+                        title: '',
                         key: 'order',
+                        width: 0,
                         sticky: true,
                         render: function RenderOrdering(_, transformation) {
                             if (!transformation.enabled) {
@@ -84,8 +85,8 @@ export function TransformationsTable({ inOverview = false }: { inOverview?: bool
                             return sortedEnabledTransformations.findIndex((t) => t.id === transformation.id) + 1
                         },
                     },
-                    nameColumn() as LemonTableColumn<Transformation, any>,
                     appColumn() as LemonTableColumn<Transformation, any>,
+                    nameColumn() as LemonTableColumn<Transformation, any>,
                     updatedAtColumn() as LemonTableColumn<Transformation, any>,
                     statusColumn() as LemonTableColumn<Transformation, any>,
                     {

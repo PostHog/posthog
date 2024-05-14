@@ -25,7 +25,9 @@ class TestStickinessFilter(BaseTest):
                 "date_to": "2020-02-01T20:00:00Z",
                 "events": [
                     {
+                        "distinct_id_field": None,
                         "id": "$pageview",
+                        "id_field": None,
                         "type": "events",
                         "order": None,
                         "name": "$pageview",
@@ -35,6 +37,8 @@ class TestStickinessFilter(BaseTest):
                         "math_property": None,
                         "math_group_type_index": None,
                         "properties": {},
+                        "table_name": None,
+                        "timestamp_field": None,
                     }
                 ],
                 "insight": "STICKINESS",
