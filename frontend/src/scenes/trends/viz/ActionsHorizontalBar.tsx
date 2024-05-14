@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -11,7 +9,6 @@ import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
@@ -30,8 +27,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { isTrends, query } = useValues(insightVizDataLogic(insightProps))
+    const { isHogQLInsight, query } = useValues(insightVizDataLogic(insightProps))
     const { indexedResults, labelGroupType, trendsFilter, formula, showValuesOnSeries, isDataWarehouseSeries } =
         useValues(trendsDataLogic(insightProps))
 
@@ -74,13 +70,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         }
     }, [indexedResults])
 
-    const isTrendsQueryWithFeatureFlagOn =
-        (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) &&
-        isTrends &&
-        query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source)
-
     return data && total > 0 ? (
         <LineGraph
             data-attr="trend-bar-value-graph"
@@ -107,7 +96,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                           const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                           const selectedUrl = urls[index]?.value
 
-                          if (isTrendsQueryWithFeatureFlagOn) {
+                          if (isHogQLInsight) {
                               openPersonsModal({
                                   title: label || '',
                                   query: datasetToActorsQuery({ dataset, query: query.source, index }),
