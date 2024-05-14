@@ -432,7 +432,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _refresh_frequency(self):
         raise NotImplementedError()
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> Q:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        """Irreversably update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             raise NotImplementedError(
                 f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
@@ -440,11 +441,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        query_update: dict[str, Any] = {}
         if dashboard_filter.properties:
             if self.query.properties:
                 try:
-                    query_update["properties"] = PropertyGroupFilter(
+                    self.query.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND,
                         values=[
                             PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
@@ -460,18 +460,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     capture_exception()
                     logger.exception("Failed to apply dashboard property filters")
             else:
-                query_update["properties"] = dashboard_filter.properties
+                self.query.properties = dashboard_filter.properties
         if dashboard_filter.date_from or dashboard_filter.date_to:
-            date_range_update = {}
-            if dashboard_filter.date_from:
-                date_range_update["date_from"] = dashboard_filter.date_from
-            if dashboard_filter.date_to:
-                date_range_update["date_to"] = dashboard_filter.date_to
-            if self.query.dateRange:
-                query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
-            else:
-                query_update["dateRange"] = DateRange(**date_range_update)
-        return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
+            if self.query.dateRange is None:
+                self.query.dateRange = DateRange()
+            self.query.dateRange.date_from = dashboard_filter.date_from
+            self.query.dateRange.date_to = dashboard_filter.date_to
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

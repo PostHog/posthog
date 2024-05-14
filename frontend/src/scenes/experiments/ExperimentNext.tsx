@@ -14,11 +14,11 @@ import {
     PageHeaderCustom,
     ResultsHeader,
 } from './ExperimentView/components'
+import { DataCollection } from './ExperimentView/DataCollection'
 import { DistributionTable } from './ExperimentView/DistributionTable'
 import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './ExperimentView/Goal'
 import { Info } from './ExperimentView/Info'
 import { Overview } from './ExperimentView/Overview'
-import { ProgressBar } from './ExperimentView/ProgressBar'
 import { ReleaseConditionsTable } from './ExperimentView/ReleaseConditionsTable'
 import { Results } from './ExperimentView/Results'
 import { SecondaryMetricsTable } from './ExperimentView/SecondaryMetricsTable'
@@ -52,7 +52,7 @@ export function ExperimentView(): JSX.Element {
                                     </div>
 
                                     <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <ProgressBar />
+                                        <DataCollection />
                                     </div>
                                 </div>
                                 <Results />
@@ -65,7 +65,7 @@ export function ExperimentView(): JSX.Element {
                                     </div>
 
                                     <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <ProgressBar />
+                                        <DataCollection />
                                     </div>
                                 </div>
                                 <ExperimentImplementationDetails experiment={experiment} />
