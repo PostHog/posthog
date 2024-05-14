@@ -58,6 +58,9 @@ class Survey(UUIDModel):
     archived: models.BooleanField = models.BooleanField(default=False)
     # It's not a strict limit as it's enforced in a periodic task
     responses_limit = models.PositiveIntegerField(null=True)
+    iteration_count = models.PositiveIntegerField(null=True)
+    iteration_repeat_days = models.PositiveIntegerField(null=True)
+    currrent_iteration = models.PositiveIntegerField(null=True)
 
 
 @mutable_receiver([post_save, post_delete], sender=Survey)
