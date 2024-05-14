@@ -55,7 +55,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     series: Union[EventsNode, ActionsNode, DataWarehouseNode]
     chart_display_type: ChartDisplayType
     query_date_range: QueryDateRange
-    should_aggregate_values: bool
+    is_total_value: bool
 
     def __init__(
         self,
@@ -63,13 +63,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         series: Union[EventsNode, ActionsNode, DataWarehouseNode],
         chart_display_type: ChartDisplayType,
         query_date_range: QueryDateRange,
-        should_aggregate_values: bool,
+        is_total_value: bool,
     ) -> None:
         self.team = team
         self.series = series
         self.chart_display_type = chart_display_type
         self.query_date_range = query_date_range
-        self.should_aggregate_values = should_aggregate_values
+        self.is_total_value = is_total_value
 
     @cached_property
     def _id_field(self) -> ast.Expr:
@@ -143,6 +143,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "p99_count_per_actor",
         ]
 
+    def is_active_users_math(self):
+        return self.series.math in ["weekly_active", "monthly_active"]
+
     def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
@@ -205,7 +208,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 placeholders={"inner_query": inner_query},
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
 
             return query
@@ -232,7 +235,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        if self.should_aggregate_values:
+        if self.is_total_value:
             query.select = [
                 ast.Alias(
                     alias="total", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["actor_id"])])
@@ -278,7 +281,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 },
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
                 query.group_by = [ast.Field(chain=["day_start"])]
 
@@ -312,7 +315,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ),
         )
 
-        if self.should_aggregate_values:
+        if self.is_total_value:
             query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
             query.group_by.append(ast.Field(chain=["actor_id"]))
 
@@ -361,22 +364,24 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             )
 
             query = parse_select(
-                """
+                (
+                    """
                     SELECT
                         count({id_field}) AS total
                     FROM {table} AS e
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
                 """
-                if isinstance(self.series, DataWarehouseNode)
-                else """
+                    if isinstance(self.series, DataWarehouseNode)
+                    else """
                     SELECT
                         count({id_field}) AS total
                     FROM events AS e
                     SAMPLE {sample}
                     WHERE {events_where_clause}
                     GROUP BY {person_field}
-                """,
+                """
+                ),
                 placeholders={
                     "id_field": self._id_field,
                     "table": self._table_expr,
@@ -388,7 +393,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 },
             )
 
-            if not self.should_aggregate_values:
+            if not self.is_total_value:
                 query.select.append(day_start)
                 query.group_by.append(ast.Field(chain=["day_start"]))
 

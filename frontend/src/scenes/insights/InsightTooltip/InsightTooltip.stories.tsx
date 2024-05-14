@@ -147,7 +147,7 @@ Default.args = {}
 
 export const Columns: Story = BasicTemplate.bind({})
 Columns.args = {
-    entitiesAsColumnsOverride: true,
+    formula: true,
 }
 
 export function InWrapper(): JSX.Element {
