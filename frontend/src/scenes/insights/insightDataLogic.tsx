@@ -113,7 +113,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (featureFlags, query) => {
                 return (
                     isInsightVizNode(query) &&
-                    (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
+                    (!!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
                         (isTrendsQuery(query.source) && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) ||
                         (isFunnelsQuery(query.source) && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]) ||
                         (isRetentionQuery(query.source) && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) ||
