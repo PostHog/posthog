@@ -4,11 +4,13 @@ import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import {
+    FEATURE_FLAGS,
     NON_TIME_SERIES_DISPLAY_TYPES,
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
@@ -84,6 +86,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['filterTestAccountsDefault'],
             dataWarehouseSceneLogic,
             ['externalTablesMap'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             insightLogic,
@@ -113,6 +117,31 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     selectors({
+        isHogQLInsight: [
+            (s) => [
+                s.featureFlags,
+                s.query,
+                s.isTrends,
+                s.isFunnels,
+                s.isRetention,
+                s.isPaths,
+                s.isStickiness,
+                s.isLifecycle,
+            ],
+            (featureFlags, query, isTrends, isFunnels, isRetention, isPaths, isStickiness, isLifecycle) => {
+                return (
+                    isInsightVizNode(query) &&
+                    (featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
+                        (isTrends && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]) ||
+                        (isFunnels && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_FUNNELS]) ||
+                        (isRetention && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) ||
+                        (isPaths && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PATHS]) ||
+                        (isStickiness && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]) ||
+                        (isLifecycle && featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]))
+                )
+            },
+        ],
+
         querySource: [
             (s) => [s.query],
             (query) => (isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null),
