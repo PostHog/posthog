@@ -756,6 +756,8 @@ class QueryStatus(BaseModel):
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
     team_id: int
+    progress_percent: Optional[float] = None
+    estimated_seconds_remaining: Optional[float] = None
 
 
 class QueryTiming(BaseModel):

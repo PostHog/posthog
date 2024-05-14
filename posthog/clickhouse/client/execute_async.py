@@ -11,6 +11,7 @@ from rest_framework.exceptions import NotFound
 from django.db import transaction
 
 from posthog import celery, redis
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -67,7 +68,30 @@ class QueryStatusManager:
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        return QueryStatus(**json.loads(byte_results))
+        query_status = QueryStatus(**json.loads(byte_results))
+        print(query_status)
+        CLICKHOUSE_SQL = """
+        SELECT
+            query_id,
+            (100 * read_rows) / total_rows_approx AS progress_percentage,
+            elapsed AS elapsed_time,
+            (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
+        FROM system.processes
+        WHERE initial_query_id = %(query_id)s
+        """
+        CLICKHOUSE_SQL = "SELECT query_id, read_bytes, read_rows, total_rows_approx, elapsed AS elapsed_time FROM clusterAllReplicas(posthog, system.processes)"
+
+        if True or not query_status.complete:
+            # Run clickhouse query here
+            print("CLICKHOUSE")
+            try:
+                results, types = sync_execute(CLICKHOUSE_SQL, {"query_id": self.query_id}, with_column_types=True)
+                print(results, types)
+            except Exception as e:
+                print(e)
+                pass
+
+        return query_status
 
     def delete_query_status(self):
         logger.info("Deleting redis query key %s", self.results_key)

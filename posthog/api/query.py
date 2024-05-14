@@ -61,6 +61,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
+        print("CREATE", client_query_id)
 
         self._tag_client_query_id(client_query_id)
 
@@ -98,6 +99,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
+        print("RETRIVE", pk)
         query_status = get_query_status(team_id=self.team.pk, query_id=pk)
 
         http_code: int = status.HTTP_202_ACCEPTED
