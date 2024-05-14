@@ -132,9 +132,7 @@ posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_
 ee/models/license.py:0: error: Incompatible return value type (got "_T", expected "License | None")  [return-value]
 ee/models/license.py:0: error: Cannot use a covariant type variable as a parameter  [misc]
 ee/models/license.py:0: error: "_T" has no attribute "plan"  [attr-defined]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "str", expected "Literal['hour', 'day', 'week', 'month']")  [return-value]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "dict[str, int] | None" has no attribute "get"  [union-attr]
-posthog/hogql_queries/utils/query_date_range.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Unsupported operand types for * ("object" and "int")  [operator]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible return value type (got "int", expected "timedelta")  [return-value]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
@@ -376,11 +374,7 @@ posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Signature
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Superclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self) -> SelectQuery | SelectUnionQuery
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: Subclass:
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | None, series_index: int, breakdown_value: str | int | None = ..., compare: Compare | None = ...) -> SelectQuery | SelectUnionQuery
+posthog/hogql_queries/insights/trends/trends_query_runner.py:0: note: def to_actors_query(self, time_frame: str | None, series_index: int, breakdown_value: str | int | None = ..., compare_value: Compare | None = ...) -> SelectQuery | SelectUnionQuery
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "_event_property" of "TrendsQueryRunner" has incompatible type "str | float | list[str | float] | None"; expected "str"  [arg-type]
 posthog/hogql_queries/insights/stickiness_query_runner.py:0: error: Module "django.utils.timezone" does not explicitly export attribute "datetime"  [attr-defined]
@@ -588,6 +582,8 @@ posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (exp
 posthog/api/test/test_exports.py:0: error: Incompatible types in assignment (expression has type "None", variable has type "Insight")  [assignment]
 posthog/api/notebook.py:0: error: Incompatible types in assignment (expression has type "int", variable has type "str | None")  [assignment]
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
+posthog/warehouse/data_load/validate_schema.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
+posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("dict[str, str | bool] | str")  [index]
 posthog/temporal/data_imports/workflow_activities/create_job_model.py:0: error: Argument 6 has incompatible type "ExternalDataSchema"; expected "str"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "DateTime | Date | datetime | date | str | float | int | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]
 posthog/temporal/data_imports/pipelines/zendesk/helpers.py:0: error: Argument 1 to "ensure_pendulum_datetime" has incompatible type "str | None"; expected "DateTime | Date | datetime | date | str | float | int"  [arg-type]

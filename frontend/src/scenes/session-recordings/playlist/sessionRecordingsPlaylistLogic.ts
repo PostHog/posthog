@@ -77,7 +77,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     properties: [],
     events: [],
     actions: [],
-    date_from: '-7d',
+    date_from: '-3d',
     date_to: null,
     console_logs: [],
     console_search_query: '',
@@ -335,10 +335,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         advancedFilters: [
             props.advancedFilters ?? getDefaultFilters(props.personUUID),
             {
-                setAdvancedFilters: (state, { filters }) => ({
-                    ...state,
-                    ...filters,
-                }),
+                setAdvancedFilters: (state, { filters }) => {
+                    return {
+                        ...state,
+                        ...filters,
+                    }
+                },
                 resetFilters: () => getDefaultFilters(props.personUUID),
             },
         ],

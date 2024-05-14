@@ -238,29 +238,29 @@ export function NoResultsEmptyState(): JSX.Element {
     )
 }
 
+export function EllipsisAnimation(): JSX.Element {
+    const [ellipsis, setEllipsis] = useState('.')
+
+    useEffect(() => {
+        let count = 1
+        let direction = 1
+
+        const interval = setInterval(() => {
+            setEllipsis('.'.repeat(count))
+            count += direction
+
+            if (count === 3 || count === 1) {
+                direction *= -1
+            }
+        }, 300)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span>{ellipsis}</span>
+}
+
 export function ExperimentLoadingAnimation(): JSX.Element {
-    function EllipsisAnimation(): JSX.Element {
-        const [ellipsis, setEllipsis] = useState('.')
-
-        useEffect(() => {
-            let count = 1
-            let direction = 1
-
-            const interval = setInterval(() => {
-                setEllipsis('.'.repeat(count))
-                count += direction
-
-                if (count === 3 || count === 1) {
-                    direction *= -1
-                }
-            }, 300)
-
-            return () => clearInterval(interval)
-        }, [])
-
-        return <span>{ellipsis}</span>
-    }
-
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <Animation type={AnimationType.LaptopHog} />

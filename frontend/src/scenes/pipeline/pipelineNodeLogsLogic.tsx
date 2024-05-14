@@ -184,6 +184,7 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                         title: 'Timestamp',
                         key: 'timestamp',
                         dataIndex: 'timestamp',
+                        sorter: (a: LogEntry, b: LogEntry) => dayjs(a.timestamp).unix() - dayjs(b.timestamp).unix(),
                         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
                     },
                     {

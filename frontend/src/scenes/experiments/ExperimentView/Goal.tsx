@@ -56,7 +56,7 @@ export function ExposureMetric({ experimentId }: { experimentId: Experiment['id'
 
     return (
         <>
-            <div className="card-secondary mb-2 mt-4">
+            <div className="card-secondary mb-2 mt-2">
                 Exposure metric
                 <Tooltip
                     title={`This metric determines how we calculate exposure for the experiment. Only users who have this event alongside the property '$feature/${experiment.feature_flag_key}' are included in the exposure calculations.`}

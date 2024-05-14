@@ -459,7 +459,7 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    refreshStatus: { 1001: { refreshed: true, timer: expect.anything() } },
+                    refreshStatus: { 1001: { error: true, timer: expect.anything() } },
                 })
         })
     })

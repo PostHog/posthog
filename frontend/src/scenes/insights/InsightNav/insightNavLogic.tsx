@@ -374,7 +374,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
 
     // interval
     if (isInsightQueryWithSeries(mergedQuery) && cache.interval) {
-        mergedQuery.interval = cache.interval
+        // Only support real time queries on trends for now
+        if (!isTrendsQuery(mergedQuery) && cache.interval == 'minute') {
+            mergedQuery.interval = 'hour'
+        } else {
+            mergedQuery.interval = cache.interval
+        }
     }
 
     // breakdown filter
