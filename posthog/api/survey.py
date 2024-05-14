@@ -256,10 +256,10 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             instance.targeting_flag.save()
 
         instance = super().update(instance, validated_data)
-        self._add_user_survey_interacted_filters(instance)
+        self._add_user_survey_interacted_filters(instance, end_date)
         return instance
 
-    def _add_user_survey_interacted_filters(self, instance: Survey):
+    def _add_user_survey_interacted_filters(self, instance: Survey, end_date=None):
         user_submitted_dismissed_filter = {
             "groups": [
                 {
@@ -290,7 +290,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             custom_targeting_flag = self._create_or_update_targeting_flag(
                 instance.custom_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
-            custom_targeting_flag.active = bool(instance.start_date)
+
+            custom_targeting_flag.active = bool(instance.start_date) and not end_date
             custom_targeting_flag.save()
 
             instance.custom_targeting_flag_id = custom_targeting_flag.id

@@ -883,6 +883,49 @@ class TestSurvey(APIBaseTest):
         )
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is True
 
+    def test_inactive_surveys_disables_custom_targeting_flag(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        ).json()
+
+        survey = Survey.objects.get(id=survey_with_targeting["id"])
+        assert survey
+        assert survey.custom_targeting_flag
+        assert survey.custom_targeting_flag.active is False
+        # launch survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+        )
+
+        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is True
+        # stop the survey
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "end_date": datetime.now() + timedelta(days=1),
+            },
+        )
+
+        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is False
+
+        # resume survey again
+        self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "end_date": None,
+            },
+        )
+        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is True
+
     def test_can_list_surveys(self):
         self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
