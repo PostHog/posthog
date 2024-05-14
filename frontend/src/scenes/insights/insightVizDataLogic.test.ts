@@ -1,20 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import {
-    ActionsNode,
-    DataVisualizationNode,
-    EventsNode,
-    FunnelsQuery,
-    InsightQueryNode,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema'
+import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 
@@ -454,36 +446,6 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
-        })
-    })
-
-    describe('isHogQLInsight', () => {
-        it('returns false for non-insight query', () => {
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.setQuery({
-                    kind: NodeKind.DataVisualizationNode,
-                    source: {
-                        kind: 'HogQLQuery',
-                        query: 'select 1',
-                    },
-                } as DataVisualizationNode)
-            }).toMatchValues({ isHogQLInsight: false })
-        })
-
-        it('returns true with generic flag enabled', () => {
-            builtFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS]: true,
-            })
-
-            expectLogic(builtInsightVizDataLogic).toMatchValues({ isHogQLInsight: true })
-        })
-
-        it('returns true with specific flag enabled', () => {
-            builtFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS], {
-                [FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]: true,
-            })
-
-            expectLogic(builtInsightVizDataLogic).toMatchValues({ isHogQLInsight: true })
         })
     })
 })
