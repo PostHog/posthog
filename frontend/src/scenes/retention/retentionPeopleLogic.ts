@@ -1,8 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -17,18 +15,12 @@ import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-const hogQLInsightsRetentionFlagEnabled = (): boolean =>
-    Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS] ||
-            featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
-    )
-
 export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
     path((key) => ['scenes', 'retention', 'retentionPeopleLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource']],
+        values: [insightVizDataLogic(props), ['querySource', 'isHogQLInsight', 'isRetention']],
         actions: [insightVizDataLogic(props), ['loadDataSuccess']],
     })),
     actions(() => ({
@@ -40,7 +32,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
         people: {
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (selectedInterval: number) => {
-                if (hogQLInsightsRetentionFlagEnabled() && values.querySource?.kind === NodeKind.RetentionQuery) {
+                if (values.isHogQLInsight && values.isRetention) {
                     return await queryForActors(values.querySource, selectedInterval)
                 }
 
