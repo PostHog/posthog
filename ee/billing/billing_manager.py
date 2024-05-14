@@ -174,7 +174,7 @@ class BillingManager:
             # Update the add on tiers
             # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
             for addon in product.get("addons"):
-                if not addon["subscribed"]:
+                if not addon.get("subscribed"):
                     continue
                 addon_usage_key = addon.get("usage_key")
                 if not usage_key:
