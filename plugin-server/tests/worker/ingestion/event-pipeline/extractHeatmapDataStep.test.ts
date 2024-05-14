@@ -14,7 +14,6 @@ const preIngestionEvent: PreIngestionEvent = {
         $pathname: '/',
         $viewport_height: 1328,
         $viewport_width: 1071,
-        distinct_id: '018eebf3-79b1-7082-a7c6-eeb56a36002f',
         $device_id: '018eebf3-79b1-7082-a7c6-eeb56a36002f',
         $session_id: '018eebf3-79cd-70da-895f-b6cf352bd688',
         $window_id: '018eebf3-79cd-70da-895f-b6d09add936a',

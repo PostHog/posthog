@@ -136,7 +136,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
                             target_fixed: boolean
                             type: string
                         }): RawClickhouseHeatmapEvent | null => {
-                            if (isValidNumber(hme.x) || isValidNumber(hme.y) || !isValidString(hme.type)) {
+                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isValidString(hme.type)) {
                                 return null
                             }
 
