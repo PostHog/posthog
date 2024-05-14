@@ -87,7 +87,7 @@ class TestSurvey(APIBaseTest):
             }
         ]
         assert response_data["created_by"]["id"] == self.user.id
-        assert survey.custom_targeting_flag
+        assert survey.internal_targeting_flag
         survey_id = response_data["id"]
         user_submitted_dismissed_filter = {
             "groups": [
@@ -112,9 +112,9 @@ class TestSurvey(APIBaseTest):
             ]
         }
 
-        assert survey.custom_targeting_flag.filters == user_submitted_dismissed_filter
+        assert survey.internal_targeting_flag.filters == user_submitted_dismissed_filter
 
-        assert survey.custom_targeting_flag.active is False
+        assert survey.internal_targeting_flag.active is False
 
         # launch survey
         self.client.patch(
@@ -124,7 +124,7 @@ class TestSurvey(APIBaseTest):
             },
         )
         survey = Survey.objects.get(id=response_data["id"])
-        assert survey.custom_targeting_flag.active is True
+        assert survey.internal_targeting_flag.active is True
 
     def test_can_create_survey_with_linked_flag_and_targeting(self):
         notebooks_flag = FeatureFlag.objects.create(team=self.team, key="notebooks", created_by=self.user)
@@ -336,7 +336,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -883,7 +883,7 @@ class TestSurvey(APIBaseTest):
         )
         assert FeatureFlag.objects.filter(id=survey_with_targeting["targeting_flag"]["id"]).get().active is True
 
-    def test_inactive_surveys_disables_custom_targeting_flag(self):
+    def test_inactive_surveys_disables_internal_targeting_flag(self):
         survey_with_targeting = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -896,8 +896,8 @@ class TestSurvey(APIBaseTest):
 
         survey = Survey.objects.get(id=survey_with_targeting["id"])
         assert survey
-        assert survey.custom_targeting_flag
-        assert survey.custom_targeting_flag.active is False
+        assert survey.internal_targeting_flag
+        assert survey.internal_targeting_flag.active is False
         # launch survey
         self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
@@ -906,7 +906,7 @@ class TestSurvey(APIBaseTest):
             },
         )
 
-        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is True
+        assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
         # stop the survey
         self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
@@ -915,7 +915,7 @@ class TestSurvey(APIBaseTest):
             },
         )
 
-        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is False
+        assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is False
 
         # resume survey again
         self.client.patch(
@@ -924,7 +924,7 @@ class TestSurvey(APIBaseTest):
                 "end_date": None,
             },
         )
-        assert FeatureFlag.objects.filter(id=survey.custom_targeting_flag.id).get().active is True
+        assert FeatureFlag.objects.filter(id=survey.internal_targeting_flag.id).get().active is True
 
     def test_can_list_surveys(self):
         self.client.post(
@@ -947,7 +947,7 @@ class TestSurvey(APIBaseTest):
         assert list.status_code == status.HTTP_200_OK, response_data
 
         # remove the automatically inserted targeting flag from test assertion.
-        response_data.get("results")[0]["custom_targeting_flag"] = None
+        response_data.get("results")[0]["internal_targeting_flag"] = None
         assert response_data == {
             "count": 1,
             "next": None,
@@ -968,7 +968,7 @@ class TestSurvey(APIBaseTest):
                     "created_at": ANY,
                     "created_by": ANY,
                     "targeting_flag": None,
-                    "custom_targeting_flag": None,
+                    "internal_targeting_flag": None,
                     "linked_flag": None,
                     "linked_flag_id": None,
                     "conditions": None,
@@ -1583,7 +1583,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         linked_flag = FeatureFlag.objects.create(team=self.team, key="linked-flag", created_by=self.user)
         targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting-flag", created_by=self.user)
-        custom_targeting_flag = FeatureFlag.objects.create(
+        internal_targeting_flag = FeatureFlag.objects.create(
             team=self.team, key="custom-targeting-flag", created_by=self.user
         )
 
@@ -1594,7 +1594,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             type="popover",
             linked_flag=linked_flag,
             targeting_flag=targeting_flag,
-            custom_targeting_flag=custom_targeting_flag,
+            internal_targeting_flag=internal_targeting_flag,
             questions=[{"type": "open", "question": "What's a hedgehog?"}],
         )
         self.client.logout()
@@ -1627,7 +1627,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "questions": [{"type": "open", "question": "What's a hedgehog?"}],
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
-                        "custom_targeting_flag_key": "custom=targeting-flag",
+                        "internal_targeting_flag_key": "custom-targeting-flag",
                         "start_date": None,
                         "end_date": None,
                     },

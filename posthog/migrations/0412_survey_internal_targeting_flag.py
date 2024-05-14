@@ -12,13 +12,13 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="survey",
-            name="custom_targeting_flag",
+            name="internal_targeting_flag",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
-                related_name="surveys_custom_targeting_flag",
-                related_query_name="survey_custom_targeting_flag",
+                related_name="surveys_internal_targeting_flag",
+                related_query_name="survey_internal_targeting_flag",
                 to="posthog.featureflag",
             ),
         ),

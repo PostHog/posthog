@@ -42,7 +42,7 @@ class SurveySerializer(serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
-    custom_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
+    internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -55,7 +55,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "linked_flag",
             "linked_flag_id",
             "targeting_flag",
-            "custom_targeting_flag",
+            "internal_targeting_flag",
             "questions",
             "conditions",
             "appearance",
@@ -283,18 +283,18 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             ]
         }
 
-        if instance.custom_targeting_flag:
-            existing_targeting_flag = instance.custom_targeting_flag
+        if instance.internal_targeting_flag:
+            existing_targeting_flag = instance.internal_targeting_flag
             serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
 
-            custom_targeting_flag = self._create_or_update_targeting_flag(
-                instance.custom_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
+            internal_targeting_flag = self._create_or_update_targeting_flag(
+                instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
             )
 
-            custom_targeting_flag.active = bool(instance.start_date) and not end_date
-            custom_targeting_flag.save()
+            internal_targeting_flag.active = bool(instance.start_date) and not end_date
+            internal_targeting_flag.save()
 
-            instance.custom_targeting_flag_id = custom_targeting_flag.id
+            instance.internal_targeting_flag_id = internal_targeting_flag.id
 
             instance.save()
         else:
@@ -305,7 +305,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 bool(instance.start_date),
                 flag_name_suffix="-custom",
             )
-            instance.custom_targeting_flag_id = new_flag.id
+            instance.internal_targeting_flag_id = new_flag.id
             instance.save()
 
     def _create_or_update_targeting_flag(
@@ -342,7 +342,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
-    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "custom_targeting_flag").all()
+    queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
@@ -356,9 +356,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if related_targeting_flag:
             related_targeting_flag.delete()
 
-        related_custom_targeting_flag = instance.related_custom_targeting_flag
-        if related_custom_targeting_flag:
-            related_custom_targeting_flag.delete()
+        related_internal_targeting_flag = instance.internal_targeting_flag
+        if related_internal_targeting_flag:
+            related_internal_targeting_flag.delete()
 
         return super().destroy(request, *args, **kwargs)
 
@@ -391,7 +391,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
-    custom_targeting_flag_key = serializers.CharField(source="custom_targeting_flag.key", read_only=True)
+    internal_targeting_flag_key = serializers.CharField(source="internal_targeting_flag.key", read_only=True)
 
     class Meta:
         model = Survey
@@ -402,7 +402,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "type",
             "linked_flag_key",
             "targeting_flag_key",
-            "custom_targeting_flag_key",
+            "internal_targeting_flag_key",
             "questions",
             "conditions",
             "appearance",
@@ -444,7 +444,7 @@ def surveys(request: Request):
     surveys = SurveyAPISerializer(
         Survey.objects.filter(team_id=team.id)
         .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "custom_targeting_flag"),
+        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag"),
         many=True,
     ).data
 

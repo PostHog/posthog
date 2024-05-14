@@ -1025,7 +1025,7 @@
          "posthog_survey"."description",
          "posthog_survey"."linked_flag_id",
          "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."custom_targeting_flag_id",
+         "posthog_survey"."internal_targeting_flag_id",
          "posthog_survey"."type",
          "posthog_survey"."conditions",
          "posthog_survey"."questions",
