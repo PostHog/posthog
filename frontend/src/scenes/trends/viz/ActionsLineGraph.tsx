@@ -5,7 +5,6 @@ import { Chart } from 'lib/Chart'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -27,7 +26,6 @@ export function ActionsLineGraph({
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-    const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
         labelGroupType,
@@ -45,6 +43,7 @@ export function ActionsLineGraph({
         isDataWarehouseSeries,
         showLegend,
         isHogQLInsight,
+        querySource,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -142,7 +141,7 @@ export function ActionsLineGraph({
                           if (isHogQLInsight) {
                               openPersonsModal({
                                   title,
-                                  query: datasetToActorsQuery({ dataset, query: query.source, day }),
+                                  query: datasetToActorsQuery({ dataset, query: querySource, day }),
                                   additionalSelect:
                                       isLifecycle || isStickiness
                                           ? {}

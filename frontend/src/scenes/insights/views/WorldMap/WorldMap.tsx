@@ -110,7 +110,7 @@ interface WorldMapSVGProps extends ChartParams {
         countrySeries: TrendResult | undefined
     ) => Omit<HTMLProps<SVGElement>, 'key'>
     isHogQLInsight: boolean
-    querySource: InsightQueryNode
+    querySource: InsightQueryNode | null
 }
 
 const WorldMapSVG = React.memo(
@@ -172,7 +172,7 @@ const WorldMapSVG = React.memo(
                                             title: countrySeries.label,
                                             query: {
                                                 kind: NodeKind.InsightActorsQuery,
-                                                source: querySource,
+                                                source: querySource!,
                                             },
                                             additionalSelect: {
                                                 value_at_data_point: 'event_count',

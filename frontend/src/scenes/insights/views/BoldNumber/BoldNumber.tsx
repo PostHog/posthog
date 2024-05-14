@@ -85,7 +85,7 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, trendsFilter, query, isDataWarehouseSeries, isHogQLInsight } = useValues(
+    const { insightData, trendsFilter, querySource, isDataWarehouseSeries, isHogQLInsight } = useValues(
         insightVizDataLogic(insightProps)
     )
 
@@ -108,7 +108,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                       title: resultSeries.label,
                                       query: {
                                           kind: NodeKind.InsightActorsQuery,
-                                          source: query.source,
+                                          source: querySource!,
                                       },
                                       additionalSelect: {
                                           value_at_data_point: 'event_count',
@@ -142,7 +142,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
 
 function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { insightData, query } = useValues(insightVizDataLogic(insightProps))
+    const { insightData, querySource, isHogQLInsight } = useValues(insightVizDataLogic(insightProps))
 
     if (!insightData?.result) {
         return null
@@ -198,7 +198,7 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                     title: previousPeriodSeries.label,
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
-                                        source: query.source,
+                                        source: querySource!,
                                     },
                                     additionalSelect: {
                                         value_at_data_point: 'event_count',

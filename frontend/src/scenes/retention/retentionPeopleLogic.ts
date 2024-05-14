@@ -33,7 +33,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (selectedInterval: number) => {
                 if (values.isHogQLInsight && values.isRetention) {
-                    return await queryForActors(values.querySource, selectedInterval)
+                    return await queryForActors(values.querySource!, selectedInterval)
                 }
 
                 const urlParams = toParams({ ...values.apiFilters, selected_interval: selectedInterval })

@@ -7,7 +7,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -44,9 +43,9 @@ export function ActionsPie({
         showPercentStackView,
         pieChartVizOptions,
         isDataWarehouseSeries,
+        querySource,
+        isHogQLInsight,
     } = useValues(trendsDataLogic(insightProps))
-
-    const { query, isHogQLInsight } = useValues(insightVizDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
 
@@ -106,7 +105,7 @@ export function ActionsPie({
                   if (isHogQLInsight) {
                       openPersonsModal({
                           title: label || '',
-                          query: datasetToActorsQuery({ dataset, query: query.source, index }),
+                          query: datasetToActorsQuery({ dataset, query: querySource, index }),
                           additionalSelect: {
                               value_at_data_point: 'event_count',
                               matched_recordings: 'matched_recordings',
