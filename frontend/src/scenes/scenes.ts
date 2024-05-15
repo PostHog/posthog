@@ -75,6 +75,16 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
     },
+    [Scene.LiveEvents]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+    },
+    [Scene.EventsManagement]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+    },
     [Scene.BatchExports]: {
         projectBased: true,
         name: 'Batch exports',

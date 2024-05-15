@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
 
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { EventPropertyFilter, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 interface LiveEvent {
     uuid: string
@@ -53,9 +53,10 @@ export function LiveEventsTable(): JSX.Element {
             key: '$event_type',
             queryKey: 'eventType',
             onClick: () => {
-                const newFilter: AnyPropertyFilter = {
+                const newFilter: EventPropertyFilter = {
                     key: '$event_type',
                     type: PropertyFilterType.Event,
+                    operator: PropertyOperator.Exact,
                 }
                 setCurEventProperties([...curEventProperties, newFilter])
             },
@@ -65,9 +66,10 @@ export function LiveEventsTable(): JSX.Element {
             key: 'distinct_id',
             queryKey: 'distinctId',
             onClick: () => {
-                const newFilter: AnyPropertyFilter = {
+                const newFilter: PersonPropertyFilter = {
                     key: 'distinct_id',
                     type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
                 }
                 setCurEventProperties([...curEventProperties, newFilter])
             },
@@ -75,7 +77,7 @@ export function LiveEventsTable(): JSX.Element {
     ]
 
     const filteredMenuOptions = menuOptions.filter((option) => {
-        return !curEventProperties.some((filter) => filter.key === option.key)
+        return !curEventProperties.some((filter: any) => filter.key === option.key)
     })
 
     return (
@@ -102,7 +104,9 @@ export function LiveEventsTable(): JSX.Element {
                             properties.forEach((property) => {
                                 const value = Array.isArray(property.value) ? property.value.join(',') : property.value
                                 const queryKey = menuOptions.find((option) => option.key === property.key)?.queryKey
-                                tempFilters[queryKey] = value
+                                if (queryKey) {
+                                    tempFilters[queryKey] = value
+                                }
                             })
                             setFilters(tempFilters)
                             setCurEventProperties(properties)

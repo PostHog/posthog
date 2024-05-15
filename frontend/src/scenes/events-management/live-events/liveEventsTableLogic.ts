@@ -58,7 +58,7 @@ export const liveEventsTableLogic = kea({
     }),
 
     selectors: ({ selectors }) => ({
-        eventCount: [() => [selectors.events], (events) => events.length],
+        eventCount: [() => [selectors.events], (events: any) => events.length],
     }),
 
     listeners: ({ actions, values }) => ({
@@ -94,7 +94,7 @@ export const liveEventsTableLogic = kea({
 
             const source = new EventSource(url.toString())
 
-            const batch = []
+            const batch: Record<string, any>[] = []
             source.onmessage = function (event) {
                 const eventData = JSON.parse(event.data) // Assuming the event data is in JSON format
                 batch.push(eventData)
