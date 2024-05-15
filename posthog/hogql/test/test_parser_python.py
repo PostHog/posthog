@@ -57,26 +57,25 @@ class TestParserPython(parser_test_factory("python")):
         self.assertEqual(program, expected)
 
     def test_program_variable_reassignment(self):
-        code = "var a := 3; a = 4;"
+        code = "var a := 3; a := 4;"
         program = self._program(code)
         expected = Program(
+            start=None,
+            end=None,
             declarations=[
                 VariableAssignment(
                     start=None,
                     end=None,
                     name="a",
-                    expr=Constant(type=None, value=3),
+                    expr=Constant(start=None, end=None, type=None, value=3),
                     is_declaration=True,
                 ),
-                ExprStatement(
+                VariableAssignment(
                     start=None,
                     end=None,
-                    expr=CompareOperation(
-                        type=None,
-                        left=Field(type=None, chain=["a"]),
-                        right=Constant(type=None, value=4),
-                        op=CompareOperationOp.Eq,
-                    ),
+                    name="a",
+                    expr=Constant(start=None, end=None, type=None, value=4),
+                    is_declaration=False,
                 ),
             ],
         )
