@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -49,7 +50,7 @@ func main() {
 	e.GET("/", index)
 
 	e.GET("/events", func(c echo.Context) error {
-		log.Printf("SSE client connected, ip: %v", c.RealIP())
+		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
 
 		w := c.Response()
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -65,7 +66,7 @@ func main() {
 		for {
 			select {
 			case <-c.Request().Context().Done():
-				log.Printf("SSE client disconnected, ip: %v", c.RealIP())
+				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 				return nil
 			case <-ticker.C:
 				event := Event{
@@ -83,7 +84,7 @@ func main() {
 	})
 
 	e.GET("/sse", func(c echo.Context) error {
-		log.Printf("Map client connected, ip: %v", c.RealIP())
+		e.Logger.Printf("Map client connected, ip: %v", c.RealIP())
 
 		w := c.Response()
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -95,7 +96,7 @@ func main() {
 		for {
 			select {
 			case <-c.Request().Context().Done():
-				log.Printf("SSE client disconnected, ip: %v", c.RealIP())
+				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
 				return nil
 			case <-ticker.C:
 				event := Event{
@@ -109,8 +110,24 @@ func main() {
 		}
 	})
 
-	// Start server
-	e.Logger.Fatal(e.Start(":8080"))
+	if viper.GetBool("dev") {
+		e.Logger.Fatal(e.Start(":8080"))
+	} else {
+		// Start Tailnet
+		tailNetServer, err := initTailNetServer()
+		if err != nil {
+			e.Logger.Panic("cannot start tailnet server")
+		}
+
+		// Start server
+		s := http.Server{
+			Handler: e,
+		}
+
+		if err := s.Serve(*tailNetServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			e.Logger.Fatal(err)
+		}
+	}
 }
 
 // Handler
