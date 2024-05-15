@@ -16,7 +16,7 @@ class ReferralProgramReferrer(UUIDModel):
     referral_program: models.ForeignKey = models.ForeignKey(
         "ReferralProgram",
         on_delete=models.CASCADE,
-        related_name="referrers",
-        related_query_name="referrer",
+        related_name="referrer",
+        related_query_name="referrers",
     )
     max_redemption_count: models.PositiveIntegerField = models.PositiveIntegerField(null=True, blank=True)

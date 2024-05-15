@@ -413,3 +413,10 @@ project_referrals_router.register(
     "project_referral_referrers",
     ["team_id", "referral_program_id"],
 )
+
+project_referrals_router.register(
+    r"redeemers",
+    referral.ReferrerProgramRedeemerViewSet,
+    "project_referral_redeemers",
+    ["team_id", "referral_program_id"],
+)
