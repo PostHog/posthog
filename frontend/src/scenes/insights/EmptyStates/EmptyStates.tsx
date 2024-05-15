@@ -93,7 +93,7 @@ export function InsightLoadingStateWithLoadingBar({
     const secondsElapsed = dayjs().diff(dayjs(insightPollResponse?.start_time), 'second')
 
     const rowsRead = insightPollResponse?.query_progress?.rows_read || 0
-    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 0
+    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 1
     const bytesPerSecond = bytesRead / secondsElapsed
 
     return (
@@ -101,13 +101,15 @@ export function InsightLoadingStateWithLoadingBar({
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
                 <LoadingBar />
-                {rowsRead > 0 && (
-                    <p className="mx-auto text-center text-xs">
-                        {humanFriendlyNumber(rowsRead)} rows
-                        <br />
-                        {humanFileSize(bytesRead)} ({humanFileSize(bytesPerSecond)}/s)
-                    </p>
-                )}
+                <p className="mx-auto text-center text-xs">
+                    {rowsRead > 0 && bytesRead > 0 && (
+                        <>
+                            {humanFriendlyNumber(rowsRead)} rows
+                            <br />
+                            {humanFileSize(bytesRead)} ({humanFileSize(bytesPerSecond)}/s)
+                        </>
+                    )}
+                </p>
                 <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
