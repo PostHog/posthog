@@ -5,6 +5,26 @@ options {
 }
 
 
+program: declaration* EOF;
+declaration
+    : varDecl
+    | statement ;
+
+expression: columnExpr;
+
+varDecl: VAR IDENTIFIER ( COLON EQ_SINGLE expression )? SEMICOLON ;
+
+statement      : exprStmt
+               | ifStmt
+               | block ;
+
+exprStmt       : expression SEMICOLON ;
+ifStmt         : IF LPAREN expression RPAREN statement
+                 ( ELSE statement )? ;
+block          : LBRACE declaration* RBRACE ;
+
+
+
 // SELECT statement
 select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
 

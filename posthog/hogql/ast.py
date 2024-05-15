@@ -30,6 +30,39 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 
 @dataclass(kw_only=True)
+class Declaration(AST):
+    type: Optional[Type] = None
+
+
+@dataclass(kw_only=True)
+class VariableDeclaration(Declaration):
+    name: str
+    expr: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
+class Statement(Declaration):
+    pass
+
+
+@dataclass(kw_only=True)
+class ExprStatement(Statement):
+    expr: Expr
+
+
+@dataclass(kw_only=True)
+class IfStatement(Statement):
+    expr: Expr
+    then: Statement
+    else_: Optional[Statement] = None
+
+
+@dataclass(kw_only=True)
+class Block(Statement):
+    declarations: list[Declaration]
+
+
+@dataclass(kw_only=True)
 class FieldAliasType(Type):
     alias: str
     type: Type
