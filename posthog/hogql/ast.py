@@ -31,7 +31,7 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 
 @dataclass(kw_only=True)
 class Declaration(AST):
-    type: Optional[Type] = None
+    pass
 
 
 @dataclass(kw_only=True)
@@ -59,6 +59,11 @@ class IfStatement(Statement):
 
 @dataclass(kw_only=True)
 class Block(Statement):
+    declarations: list[Declaration]
+
+
+@dataclass(kw_only=True)
+class Program(AST):
     declarations: list[Declaration]
 
 
