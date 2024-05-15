@@ -6504,6 +6504,9 @@
                     "default": true,
                     "type": "boolean"
                 },
+                "query_progress": {
+                    "$ref": "#/definitions/ClickhouseQueryStatus"
+                },
                 "results": {},
                 "start_time": {
                     "format": "date-time",

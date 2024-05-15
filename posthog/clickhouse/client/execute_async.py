@@ -123,6 +123,16 @@ class QueryStatusManager:
                 }
                 query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
                 self.store_clickhouse_query_status(query_status)
+
+                query_status.query_progress = {
+                    "bytes_read": sum(x.bytes_read for x in query_status.clickhouse_query_progress.values()),
+                    "rows_read": sum(x.rows_read for x in query_status.clickhouse_query_progress.values()),
+                    "estimated_rows_total": sum(
+                        x.estimated_rows_total for x in query_status.clickhouse_query_progress.values()
+                    ),
+                    "time_elapsed": sum(x.time_elapsed for x in query_status.clickhouse_query_progress.values()),
+                    "estimated_time_remaining": -1,
+                }
             except Exception as e:
                 logger.error("Clickhouse Status Check Failed", e)
                 pass

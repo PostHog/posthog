@@ -764,6 +764,7 @@ class QueryStatus(BaseModel):
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
+    query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
