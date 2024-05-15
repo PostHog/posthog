@@ -120,8 +120,11 @@ func (c *Filter) Run() {
 					responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
 				}
 
-				sub.EventChan <- *responseEvent
-
+				select {
+				case sub.EventChan <- *responseEvent:
+				default:
+					// Don't block
+				}
 			}
 
 		}

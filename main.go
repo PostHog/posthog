@@ -101,7 +101,7 @@ func main() {
 			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			DistinctId:  distinctId,
 			EventType:   eventType,
-			EventChan:   make(chan ResponsePostHogEvent),
+			EventChan:   make(chan ResponsePostHogEvent, 100),
 			ShouldClose: &atomic.Bool{},
 		}
 
