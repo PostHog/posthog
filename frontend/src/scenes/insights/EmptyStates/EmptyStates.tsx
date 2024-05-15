@@ -93,8 +93,8 @@ export function InsightLoadingStateWithLoadingBar({
     const secondsElapsed = dayjs().diff(dayjs(insightPollResponse?.start_time), 'second')
 
     const rowsRead = insightPollResponse?.query_progress?.rows_read || 0
-    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 1
-    const bytesPerSecond = bytesRead / secondsElapsed
+    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 0
+    const bytesPerSecond = bytesRead / (secondsElapsed || 1)
 
     return (
         <div className="insight-empty-state warning">
