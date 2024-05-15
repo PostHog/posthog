@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
+import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -151,6 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setPollResponse: (status: QueryStatus) => {{ status }}
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -204,7 +206,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
-                                            queryId
+                                            queryId,
+                                            undefined,
+                                            actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -323,6 +327,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => false,
                 cancelQuery: () => true,
             },
+        ],
+        pollResponse: [
+            null as null | QueryStatus,
+            {
+                setPollResponse: (status: QueryStatus | null) => status
+            }
         ],
         autoLoadToggled: [
             false,

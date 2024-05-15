@@ -38,6 +38,7 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from './utils'
+import { QueryStatus} from './schema'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
@@ -107,7 +108,8 @@ async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
@@ -131,6 +133,7 @@ async function executeQuery<N extends DataNode>(
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results
         }
+        if(setPollResponse) setPollResponse(statusResponse)
     }
     throw new Error('Query timed out')
 }
@@ -141,7 +144,8 @@ export async function query<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string
+    legacyUrl?: string,
+    setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -370,7 +374,7 @@ export async function query<N extends DataNode>(
                 response = await fetchLegacyInsights()
             }
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
