@@ -78,7 +78,7 @@ func main() {
 		distinctId := c.QueryParam("distinctId")
 
 		subscription := &Subscription{
-			Token:      "token",
+			Token:      "sTMFPsFhdP1Ssg",
 			DistinctId: distinctId,
 			EventType:  eventType,
 			EventChan:  make(chan interface{}),
