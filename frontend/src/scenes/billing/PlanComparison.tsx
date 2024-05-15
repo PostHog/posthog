@@ -268,30 +268,48 @@ export const PlanComparison = ({
                 )}
                 {includeAddons &&
                     product.addons?.map((addon) => {
-                        // TODO: enhanced_persons: addon will show up here when we add a price plan. Make sure this can handle it.
                         return addon.tiered ? (
                             <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">
                                     <p className="ml-0">
                                         <span className="font-bold">{addon.name}</span>
-                                        <LemonTag type="completion" className="ml-2">
-                                            addon
-                                        </LemonTag>
+                                        <Tooltip
+                                            title={
+                                                addon.inclusion_only
+                                                    ? 'Automatically charged based on SDK config options and usage.'
+                                                    : 'If subscribed, charged on all usage.'
+                                            }
+                                        >
+                                            <LemonTag
+                                                type={addon.inclusion_only ? 'option' : 'primary'}
+                                                className="ml-2"
+                                            >
+                                                {addon.inclusion_only ? 'config' : 'addon'}
+                                            </LemonTag>
+                                        </Tooltip>
                                     </p>
                                     <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
                                 </th>
-                                {plans?.map((plan) =>
-                                    // If the plan is free, the addon isn't available
-                                    plan.free_allocation && !plan.tiers ? (
-                                        <td key={`${addon.name}-free-tiers-td`}>
-                                            <p className="text-muted text-xs">Not available on this plan.</p>
-                                        </td>
+                                {plans?.map((plan, i) => {
+                                    // If the parent plan is free, the addon isn't available
+                                    return !addon.inclusion_only ? (
+                                        plan.free_allocation && !plan.tiers ? (
+                                            <td key={`${addon.name}-free-tiers-td`}>
+                                                <p className="text-muted text-xs">Not available on this plan.</p>
+                                            </td>
+                                        ) : (
+                                            <td key={`${addon.type}-tiers-td`}>
+                                                {getProductTiers(addon.plans?.[0], addon)}
+                                            </td>
+                                        )
+                                    ) : plan.free_allocation && !plan.tiers ? (
+                                        <td key={`${addon.name}-free-tiers-td`}>{getProductTiers(plan, product)}</td>
                                     ) : (
                                         <td key={`${addon.type}-tiers-td`}>
-                                            {getProductTiers(addon.plans?.[0], addon)}
+                                            {getProductTiers(addon.plans?.[i], addon)}
                                         </td>
                                     )
-                                )}
+                                })}
                             </tr>
                         ) : null
                     })}
