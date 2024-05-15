@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
@@ -13,7 +14,6 @@ type PostHogEventWrapper struct {
 	Data       string `json:"data"`
 }
 
-// TODO: handle fallback field names
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
@@ -84,6 +84,9 @@ func (c *KafkaConsumer) Consume() {
 
 		phEvent.Uuid = wrapperMessage.Uuid
 		phEvent.DistinctID = wrapperMessage.DistinctId
+		if phEvent.Timestamp == "" {
+			phEvent.Timestamp = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		}
 
 		if ipValue, ok := phEvent.Properties["$ip"]; ok {
 			if ipStr, ok := ipValue.(string); ok {
