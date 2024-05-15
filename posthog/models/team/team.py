@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import re
 from decimal import Decimal
 from functools import lru_cache
@@ -18,9 +20,11 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.db import transaction
 from zoneinfo import ZoneInfo
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
+from posthog.models.crypter import decrypt
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -41,6 +45,11 @@ from ...schema import PathCleaningFilter, PersonsOnEventsMode, HogQLQueryModifie
 
 if TYPE_CHECKING:
     from posthog.models.user import User
+
+
+class SharedSecretValidationError(Exception):
+    pass
+
 
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
@@ -165,6 +174,8 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    MODEL_ENCRYPTED_FIELDS = ["encrypted_shared_secret"]
+
     class Meta:
         verbose_name = "team (soon to be environment)"
         verbose_name_plural = "teams (soon to be environments)"
@@ -244,6 +255,11 @@ class Team(UUIDClassicModel):
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
+    # Teams can set this to setup secure auth and requests - we know it, they know it, and we check the HMAC hash of a given payload
+    # to validate it. We only support sha256 hashes.
+    # This is a Fernet encrypted string
+    encrypted_shared_secret: models.CharField = models.CharField(max_length=500, null=True, blank=True)
+
     primary_dashboard: models.ForeignKey = models.ForeignKey(
         "posthog.Dashboard",
         on_delete=models.SET_NULL,
@@ -292,6 +308,25 @@ class Team(UUIDClassicModel):
     external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
+
+    def validate_payload(self, message: str, hash: str):
+        """
+        Based on hmac validation
+        """
+        # TODO: Do I need to consider any time-based validation here?
+
+        my_hash = hmac.new(
+            self.shared_secret.encode(),
+            message.encode(),
+            digestmod=hashlib.sha256,
+        ).hexdigest()
+
+        if not hmac.compare_digest(my_hash, hash):
+            raise SharedSecretValidationError("Invalid")
+
+    @property
+    def shared_secret(self) -> str:
+        return decrypt(self.encrypted_shared_secret)
 
     @property
     def default_modifiers(self) -> dict:

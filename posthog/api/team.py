@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.crypter import encrypt
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
@@ -300,10 +301,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
         return super().validate(attrs)
 
+    def encrypt_sensitive_fields(self, validated_data: dict[str, Any]) -> dict[str, Any]:
+        # If any MODEL_ENCRYPTED_FIELDS are present, encrypt them
+
+        for field in self.Meta.model.MODEL_ENCRYPTED_FIELDS:
+            if field in validated_data:
+                validated_data[field] = encrypt(validated_data[field])
+        return validated_data
+
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
+
+        validated_data = self.encrypt_sensitive_fields(validated_data)
 
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
@@ -344,6 +355,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         cache.delete_many(hashes)
 
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        validated_data = self.encrypt_sensitive_fields(validated_data)
+        # TODO: Check if the above messes with the before update handling
         before_update = instance.__dict__.copy()
 
         if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
