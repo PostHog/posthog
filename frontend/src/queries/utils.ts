@@ -15,6 +15,7 @@ import {
     FunnelsQuery,
     HogQLMetadata,
     HogQLQuery,
+    HogQuery,
     InsightActorsQuery,
     InsightFilter,
     InsightFilterProperty,
@@ -121,6 +122,10 @@ export function isSavedInsightNode(node?: Record<string, any> | null): node is S
 
 export function isInsightVizNode(node?: Record<string, any> | null): node is InsightVizNode {
     return node?.kind === NodeKind.InsightVizNode
+}
+
+export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {
+    return node?.kind === NodeKind.HogQuery
 }
 
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {

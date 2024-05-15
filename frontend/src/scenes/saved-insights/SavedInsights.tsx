@@ -314,6 +314,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTrends,
         inMenu: true,
     },
+    [NodeKind.HogQuery]: {
+        name: 'Hog',
+        description: 'Hog query',
+        icon: IconHogQL,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

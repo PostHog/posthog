@@ -26,6 +26,7 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
+    HogQueryResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +69,7 @@ def process_query_model(
         elif isinstance(query, HogQuery):
             program = parse_program(query.code)
             bytecode = create_bytecode(program)
-            result = execute_bytecode(bytecode)
+            result = HogQueryResponse(results=execute_bytecode(bytecode))
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):

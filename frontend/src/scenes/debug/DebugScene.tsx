@@ -29,6 +29,12 @@ export function DebugScene(): JSX.Element {
                             HogQL Debug
                         </LemonButton>
                         <LemonButton
+                            active={query1 === stringifiedExamples.Hoggonacci}
+                            onClick={() => setQuery1(stringifiedExamples.Hoggonacci)}
+                        >
+                            Hog
+                        </LemonButton>
+                        <LemonButton
                             active={query1 === stringifiedExamples.HogQLTable}
                             onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
                         >
