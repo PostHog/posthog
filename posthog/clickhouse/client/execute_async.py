@@ -73,23 +73,27 @@ class QueryStatusManager:
         CLICKHOUSE_SQL = """
         SELECT
             query_id,
+            initial_query_id,
             (100 * read_rows) / total_rows_approx AS progress_percentage,
             elapsed AS elapsed_time,
             (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
         FROM system.processes
-        WHERE initial_query_id = %(query_id)s
+        WHERE query_id like %(query_id)s
         """
-        CLICKHOUSE_SQL = "SELECT query_id, read_bytes, read_rows, total_rows_approx, elapsed AS elapsed_time FROM clusterAllReplicas(posthog, system.processes)"
-        CLICKHOUSE_SQL = (
-            "SELECT query_id, read_bytes, read_rows, total_rows_approx, elapsed AS elapsed_time FROM system.processes"
-        )
+        #         WHERE initial_query_id = %(query_id)s
 
-        if True or not query_status.complete:
+        if not query_status.complete:
             # Run clickhouse query here
             print("CLICKHOUSE")
             try:
-                results, types = sync_execute(CLICKHOUSE_SQL, {"query_id": self.query_id}, with_column_types=True)
+                results, types = sync_execute(
+                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+                )
                 print(results, types)
+                if len(results) >= 1:
+                    # need to handle multiple results (figure out how this works for compare and stuff)
+                    query_status.progress_percent = results[0][2]
+                    query_status.estimated_seconds_remaining = results[0][4]
             except Exception as e:
                 print(e)
                 pass
