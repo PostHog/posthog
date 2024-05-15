@@ -1,5 +1,4 @@
 import logging
-import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -19,7 +18,7 @@ class PosthogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         # TODO: need to stash the user ID on the request and grab it rather than
         # just filling with a garbage value
-        distinct_id = uuid.uuid1().hex
+        distinct_id = "mykologs"
 
         # XXX: structlog specific processing -- not generically applicable to
         # all log record types; probably would want to keep this independent of
