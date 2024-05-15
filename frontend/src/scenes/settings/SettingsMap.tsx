@@ -232,11 +232,6 @@ export const SettingsMap: SettingSection[] = [
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
             },
-            {
-                id: 'integration-proxy',
-                title: 'Proxy',
-                component: <Proxy />,
-            },
         ],
     },
     {
@@ -320,6 +315,18 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-rbac',
                 title: 'Role-based access',
                 component: <PermissionsGrid />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-proxy',
+        title: 'Proxy',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
             },
         ],
     },
