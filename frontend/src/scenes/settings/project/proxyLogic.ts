@@ -15,7 +15,7 @@ export type ProxyRecord = {
     cname_target: string
 }
 
-type FormState = 'collapsed' | 'active' | 'complete'
+export type FormState = 'collapsed' | 'active' | 'complete'
 
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
