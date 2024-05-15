@@ -77,9 +77,10 @@ class QueryStatusManager:
             (100 * read_rows) / total_rows_approx AS progress_percentage,
             elapsed AS elapsed_time,
             (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
-        FROM system.processes
-        WHERE query_id like %(query_id)s
+        FROM clusterAllReplicas(posthog, system.processes)
+        
         """
+        #         WHERE query_id like %(query_id)s
         #         WHERE initial_query_id = %(query_id)s
 
         if not query_status.complete:
