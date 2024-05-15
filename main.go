@@ -70,9 +70,9 @@ func main() {
 			case <-ticker.C:
 				event := Event{
 					Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano) + "\nparameters: " +
-						"\nteamId: " + teamId +
-						"\neventType: " + eventType +
-						"\ndistinctId: " + distinctId),
+						"\n\tteamId: " + teamId +
+						"\n\teventType: " + eventType +
+						"\n\tdistinctId: " + distinctId),
 				}
 				if err := event.WriteTo(w); err != nil {
 					return err
