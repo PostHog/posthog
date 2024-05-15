@@ -29,13 +29,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     permission_classes = [OrganizationAdminWritePermissions]
 
     def list(self, request, *args, **kwargs):
-        queryset = self.organization.proxy_records
+        queryset = self.organization.proxy_records.order_by("-created_at")
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
-        queryset = self.organization.proxy_records
+        queryset = self.organization.proxy_records.order_by("-created_at")
         queryset.create(created_by=request.user, domain=domain, target_cname=settings.PROXY_TARGET_CNAME)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
