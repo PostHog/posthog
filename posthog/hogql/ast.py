@@ -51,6 +51,11 @@ class ExprStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class ReturnStatement(Statement):
+    expr: Optional[Expr]
+
+
+@dataclass(kw_only=True)
 class IfStatement(Statement):
     expr: Expr
     then: Statement

@@ -283,6 +283,10 @@ class TraversingVisitor(Visitor[None]):
     def visit_expr_statement(self, node: ast.ExprStatement):
         self.visit(node.expr)
 
+    def visit_return_statement(self, node: ast.ReturnStatement):
+        if node.expr:
+            self.visit(node.expr)
+
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("visit_declaration not implemented")
 
@@ -595,6 +599,13 @@ class CloningVisitor(Visitor[Any]):
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             expr=self.visit(node.expr),
+        )
+
+    def visit_return_statement(self, node: ast.ReturnStatement):
+        return ast.ReturnStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr) if node.expr else None,
         )
 
     def visit_declaration(self, node: ast.Declaration):

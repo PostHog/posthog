@@ -187,6 +187,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
         return ast.ExprStatement(expr=self.visit(ctx.expression()))
 
+    def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
+        return ast.ReturnStatement(expr=self.visit(ctx.expression()))
+
     def visitIfStmt(self, ctx: HogQLParser.IfStmtContext):
         return ast.IfStatement(
             expr=self.visit(ctx.expression()),
