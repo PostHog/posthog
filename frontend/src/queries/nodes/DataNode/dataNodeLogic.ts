@@ -304,6 +304,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => false,
             },
         ],
+        queryId: [
+            null,
+            {
+                loadData: (state, { queryId }) => queryId,
+            },
+        ],
         newDataLoading: [
             false,
             {
@@ -330,9 +336,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         pollResponse: [
-            null as null | QueryStatus,
+            null as null | { status; QueryStatus; previousStatus: QueryStatus },
             {
-                setPollResponse: (_, { status }) => status,
+                setPollResponse: (state, { status }) => {
+                    return { status, previousStatus: state?.status }
+                },
             },
         ],
         autoLoadToggled: [

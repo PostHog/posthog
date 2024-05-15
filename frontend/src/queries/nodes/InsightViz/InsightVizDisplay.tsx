@@ -76,14 +76,14 @@ export function InsightVizDisplay({
         vizSpecificOptions,
         query,
     } = useValues(insightVizDataLogic(insightProps))
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
                 <div className="flex flex-col flex-1 justify-center items-center">
-                    <InsightLoadingState queryId={timedOutQueryId} insightProps={insightProps} />
+                    <InsightLoadingState queryId={queryId} insightProps={insightProps} />
                 </div>
             )
         }

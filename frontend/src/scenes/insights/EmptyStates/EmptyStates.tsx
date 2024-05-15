@@ -19,6 +19,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -90,23 +91,47 @@ export function InsightLoadingStateWithLoadingBar({
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { insightPollResponse } = useValues(insightDataLogic(insightProps))
-    const secondsElapsed = dayjs().diff(dayjs(insightPollResponse?.start_time), 'second')
 
-    const rowsRead = insightPollResponse?.query_progress?.rows_read || 0
-    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 0
+    const [rowsRead, setRowsRead] = useState(0)
+    const [bytesRead, setBytesRead] = useState(0)
+    const [secondsElapsed, setSecondsElapsed] = useState(0)
+
+    useEffect(() => {
+        setRowsRead(insightPollResponse?.previousStatus?.query_progress?.rows_read || 0)
+        setBytesRead(insightPollResponse?.previousStatus?.query_progress?.bytes_read || 0)
+        const interval = setInterval(() => {
+            setRowsRead((rowsRead) => {
+                const diff =
+                    insightPollResponse?.status?.query_progress?.rows_read -
+                    (insightPollResponse?.previousStatus?.query_progress?.rows_read || 0)
+                return rowsRead + diff / 30
+            })
+            setBytesRead((bytesRead) => {
+                const diff =
+                    insightPollResponse?.status?.query_progress?.bytes_read -
+                    (insightPollResponse?.previousStatus?.query_progress?.bytes_read || 0)
+                return bytesRead + diff / 30
+            })
+            setSecondsElapsed(() => {
+                return dayjs().diff(dayjs(insightPollResponse?.status?.start_time), 'second')
+            })
+        }, 100)
+
+        return () => clearInterval(interval)
+    }, [insightPollResponse])
     const bytesPerSecond = bytesRead / (secondsElapsed || 1)
 
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
-                <LoadingBar />
+                <LoadingBar key={queryId} />
                 <p className="mx-auto text-center text-xs">
                     {rowsRead > 0 && bytesRead > 0 && (
                         <>
-                            {humanFriendlyNumber(rowsRead)} rows
+                            {humanFriendlyNumber(rowsRead || 0)} rows
                             <br />
-                            {humanFileSize(bytesRead)} ({humanFileSize(bytesPerSecond)}/s)
+                            {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
                         </>
                     )}
                 </p>
