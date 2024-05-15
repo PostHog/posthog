@@ -29,9 +29,13 @@ export const myReferralsLogic = kea<myReferralsLogicType>([
                     const host = window.location.origin // TODO: Update to us.posthog.com when ready
                     const referralProgram = '6ZrDckau' // TODO: Update to deployed value when ready
                     const token = 'phc_g5GJ0z1vcm2HOpatOT2484heTH66tpoS2cIyZy4khxb' // TODO: Update to 'sTMFPsFhdP1Ssg'
+                    const email = values.user!.email
 
                     const response = await fetch(
-                        host + `/api/referrals/${referralProgram}/referrer/?token=${token}&user_id=${values.user!.uuid}`
+                        host +
+                            `/api/referrals/${referralProgram}/referrer/?token=${token}&user_id=${
+                                values.user!.uuid
+                            }&user_email=${email}`
                     )
 
                     if (response.status !== 200) {
@@ -47,6 +51,7 @@ export const myReferralsLogic = kea<myReferralsLogicType>([
             const code = getCookie('ph_rcode')
             // TODO: Remove testing code
             const userID = values.user?.uuid ?? Math.round(Math.random() * 10000)
+            const email = values.user?.email ?? `${userID}-test@posthog.com`
             if (!code) {
                 console.log('NO CODE OR NO USER')
                 return
@@ -56,7 +61,8 @@ export const myReferralsLogic = kea<myReferralsLogicType>([
             const token = 'phc_g5GJ0z1vcm2HOpatOT2484heTH66tpoS2cIyZy4khxb' // TODO: Update to 'sTMFPsFhdP1Ssg'
 
             const response = await fetch(
-                host + `/api/referrals/${referralProgram}/redeem/?token=${token}&code=${code}&user_id=${userID}`
+                host +
+                    `/api/referrals/${referralProgram}/redeem/?token=${token}&code=${code}&user_id=${userID}&user_email=${email}`
             )
 
             if (response.status !== 200) {
