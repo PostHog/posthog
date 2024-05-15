@@ -1,9 +1,9 @@
-import dns
+import dns.resolver
 import requests
 from posthog.models import ProxyRecord
 from django.conf import settings
 
-EXPECTED_CNAME = "k8s-proxyasa-proxyasa-e8343c0048-1f26b5a36cde44fd.elb.us-east-1.amazonaws.com."
+EXPECTED_CNAME = settings.PROXY_TARGET_CNAME
 
 
 def validate_proxy_domains() -> None:
@@ -17,6 +17,9 @@ def validate_proxy_domains() -> None:
 
             if value == EXPECTED_CNAME:
                 domain.status = ProxyRecord.Status.ISSUING
+                response = requests.post(f"{settings.PROXY_PROVISIONER_URL}create", data={"domain": record.domain})
+                if response.status_code != 200:
+                    domain.status = ProxyRecord.Status.ERRORING
                 domain.save()
         except dns.resolver.NoAnswer:
             break
