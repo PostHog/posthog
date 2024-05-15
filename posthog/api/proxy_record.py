@@ -15,10 +15,10 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "domain",
-            # "dns_records",
-            # "status",
+            "dns_records",
+            "status",
         )
-        # read_only_fields = ("dns_records", "status")
+        read_only_fields = ("dns_records", "status")
 
 
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):

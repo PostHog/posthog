@@ -17,9 +17,9 @@ export function Proxy(): JSX.Element {
         },
         {
             title: 'Status',
-            key: 'status',
-            render: function Render() {
-                return <div>Status</div>
+            dataIndex: 'status',
+            render: function RenderStatus(status) {
+                return <span className="capitalize">{status}</span>
             },
         },
     ]
