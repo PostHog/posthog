@@ -7,4 +7,4 @@ fi
 
 git pull
 go build
-./start.sh
+./livestream
