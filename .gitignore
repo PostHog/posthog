@@ -23,3 +23,9 @@ go.work.sum
 
 # binary / build
 livestream
+
+# tsnet 
+.tsnet-state/
+
+# configs
+configs/
