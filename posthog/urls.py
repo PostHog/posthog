@@ -1,5 +1,6 @@
 from typing import Any, Optional, cast
 from collections.abc import Callable
+from posthog.api.cli import cli_login_check, cli_login_start
 from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
@@ -184,6 +185,8 @@ urlpatterns = [
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/surveys", surveys),
+    opt_slash_path("api/login/cli/start", cli_login_start),
+    opt_slash_path("api/login/cli/check", cli_login_check),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),

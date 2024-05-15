@@ -211,6 +211,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
+    valid_audiences = [PosthogJwtAudience.IMPERSONATED_USER, PosthogJwtAudience.CLI]
+
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if "HTTP_AUTHORIZATION" in request.META:

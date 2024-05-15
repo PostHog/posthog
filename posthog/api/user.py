@@ -36,7 +36,12 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import raise_if_user_provided_url_unsafe, PublicIPOnlyHttpAdapter
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
+from posthog.auth import (
+    JwtAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    authenticate_secondarily,
+)
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,
@@ -335,7 +340,7 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, JwtAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
