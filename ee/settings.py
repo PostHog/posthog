@@ -65,6 +65,8 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")
+PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
