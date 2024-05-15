@@ -622,6 +622,32 @@ def reply_zendesk_ticket(request):
     return JsonResponse({"tickets": tickets.json()})
 
 
+@authenticate_secondarily
+def create_new_zendesk_ticket(request):
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
+
+    payload = {
+        "request": {
+            "requester": {"name": body.get("name"), "email": body.get("email")},
+            "subject": body.get("subject"),
+            "custom_fields": [
+                {"id": 22084126888475, "value": body.get("severity_level")},
+                {"id": 22129191462555, "value": body.get("distinct_id")},
+            ],
+            "comment": {
+                "body": body.get("body"),
+            },
+        },
+    }
+
+    response = requests.request("POST", "https://posthoghelp.zendesk.com/api/v2/requests.json", json=payload).json()
+
+    return JsonResponse({"response": response})
+
+
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
