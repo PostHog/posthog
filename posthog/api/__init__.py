@@ -35,6 +35,7 @@ from . import (
     plugin_log_entry,
     property_definition,
     query,
+    referral,
     search,
     scheduled_change,
     sharing,
@@ -398,3 +399,10 @@ projects_router.register(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])
+
+projects_router.register(
+    r"referrals",
+    referral.ReferralProgramViewset,
+    "project_referrals",
+    ["team_id"],
+)
