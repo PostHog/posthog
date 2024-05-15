@@ -13,6 +13,7 @@ func loadConfigs() {
 	viper.AddConfigPath("configs/")
 
 	viper.SetDefault("tailscale.controlUrl", ipn.DefaultControlURL)
+	viper.SetDefault("prod", false)
 
 	err := viper.ReadInConfig()
 	if err != nil {
