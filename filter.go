@@ -42,37 +42,39 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 func (c *Filter) Run() {
 	x := 0
 
-	select {
-	case event := <-c.inboundChan:
-		x += 1
-		log.Printf("Filter processed %v messages", x)
+	for {
+		select {
+		case event := <-c.inboundChan:
+			x += 1
+			log.Printf("Filter processed %v messages", x)
 
-		for _, sub := range c.subs {
-			if sub.ShouldClose.Load() {
-				// TODO: Figure this out later. Apparently closing from the read side is dangerous
-				// because writing to a closed channel = panic.
-				continue
+			for _, sub := range c.subs {
+				if sub.ShouldClose.Load() {
+					// TODO: Figure this out later. Apparently closing from the read side is dangerous
+					// because writing to a closed channel = panic.
+					continue
+				}
+
+				if sub.Token != "" && event.Token != sub.Token {
+					continue
+				}
+
+				if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
+					continue
+				}
+
+				if sub.EventType != "" && event.Event != sub.EventType {
+					continue
+				}
+
+				log.Printf("Before event send %d", x)
+				sub.EventChan <- event
+				log.Printf("After event send %d", x)
 			}
-
-			if sub.Token != "" && event.Token != sub.Token {
-				continue
-			}
-
-			if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
-				continue
-			}
-
-			if sub.EventType != "" && event.Event != sub.EventType {
-				continue
-			}
-
-			log.Printf("Before event send %d", x)
-			sub.EventChan <- event
-			log.Printf("After event send %d", x)
+		case newSub := <-c.subChan:
+			log.Printf("New sub: %v\n", newSub)
+			c.subs = append(c.subs, newSub)
+			log.Printf("New sub added: %v\n", newSub)
 		}
-	case newSub := <-c.subChan:
-		log.Printf("New sub: %v\n", newSub)
-		c.subs = append(c.subs, newSub)
-		log.Printf("New sub added: %v\n", newSub)
 	}
 }
