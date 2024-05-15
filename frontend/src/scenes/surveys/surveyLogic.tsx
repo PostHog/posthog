@@ -36,7 +36,7 @@ export enum SurveyEditSection {
     Appearance = 'appearance',
     Customization = 'customization',
     Targeting = 'targeting',
-    Occurence = 'occurence',
+    Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
 }
 export interface SurveyLogicProps {
@@ -144,6 +144,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setSurveyTemplateValues: (template: any) => ({ template }),
         setSelectedQuestion: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
+        setShowSurveyRepeatSchedule: (showSurveyRepeatSchedule: boolean) => ({ showSurveyRepeatSchedule }),
         resetTargeting: true,
         setFlagPropertyErrors: (errors: any) => ({ errors }),
     }),
@@ -476,6 +477,8 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('conditions', NEW_SURVEY.conditions)
             actions.setSurveyValue('remove_targeting_flag', true)
             actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
+            actions.setSurveyValue('iteration_count', NEW_SURVEY.iteration_count)
+            actions.setSurveyValue('iteration_repeat_days', NEW_SURVEY.iteration_repeat_days)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -602,6 +605,12 @@ export const surveyLogic = kea<surveyLogicType>([
             false,
             {
                 setWritingHTMLDescription: (_, { writingHTML }) => writingHTML,
+            },
+        ],
+        showSurveyRepeatSchedule: [
+            false,
+            {
+                setShowSurveyRepeatSchedule: (_, { showSurveyRepeatSchedule }) => showSurveyRepeatSchedule,
             },
         ],
         flagPropertyErrors: [

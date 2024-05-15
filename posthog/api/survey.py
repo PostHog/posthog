@@ -63,6 +63,8 @@ class SurveySerializer(serializers.ModelSerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_repeat_days",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -95,6 +97,8 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "end_date",
             "archived",
             "responses_limit",
+            "iteration_count",
+            "iteration_repeat_days",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 

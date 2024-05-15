@@ -19,8 +19,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -48,6 +48,7 @@ export default function SurveyEdit(): JSX.Element {
         selectedSection,
         isEditingSurvey,
         targetingFlagFilters,
+        showSurveyRepeatSchedule,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -56,6 +57,7 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedQuestion,
         setSelectedSection,
         setFlagPropertyErrors,
+        setShowSurveyRepeatSchedule,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -604,7 +606,7 @@ export default function SurveyEdit(): JSX.Element {
                             key: SurveyEditSection.CompletionConditions,
                             header: 'Completion conditions',
                             content: (
-                                <LemonField name="responses_limit">
+                                <LemonField name="responses_limit_x">
                                     {({ onChange, value }) => {
                                         return (
                                             <div className="flex flex-row gap-2 items-center">
@@ -646,28 +648,91 @@ export default function SurveyEdit(): JSX.Element {
                             header: 'Scheduling',
                             content: (
                                 <>
-                                    <h2> How often should we schedule this survey? </h2>
-                                    <LemonField
-                                        name="responses_limit"
-                                        label="End date"
-                                        className="flex-1"
-                                        info={
-                                            <>
-                                                The date up to which data is to be exported. Leaving it unset implies
-                                                that data exports will continue forever until this export is paused or
-                                                deleted.
-                                            </>
-                                        }
-                                    >
-                                        {({ value, onChange }) => (
-                                            <LemonCalendarSelectInput
-                                                value={value}
-                                                onChange={onChange}
-                                                placeholder="Select end date (optional)"
-                                                clearable
-                                            />
-                                        )}
+                                    <h2> How often should we show this survey? </h2>
+                                    <LemonField name="responses_limit">
+                                        {({ onChange, value }) => {
+                                            return (
+                                                <LemonRadio
+                                                    value={value}
+                                                    onChange={(newValue) => {
+                                                        if (newValue === 1) {
+                                                            onChange(newValue)
+                                                            setShowSurveyRepeatSchedule(false)
+                                                        } else {
+                                                            onChange(newValue)
+                                                            setShowSurveyRepeatSchedule(true)
+                                                        }
+                                                    }}
+                                                    options={[
+                                                        {
+                                                            value: 1,
+                                                            label: 'Once',
+                                                            'data-attr': 'session-replay-ordering-latest',
+                                                        },
+                                                        {
+                                                            value: 10,
+                                                            label: 'Repeat on a Schedule',
+                                                            'data-attr': 'session-replay-ordering-errors',
+                                                        },
+                                                    ]}
+                                                />
+                                            )
+                                        }}
                                     </LemonField>
+
+                                    {showSurveyRepeatSchedule && (
+                                        <div className="flex flex-row gap-2 items-center">
+                                            Repeat this survey{' '}
+                                            <LemonField name="iteration_count">
+                                                {({ onChange, value }) => {
+                                                    return (
+                                                        <LemonInput
+                                                            type="number"
+                                                            name="iteration_count"
+                                                            data-attr="survey-responses-iteration-count"
+                                                            size="small"
+                                                            min={1}
+                                                            value={value || 1}
+                                                            onChange={(newValue) => {
+                                                                if (newValue && newValue > 0) {
+                                                                    onChange(newValue)
+                                                                    setSurveyValue('iteration_count', newValue)
+                                                                } else {
+                                                                    onChange(null)
+                                                                }
+                                                            }}
+                                                            className="w-16"
+                                                        />
+                                                    )
+                                                }}
+                                            </LemonField>{' '}
+                                            times, once every
+                                            <LemonField name="iteration_repeat_days">
+                                                {({ onChange, value }) => {
+                                                    return (
+                                                        <LemonInput
+                                                            type="number"
+                                                            name="iteration_repeat_days"
+                                                            data-attr="survey-responses-iteration-repeat-days"
+                                                            size="small"
+                                                            min={1}
+                                                            value={value || 90}
+                                                            onChange={(newValue) => {
+                                                                if (newValue && newValue > 0) {
+                                                                    onChange(newValue)
+                                                                    setSurveyValue('iteration_repeat_days', newValue)
+                                                                } else {
+                                                                    onChange(null)
+                                                                }
+                                                            }}
+                                                            className="w-16"
+                                                        />
+                                                    )
+                                                }}
+                                            </LemonField>{' '}
+                                            days
+                                        </div>
+                                    )}
                                 </>
                             ),
                         },
