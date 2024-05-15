@@ -215,7 +215,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Function(
             name=ctx.identifier().getText(),
             params=self.visit(ctx.identifierList()),
-            body=self.visit(ctx.statement()) if ctx.statement() else None,
+            body=self.visit(ctx.block()),
         )
 
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):

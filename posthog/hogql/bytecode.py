@@ -1,12 +1,14 @@
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError
 from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
+    HOGQL_BYTECODE_FUNCTION,
     HOG_FUNCTIONS,
 )
 
@@ -46,9 +48,17 @@ def to_bytecode(expr: str) -> list[Any]:
     return create_bytecode(parse_expr(expr))
 
 
-def create_bytecode(expr: ast.Expr | ast.Program, supported_functions=set[str]) -> list[Any]:
-    bytecode = [HOGQL_BYTECODE_IDENTIFIER]
-    bytecode.extend(BytecodeBuilder(supported_functions).visit(expr))
+def create_bytecode(
+    expr: ast.Expr | ast.Statement | ast.Program,
+    supported_functions: Optional[set[str]] = None,
+    args: Optional[list[str]] = None,
+) -> list[Any]:
+    bytecode: list[Any] = []
+    if args is None:
+        bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
+    else:
+        bytecode.extend([HOGQL_BYTECODE_FUNCTION, len(args)])
+    bytecode.extend(BytecodeBuilder(supported_functions, args).visit(expr))
     return bytecode
 
 
@@ -58,12 +68,25 @@ class Local:
     depth: int
 
 
+@dataclasses.dataclass
+class HogFunction:
+    name: str
+    params: list[str]
+    bytecode: list[Any]
+
+
 class BytecodeBuilder(Visitor):
-    def __init__(self, supported_functions=Optional[set[str]]):
+    def __init__(self, supported_functions: Optional[set[str]] = None, args: Optional[list[str]] = None):
         super().__init__()
         self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
+        self.functions: dict[str, HogFunction] = {}
         self.scope_depth = 0
+        self.args = args
+        # we're in a function definition
+        if args is not None:
+            for arg in args:
+                self._declare_local(arg)
 
     def _start_scope(self):
         self.scope_depth += 1
@@ -165,8 +188,16 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
-        if node.name not in HOG_FUNCTIONS and node.name not in self.supported_functions:
+        if (
+            node.name not in HOG_FUNCTIONS
+            and node.name not in self.supported_functions
+            and node.name not in self.functions
+        ):
             raise NotImplementedError(f"HogQL function `{node.name}` is not supported")
+        if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
+            raise NotImplementedError(
+                f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
+            )
         response = []
         for expr in reversed(node.args):
             response.extend(self.visit(expr))
@@ -237,5 +268,12 @@ class BytecodeBuilder(Visitor):
         else:
             for index, local in reversed(list(enumerate(self.locals))):
                 if local.name == node.name:
-                    return [*self.visit(node.expr), Operation.SET_LOCAL, index]
+                    return [*self.visit(cast(AST, node.expr)), Operation.SET_LOCAL, index]
             raise NotImplementedError(f"Variable `{node.name}` not declared in this scope")
+
+    def visit_function(self, node: ast.Function):
+        if node.name in self.functions:
+            raise NotImplementedError(f"Function `{node.name}` already declared")
+        bytecode = create_bytecode(node.body, self.supported_functions, node.params)
+        self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
+        return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]

@@ -2,7 +2,7 @@ from typing import Any, Optional
 from collections.abc import Callable
 
 from hogvm.python.execute import execute_bytecode, get_nested_value
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
+from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_FUNCTION as _F
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
@@ -300,4 +300,39 @@ class TestBytecodeExecute(BaseTest):
                 return i;
             """),
             3,
+        )
+
+    def test_bytecode_functions(self):
+        program = parse_program("""
+            fn add(a, b) {
+                return a + b;
+            }
+            return add(3, 4);
+        """)
+        bytecode = create_bytecode(program)
+        self.assertEqual(
+            bytecode,
+            [
+                _H,
+                op.DECLARE_FN,
+                "add",
+                2,
+                8,
+                _F,
+                2,
+                op.GET_LOCAL,
+                1,
+                op.GET_LOCAL,
+                0,
+                op.PLUS,
+                op.RETURN,
+                op.INTEGER,
+                4,
+                op.INTEGER,
+                3,
+                op.CALL,
+                "add",
+                2,
+                op.RETURN,
+            ],
         )
