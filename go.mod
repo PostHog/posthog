@@ -6,11 +6,13 @@ require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.4.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gofrs/uuid/v5 v5.2.0
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/labstack/echo/v4 v4.12.0
 	github.com/labstack/gommon v0.4.2
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/spf13/viper v1.18.2
+	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a
 	tailscale.com v1.66.3
 )
 
@@ -102,7 +104,6 @@ require (
 	go4.org/mem v0.0.0-20220726221520-4f986261bf13 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/crypto v0.23.0 // indirect
-	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a // indirect
 	golang.org/x/mod v0.16.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/sync v0.6.0 // indirect

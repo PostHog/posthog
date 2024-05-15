@@ -32,9 +32,10 @@ type KafkaConsumer struct {
 	topic        string
 	geolocator   *GeoLocator
 	outgoingChan chan PostHogEvent
+	statsChan    chan PostHogEvent
 }
 
-func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent) (*KafkaConsumer, error) {
+func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *GeoLocator, outgoingChan chan PostHogEvent, statsChan chan PostHogEvent) (*KafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -53,6 +54,7 @@ func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *
 		topic:        topic,
 		geolocator:   geolocator,
 		outgoingChan: outgoingChan,
+		statsChan:    statsChan,
 	}, nil
 }
 
@@ -112,6 +114,7 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		c.outgoingChan <- phEvent
+		c.statsChan <- phEvent
 	}
 }
 

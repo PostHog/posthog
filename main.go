@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
@@ -40,11 +41,16 @@ func main() {
 
 	groupID := viper.GetString("kafka.group_id")
 
+	teamStats := &TeamStats{
+		Store: make(map[string]*expirable.LRU[string, string]),
+	}
+
 	phEventChan := make(chan PostHogEvent)
+	statsChan := make(chan PostHogEvent)
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 
-	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan)
+	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
@@ -69,6 +75,37 @@ func main() {
 
 	// Routes
 	e.GET("/", index)
+
+	e.GET("/stats", func(c echo.Context) error {
+		teamId := c.QueryParam("teamId")
+		if teamId == "" {
+			return errors.New("teamId is required")
+		}
+		teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
+		if err != nil {
+			return err
+		}
+
+		teamIdInt := int(teamIdInt64)
+		token, err := tokenFromTeamId(teamIdInt)
+		if err != nil {
+			return err
+		}
+
+		var hash *expirable.LRU[string, string]
+		var ok bool
+		if hash, ok = teamStats.Store[token]; !ok {
+			return c.String(http.StatusOK, "no stats")
+		}
+
+		type stats struct {
+			PersonsOnSite int
+		}
+		siteStats := stats{
+			PersonsOnSite: hash.Len(),
+		}
+		return c.JSON(http.StatusOK, siteStats)
+	})
 
 	e.GET("/events", func(c echo.Context) error {
 		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
