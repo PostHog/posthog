@@ -1,5 +1,6 @@
 import datetime
 import json
+import math
 from functools import partial
 from typing import Optional
 import uuid
@@ -82,8 +83,9 @@ class QueryStatusManager:
                 elapsed AS elapsed_time,
                 (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
             FROM clusterAllReplicas(posthog, system.processes)
+            WHERE query_id like %(query_id)s
             """
-            #         WHERE query_id like %(query_id)s
+            #
             #         WHERE initial_query_id = %(query_id)s
 
             if not query_status.complete:
@@ -94,14 +96,20 @@ class QueryStatusManager:
                         CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
                     )
                     print(results, types)
+
+                    def noNanInt(num):
+                        if math.isnan(num):
+                            return 0
+                        return int(num)
+
                     query_status.clickhouse_query_progress = [
                         ClickhouseQueryStatus(
                             **{
-                                "bytes_read": result[3],
-                                "rows_read": result[2],
-                                "estimated_rows_total": result[4],
-                                "time_elapsed": result[6],
-                                "estimated_time_remaining": result[7],
+                                "bytes_read": noNanInt(result[3]),
+                                "rows_read": noNanInt(result[2]),
+                                "estimated_rows_total": noNanInt(result[4]),
+                                "time_elapsed": noNanInt(result[6]),
+                                "estimated_time_remaining": noNanInt(result[7]),
                             }
                         )
                         for result in results
