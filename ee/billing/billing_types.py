@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 from posthog.constants import AvailableFeature
 
@@ -101,3 +101,61 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+
+
+class ProductFeature(TypedDict):
+    key: str
+    name: str
+    description: str
+    unit: Optional[str]
+    limit: Optional[int]
+    note: Optional[str]
+    is_plan_default: bool
+
+
+class ProductPlan(TypedDict):
+    """
+    A plan for a product that a customer can upgrade/downgrade to.
+    """
+
+    product_key: str
+    plan_key: str
+    name: str
+    description: str
+    image_url: str
+    docs_url: str
+    note: Optional[str]
+    unit: Optional[str]
+    flat_rate: bool
+    tiers: Optional[Tier]
+    free_allocation: Optional[int]
+    features: list[ProductFeature]
+    included_if: Optional[str]
+    contact_support: Optional[bool]
+    unit_amount_usd: Optional[Decimal]
+
+
+class ProductBaseFeature(TypedDict):
+    key: str
+    name: str
+    description: str
+    images: Optional[dict[Literal["light", "dark"], str]]
+    icon_key: Optional[str]
+    type: Optional[Literal["primary", "secondary"]]
+
+
+class Product(TypedDict, total=False):
+    name: str
+    description: str
+    usage_key: Optional[str]
+    icon_key: str
+    image_url: str
+    docs_url: str
+    plans: list[ProductPlan]
+    type: str
+    unit: Optional[str]
+    addons: Optional[list[Any]]
+    contact_support: bool
+    inclusion_only: bool
+    features: Optional[list[ProductBaseFeature]]
+    headline: Optional[str]
