@@ -161,7 +161,7 @@ class TestBytecodeExecute(BaseTest):
                 var a := 1 + 2;
                 var b := a + 4;
                 return b;
-            """
+                """
             ),
             7,
         )
@@ -212,7 +212,7 @@ class TestBytecodeExecute(BaseTest):
                 } else {
                     return 2;
                 }
-            """
+                """
             ),
             5,
         )
@@ -225,7 +225,7 @@ class TestBytecodeExecute(BaseTest):
                 a := a + 3;
                 a := a * 2;
                 return a;
-            """
+                """
             ),
             8,
         )
@@ -273,7 +273,7 @@ class TestBytecodeExecute(BaseTest):
                     1 + 1;
                 }
                 return i;
-            """
+                """
             ),
             -1,
         )
@@ -293,7 +293,7 @@ class TestBytecodeExecute(BaseTest):
                     true;
                 }
                 return i;
-            """,
+                """,
                 {"call_three_times": call_three_times, "print": print},
             ),
             0,
@@ -307,7 +307,7 @@ class TestBytecodeExecute(BaseTest):
                     i := i + 1;
                 }
                 return i;
-            """
+                """
             ),
             3,
         )
@@ -319,7 +319,7 @@ class TestBytecodeExecute(BaseTest):
                 return a + b;
             }
             return add(3, 4);
-        """
+            """
         )
         bytecode = create_bytecode(program)
         self.assertEqual(
@@ -356,7 +356,7 @@ class TestBytecodeExecute(BaseTest):
                     return a + b;
                 }
                 return add(3, 4) + 100 + add(1, 1);
-            """
+                """
             ),
             109,
         )
@@ -371,7 +371,7 @@ class TestBytecodeExecute(BaseTest):
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
-            """
+                """
             ),
             55,
         )
@@ -387,7 +387,7 @@ class TestBytecodeExecute(BaseTest):
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
-            """
+                """
             ),
             11,
         )
@@ -404,9 +404,39 @@ class TestBytecodeExecute(BaseTest):
                     }
                 }
                 return fibonacci(6);
-            """
+                """
             ),
             8,
+        )
+
+    def test_bytecode_no_args(self):
+        self.assertEqual(
+            self._run_program(
+                """
+                fn doIt(a) {
+                    var url := 'basdfasdf';
+                    var second := 2 + 3;
+                    return second;
+                }
+                var nr := doIt(1);
+                return nr;
+                """
+            ),
+            5,
+        )
+        self.assertEqual(
+            self._run_program(
+                """
+                fn doIt() {
+                    var url := 'basdfasdf';
+                    var second := 2 + 3;
+                    return second;
+                }
+                var nr := doIt();
+                return nr;
+                """
+            ),
+            5,
         )
 
     def test_bytecode_functions_stl(self):

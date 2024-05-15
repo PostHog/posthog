@@ -133,10 +133,9 @@ def execute_bytecode(
                 case Operation.RETURN:
                     if call_stack:
                         ip, stack_start, arg_len = call_stack.pop()
-                        if arg_len:
-                            response = stack.pop()
-                            stack = stack[0:stack_start]
-                            stack.append(response)
+                        response = stack.pop()
+                        stack = stack[0:stack_start]
+                        stack.append(response)
                     else:
                         return stack.pop()
                 case Operation.GET_LOCAL:
