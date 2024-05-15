@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -78,10 +79,11 @@ func main() {
 		distinctId := c.QueryParam("distinctId")
 
 		subscription := &Subscription{
-			Token:      "sTMFPsFhdP1Ssg",
-			DistinctId: distinctId,
-			EventType:  eventType,
-			EventChan:  make(chan interface{}),
+			Token:       "sTMFPsFhdP1Ssg",
+			DistinctId:  distinctId,
+			EventType:   eventType,
+			EventChan:   make(chan interface{}),
+			ShouldClose: &atomic.Bool{},
 		}
 
 		subChan <- subscription
