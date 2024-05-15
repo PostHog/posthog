@@ -1,5 +1,7 @@
+import EventSource from 'eventsource'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const liveEventsTableLogic = kea([
     path(['scenes', 'events-management', 'live-events', 'liveEventsTableLogic']),
@@ -90,6 +92,10 @@ export const liveEventsTableLogic = kea([
                 return
             }
 
+            if (!values.currentTeam) {
+                return
+            }
+
             const { teamId, distinctId, eventType } = values.filters
             const url = new URL('http://live-events/events')
             if (teamId) {
@@ -102,7 +108,11 @@ export const liveEventsTableLogic = kea([
                 url.searchParams.append('eventType', eventType)
             }
 
-            const source = new EventSource(url.toString())
+            const source = new EventSource(url.toString(), {
+                headers: {
+                    Authorization: `Bearer ${actions.currentTeam.jwt_token}`,
+                },
+            })
 
             const batch: Record<string, any>[] = []
             source.onmessage = function (event) {
