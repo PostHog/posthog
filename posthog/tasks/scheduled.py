@@ -50,6 +50,7 @@ from posthog.tasks.tasks import (
     stop_surveys_reached_target,
 )
 from posthog.utils import get_crontab
+from posthog.cloud_utils import is_cloud
 
 
 def add_periodic_task_with_expiry(
@@ -226,12 +227,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="process scheduled changes",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        10,
-        validate_proxy_domains.s(),
-        name="process scheduled changes",
-    )
+    if is_cloud():
+        add_periodic_task_with_expiry(
+            sender,
+            10,
+            validate_proxy_domains.s(),
+            name="validate proxy domain",
+        )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
