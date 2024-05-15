@@ -629,4 +629,5 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             name=node.name,
             expr=self.visit(node.expr) if node.expr else None,
+            is_declaration=node.is_declaration,
         )

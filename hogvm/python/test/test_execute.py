@@ -100,7 +100,7 @@ class TestBytecodeExecute(BaseTest):
                 "tuple": ("item1", "item2", "item3"),
             }
         }
-        chain = ["properties", "bla"]
+        chain: list[str] = ["properties", "bla"]
         self.assertEqual(get_nested_value(my_dict, chain), "hello")
 
         chain = ["properties", "list", 1]
@@ -319,9 +319,9 @@ class TestBytecodeExecute(BaseTest):
                 2,
                 6,
                 op.GET_LOCAL,
-                1,
-                op.GET_LOCAL,
                 0,
+                op.GET_LOCAL,
+                1,
                 op.PLUS,
                 op.RETURN,
                 op.INTEGER,
@@ -345,4 +345,31 @@ class TestBytecodeExecute(BaseTest):
                 return add(3, 4) + 100 + add(1, 1);
             """),
             109,
+        )
+
+        self.assertEqual(
+            self._run_program("""
+                fn add(a, b) {
+                    return a + b;
+                }
+                fn divide(a, b) {
+                    return a / b;
+                }
+                return divide(add(3, 4) + 100 + add(2, 1), 2);
+            """),
+            55,
+        )
+
+        self.assertEqual(
+            self._run_program("""
+                fn add(a, b) {
+                    var c := a + b;
+                    return c;
+                }
+                fn divide(a, b) {
+                    return a / b;
+                }
+                return divide(add(3, 4) + 100 + add(2, 1), 10);
+            """),
+            11,
         )

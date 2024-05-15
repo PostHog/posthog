@@ -82,14 +82,14 @@ class BytecodeBuilder(Visitor):
         self.args = args
         # we're in a function definition
         if args is not None:
-            for arg in args:
+            for arg in reversed(args):
                 self._declare_local(arg)
 
     def _start_scope(self):
         self.scope_depth += 1
 
-    def _end_scope(self):
-        response = []
+    def _end_scope(self) -> list[Any]:
+        response: list[Any] = []
         self.scope_depth -= 1
         for local in reversed(self.locals):
             if local.depth <= self.scope_depth:
