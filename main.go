@@ -81,7 +81,7 @@ func main() {
 	e.GET("/stats", func(c echo.Context) error {
 
 		type stats struct {
-			UsersOnProduct int    `json:"users_on_product"`
+			UsersOnProduct int    `json:"users_on_product,omitempty"`
 			Error          string `json:"error,omitempty"`
 		}
 
