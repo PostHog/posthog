@@ -14,9 +14,9 @@ class ProxyRecord(UUIDModel):
 
     class Status(models.TextChoices):
         WAITING = "waiting"
-        PROVISIONING = "provisioning"
+        ISSUING = "issuing"
         VALID = "valid"
-        REMOVED = "removed"
+        ERRORING = "erroring"
 
     status = models.CharField(
         choices=Status.choices,

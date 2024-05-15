@@ -1,5 +1,6 @@
 import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonMenu, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,7 +20,12 @@ export function Proxy(): JSX.Element {
             title: 'Status',
             dataIndex: 'status',
             render: function RenderStatus(status) {
-                return <span className="capitalize">{status}</span>
+                return (
+                    <div>
+                        <span className={clsx('capitalize', status === 'waiting' && 'text')}>{status}</span>
+                        {status === 'validating' && <Spinner />}
+                    </div>
+                )
             },
         },
         {

@@ -11,7 +11,7 @@ import type { proxyLogicType } from './proxyLogicType'
 export type ProxyRecord = {
     id: string
     domain: string
-    status: 'generating' | 'validating' | 'deleted'
+    status: 'waiting' | 'issuing' | 'valid' | 'erroring'
     dnsRecords: any
 }
 
