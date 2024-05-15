@@ -5,7 +5,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.referrals import ReferralProgram
+from posthog.models.referrals import ReferralProgram, ReferralProgramReferrer
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +34,21 @@ class ReferralProgramSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+class ReferralProgramReferrerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReferralProgramReferrer
+        fields = [
+            "user_id",
+            "code",
+            "max_redemption_count",
+            "created_at",
+        ]
+        read_only_fields = ["code", "max_redemption_count", "created_at"]
+
+    def create(self, validated_data: dict, *args, **kwargs) -> ReferralProgram:
+        return super().create(validated_data, *args, **kwargs)
+
+
 class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ReferralProgram.objects.all()
@@ -42,29 +57,12 @@ class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewset
     lookup_field = "short_id"
     serializer_class = ReferralProgramSerializer
 
-    # def safely_get_queryset(self, queryset) -> QuerySet:
-    #     if not self.action.endswith("update"):
-    #         # Soft-deleted notebooks can be brought back with a PATCH request
-    #         queryset = queryset.filter(deleted=False)
 
-    #     queryset = queryset.select_related("created_by", "last_modified_by", "team")
-    #     if self.action == "list":
-    #         queryset = queryset.filter(deleted=False)
-    #         queryset = self._filter_list_request(self.request, queryset)
-
-    #     order = self.request.GET.get("order", None)
-    #     if order:
-    #         queryset = queryset.order_by(order)
-    #     else:
-    #         queryset = queryset.order_by("-last_modified_at")
-
-    #     return queryset
-
-    # def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-    #     instance = self.get_object()
-    #     serializer = self.get_serializer(instance)
-
-    #     if str(request.headers.get("If-None-Match")) == str(instance.version):
-    #         return Response(None, 304)
-
-    #     return Response(serializer.data)
+class ReferralProgramReferrerViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ReferralProgramReferrer.objects.all()
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["user_id", "code"]
+    lookup_field = "user_id"
+    serializer_class = ReferralProgramReferrerSerializer
+    filter_rewrite_rules = {"referral_program_id": "referral_program__short_id", "team_id": "referral_program__team_id"}

@@ -400,9 +400,16 @@ projects_router.register(
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])
 
-projects_router.register(
+project_referrals_router = projects_router.register(
     r"referrals",
     referral.ReferralProgramViewset,
     "project_referrals",
     ["team_id"],
+)
+
+project_referrals_router.register(
+    r"referrers",
+    referral.ReferralProgramReferrerViewset,
+    "project_referral_referrers",
+    ["team_id", "referral_program_id"],
 )
