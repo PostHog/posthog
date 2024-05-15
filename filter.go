@@ -54,7 +54,7 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				log.Printf("Checking again filter")
+				// log.Printf("Checking again filter")
 
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
