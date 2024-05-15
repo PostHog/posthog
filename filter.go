@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
@@ -73,7 +72,6 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 }
 
 func (c *Filter) Run() {
-	i := 0
 	for {
 		select {
 		case newSub := <-c.subChan:
@@ -81,35 +79,33 @@ func (c *Filter) Run() {
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent
 
-			i += 1
-			if i%1000 == 0 {
-				for _, sub := range c.subs {
-					if sub.ShouldClose.Load() {
-						// TODO: Figure this out later. Apparently closing from the read side is dangerous
-						// because writing to a closed channel = panic.
-						continue
-					}
-
-					log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
-					if sub.Token != "" && event.Token != sub.Token {
-						continue
-					}
-
-					if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
-						continue
-					}
-
-					if sub.EventType != "" && event.Event != sub.EventType {
-						continue
-					}
-
-					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
-					}
-
-					sub.EventChan <- *responseEvent
+			for _, sub := range c.subs {
+				if sub.ShouldClose.Load() {
+					// TODO: Figure this out later. Apparently closing from the read side is dangerous
+					// because writing to a closed channel = panic.
+					continue
 				}
+
+				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
+				if sub.Token != "" && event.Token != sub.Token {
+					continue
+				}
+
+				if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
+					continue
+				}
+
+				if sub.EventType != "" && event.Event != sub.EventType {
+					continue
+				}
+
+				if responseEvent == nil {
+					responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
+				}
+
+				sub.EventChan <- *responseEvent
 			}
+
 		}
 	}
 }
