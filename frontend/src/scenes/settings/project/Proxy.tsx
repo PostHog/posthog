@@ -3,13 +3,14 @@ import { LemonButton, LemonInput, LemonMenu, LemonTable, LemonTableColumns, Spin
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 export function Proxy(): JSX.Element {
-    const { showingForm, proxyRecords } = useValues(proxyLogic)
-    const { toggleShowingForm, deleteRecord } = useActions(proxyLogic)
+    const { formState, proxyRecords } = useValues(proxyLogic)
+    const { showForm, deleteRecord } = useActions(proxyLogic)
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -62,43 +63,64 @@ export function Proxy(): JSX.Element {
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={proxyRecords} />
-            {showingForm ? (
-                <CreateRecordForm />
-            ) : (
-                <LemonButton onClick={toggleShowingForm} type="secondary" icon={<IconPlus />}>
+            {formState === 'collapsed' ? (
+                <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
                     Add domain
                 </LemonButton>
+            ) : (
+                <CreateRecordForm />
             )}
         </div>
     )
 }
 
 function CreateRecordForm(): JSX.Element {
-    const { proxyRecordsLoading } = useValues(proxyLogic)
-    const { toggleShowingForm } = useActions(proxyLogic)
+    const { formState, proxyRecordsLoading } = useValues(proxyLogic)
+    const { collapseForm } = useActions(proxyLogic)
 
     return (
-        <Form
-            logic={proxyLogic}
-            formKey="createRecord"
-            enableFormOnSubmit
-            className="w-full space-y-2 bg-bg-light rounded border p-2"
-        >
-            <LemonField name="domain">
-                <LemonInput autoFocus placeholder="Enter a URL (e.g. https://posthog.com)" data-attr="domain-input" />
-            </LemonField>
-            <div className="flex justify-end gap-2">
-                <LemonButton
-                    type="secondary"
-                    onClick={toggleShowingForm}
-                    disabledReason={proxyRecordsLoading ? 'Saving' : undefined}
-                >
-                    Cancel
-                </LemonButton>
-                <LemonButton htmlType="submit" type="primary" data-attr="domain-save" loading={proxyRecordsLoading}>
-                    Add
-                </LemonButton>
-            </div>
-        </Form>
+        <div className="bg-bg-light rounded border p-2 space-y-2">
+            {formState == 'active' ? (
+                <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full">
+                    <LemonField name="domain">
+                        <LemonInput
+                            autoFocus
+                            placeholder="Enter a URL (e.g. https://posthog.com)"
+                            data-attr="domain-input"
+                        />
+                    </LemonField>
+                    <div className="flex justify-end gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={collapseForm}
+                            disabledReason={proxyRecordsLoading ? 'Saving' : undefined}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            htmlType="submit"
+                            type="primary"
+                            data-attr="domain-save"
+                            loading={proxyRecordsLoading}
+                        >
+                            Add
+                        </LemonButton>
+                    </div>
+                </Form>
+            ) : (
+                <>
+                    <div className="text-xl font-semibold leading-tight">Almost there</div>
+                    <div>
+                        You need to set the <b>CNAME</b> record on your DNS provider:
+                    </div>
+                    <CodeSnippet language={Language.HTTP}>sdfghgfdsdfghgfdsw.com</CodeSnippet>
+                    <div className="flex justify-end">
+                        <LemonButton onClick={collapseForm} type="primary">
+                            Done
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+        </div>
     )
 }

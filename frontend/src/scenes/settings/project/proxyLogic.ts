@@ -15,14 +15,21 @@ export type ProxyRecord = {
     dnsRecords: any
 }
 
+type FormState = 'collapsed' | 'active' | 'complete'
+
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect({ values: [organizationLogic, ['currentOrganization']] }),
     actions(() => ({
-        toggleShowingForm: true,
+        collapseForm: true,
+        showForm: true,
+        completeForm: true,
     })),
     reducers(() => ({
-        showingForm: [false, { toggleShowingForm: (state) => !state }],
+        formState: [
+            'collapsed' as FormState,
+            { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
+        ],
     })),
     loaders(({ values, actions }) => ({
         proxyRecords: {
@@ -35,7 +42,7 @@ export const proxyLogic = kea<proxyLogicType>([
                     domain,
                 })
                 lemonToast.success('Record created')
-                actions.toggleShowingForm()
+                actions.completeForm()
                 return response
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
@@ -50,6 +57,7 @@ export const proxyLogic = kea<proxyLogicType>([
         },
     })),
     listeners(({ actions }) => ({
+        collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
     })),
     selectors(() => ({})),
