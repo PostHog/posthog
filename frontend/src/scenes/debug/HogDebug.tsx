@@ -25,6 +25,9 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
         }
     }, [])
     const [queryInput, setQueryInput] = useState(props.query.code)
+    useEffect(() => {
+        setQueryInput(props.query?.code)
+    }, [props.query?.code])
 
     function saveQuery(): void {
         if (props.setQuery) {
