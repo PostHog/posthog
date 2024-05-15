@@ -19,8 +19,11 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             "domain",
             "target_cname",
             "status",
+            "created_at",
+            "updated_at",
+            "created_by",
         )
-        read_only_fields = ("target_cname", "status")
+        read_only_fields = ("target_cname", "created_at", "created_by", "status")
 
 
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
@@ -37,6 +40,10 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
         queryset = self.organization.proxy_records
-        queryset.create(domain=domain, target_cname=settings.PROXY_TARGET_CNAME)
+        queryset.create(
+            created_by=cast(User, request.user),
+            domain=domain,
+            target_cname=settings.PROXY_TARGET_CNAME
+        )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
