@@ -3,25 +3,31 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/spf13/viper"
 )
 
 func main() {
-	brokers := os.Getenv("KAFKA_HOSTS")
+
+	loadConfigs()
+
+	brokers := viper.GetString("kafka.brokers")
 	if brokers == "" {
-		log.Fatal("KAFKA_HOSTS must be set")
+		log.Fatal("kafka.brokers must be set")
 	}
 
-	topic := os.Getenv("KAFKA_TOPIC")
+	topic := viper.GetString("kafka.topic")
 	if topic == "" {
-		log.Fatal("KAFKA_TOPIC must be set")
+		log.Fatal("kafka.topic must be set")
 	}
 
-	groupID := "livestream"
+	groupID := viper.GetString("kafka.group_id")
+	if groupID == "" {
+		groupID = "livestream"
+	}
 
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic)
 	if err != nil {
@@ -42,8 +48,42 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/sse", func(c echo.Context) error {
+	e.GET("/events", func(c echo.Context) error {
 		log.Printf("SSE client connected, ip: %v", c.RealIP())
+
+		w := c.Response()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		teamId := c.QueryParam("teamId")
+		eventType := c.QueryParam("eventType")
+		distinctId := c.QueryParam("distinctId")
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-c.Request().Context().Done():
+				log.Printf("SSE client disconnected, ip: %v", c.RealIP())
+				return nil
+			case <-ticker.C:
+				event := Event{
+					Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano) + "\nparameters: " +
+						"\nteamId: " + teamId +
+						"\neventType: " + eventType +
+						"\ndistinctId: " + distinctId),
+				}
+				if err := event.WriteTo(w); err != nil {
+					return err
+				}
+				w.Flush()
+			}
+		}
+	})
+
+	e.GET("/sse", func(c echo.Context) error {
+		log.Printf("Map client connected, ip: %v", c.RealIP())
 
 		w := c.Response()
 		w.Header().Set("Content-Type", "text/event-stream")
