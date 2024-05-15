@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -17,8 +16,6 @@ import (
 
 func main() {
 	loadConfigs()
-	initPG()
-	defer pgConn.Close(context.Background())
 
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {

@@ -8,10 +8,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	pgConn *pgx.Conn
-)
-
 func getPGConn() *pgx.Conn {
 	url := viper.GetString("postgres.url")
 	conn, err := pgx.Connect(context.Background(), url)
@@ -19,8 +15,4 @@ func getPGConn() *pgx.Conn {
 		log.Panicf("Unable to connect to database: %v\n", err)
 	}
 	return conn
-}
-
-func initPG() {
-	pgConn = getPGConn()
 }
