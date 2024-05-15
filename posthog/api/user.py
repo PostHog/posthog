@@ -589,7 +589,16 @@ def get_zendesk_tickets(request):
         headers=headers,
     )
 
-    return JsonResponse({"tickets": tickets.json()["tickets"]})
+    def filter_tickets(tickets):
+        current_time = datetime.now()
+        return [
+            ticket
+            for ticket in tickets
+            if (current_time - datetime.strptime(ticket["updated_at"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() < 604800
+            or ticket["status"] not in ["solved", "closed"]
+        ]
+
+    return JsonResponse({"filtered": filter_tickets(tickets.json()["tickets"])})
 
 
 @authenticate_secondarily
