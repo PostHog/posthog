@@ -26,9 +26,6 @@ func main() {
 	}
 
 	groupID := viper.GetString("kafka.group_id")
-	if groupID == "" {
-		groupID = "livestream"
-	}
 
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic)
 	if err != nil {

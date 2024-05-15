@@ -13,6 +13,7 @@ func loadConfigs() {
 	viper.AddConfigPath("configs/")
 
 	viper.SetDefault("tailscale.controlUrl", ipn.DefaultControlURL)
+	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("prod", false)
 
 	err := viper.ReadInConfig()
