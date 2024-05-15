@@ -36,7 +36,8 @@ export function Proxy(): JSX.Element {
             dataIndex: 'status',
             render: function RenderStatus(status) {
                 return (
-                    <div>
+                    <div className="space-x-1">
+                        {status === 'issuing' && <Spinner />}
                         <span
                             className={clsx(
                                 'capitalize',
@@ -49,7 +50,6 @@ export function Proxy(): JSX.Element {
                         >
                             {status}
                         </span>
-                        {status === 'issuing' && <Spinner />}
                     </div>
                 )
             },
