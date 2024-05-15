@@ -93,7 +93,6 @@ func main() {
 			return err
 		}
 
-		log.Printf("Making new sub")
 		subscription := Subscription{
 			TeamId:      teamIdInt,
 			Token:       token,
