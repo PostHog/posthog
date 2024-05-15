@@ -58,6 +58,7 @@ func (c *KafkaConsumer) Consume() {
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
+	i := 0
 	for {
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
@@ -85,6 +86,11 @@ func (c *KafkaConsumer) Consume() {
 					phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
 				}
 			}
+		}
+
+		i += 1
+		if i%10000 == 0 {
+			log.Printf("Kafka processed %v messages", i)
 		}
 
 		c.outgoingChan <- phEvent

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sync/atomic"
 )
 
@@ -39,8 +40,15 @@ func NewFilter(subChan chan *Subscription, inboundChan chan PostHogEvent) *Filte
 }
 
 func (c *Filter) Run() {
+	x := 0
+
 	select {
 	case event := <-c.inboundChan:
+		x += 1
+		if x%10000 == 0 {
+			log.Printf("Filter processed %v messages", x)
+		}
+
 		for i := 0; i < len(c.subs); i++ {
 			sub := c.subs[i]
 
