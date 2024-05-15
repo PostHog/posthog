@@ -101,7 +101,7 @@ function CreateRecordForm(): JSX.Element {
                     <LemonField name="domain">
                         <LemonInput
                             autoFocus
-                            placeholder="Enter a URL (e.g. https://posthog.com)"
+                            placeholder="Enter a domain (e.g. ph.mydomain.com)"
                             data-attr="domain-input"
                         />
                     </LemonField>
