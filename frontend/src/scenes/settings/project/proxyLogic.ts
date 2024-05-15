@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -12,7 +12,7 @@ export type ProxyRecord = {
     id: string
     domain: string
     status: 'waiting' | 'issuing' | 'valid' | 'erroring'
-    dnsRecords: any
+    cname_target: string
 }
 
 type FormState = 'collapsed' | 'active' | 'complete'
@@ -56,9 +56,17 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
+        loadRecordsSuccess: () => {
+            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing'].includes(r.status))
+            if (shouldRefresh) {
+                cache.refreshTimeout = setTimeout(() => {
+                    actions.loadRecords()
+                }, 5000)
+            }
+        },
     })),
     selectors(() => ({})),
     forms(({ actions }) => ({
@@ -78,5 +86,10 @@ export const proxyLogic = kea<proxyLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadRecords()
+    }),
+    beforeUnmount(({ cache }) => {
+        if (cache.refreshTimeout) {
+            clearTimeout(cache.refreshTimeout)
+        }
     }),
 ])
