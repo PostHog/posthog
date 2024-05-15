@@ -70,10 +70,6 @@ func (c *KafkaConsumer) Consume() {
 			continue
 		}
 
-		if i%10000 == 0 {
-			fmt.Printf("datamsg: %v\n", string(msg.Value))
-		}
-
 		var message PostHogEvent
 		err = json.Unmarshal([]byte(wrapperMessage.Data), &message)
 		if err != nil {
