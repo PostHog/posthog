@@ -79,6 +79,12 @@ func main() {
 	e.GET("/", index)
 
 	e.GET("/stats", func(c echo.Context) error {
+
+		type stats struct {
+			UsersOnProduct int `json:"users_on_product"`
+			Error          string
+		}
+
 		teamId := c.QueryParam("teamId")
 		if teamId == "" {
 			return errors.New("teamId is required")
@@ -97,14 +103,14 @@ func main() {
 		var hash *expirable.LRU[string, string]
 		var ok bool
 		if hash, ok = teamStats.Store[token]; !ok {
-			return c.String(http.StatusOK, "no stats")
+			resp := stats{
+				Error: "no stats",
+			}
+			return c.JSON(http.StatusOK, resp)
 		}
 
-		type stats struct {
-			PersonsOnSite int
-		}
 		siteStats := stats{
-			PersonsOnSite: hash.Len(),
+			UsersOnProduct: hash.Len(),
 		}
 		return c.JSON(http.StatusOK, siteStats)
 	})
