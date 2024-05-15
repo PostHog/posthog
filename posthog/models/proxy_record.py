@@ -15,6 +15,7 @@ class ProxyRecord(UUIDModel):
         ISSUING = "issuing"
         VALID = "valid"
         ERRORING = "erroring"
+        DELETING = "deleting"
 
     status: models.CharField = models.CharField(
         choices=Status.choices,
