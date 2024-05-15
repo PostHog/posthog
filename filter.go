@@ -58,13 +58,13 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
-					continue
-				}
+				// if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
+				// 	continue
+				// }
 
-				if sub.EventType != "" && event.Event != sub.EventType {
-					continue
-				}
+				// if sub.EventType != "" && event.Event != sub.EventType {
+				// 	continue
+				// }
 
 				sub.EventChan <- event
 			}
