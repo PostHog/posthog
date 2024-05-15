@@ -2,8 +2,7 @@ from enum import Enum
 
 HOGQL_BYTECODE_IDENTIFIER = "_h"
 
-
-SUPPORTED_FUNCTIONS = ("concat", "match", "toString", "toInt", "toFloat", "toUUID", "ifNull")
+HOG_FUNCTIONS = ("concat", "match", "toString", "toInt", "toFloat", "toUUID", "ifNull")
 
 
 class Operation(int, Enum):

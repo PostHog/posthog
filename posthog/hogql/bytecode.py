@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Any
+from typing import Any, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.errors import NotImplementedError
@@ -7,7 +7,7 @@ from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
-    SUPPORTED_FUNCTIONS,
+    HOG_FUNCTIONS,
 )
 
 COMPARE_OPERATIONS = {
@@ -46,9 +46,9 @@ def to_bytecode(expr: str) -> list[Any]:
     return create_bytecode(parse_expr(expr))
 
 
-def create_bytecode(expr: ast.Expr | ast.Program) -> list[Any]:
+def create_bytecode(expr: ast.Expr | ast.Program, supported_functions=set[str]) -> list[Any]:
     bytecode = [HOGQL_BYTECODE_IDENTIFIER]
-    bytecode.extend(BytecodeBuilder().visit(expr))
+    bytecode.extend(BytecodeBuilder(supported_functions).visit(expr))
     return bytecode
 
 
@@ -59,19 +59,20 @@ class Local:
 
 
 class BytecodeBuilder(Visitor):
-    def __init__(self):
+    def __init__(self, supported_functions=Optional[set[str]]):
         super().__init__()
+        self.supported_functions = supported_functions or set()
         self.locals: list[Local] = []
-        self.scopeDepth = 0
+        self.scope_depth = 0
 
     def _start_scope(self):
-        self.scopeDepth += 1
+        self.scope_depth += 1
 
     def _end_scope(self):
         response = []
-        self.scopeDepth -= 1
+        self.scope_depth -= 1
         for local in reversed(self.locals):
-            if local.depth < self.scopeDepth:
+            if local.depth <= self.scope_depth:
                 break
             self.locals.pop()
             response.append(Operation.POP)
@@ -79,12 +80,12 @@ class BytecodeBuilder(Visitor):
 
     def _declare_local(self, name: str):
         for local in reversed(self.locals):
-            if local.depth < self.scopeDepth:
+            if local.depth < self.scope_depth:
                 break
             if local.name == name:
                 raise NotImplementedError(f"Variable `{name}` already declared in this scope")
 
-        self.locals.append(Local(name, self.scopeDepth))
+        self.locals.append(Local(name, self.scope_depth))
 
     def visit_and(self, node: ast.And):
         response = []
@@ -164,7 +165,7 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
-        if node.name not in SUPPORTED_FUNCTIONS:
+        if node.name not in HOG_FUNCTIONS and node.name not in self.supported_functions:
             raise NotImplementedError(f"HogQL function `{node.name}` is not supported")
         response = []
         for expr in reversed(node.args):

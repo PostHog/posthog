@@ -210,7 +210,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt() or ctx.hogqlxTagElement())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery] = [
+        select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
         flattened_queries: list[ast.SelectQuery] = []
