@@ -231,7 +231,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         select_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = [
             self.visit(select) for select in ctx.selectStmtWithParens()
         ]
-        flattened_queries: list[ast.SelectQuery] = []
+        flattened_queries: list[ast.SelectQuery | ast.SelectUnionQuery | ast.Placeholder] = []
         for query in select_queries:
             if isinstance(query, ast.SelectQuery):
                 flattened_queries.append(query)

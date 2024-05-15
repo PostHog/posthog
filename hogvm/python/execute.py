@@ -16,6 +16,8 @@ def like(string, pattern, flags=0):
 
 
 def get_nested_value(obj, chain) -> Any:
+    if obj is None:
+        return None
     for key in chain:
         if isinstance(key, int):
             obj = obj[key]
@@ -35,10 +37,14 @@ def to_concat_arg(arg) -> str:
 
 
 def execute_bytecode(
-    bytecode: list[Any], fields: dict[str, Any], functions: Optional[dict[str, Callable[..., Any]]] = None
+    bytecode: list[Any],
+    fields: Optional[dict[str, Any]] = None,
+    functions: Optional[dict[str, Callable[..., Any]]] = None,
 ) -> Any:
     try:
         stack = []
+        call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
+        declared_functions: dict[str, tuple[int, int]] = {}
         ip = -1
 
         def next_token():
@@ -126,11 +132,20 @@ def execute_bytecode(
                 case Operation.POP:
                     stack.pop()
                 case Operation.RETURN:
-                    return stack.pop()
+                    if call_stack:
+                        ip, _, arg_len = call_stack.pop()
+                        if arg_len:
+                            response = stack.pop()
+                            stack = stack[:-arg_len]
+                            stack.append(response)
+                    else:
+                        return stack.pop()
                 case Operation.GET_LOCAL:
-                    stack.append(stack[next_token()])
+                    stack_start = 0 if not call_stack else call_stack[-1][1]
+                    stack.append(stack[next_token() + stack_start])
                 case Operation.SET_LOCAL:
-                    stack[next_token()] = stack.pop()
+                    stack_start = 0 if not call_stack else call_stack[-1][1]
+                    stack[next_token() + stack_start] = stack.pop()
                 case Operation.JUMP:
                     count = next_token()
                     ip += count
@@ -138,36 +153,47 @@ def execute_bytecode(
                     count = next_token()
                     if not stack.pop():
                         ip += count
+                case Operation.DECLARE_FN:
+                    name = next_token()
+                    arg_len = next_token()
+                    body_len = next_token()
+                    declared_functions[name] = (ip, arg_len)
+                    ip += body_len
                 case Operation.CALL:
                     name = next_token()
-                    args = [stack.pop() for _ in range(next_token())]
-                    if name == "concat":
-                        stack.append("".join([to_concat_arg(arg) for arg in args]))
-                    elif name == "match":
-                        stack.append(bool(re.search(re.compile(args[1]), args[0])))
-                    elif name == "toString" or name == "toUUID":
-                        if args[0] is True:
-                            stack.append("true")
-                        elif args[0] is False:
-                            stack.append("false")
-                        elif args[0] is None:
-                            stack.append("null")
-                        else:
-                            stack.append(str(args[0]))
-                    elif name == "toInt" or name == "toFloat":
-                        try:
-                            stack.append(int(args[0]) if name == "toInt" else float(args[0]))
-                        except ValueError:
-                            stack.append(None)
-                    elif name == "ifNull":
-                        if args[0] is not None:
-                            stack.append(args[0])
-                        else:
-                            stack.append(args[1])
-                    elif functions is not None and name in functions:
-                        stack.append(functions[name](*args))
+                    if name in declared_functions:
+                        func_ip, arg_len = declared_functions[name]
+                        call_stack.append((ip + 1, len(stack) - arg_len, arg_len))
+                        ip = func_ip
                     else:
-                        raise HogVMException(f"Unsupported function call: {name}")
+                        args = [stack.pop() for _ in range(next_token())]
+                        if name == "concat":
+                            stack.append("".join([to_concat_arg(arg) for arg in args]))
+                        elif name == "match":
+                            stack.append(bool(re.search(re.compile(args[1]), args[0])))
+                        elif name == "toString" or name == "toUUID":
+                            if args[0] is True:
+                                stack.append("true")
+                            elif args[0] is False:
+                                stack.append("false")
+                            elif args[0] is None:
+                                stack.append("null")
+                            else:
+                                stack.append(str(args[0]))
+                        elif name == "toInt" or name == "toFloat":
+                            try:
+                                stack.append(int(args[0]) if name == "toInt" else float(args[0]))
+                            except ValueError:
+                                stack.append(None)
+                        elif name == "ifNull":
+                            if args[0] is not None:
+                                stack.append(args[0])
+                            else:
+                                stack.append(args[1])
+                        elif functions is not None and name in functions:
+                            stack.append(functions[name](*args))
+                        else:
+                            raise HogVMException(f"Unsupported function call: {name}")
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 

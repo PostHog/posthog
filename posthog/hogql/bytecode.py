@@ -8,7 +8,6 @@ from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
-    HOGQL_BYTECODE_FUNCTION,
     HOG_FUNCTIONS,
 )
 
@@ -56,8 +55,6 @@ def create_bytecode(
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
-    else:
-        bytecode.extend([HOGQL_BYTECODE_FUNCTION, len(args)])
     bytecode.extend(BytecodeBuilder(supported_functions, args).visit(expr))
     return bytecode
 
