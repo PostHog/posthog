@@ -34,8 +34,8 @@ type Filter struct {
 	subs        []Subscription
 }
 
-func NewFilter(inboundChan chan PostHogEvent) *Filter {
-	return &Filter{inboundChan: inboundChan}
+func NewFilter(subChan chan *Subscription, inboundChan chan PostHogEvent) *Filter {
+	return &Filter{subChan: subChan, inboundChan: inboundChan}
 }
 
 func (c *Filter) Run() {
