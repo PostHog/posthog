@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"sync/atomic"
 )
 
@@ -42,7 +43,9 @@ func (c *Filter) Run() {
 	for {
 		select {
 		case newSub := <-c.subChan:
+			log.Printf("Adding new sub")
 			c.subs = append(c.subs, newSub)
+			log.Printf("Added new sub")
 		case event := <-c.inboundChan:
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
@@ -50,6 +53,8 @@ func (c *Filter) Run() {
 					// because writing to a closed channel = panic.
 					continue
 				}
+
+				log.Printf("Checking again filter")
 
 				if sub.Token != "" && event.Token != sub.Token {
 					continue

@@ -78,6 +78,7 @@ func main() {
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 
+		log.Printf("Making new sub")
 		subscription := Subscription{
 			Token:       "sTMFPsFhdP1Ssg",
 			DistinctId:  distinctId,
@@ -86,7 +87,9 @@ func main() {
 			ShouldClose: &atomic.Bool{},
 		}
 
+		log.Printf("Sending new sub")
 		subChan <- subscription
+		log.Printf("Sent new sub")
 
 		for {
 			select {
@@ -95,6 +98,7 @@ func main() {
 				subscription.ShouldClose.Store(true)
 				return nil
 			case payload := <-subscription.EventChan:
+				log.Printf("Received event payload")
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
 					fmt.Println("Error:", err)
@@ -104,10 +108,12 @@ func main() {
 				event := Event{
 					Data: jsonData,
 				}
+				log.Printf("Sending event payload")
 				if err := event.WriteTo(w); err != nil {
 					return err
 				}
 				w.Flush()
+				log.Printf("Sent event payload")
 			}
 		}
 	})
