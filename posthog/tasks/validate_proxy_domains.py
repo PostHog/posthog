@@ -1,4 +1,4 @@
-import dns
+import dns.resolver
 import requests
 from posthog.models import ProxyRecord
 from django.conf import settings
