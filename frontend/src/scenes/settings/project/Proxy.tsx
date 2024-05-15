@@ -22,8 +22,19 @@ export function Proxy(): JSX.Element {
             render: function RenderStatus(status) {
                 return (
                     <div>
-                        <span className={clsx('capitalize', status === 'waiting' && 'text')}>{status}</span>
-                        {status === 'validating' && <Spinner />}
+                        <span
+                            className={clsx(
+                                'capitalize',
+                                status === 'valid'
+                                    ? 'text-success'
+                                    : status == 'erroring'
+                                    ? 'text-danger'
+                                    : 'text-warning'
+                            )}
+                        >
+                            {status}
+                        </span>
+                        {status === 'issuing' && <Spinner />}
                     </div>
                 )
             },
