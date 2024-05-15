@@ -1,6 +1,7 @@
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -46,6 +47,31 @@ export function ReferralsScene(): JSX.Element {
 
     return (
         <div>
+            <PageHeader
+                caption={
+                    !showIntro && (
+                        <>
+                            Create referral programs (aka pyramid schemes) to grow your word of mouth and thank your
+                            loyal customers. Check out our{' '}
+                            <Link
+                                data-attr="referral-program-help"
+                                to="https://posthog.com/docs/referrals?utm_medium=in-product&utm_campaign=learn-more"
+                                target="_blank"
+                            >
+                                {' '}
+                                documentation
+                            </Link>{' '}
+                            to learn more.
+                        </>
+                    )
+                }
+                buttons={
+                    <LemonButton type="primary" to={urls.createReferralProgram()}>
+                        New referral program
+                    </LemonButton>
+                }
+                delimited
+            />
             {showIntro && (
                 <ProductIntroduction
                     productName="Referrals"

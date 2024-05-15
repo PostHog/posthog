@@ -3927,10 +3927,10 @@ export type ReferralProgram = {
     id: string
     short_id: string
     title: string
-    description: string
-    created_at: string
-    referrers_count: number
-    redeemers_count: number
+    description?: string
+    created_at?: string
+    referrers_count?: number
+    redeemers_count?: number
 }
 
 export type ReferralIdentity = {
