@@ -657,6 +657,37 @@ def create_new_zendesk_ticket(request):
     return JsonResponse({"response": response})
 
 
+@authenticate_secondarily
+def close_zendesk_ticket(request):
+    # do auth
+    org_id = ""
+    requester_id = 19444577233435
+
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
+
+    headers = {"Authorization": "Basic TOKEN"}
+
+    ticket_id = body.get("ticket_id")
+    ticket = requests.request(
+        "GET", f"https://posthoghelp.zendesk.com/api/v2/tickets/{ticket_id}.json", data="", headers=headers
+    ).json()
+
+    if ticket["ticket"]["organization_id"] != org_id and ticket["ticket"]["requester_id"] != requester_id:
+        return JsonResponse({"error": "You are not authorized to close this ticket"}, status=403)
+
+    requests.request(
+        "PUT",
+        f"https://posthoghelp.zendesk.com/api/v2/tickets/{ticket_id}.json",
+        json={"ticket": {"status": "solved"}},
+        headers=headers,
+    )
+
+    return JsonResponse({"ticket": ticket})
+
+
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
