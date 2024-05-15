@@ -45,7 +45,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    def destroy(self, request, pk=None):
+    def destroy(self, request, *args, pk=None, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
         record = queryset.get(id=pk)
 
