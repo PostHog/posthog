@@ -177,7 +177,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
         return ast.VariableDeclaration(
-            name=ctx.IDENTIFIER().getText() if ctx.IDENTIFIER() else ctx.keyword().getText(),
+            name=ctx.identifier().getText(),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
         )
 
@@ -202,6 +202,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             expr=self.visit(ctx.expression()),
             body=self.visit(ctx.statement()) if ctx.statement() else None,
         )
+
+    def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
+        return ast.Function(
+            name=ctx.identifier().getText(),
+            params=self.visit(ctx.identifierList()),
+            body=self.visit(ctx.statement()) if ctx.statement() else None,
+        )
+
+    def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
+        return [ident.getText() for ident in ctx.identifier()]
 
     def visitBlock(self, ctx: HogQLParser.BlockContext):
         return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])

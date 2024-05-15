@@ -12,12 +12,14 @@ declaration
 
 expression: columnExpr;
 
-varDecl: VAR (IDENTIFIER | keyword) ( COLON EQ_SINGLE expression )? SEMICOLON ;
+varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
+identifierList: identifier (COMMA identifier)*;
 
 statement      : returnStmt
                | exprStmt
                | ifStmt
                | whileStmt
+               | funcStmt
                | returnStmt
                | block ;
 
@@ -26,7 +28,9 @@ ifStmt         : IF LPAREN expression RPAREN statement
                  ( ELSE statement )? ;
 whileStmt      : WHILE LPAREN expression RPAREN statement;
 returnStmt     : RETURN expression SEMICOLON ;
+funcStmt       : FN identifier LPAREN identifierList RPAREN statement;
 block          : LBRACE declaration* RBRACE ;
+
 
 
 
