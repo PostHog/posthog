@@ -31,9 +31,11 @@ def validate_proxy_domains() -> None:
 
         if response.status_code != 200:
             domain.status = ProxyRecord.Status.ERRORING
+
+            domain.save()
         else:
             data = response.json()
             if data.get("status") == "Ready":
                 domain.status = ProxyRecord.Status.VALID
 
-        domain.save()
+            domain.save()

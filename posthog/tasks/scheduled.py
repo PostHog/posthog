@@ -230,7 +230,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sender,
         10,
         validate_proxy_domains.s(),
-        name="process scheduled changes",
+        name="validate proxy domain",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
