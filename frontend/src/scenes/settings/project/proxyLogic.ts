@@ -70,8 +70,8 @@ export const proxyLogic = kea<proxyLogicType>([
         createRecord: {
             defaults: { domain: '' },
             errors: ({ domain }) => ({
-                domain: !isURL(domain)
-                    ? 'Please enter a URL'
+                domain: !isDomain(domain)
+                    ? 'Please enter a domain'
                     : domain.includes('*')
                     ? 'Domains cannot include wildcards'
                     : undefined,
