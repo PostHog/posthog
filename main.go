@@ -43,6 +43,7 @@ func main() {
 
 	phEventChan := make(chan PostHogEvent)
 	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
 
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan)
 	if err != nil {
@@ -51,7 +52,7 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	filter := NewFilter(subChan, phEventChan)
+	filter := NewFilter(subChan, unSubChan, phEventChan)
 	go filter.Run()
 
 	// Echo instance
@@ -60,6 +61,7 @@ func main() {
 	// Middleware
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+	e.Use(middleware.RequestID())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodHead},
@@ -83,6 +85,7 @@ func main() {
 
 		log.Printf("Making new sub")
 		subscription := Subscription{
+			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			Token:       "sTMFPsFhdP1Ssg",
 			DistinctId:  distinctId,
 			EventType:   eventType,
@@ -96,6 +99,7 @@ func main() {
 			select {
 			case <-c.Request().Context().Done():
 				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
+				filter.unSubChan <- subscription
 				subscription.ShouldClose.Store(true)
 				return nil
 			case payload := <-subscription.EventChan:
