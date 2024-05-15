@@ -13,6 +13,7 @@ export const liveEventsTableLogic = kea({
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
+        setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
     }),
 
     reducers: () => ({
@@ -33,6 +34,12 @@ export const liveEventsTableLogic = kea({
             { teamId: getCurrentTeamId() },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        clientSideFilters: [
+            {},
+            {
+                setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
         ],
         sseSource: [
@@ -58,6 +65,16 @@ export const liveEventsTableLogic = kea({
 
     selectors: ({ selectors }) => ({
         eventCount: [() => [selectors.events], (events: any) => events.length],
+        filteredEvents: [
+            (s) => [s.events, s.clientSideFilters],
+            (events, clientSideFilters) => {
+                return events.filter((event) => {
+                    return Object.entries(clientSideFilters).every(([key, value]) => {
+                        return event[key] === value
+                    })
+                })
+            },
+        ],
     }),
 
     listeners: ({ actions, values }) => ({
