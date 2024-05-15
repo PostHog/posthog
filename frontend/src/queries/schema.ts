@@ -76,6 +76,7 @@ export enum NodeKind {
     InsightActorsQuery = 'InsightActorsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
+    LogsQuery = 'LogsQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -139,6 +140,7 @@ export type QuerySchema =
 
     // New queries, not yet implemented
     | TrendsQuery
+    | LogsQuery
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
@@ -676,6 +678,14 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+
+export interface LogsQuery extends DataNode<LogsQueryResponse> {
+    kind: NodeKind.LogsQuery
+    /** Date range for the query */
+    dateRange?: DateRange
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params

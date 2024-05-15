@@ -27,6 +27,7 @@ from posthog.schema import (
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    LogsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryTiming,
@@ -224,6 +225,16 @@ def get_query_runner(
 
         return HogQLQueryRunner(
             query=cast(HogQLQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "LogsQuery":
+        from .logs_query_runner import LogsQueryRunner
+
+        return LogsQueryRunner(
+            query=cast(LogsQuery, query),
             team=team,
             timings=timings,
             limit_context=limit_context,

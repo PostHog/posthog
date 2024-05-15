@@ -587,6 +587,7 @@ class NodeKind(str, Enum):
     InsightActorsQuery = "InsightActorsQuery"
     InsightActorsQueryOptions = "InsightActorsQueryOptions"
     FunnelCorrelationQuery = "FunnelCorrelationQuery"
+    LogsQuery = "LogsQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -1917,6 +1918,24 @@ class LifecycleQueryResponse(BaseModel):
     )
 
 
+class LogsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    results: list[dict[str, Any]]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2270,7 +2289,7 @@ class QueryResponseAlternative19(BaseModel):
     )
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2288,7 +2307,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2306,7 +2325,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3032,6 +3051,18 @@ class HogQLQuery(BaseModel):
     )
 
 
+class LogsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    kind: Literal["LogsQuery"] = "LogsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[LogsQueryResponse] = None
+
+
 class PersonsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3113,7 +3144,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3155,10 +3186,10 @@ class QueryResponseAlternative(
             QueryResponseAlternative17,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
-            QueryResponseAlternative20,
             QueryResponseAlternative21,
             QueryResponseAlternative22,
-            QueryResponseAlternative25,
+            QueryResponseAlternative23,
+            QueryResponseAlternative26,
             dict[str, list[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -3185,10 +3216,10 @@ class QueryResponseAlternative(
         QueryResponseAlternative17,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
-        QueryResponseAlternative20,
         QueryResponseAlternative21,
         QueryResponseAlternative22,
-        QueryResponseAlternative25,
+        QueryResponseAlternative23,
+        QueryResponseAlternative26,
         dict[str, list[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -4209,6 +4240,7 @@ class QueryRequest(BaseModel):
         SavedInsightNode,
         InsightVizNode,
         TrendsQuery,
+        LogsQuery,
         FunnelsQuery,
         RetentionQuery,
         PathsQuery,
@@ -4248,6 +4280,7 @@ class QuerySchemaRoot(
             SavedInsightNode,
             InsightVizNode,
             TrendsQuery,
+            LogsQuery,
             FunnelsQuery,
             RetentionQuery,
             PathsQuery,
@@ -4280,6 +4313,7 @@ class QuerySchemaRoot(
         SavedInsightNode,
         InsightVizNode,
         TrendsQuery,
+        LogsQuery,
         FunnelsQuery,
         RetentionQuery,
         PathsQuery,

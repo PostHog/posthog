@@ -4735,6 +4735,60 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "LogsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "kind": {
+                    "const": "LogsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/LogsQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "LogsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "MathType": {
             "anyOf": [
                 {
@@ -4791,6 +4845,7 @@
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
                 "FunnelCorrelationQuery",
+                "LogsQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -6139,6 +6194,38 @@
                             "description": "Modifiers used when performing the query"
                         },
                         "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "results": {
                             "anyOf": [
                                 {
                                     "$ref": "#/definitions/FunnelStepsResults"
@@ -6417,6 +6504,9 @@
                 },
                 {
                     "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/LogsQuery"
                 },
                 {
                     "$ref": "#/definitions/FunnelsQuery"
