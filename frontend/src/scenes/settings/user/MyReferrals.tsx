@@ -71,7 +71,7 @@ export function MyReferrals(): JSX.Element {
                 {referrerInfoLoading
                     ? 'Mining bitcoins, please wait...'
                     : referrerInfo?.code
-                    ? `${window.location.origin}/?rcode=${referrerInfo?.code}`
+                    ? `${window.location.origin}/#rcode=${referrerInfo?.code}`
                     : 'Something went wrong...'}
             </CodeSnippet>
 

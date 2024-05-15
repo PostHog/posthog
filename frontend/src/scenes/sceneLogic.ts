@@ -353,6 +353,7 @@ export const sceneLogic = kea<sceneLogicType>([
         locationChanged: () => {
             const {
                 location: { pathname, search, hash },
+                hashParams,
             } = router.values
 
             // Open search or command bar
@@ -373,6 +374,17 @@ export const sceneLogic = kea<sceneLogicType>([
             // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+            }
+
+            try {
+                // Pull out the referrer code and save it as a cookie if its there
+                const referrerCode = hashParams['rcode']
+
+                if (referrerCode) {
+                    document.cookie = `ph_rcode=${referrerCode}; max-age=31536000; path=/`
+                }
+            } catch (e) {
+                console.error(e)
             }
         },
     })),
