@@ -1,7 +1,9 @@
 import { URL } from 'url'
 
+import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
 import { EventPipelineRunner } from './runner'
 
@@ -57,13 +59,30 @@ function replacePathInUrl(url: string, newPath: string): string {
     return parsedUrl.toString()
 }
 
+function isValidString(x: unknown): x is string {
+    return typeof x === 'string' && !!x.trim().length
+}
+
+function isValidNumber(n: unknown): n is number {
+    return typeof n === 'number' && !isNaN(n)
+}
+
 function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseHeatmapEvent[] {
-    const { teamId, timestamp, properties } = event
+    function drop(cause: string): RawClickhouseHeatmapEvent[] {
+        eventDroppedCounter
+            .labels({
+                event_type: 'heatmap_event_extraction',
+                drop_cause: cause,
+            })
+            .inc()
+        return []
+    }
+
+    const { teamId, timestamp, properties, distinctId } = event
     const {
         $viewport_height,
         $viewport_width,
         $session_id,
-        distinct_id,
         $prev_pageview_pathname,
         $prev_pageview_max_scroll,
         $current_url,
@@ -71,6 +90,14 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     } = properties || {}
 
     let heatmapData = $heatmap_data as HeatmapData | null
+
+    if (!isValidString(distinctId) || isDistinctIdIllegal(distinctId)) {
+        return drop('invalid_distinct_id')
+    }
+
+    if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
+        return drop('invalid_viewport_dimensions')
+    }
 
     if ($prev_pageview_pathname && $current_url) {
         // We are going to add the scroll depth info derived from the previous pageview to the current pageview's heatmap data
@@ -95,29 +122,41 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     Object.entries(heatmapData).forEach(([url, items]) => {
+        if (!isValidString(url)) {
+            return
+        }
+
         if (Array.isArray(items)) {
             heatmapEvents = heatmapEvents.concat(
-                (items as any[]).map(
-                    (hme: {
-                        x: number
-                        y: number
-                        target_fixed: boolean
-                        type: string
-                    }): RawClickhouseHeatmapEvent => ({
-                        type: hme.type,
-                        x: Math.round(hme.x / SCALE_FACTOR),
-                        y: Math.round(hme.y / SCALE_FACTOR),
-                        pointer_target_fixed: hme.target_fixed,
-                        viewport_height: Math.round($viewport_height / SCALE_FACTOR),
-                        viewport_width: Math.round($viewport_width / SCALE_FACTOR),
-                        current_url: url,
-                        session_id: $session_id,
-                        scale_factor: SCALE_FACTOR,
-                        timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
-                        team_id: teamId,
-                        distinct_id: distinct_id,
-                    })
-                )
+                (items as any[])
+                    .map(
+                        (hme: {
+                            x: number
+                            y: number
+                            target_fixed: boolean
+                            type: string
+                        }): RawClickhouseHeatmapEvent | null => {
+                            if (!isValidNumber(hme.x) || !isValidNumber(hme.y) || !isValidString(hme.type)) {
+                                return null
+                            }
+
+                            return {
+                                type: hme.type,
+                                x: Math.round(hme.x / SCALE_FACTOR),
+                                y: Math.round(hme.y / SCALE_FACTOR),
+                                pointer_target_fixed: hme.target_fixed,
+                                viewport_height: Math.round($viewport_height / SCALE_FACTOR),
+                                viewport_width: Math.round($viewport_width / SCALE_FACTOR),
+                                current_url: String(url),
+                                session_id: String($session_id),
+                                scale_factor: SCALE_FACTOR,
+                                timestamp: castTimestampOrNow(timestamp ?? null, TimestampFormat.ClickHouse),
+                                team_id: teamId,
+                                distinct_id: distinctId,
+                            }
+                        }
+                    )
+                    .filter((x): x is RawClickhouseHeatmapEvent => x !== null)
             )
         }
     })
