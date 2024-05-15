@@ -3931,6 +3931,8 @@ export type ReferralProgram = {
     created_at?: string
     referrers_count?: number
     redeemers_count?: number
+    max_total_redemption_count?: number
+    max_redemption_count_per_referrer?: number
 }
 
 export type ReferralIdentity = {
