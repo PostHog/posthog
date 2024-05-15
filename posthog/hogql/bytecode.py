@@ -46,7 +46,7 @@ def to_bytecode(expr: str) -> list[Any]:
     return create_bytecode(parse_expr(expr))
 
 
-def create_bytecode(expr: ast.Expr) -> list[Any]:
+def create_bytecode(expr: ast.Expr | ast.Program) -> list[Any]:
     bytecode = [HOGQL_BYTECODE_IDENTIFIER]
     bytecode.extend(BytecodeBuilder().visit(expr))
     return bytecode
@@ -202,13 +202,19 @@ class BytecodeBuilder(Visitor):
         return response
 
     def visit_if_statement(self, node: ast.IfStatement):
-        raise NotImplementedError("If statements are not supported")
-        # response = []
-        # response.append(self.visit(node.expr))
-        # response.append(self.visit(node.then))
-        # if node.else_:
-        #     response.append(self.visit(node.else_))
-        # return response
+        expr = self.visit(node.expr)
+        then = self.visit(node.then)
+        else_ = self.visit(node.else_) if node.else_ else None
+
+        response = []
+        response.extend(expr)
+        response.extend([Operation.JUMP_IF_FALSE, len(then) + 2])  # + else's OP_JUMP + count
+        response.extend(then)
+        if else_:
+            response.extend([Operation.JUMP, len(else_)])
+            response.extend(else_)
+
+        return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
         self._declare_local(node.name)

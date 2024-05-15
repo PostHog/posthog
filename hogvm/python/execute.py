@@ -118,6 +118,15 @@ def execute_bytecode(
                     return stack.pop()
                 case Operation.GET_LOCAL:
                     stack.append(stack[next(iterator)])
+                case Operation.JUMP:
+                    count = next(iterator)
+                    for _ in range(count):
+                        next(iterator)
+                case Operation.JUMP_IF_FALSE:
+                    count = next(iterator)
+                    if not stack.pop():
+                        for _ in range(count):
+                            next(iterator)
                 case Operation.CALL:
                     name = next(iterator)
                     args = [stack.pop() for _ in range(next(iterator))]

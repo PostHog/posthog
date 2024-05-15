@@ -44,3 +44,5 @@ class Operation(int, Enum):
     POP = 35
     GET_LOCAL = 36
     RETURN = 37
+    JUMP = 38
+    JUMP_IF_FALSE = 39

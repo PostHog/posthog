@@ -132,7 +132,7 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions), "two")
         self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions), "zero")
 
-    def test_bytecode_program(self):
+    def test_bytecode_variable_assignment(self):
         program = parse_program("var a := 1 + 2; return a;")
         bytecode = create_bytecode(program)
         self.assertEqual(
@@ -159,4 +159,35 @@ class TestBytecodeExecute(BaseTest):
             return b;
         """),
             7,
+        )
+
+    def test_bytecode_if_else(self):
+        program = parse_program("if (true) return 1; else return 2;")
+        bytecode = create_bytecode(program)
+        self.assertEqual(
+            bytecode,
+            [
+                _H,
+                op.TRUE,
+                op.JUMP_IF_FALSE,
+                5,
+                op.INTEGER,
+                1,
+                op.RETURN,
+                op.JUMP,
+                3,
+                op.INTEGER,
+                2,
+                op.RETURN,
+            ],
+        )
+
+        self.assertEqual(
+            self._run_program("if (true) return 1; else return 2;"),
+            1,
+        )
+
+        self.assertEqual(
+            self._run_program("if (false) return 1; else return 2;"),
+            2,
         )
