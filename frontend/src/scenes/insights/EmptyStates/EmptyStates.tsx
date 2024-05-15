@@ -6,6 +6,8 @@ import { IconInfo, IconPlus, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Empty } from 'antd'
 import { useActions, useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -69,63 +71,78 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-export function InsightTimeoutState({
-    isLoading,
+export function InsightLoadingState({
     queryId,
     insightProps,
 }: {
-    isLoading: boolean
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="insight-empty-state warning">
+            <Animation type={AnimationType.LaptopHog} />
             <div className="empty-state-inner">
-                {!isLoading ? (
-                    <>
-                        <div className="illustration-main">
-                            <IconErrorOutline />
-                        </div>
-                        <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
-                    </>
-                ) : (
-                    <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
-                )}
+                <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>
                     <p className="text-xs m-0 leading-5">
-                        {isLoading && suggestedSamplingPercentage && !samplingPercentage ? (
+                        {suggestedSamplingPercentage && !samplingPercentage ? (
                             <span data-attr="insight-loading-waiting-message">
                                 Need to speed things up? Try reducing the date range, removing breakdowns, or turning on{' '}
                                 <SamplingLink insightProps={insightProps} />.
                             </span>
-                        ) : isLoading && suggestedSamplingPercentage && samplingPercentage ? (
+                        ) : suggestedSamplingPercentage && samplingPercentage ? (
                             <>
                                 Still waiting around? You must have lots of data! Kick it up a notch with{' '}
                                 <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
                                 removing breakdowns.
                             </>
-                        ) : isLoading ? (
-                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
                         ) : (
-                            <>
-                                Sometimes this happens. Try refreshing the page, reducing the date range, or removing
-                                breakdowns. If you're still having issues,{' '}
-                                <Link
-                                    onClick={() => {
-                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                    }}
-                                >
-                                    let us know
-                                </Link>
-                                .
-                            </>
+                            <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
                         )}
+                    </p>
+                </div>
+                {queryId ? (
+                    <div className="text-muted text-xs mx-auto text-center mt-6">Query ID: {queryId}</div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+export function InsightTimeoutState({ queryId }: { queryId?: string | null }): JSX.Element {
+    const { openSupportForm } = useActions(supportLogic)
+
+    return (
+        <div className="insight-empty-state warning">
+            <div className="empty-state-inner">
+                <>
+                    <div className="illustration-main">
+                        <IconErrorOutline />
+                    </div>
+                    <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
+                </>
+                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
+                    <div className="flex">
+                        <IconInfo className="w-4 h-4" />
+                    </div>
+                    <p className="text-xs m-0 leading-5">
+                        <>
+                            Sometimes this happens. Try refreshing the page, reducing the date range, or removing
+                            breakdowns. If you're still having issues,{' '}
+                            <Link
+                                onClick={() => {
+                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                                }}
+                            >
+                                let us know
+                            </Link>
+                            .
+                        </>
                     </p>
                 </div>
                 {queryId ? (
