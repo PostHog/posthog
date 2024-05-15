@@ -1,16 +1,15 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isURL } from 'lib/utils'
+import { organizationLogic } from 'scenes/organizationLogic'
 
-import { BaseMemberType, ExplicitTeamMemberType } from '~/types'
-
-import { teamLogic } from '../../teamLogic'
 import type { proxyLogicType } from './proxyLogicType'
 
 export type ProxyRecord = {
+    id: string
     domain: string
     status: 'generating' | 'validating' | 'deleted'
     dnsRecords: any
@@ -18,31 +17,33 @@ export type ProxyRecord = {
 
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
+    connect({ values: [organizationLogic, ['currentOrganization']] }),
     actions(() => ({
         toggleShowingForm: true,
     })),
     reducers(() => ({
         showingForm: [false, { toggleShowingForm: (state) => !state }],
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                return await api.get(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`)
+                return await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
             },
             createRecord: async ({ domain }: { domain: string }) => {
-                const newMembers: ExplicitTeamMemberType[] = await api.create(
-                    `api/projects/${teamLogic.values.currentTeamId}/explicit_members/`,
-                    {
-                        domain,
-                    }
-                )
-                lemonToast.success('Created!')
-                return [...values.proxyRecords, ...newMembers]
+                const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {
+                    domain,
+                })
+                lemonToast.success('Record created')
+                actions.toggleShowingForm()
+                return response
             },
-            deleteRecord: async ({ member }: { member: BaseMemberType }) => {
-                await api.delete(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${member.user.uuid}/`)
-                return []
+            deleteRecord: async ({ id }: { id: ProxyRecord['id'] }) => {
+                const response = await api.delete(
+                    `api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`
+                )
+                lemonToast.info('Record deleted')
+                return response
             },
         },
     })),
