@@ -14,9 +14,9 @@ expression: columnExpr;
 
 varDecl: VAR (IDENTIFIER | keyword) ( COLON EQ_SINGLE expression )? SEMICOLON ;
 
-statement      : exprStmt
+statement      : returnStmt
+               | exprStmt
                | ifStmt
-               | returnStmt
                | block ;
 
 exprStmt       : expression SEMICOLON ;

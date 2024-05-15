@@ -134,8 +134,8 @@ def serializedATN():
         0,0,157,160,5,197,0,0,158,160,3,130,65,0,159,157,1,0,0,0,159,158,
         1,0,0,0,160,164,1,0,0,0,161,162,5,207,0,0,162,163,5,214,0,0,163,
         165,3,4,2,0,164,161,1,0,0,0,164,165,1,0,0,0,165,166,1,0,0,0,166,
-        167,5,239,0,0,167,7,1,0,0,0,168,173,3,10,5,0,169,173,3,12,6,0,170,
-        173,3,14,7,0,171,173,3,16,8,0,172,168,1,0,0,0,172,169,1,0,0,0,172,
+        167,5,239,0,0,167,7,1,0,0,0,168,173,3,14,7,0,169,173,3,10,5,0,170,
+        173,3,12,6,0,171,173,3,16,8,0,172,168,1,0,0,0,172,169,1,0,0,0,172,
         170,1,0,0,0,172,171,1,0,0,0,173,9,1,0,0,0,174,175,3,4,2,0,175,176,
         5,239,0,0,176,11,1,0,0,0,177,178,5,78,0,0,178,179,5,222,0,0,179,
         180,3,4,2,0,180,181,5,238,0,0,181,184,3,8,4,0,182,183,5,52,0,0,183,
@@ -1136,16 +1136,16 @@ class HogQLParser ( Parser ):
             super().__init__(parent, invokingState)
             self.parser = parser
 
+        def returnStmt(self):
+            return self.getTypedRuleContext(HogQLParser.ReturnStmtContext,0)
+
+
         def exprStmt(self):
             return self.getTypedRuleContext(HogQLParser.ExprStmtContext,0)
 
 
         def ifStmt(self):
             return self.getTypedRuleContext(HogQLParser.IfStmtContext,0)
-
-
-        def returnStmt(self):
-            return self.getTypedRuleContext(HogQLParser.ReturnStmtContext,0)
 
 
         def block(self):
@@ -1175,19 +1175,19 @@ class HogQLParser ( Parser ):
             if la_ == 1:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 168
-                self.exprStmt()
+                self.returnStmt()
                 pass
 
             elif la_ == 2:
                 self.enterOuterAlt(localctx, 2)
                 self.state = 169
-                self.ifStmt()
+                self.exprStmt()
                 pass
 
             elif la_ == 3:
                 self.enterOuterAlt(localctx, 3)
                 self.state = 170
-                self.returnStmt()
+                self.ifStmt()
                 pass
 
             elif la_ == 4:
