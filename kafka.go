@@ -13,7 +13,7 @@ type PostHogEventWrapper struct {
 
 // TODO: handle fallback field names
 type PostHogEvent struct {
-	Token      string                 `json:"token,omitempty"`
+	Token      string                 `json:"api_key,omitempty"`
 	DistinctID interface{}            `json:"distinct_id,omitempty"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
