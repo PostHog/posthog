@@ -213,6 +213,17 @@ class TestBytecodeExecute(BaseTest):
             5,
         )
 
+    def test_bytecode_variable_reassignment(self):
+        self.assertEqual(
+            self._run_program("""
+                var a := 1;
+                a := a + 3;
+                a := a * 2;
+                return a;
+            """),
+            8,
+        )
+
     def test_bytecode_while(self):
         program = parse_program("while (true) 1 + 1;")
         bytecode = create_bytecode(program)
@@ -280,13 +291,13 @@ class TestBytecodeExecute(BaseTest):
             0,
         )
 
-        # self.assertEqual(
-        #     self._run_program("""
-        #         var i := 0;
-        #         while (i < 3) {
-        #             i := i + 1;
-        #         }
-        #         return i
-        #     """),
-        #     3,
-        # )
+        self.assertEqual(
+            self._run_program("""
+                var i := 0;
+                while (i < 3) {
+                    i := i + 1;
+                }
+                return i;
+            """),
+            3,
+        )

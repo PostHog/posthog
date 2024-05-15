@@ -42,6 +42,7 @@ class Operation(int, Enum):
     FLOAT = 34
     POP = 35
     GET_LOCAL = 36
-    RETURN = 37
-    JUMP = 38
-    JUMP_IF_FALSE = 39
+    SET_LOCAL = 37
+    RETURN = 38
+    JUMP = 39
+    JUMP_IF_FALSE = 40

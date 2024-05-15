@@ -129,6 +129,8 @@ def execute_bytecode(
                     return stack.pop()
                 case Operation.GET_LOCAL:
                     stack.append(stack[next_token()])
+                case Operation.SET_LOCAL:
+                    stack[next_token()] = stack.pop()
                 case Operation.JUMP:
                     count = next_token()
                     ip += count
