@@ -36,6 +36,7 @@ export enum SurveyEditSection {
     Appearance = 'appearance',
     Customization = 'customization',
     Targeting = 'targeting',
+    Occurence = 'occurence',
     CompletionConditions = 'CompletionConditions',
 }
 export interface SurveyLogicProps {

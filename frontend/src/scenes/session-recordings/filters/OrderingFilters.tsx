@@ -13,8 +13,8 @@ export const OrderingFilters = (): JSX.Element => {
             onChange={setOrderBy}
             options={[
                 {
-                    value: 'start_time',
-                    label: 'Latest',
+                    value: 1,
+                    label: 'Once',
                     'data-attr': 'session-replay-ordering-latest',
                 },
                 {

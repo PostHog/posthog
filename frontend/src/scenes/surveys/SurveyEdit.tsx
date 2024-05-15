@@ -19,6 +19,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -638,6 +639,36 @@ export default function SurveyEdit(): JSX.Element {
                                         )
                                     }}
                                 </LemonField>
+                            ),
+                        },
+                        {
+                            key: SurveyEditSection.Scheduling,
+                            header: 'Scheduling',
+                            content: (
+                                <>
+                                    <h2> How often should we schedule this survey? </h2>
+                                    <LemonField
+                                        name="responses_limit"
+                                        label="End date"
+                                        className="flex-1"
+                                        info={
+                                            <>
+                                                The date up to which data is to be exported. Leaving it unset implies
+                                                that data exports will continue forever until this export is paused or
+                                                deleted.
+                                            </>
+                                        }
+                                    >
+                                        {({ value, onChange }) => (
+                                            <LemonCalendarSelectInput
+                                                value={value}
+                                                onChange={onChange}
+                                                placeholder="Select end date (optional)"
+                                                clearable
+                                            />
+                                        )}
+                                    </LemonField>
+                                </>
                             ),
                         },
                     ]}

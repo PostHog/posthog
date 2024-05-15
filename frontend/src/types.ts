@@ -2461,6 +2461,8 @@ export interface Survey {
     archived: boolean
     remove_targeting_flag?: boolean
     responses_limit: number | null
+    iteration_count: number | null
+    iteration_repeat_days: number | null
 }
 
 export enum SurveyUrlMatchType {
