@@ -12,6 +12,11 @@ export function getAppContext(): AppContext | undefined {
     return window.POSTHOG_APP_CONTEXT || undefined
 }
 
+// We should pass this into the posthog-js call for getting the zendesk tickets
+export function getCurrentUserEmailHash(): string | undefined {
+    return getAppContext()?.current_user_hash || undefined
+}
+
 export function getDefaultEventName(): string {
     return getAppContext()?.default_event_name || PathType.PageView
 }

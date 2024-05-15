@@ -5,6 +5,7 @@ import datetime
 import datetime as dt
 import gzip
 import hashlib
+import hmac
 import json
 from operator import itemgetter
 import os
@@ -389,6 +390,14 @@ def render_template(
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
+
+            if user.email:
+                # TODO: Convert to an SDK function call
+                posthog_app_context["current_user_hash"] = hmac.new(
+                    "SHARED_SECRET_TOKEN",
+                    user.email.encode(),
+                    digestmod=hashlib.sha256,
+                ).hexdigest()
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
