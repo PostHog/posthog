@@ -160,8 +160,6 @@ class PublicReferralsViewset(viewsets.GenericViewSet):
         if not referrer_id:
             raise exceptions.ValidationError("Missing referrer_id")
 
-        # Id from where?
-
         referrer, _ = ReferralProgramReferrer.objects.get_or_create(referral_program=program, user_id=referrer_id)
         data = ReferralProgramReferrerSerializer(referrer).data
 
