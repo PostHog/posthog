@@ -280,6 +280,10 @@ class TraversingVisitor(Visitor[None]):
         if node.else_:
             self.visit(node.else_)
 
+    def visit_while_statement(self, node: ast.WhileStatement):
+        self.visit(node.expr)
+        self.visit(node.body)
+
     def visit_expr_statement(self, node: ast.ExprStatement):
         self.visit(node.expr)
 
@@ -592,6 +596,14 @@ class CloningVisitor(Visitor[Any]):
             expr=self.visit(node.expr),
             then=self.visit(node.then),
             else_=self.visit(node.else_) if node.else_ else None,
+        )
+
+    def visit_while_statement(self, node: ast.WhileStatement):
+        return ast.WhileStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+            body=self.visit(node.body),
         )
 
     def visit_expr_statement(self, node: ast.ExprStatement):

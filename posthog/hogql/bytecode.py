@@ -216,6 +216,17 @@ class BytecodeBuilder(Visitor):
 
         return response
 
+    def visit_while_statement(self, node: ast.WhileStatement):
+        expr = self.visit(node.expr)
+        body = self.visit(node.body)
+
+        response = []
+        response.extend(expr)
+        response.extend([Operation.JUMP_IF_FALSE, len(body) + 2])  # + reverse jump
+        response.extend(body)
+        response.extend([Operation.JUMP, -len(response) - 2])
+        return response
+
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
         self._declare_local(node.name)
         if node.expr:

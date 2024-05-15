@@ -39,18 +39,29 @@ def execute_bytecode(
 ) -> Any:
     try:
         stack = []
-        iterator = iter(bytecode)
-        if next(iterator) != HOGQL_BYTECODE_IDENTIFIER:
+        ip = -1
+
+        def next_token():
+            nonlocal ip
+            if ip >= len(bytecode) - 1:
+                return None
+            ip += 1
+            return bytecode[ip]
+
+        if next_token() != HOGQL_BYTECODE_IDENTIFIER:
             raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
-        while (symbol := next(iterator, None)) is not None:
+        while True:
+            symbol = next_token()
             match symbol:
+                case None:
+                    break
                 case Operation.STRING:
-                    stack.append(next(iterator))
+                    stack.append(next_token())
                 case Operation.INTEGER:
-                    stack.append(next(iterator))
+                    stack.append(next_token())
                 case Operation.FLOAT:
-                    stack.append(next(iterator))
+                    stack.append(next_token())
                 case Operation.TRUE:
                     stack.append(True)
                 case Operation.FALSE:
@@ -60,9 +71,9 @@ def execute_bytecode(
                 case Operation.NOT:
                     stack.append(not stack.pop())
                 case Operation.AND:
-                    stack.append(all([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
+                    stack.append(all([stack.pop() for _ in range(next_token())]))  # noqa: C419
                 case Operation.OR:
-                    stack.append(any([stack.pop() for _ in range(next(iterator))]))  # noqa: C419
+                    stack.append(any([stack.pop() for _ in range(next_token())]))  # noqa: C419
                 case Operation.PLUS:
                     stack.append(stack.pop() + stack.pop())
                 case Operation.MINUS:
@@ -110,26 +121,24 @@ def execute_bytecode(
                     args = [stack.pop(), stack.pop()]
                     stack.append(not bool(re.search(re.compile(args[1], re.RegexFlag.IGNORECASE), args[0])))
                 case Operation.FIELD:
-                    chain = [stack.pop() for _ in range(next(iterator))]
+                    chain = [stack.pop() for _ in range(next_token())]
                     stack.append(get_nested_value(fields, chain))
                 case Operation.POP:
                     stack.pop()
                 case Operation.RETURN:
                     return stack.pop()
                 case Operation.GET_LOCAL:
-                    stack.append(stack[next(iterator)])
+                    stack.append(stack[next_token()])
                 case Operation.JUMP:
-                    count = next(iterator)
-                    for _ in range(count):
-                        next(iterator)
+                    count = next_token()
+                    ip += count
                 case Operation.JUMP_IF_FALSE:
-                    count = next(iterator)
+                    count = next_token()
                     if not stack.pop():
-                        for _ in range(count):
-                            next(iterator)
+                        ip += count
                 case Operation.CALL:
-                    name = next(iterator)
-                    args = [stack.pop() for _ in range(next(iterator))]
+                    name = next_token()
+                    args = [stack.pop() for _ in range(next_token())]
                     if name == "concat":
                         stack.append("".join([to_concat_arg(arg) for arg in args]))
                     elif name == "match":

@@ -154,10 +154,10 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(self._run_program("var a := 1 + 2; return a;"), 3)
         self.assertEqual(
             self._run_program("""
-            var a := 1 + 2;
-            var b := a + 4;
-            return b;
-        """),
+                var a := 1 + 2;
+                var b := a + 4;
+                return b;
+            """),
             7,
         )
 
@@ -206,6 +206,25 @@ class TestBytecodeExecute(BaseTest):
                 } else {
                     return 2;
                 }
-                """),
+            """),
             5,
+        )
+
+    def test_bytecode_while(self):
+        program = parse_program("while (true) 1 + 1;")
+        bytecode = create_bytecode(program)
+        self.assertEqual(
+            bytecode,
+            [_H, op.TRUE, op.JUMP_IF_FALSE, 8, op.INTEGER, 1, op.INTEGER, 1, op.PLUS, op.POP, op.JUMP, -11],
+        )
+
+        self.assertEqual(
+            self._run_program("""
+                var i = 0;
+                while (i < 3) {
+                    i = i + 1;
+                }
+                return i
+            """),
+            3,
         )
