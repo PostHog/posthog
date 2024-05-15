@@ -83,18 +83,29 @@ func main() {
 		distinctId := c.QueryParam("distinctId")
 		geo := c.QueryParam("geo")
 
-		if teamId == "" {
-			return errors.New("teamId is required")
-		}
-		teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
-		if err != nil {
-			return err
+		teamIdInt := 0
+		token := ""
+		geoOnly := false
+
+		if strings.ToLower(geo) == "true" || geo == "1" {
+			geoOnly = true
+		} else {
+			if teamId == "" {
+				return errors.New("teamId is required unless geo=true")
+			}
 		}
 
-		teamIdInt := int(teamIdInt64)
-		token, err := tokenFromTeamId(teamIdInt)
-		if err != nil {
-			return err
+		if teamId != "" {
+			teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
+			if err != nil {
+				return err
+			}
+
+			teamIdInt := int(teamIdInt64)
+			token, err = tokenFromTeamId(teamIdInt)
+			if err != nil {
+				return err
+			}
 		}
 
 		subscription := Subscription{
@@ -102,13 +113,10 @@ func main() {
 			Token:       token,
 			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			DistinctId:  distinctId,
+			Geo:         geoOnly,
 			EventType:   eventType,
 			EventChan:   make(chan interface{}, 100),
 			ShouldClose: &atomic.Bool{},
-		}
-
-		if strings.ToLower(geo) == "true" || geo == "1" {
-			subscription.Geo = true
 		}
 
 		subChan <- subscription
