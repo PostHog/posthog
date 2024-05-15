@@ -1,3 +1,4 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, path, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -49,13 +50,21 @@ const myReferralsLogic = kea<myReferralsLogicType>([
 export function MyReferrals(): JSX.Element {
     const { referrerInfo, referrerInfoLoading } = useValues(myReferralsLogic)
 
+    const redeemed = referrerInfo?.total_redemptions ?? 0
+    const fontSize = 1 + redeemed / 10
+
     return (
-        <div className="text-center border-2 border-dashed rounded p-2">
+        <div className="text-center border-2 border-dashed rounded p-4">
             <h1 className="font-bold">Join our pyramid scheme</h1>
             <p>
                 Want free stuff? Of course you do. Join our <b>totally original and unique</b> referral scheme to get
                 sweet merch, platform credits, and good vibes. One referral = 1 vibe. Plus, get the tools to build your
                 own ludicrously successful pyramid scheme included for free.
+            </p>
+
+            <p>
+                Share the link with your friends. If they use your link and sign up for PostHog then free stuff comes
+                your way!
             </p>
 
             <CodeSnippet thing="referral link">
@@ -65,6 +74,43 @@ export function MyReferrals(): JSX.Element {
                     ? `${window.location.origin}/?rcode=${referrerInfo?.code}`
                     : 'Something went wrong...'}
             </CodeSnippet>
+
+            {referrerInfoLoading ? (
+                <LemonSkeleton className="mt-4" />
+            ) : (
+                <>
+                    <p className="italic text-muted-alt mt-4">
+                        So far,{' '}
+                        <b
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                fontSize: `${fontSize}rem`,
+                            }}
+                        >
+                            {redeemed} people
+                        </b>{' '}
+                        have redeemed your code.
+                    </p>
+
+                    {redeemed === 0 ? (
+                        <p className="text-muted-alt text-xs italic font-semibold opacity-50">
+                            Not gonna lie - that's a bit embarrassing.
+                        </p>
+                    ) : redeemed < 5 ? (
+                        <p className="text-muted-alt text-xs italic font-semibold opacity-75">
+                            Amazing! Keep it up and you'll be rolling in free stuff in no time.
+                        </p>
+                    ) : redeemed < 10 ? (
+                        <p className="text-muted-alt text-xs italic font-semibold opacity-75">
+                            You are basically an influencer now. Quit your day job - you've found your calling.
+                        </p>
+                    ) : (
+                        <p className="text-muted-alt text-xs italic font-semibold opacity-100">
+                            Please stop referring us. Our servers are on fire and our support team is crying.
+                        </p>
+                    )}
+                </>
+            )}
         </div>
     )
 }
