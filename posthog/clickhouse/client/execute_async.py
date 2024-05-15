@@ -1,5 +1,5 @@
 import datetime
-import json
+import orjson as json
 import math
 from functools import partial
 from typing import Optional
@@ -57,7 +57,7 @@ class QueryStatusManager:
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def store_clickhouse_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.clickhouse_query_progress)
+        value = SafeJSONRenderer().render(query_status.model_dump())
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
@@ -71,11 +71,11 @@ class QueryStatusManager:
     def _get_clickhouse_query_status(self):
         try:
             byte_results = self.redis_client.get(self.clickhouse_query_status_key)
-        except Exception as e:
+        except Exception:
             # Don't fail because of progress checking
-            return "{}"
+            return {}
 
-        return byte_results if byte_results is not None else "{}"
+        return json.loads(byte_results)["clickhouse_query_progress"] if byte_results is not None else {}
 
     def has_results(self):
         return self._get_results() is not None
@@ -89,7 +89,6 @@ class QueryStatusManager:
         query_status = QueryStatus(**json.loads(byte_results))
 
         if with_progress and not query_status.complete:
-            print(query_status)
             CLICKHOUSE_SQL = """
             SELECT
                 query_id,
@@ -104,16 +103,13 @@ class QueryStatusManager:
             WHERE query_id like %(query_id)s
             """
 
-            clickhouse_query_status_bytes = self._get_clickhouse_query_status()
-            query_status.clickhouse_query_progress = json.loads(clickhouse_query_status_bytes)
-            print("CLICKHOUSE")
+            query_status.clickhouse_query_progress = self._get_clickhouse_query_status()
             try:
                 results, types = sync_execute(
                     CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
                 )
-                print(results, types)
 
-                def noNanInt(num):
+                def noNaNInt(num):
                     if math.isnan(num):
                         return 0
                     return int(num)
@@ -121,11 +117,11 @@ class QueryStatusManager:
                 new_clickhouse_query_progress = {
                     result[0]: ClickhouseQueryStatus(
                         **{
-                            "bytes_read": noNanInt(result[3]),
-                            "rows_read": noNanInt(result[2]),
-                            "estimated_rows_total": noNanInt(result[4]),
-                            "time_elapsed": noNanInt(result[6]),
-                            "estimated_time_remaining": noNanInt(result[7]),
+                            "bytes_read": noNaNInt(result[3]),
+                            "rows_read": noNaNInt(result[2]),
+                            "estimated_rows_total": noNaNInt(result[4]),
+                            "time_elapsed": noNaNInt(result[6]),
+                            "estimated_time_remaining": noNaNInt(result[7]),
                         }
                     )
                     for result in results
@@ -133,7 +129,7 @@ class QueryStatusManager:
                 query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
                 self.store_clickhouse_query_status(query_status)
             except Exception as e:
-                print(e)
+                logger.error("Clickhouse Status Check Failed", e)
                 pass
 
         return query_status
