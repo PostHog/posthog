@@ -17,4 +17,3 @@ export default meta
 export function Default(): JSX.Element {
     return <LoadingBar />
 }
-
