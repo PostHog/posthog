@@ -176,9 +176,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
-        return ast.VariableDeclaration(
+        return self.visitVarAssignment(ctx.varAssignment(), is_declaration=True)
+
+    def visitVarAssignment(self, ctx: HogQLParser.VarAssignmentContext, is_declaration=False):
+        return ast.VariableAssignment(
             name=ctx.identifier().getText(),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
+            is_declaration=is_declaration,
         )
 
     def visitStatement(self, ctx: HogQLParser.StatementContext):

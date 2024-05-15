@@ -1,6 +1,6 @@
 from ._test_parser import parser_test_factory
 from posthog.hogql.ast import (
-    VariableDeclaration,
+    VariableAssignment,
     Constant,
     ArithmeticOperation,
     Field,
@@ -32,8 +32,9 @@ class TestParserPython(parser_test_factory("python")):
 
         expected = Program(
             declarations=[
-                VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
-                VariableDeclaration(
+                VariableAssignment(is_declaration=True, name="a", expr=Constant(type=None, value="123")),
+                VariableAssignment(
+                    is_declaration=True,
                     name="b",
                     expr=ArithmeticOperation(
                         type=None,
@@ -55,6 +56,32 @@ class TestParserPython(parser_test_factory("python")):
         )
         self.assertEqual(program, expected)
 
+    def test_program_variable_reassignment(self):
+        code = "var a := 3; a = 4;"
+        program = self._program(code)
+        expected = Program(
+            declarations=[
+                VariableAssignment(
+                    start=None,
+                    end=None,
+                    name="a",
+                    expr=Constant(type=None, value=3),
+                    is_declaration=True,
+                ),
+                ExprStatement(
+                    start=None,
+                    end=None,
+                    expr=CompareOperation(
+                        type=None,
+                        left=Field(type=None, chain=["a"]),
+                        right=Constant(type=None, value=4),
+                        op=CompareOperationOp.Eq,
+                    ),
+                ),
+            ],
+        )
+        self.assertEqual(program, expected)
+
     def test_program_variable_declarations_with_sql_expr(self):
         code = """
             var query := (select id, properties.email from events where timestamp > now() - interval 1 day);
@@ -63,7 +90,8 @@ class TestParserPython(parser_test_factory("python")):
         program = self._program(code)
         expected = Program(
             declarations=[
-                VariableDeclaration(
+                VariableAssignment(
+                    is_declaration=True,
                     name="query",
                     expr=SelectQuery(
                         type=None,
@@ -116,7 +144,8 @@ class TestParserPython(parser_test_factory("python")):
                         view_name=None,
                     ),
                 ),
-                VariableDeclaration(
+                VariableAssignment(
+                    is_declaration=True,
                     name="results",
                     expr=Call(
                         name="run",
@@ -162,7 +191,8 @@ class TestParserPython(parser_test_factory("python")):
                     expr=Field(type=None, chain=["a"]),
                     then=Block(
                         declarations=[
-                            VariableDeclaration(
+                            VariableAssignment(
+                                is_declaration=True,
                                 name="c",
                                 expr=Constant(type=None, value=3),
                             )
@@ -201,7 +231,9 @@ class TestParserPython(parser_test_factory("python")):
                         op=CompareOperationOp.Lt,
                     ),
                     body=Block(
-                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        declarations=[
+                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
+                        ],
                     ),
                 )
             ],
@@ -223,9 +255,84 @@ class TestParserPython(parser_test_factory("python")):
                     name="query",
                     params=["a", "b"],
                     body=Block(
-                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                        declarations=[
+                            VariableAssignment(is_declaration=True, name="c", expr=Constant(type=None, value=3))
+                        ],
                     ),
                 )
+            ],
+        )
+        self.assertEqual(program, expected)
+
+    def test_program_functions(self):
+        code = """
+            fn query(a, b) {
+                var c := 3;
+            }
+
+            fn read(a, b) {
+                print(3);
+                var b := 4;
+            }
+        """
+
+        program = self._program(code)
+
+        expected = Program(
+            start=None,
+            end=None,
+            declarations=[
+                Function(
+                    start=None,
+                    end=None,
+                    name="query",
+                    params=["a", "b"],
+                    body=Block(
+                        start=None,
+                        end=None,
+                        declarations=[
+                            VariableAssignment(
+                                is_declaration=True,
+                                start=None,
+                                end=None,
+                                name="c",
+                                expr=Constant(start=None, end=None, type=None, value=3),
+                            )
+                        ],
+                    ),
+                ),
+                Function(
+                    start=None,
+                    end=None,
+                    name="read",
+                    params=["a", "b"],
+                    body=Block(
+                        start=None,
+                        end=None,
+                        declarations=[
+                            ExprStatement(
+                                start=None,
+                                end=None,
+                                expr=Call(
+                                    start=None,
+                                    end=None,
+                                    type=None,
+                                    name="print",
+                                    args=[Constant(start=None, end=None, type=None, value=3)],
+                                    params=None,
+                                    distinct=False,
+                                ),
+                            ),
+                            VariableAssignment(
+                                is_declaration=True,
+                                start=None,
+                                end=None,
+                                name="b",
+                                expr=Constant(start=None, end=None, type=None, value=4),
+                            ),
+                        ],
+                    ),
+                ),
             ],
         )
         self.assertEqual(program, expected)

@@ -29,6 +29,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#varAssignment.
+    def visitVarAssignment(self, ctx:HogQLParser.VarAssignmentContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#identifierList.
     def visitIdentifierList(self, ctx:HogQLParser.IdentifierListContext):
         return self.visitChildren(ctx)

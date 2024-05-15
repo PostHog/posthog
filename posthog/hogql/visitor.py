@@ -294,7 +294,7 @@ class TraversingVisitor(Visitor[None]):
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("visit_declaration not implemented")
 
-    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+    def visit_variable_declaration(self, node: ast.VariableAssignment):
         if node.expr:
             self.visit(node.expr)
 
@@ -516,9 +516,9 @@ class CloningVisitor(Visitor[Any]):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
-            window_exprs={name: self.visit(expr) for name, expr in node.window_exprs.items()}
-            if node.window_exprs
-            else None,
+            window_exprs=(
+                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
+            ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
         )
@@ -623,8 +623,8 @@ class CloningVisitor(Visitor[Any]):
     def visit_declaration(self, node: ast.Declaration):
         raise NotImplementedError("visit_declaration not implemented")
 
-    def visit_variable_declaration(self, node: ast.VariableDeclaration):
-        return ast.VariableDeclaration(
+    def visit_variable_declaration(self, node: ast.VariableAssignment):
+        return ast.VariableAssignment(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             name=node.name,
