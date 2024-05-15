@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -11,6 +12,7 @@ type TeamStats struct {
 }
 
 func (ts *TeamStats) keepStats(statsChan chan PostHogEvent) {
+	log.Println("starting stats keeper...")
 	for {
 		select {
 		case event := <-statsChan:

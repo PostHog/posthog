@@ -50,6 +50,8 @@ func main() {
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 
+	go teamStats.keepStats(statsChan)
+
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan, statsChan)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
