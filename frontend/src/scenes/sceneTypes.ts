@@ -82,6 +82,7 @@ export enum Scene {
     Settings = 'Settings',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
+    Logs = 'Logs',
 }
 
 export type SceneProps = Record<string, any>

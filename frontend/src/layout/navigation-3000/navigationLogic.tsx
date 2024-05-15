@@ -450,6 +450,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconRewindPlay />,
                             to: urls.replay(),
                         },
+                        featureFlags[FEATURE_FLAGS.MYKOLOGS]
+                            ? {
+                                  identifier: Scene.Logs,
+                                  label: 'Logs',
+                                  icon: <IconLive />,
+                                  to: urls.logs(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
                             ? {
                                   identifier: Scene.Heatmaps,

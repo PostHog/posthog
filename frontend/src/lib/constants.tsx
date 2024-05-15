@@ -210,6 +210,7 @@ export const FEATURE_FLAGS = {
     THEME: 'theme', // owner: @aprilfools
     SESSION_TABLE_PROPERTY_FILTERS: 'session-table-property-filters', // owner: @robbie-c
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
+    MYKOLOGS: 'mykologs', // owner: @team-mykologs
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
