@@ -69,6 +69,13 @@ class WhileStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class Function(Statement):
+    name: str
+    params: list[str]
+    body: Statement
+
+
+@dataclass(kw_only=True)
 class Block(Statement):
     declarations: list[Declaration]
 

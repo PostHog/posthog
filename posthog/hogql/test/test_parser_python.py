@@ -15,6 +15,7 @@ from posthog.hogql.ast import (
     IfStatement,
     Block,
     WhileStatement,
+    Function,
 )
 
 from posthog.hogql.parser import parse_program
@@ -31,31 +32,21 @@ class TestParserPython(parser_test_factory("python")):
 
         expected = Program(
             declarations=[
+                VariableDeclaration(name="a", expr=Constant(type=None, value="123")),
                 VariableDeclaration(
-                    start=None, end=None, name="a", expr=Constant(start=None, end=None, type=None, value="123")
-                ),
-                VariableDeclaration(
-                    start=None,
-                    end=None,
                     name="b",
                     expr=ArithmeticOperation(
-                        start=None,
-                        end=None,
                         type=None,
-                        left=Field(start=None, end=None, type=None, chain=["a"]),
-                        right=Constant(start=None, end=None, type=None, value=2),
+                        left=Field(type=None, chain=["a"]),
+                        right=Constant(type=None, value=2),
                         op=ArithmeticOperationOp.Sub,
                     ),
                 ),
                 ExprStatement(
-                    start=None,
-                    end=None,
                     expr=Call(
-                        start=None,
-                        end=None,
                         type=None,
                         name="print",
-                        args=[Field(start=None, end=None, type=None, chain=["b"])],
+                        args=[Field(type=None, chain=["b"])],
                         params=None,
                         distinct=False,
                     ),
@@ -73,25 +64,19 @@ class TestParserPython(parser_test_factory("python")):
         expected = Program(
             declarations=[
                 VariableDeclaration(
-                    start=None,
-                    end=None,
                     name="query",
                     expr=SelectQuery(
-                        start=None,
-                        end=None,
                         type=None,
                         ctes=None,
                         select=[
-                            Field(start=None, end=None, type=None, chain=["id"]),
-                            Field(start=None, end=None, type=None, chain=["properties", "email"]),
+                            Field(type=None, chain=["id"]),
+                            Field(type=None, chain=["properties", "email"]),
                         ],
                         distinct=None,
                         select_from=JoinExpr(
-                            start=None,
-                            end=None,
                             type=None,
                             join_type=None,
-                            table=Field(start=None, end=None, type=None, chain=["events"]),
+                            table=Field(type=None, chain=["events"]),
                             table_args=None,
                             alias=None,
                             table_final=None,
@@ -103,23 +88,15 @@ class TestParserPython(parser_test_factory("python")):
                         array_join_list=None,
                         window_exprs=None,
                         where=CompareOperation(
-                            start=None,
-                            end=None,
                             type=None,
-                            left=Field(start=None, end=None, type=None, chain=["timestamp"]),
+                            left=Field(type=None, chain=["timestamp"]),
                             right=ArithmeticOperation(
-                                start=None,
-                                end=None,
                                 type=None,
-                                left=Call(
-                                    start=None, end=None, type=None, name="now", args=[], params=None, distinct=False
-                                ),
+                                left=Call(type=None, name="now", args=[], params=None, distinct=False),
                                 right=Call(
-                                    start=None,
-                                    end=None,
                                     type=None,
                                     name="toIntervalDay",
-                                    args=[Constant(start=None, end=None, type=None, value=1)],
+                                    args=[Constant(type=None, value=1)],
                                     params=None,
                                     distinct=False,
                                 ),
@@ -140,14 +117,10 @@ class TestParserPython(parser_test_factory("python")):
                     ),
                 ),
                 VariableDeclaration(
-                    start=None,
-                    end=None,
                     name="results",
                     expr=Call(
-                        start=None,
-                        end=None,
                         name="run",
-                        args=[Field(start=None, end=None, type=None, chain=["query"])],
+                        args=[Field(type=None, chain=["query"])],
                         params=None,
                         distinct=False,
                     ),
@@ -184,34 +157,22 @@ class TestParserPython(parser_test_factory("python")):
 
         program = self._program(code)
         expected = Program(
-            start=None,
-            end=None,
             declarations=[
                 IfStatement(
-                    start=None,
-                    end=None,
-                    expr=Field(start=None, end=None, type=None, chain=["a"]),
+                    expr=Field(type=None, chain=["a"]),
                     then=Block(
-                        start=None,
-                        end=None,
                         declarations=[
                             VariableDeclaration(
-                                start=None,
-                                end=None,
                                 name="c",
-                                expr=Constant(start=None, end=None, type=None, value=3),
+                                expr=Constant(type=None, value=3),
                             )
                         ],
                     ),
                     else_=ExprStatement(
-                        start=None,
-                        end=None,
                         expr=Call(
-                            start=None,
-                            end=None,
                             type=None,
                             name="print",
-                            args=[Field(start=None, end=None, type=None, chain=["d"])],
+                            args=[Field(type=None, chain=["d"])],
                             params=None,
                             distinct=False,
                         ),
@@ -231,31 +192,40 @@ class TestParserPython(parser_test_factory("python")):
 
         program = self._program(code)
         expected = Program(
-            start=None,
-            end=None,
             declarations=[
                 WhileStatement(
-                    start=None,
-                    end=None,
                     expr=CompareOperation(
-                        start=None,
-                        end=None,
                         type=None,
-                        left=Field(start=None, end=None, type=None, chain=["a"]),
-                        right=Constant(start=None, end=None, type=None, value=5),
+                        left=Field(type=None, chain=["a"]),
+                        right=Constant(type=None, value=5),
                         op=CompareOperationOp.Lt,
                     ),
                     body=Block(
-                        start=None,
-                        end=None,
-                        declarations=[
-                            VariableDeclaration(
-                                start=None, end=None, name="c", expr=Constant(start=None, end=None, type=None, value=3)
-                            )
-                        ],
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
                     ),
                 )
             ],
         )
 
+        self.assertEqual(program, expected)
+
+    def test_program_function(self):
+        code = """
+            fn query(a, b) {
+                var c := 3;
+            }
+        """
+
+        program = self._program(code)
+        expected = Program(
+            declarations=[
+                Function(
+                    name="query",
+                    params=["a", "b"],
+                    body=Block(
+                        declarations=[VariableDeclaration(name="c", expr=Constant(type=None, value=3))],
+                    ),
+                )
+            ],
+        )
         self.assertEqual(program, expected)
