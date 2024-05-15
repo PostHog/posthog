@@ -3133,6 +3133,7 @@ class LogsQuery(BaseModel):
     )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
     response: Optional[LogsQueryResponse] = None
+    searchTerm: Optional[str] = Field(default=None, description="Text to filter the logs by")
 
 
 class PersonsNode(BaseModel):

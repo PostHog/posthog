@@ -4835,6 +4835,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
+                },
+                "searchTerm": {
+                    "description": "Text to filter the logs by",
+                    "type": "string"
                 }
             },
             "required": ["kind"],

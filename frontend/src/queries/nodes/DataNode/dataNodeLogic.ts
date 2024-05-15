@@ -416,7 +416,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response): DataNode | null => {
                 if (isLogsQuery(query) && !query.before) {
                     const typedResults = (response as LogsQuery['response'])?.results ?? []
-                    const firstTimestamp = typedResults[0].timestamp
+                    const firstTimestamp = typedResults[0]?.timestamp
+
+                    if (!firstTimestamp) {
+                        return null
+                    }
+
                     const nextQuery: LogsQuery = { ...query, after: firstTimestamp }
                     return nextQuery
                 }
@@ -454,7 +459,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                 if (isLogsQuery(query) && !responseError && !dataLoading) {
                     const typedResults = (response as LogsQuery['response'])?.results ?? []
-                    const lastTimestamp = typedResults[typedResults.length - 1].timestamp
+                    const lastTimestamp = typedResults[typedResults.length - 1]?.timestamp
+
+                    if (!lastTimestamp) {
+                        return null
+                    }
+
                     const nextQuery: LogsQuery = { ...query, before: lastTimestamp }
                     return nextQuery
                 }

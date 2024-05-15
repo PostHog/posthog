@@ -344,8 +344,8 @@ dependencies:
     specifier: ^3.4.0
     version: 3.4.0(ts-node@10.9.1)
   use-debounce:
-    specifier: ^9.0.3
-    version: 9.0.3(react@18.2.0)
+    specifier: ^10.0.0
+    version: 10.0.0(react@18.2.0)
   use-resize-observer:
     specifier: ^8.0.0
     version: 8.0.0(react-dom@18.2.0)(react@18.2.0)
@@ -21230,9 +21230,9 @@ packages:
       react: 18.2.0
     dev: false
 
-  /use-debounce@9.0.3(react@18.2.0):
-    resolution: {integrity: sha512-FhtlbDtDXILJV7Lix5OZj5yX/fW1tzq+VrvK1fnT2bUrPOGruU9Rw8NCEn+UI9wopfERBEZAOQ8lfeCJPllgnw==}
-    engines: {node: '>= 10.0.0'}
+  /use-debounce@10.0.0(react@18.2.0):
+    resolution: {integrity: sha512-XRjvlvCB46bah9IBXVnq/ACP2lxqXyZj0D9hj4K5OzNroMDpTEBg8Anuh1/UfRTRs7pLhQ+RiNxxwZu9+MVl1A==}
+    engines: {node: '>= 16.0.0'}
     peerDependencies:
       react: '>=16.8.0'
     dependencies:

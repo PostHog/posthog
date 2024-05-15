@@ -1,16 +1,19 @@
-import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { BindLogic, useValues } from 'kea'
+import { LemonInput, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useState } from 'react'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { LogsQuery, NodeKind } from '~/queries/schema'
 
 import { logsDataLogic } from './logsDataLogic'
 
@@ -20,14 +23,11 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
+    const { query } = useValues(logsSceneLogic)
+
     const props = {
         key: 'logs',
-        query: {
-            kind: NodeKind.LogsQuery,
-            dateRange: {
-                date_from: '7d',
-            },
-        },
+        query,
     }
 
     return (
@@ -40,10 +40,31 @@ export function LogsScene(): JSX.Element {
 }
 
 const SomeComponent = (): JSX.Element => {
+    const [localSearchTerm, setLocalSearchTerm] = useState('')
     const { data, responseLoading, query } = useValues(logsDataLogic)
+    const { setQuery } = useActions(logsSceneLogic)
+
+    const setSearchTerm = useDebouncedCallback((value: string) => setQuery({ searchTerm: value }), 500)
 
     return (
         <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
+            <div className="flex gap-4 justify-between flex-wrap">
+                <div className="flex grow gap-4 items-center">
+                    <DateRange key="date-range" query={query as LogsQuery} setQuery={setQuery} />
+                    <LemonInput
+                        placeholder="Search..."
+                        onChange={(value) => {
+                            // Local useState is required for `allowClear` to work
+                            setLocalSearchTerm(value)
+                            setSearchTerm(value)
+                        }}
+                        value={localSearchTerm}
+                        allowClear
+                        className="w-full"
+                    />
+                </div>
+            </div>
+
             <div className="flex gap-4 justify-between flex-wrap">
                 <div className="flex gap-4 items-center">
                     <Reload />

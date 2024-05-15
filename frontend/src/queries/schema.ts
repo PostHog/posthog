@@ -715,6 +715,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     before?: string
     /** Only fetch logs that happened after this timestamp */
     after?: string
+    /** Text to filter the logs by */
+    searchTerm?: string
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params

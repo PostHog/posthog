@@ -308,6 +308,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "multiSearchFirstPosition": HogQLFunctionMeta("multiSearchFirstPosition", 2, 2),
     "multiSearchFirstIndex": HogQLFunctionMeta("multiSearchFirstIndex", 2, 2),
     "multiSearchAny": HogQLFunctionMeta("multiSearchAny", 2, 2),
+    "multiSearchAnyCaseInsensitive": HogQLFunctionMeta("multiSearchAnyCaseInsensitive", 2, 2),
     "match": HogQLFunctionMeta("match", 2, 2),
     "multiMatchAny": HogQLFunctionMeta("multiMatchAny", 2, 2),
     "multiMatchAnyIndex": HogQLFunctionMeta("multiMatchAnyIndex", 2, 2),

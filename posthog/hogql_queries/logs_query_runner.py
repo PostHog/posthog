@@ -125,6 +125,20 @@ class LogsQueryRunner(QueryRunner):
         # Event name
         filters.append(parse_expr("event = '$log'"))
 
+        # Search term
+        if self.query.searchTerm is not None:
+            filters.append(
+                parse_expr(
+                    """
+                        or(
+                            multiSearchAnyCaseInsensitive(properties.$msg, [{term}]) = 1,
+                            multiSearchAnyCaseInsensitive(properties.$namespace, [{term}]) = 1
+                        )
+                    """,
+                    {"term": ast.Constant(value=self.query.searchTerm)},
+                )
+            )
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:
