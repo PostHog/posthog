@@ -191,3 +191,21 @@ class TestBytecodeExecute(BaseTest):
             self._run_program("if (false) return 1; else return 2;"),
             2,
         )
+
+        self.assertEqual(
+            self._run_program("if (true) { return 1; } else { return 2; }"),
+            1,
+        )
+
+        self.assertEqual(
+            self._run_program("""
+                var a := true;
+                if (a) {
+                    var a := 3;
+                    return a + 2;
+                } else {
+                    return 2;
+                }
+                """),
+            5,
+        )
