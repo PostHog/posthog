@@ -86,13 +86,11 @@ func main() {
 			Token:       "sTMFPsFhdP1Ssg",
 			DistinctId:  distinctId,
 			EventType:   eventType,
-			EventChan:   make(chan PostHogEvent),
+			EventChan:   make(chan ResponsePostHogEvent),
 			ShouldClose: &atomic.Bool{},
 		}
 
-		log.Printf("Sending new sub")
 		subChan <- subscription
-		log.Printf("Sent new sub")
 
 		for {
 			select {
@@ -103,7 +101,7 @@ func main() {
 			case payload := <-subscription.EventChan:
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
-					log.Println("Error:", err)
+					log.Println("Error marshalling payload", err)
 					continue
 				}
 

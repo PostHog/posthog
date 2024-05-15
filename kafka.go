@@ -8,17 +8,20 @@ import (
 )
 
 type PostHogEventWrapper struct {
-	Data string `json:"data"`
+	Uuid       string `json:"uuid"`
+	DistinctId string `json:"distinct_id"`
+	Data       string `json:"data"`
 }
 
 // TODO: handle fallback field names
 type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
-	DistinctID interface{}            `json:"distinct_id,omitempty"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
 	Timestamp  string                 `json:"timestamp,omitempty"`
-	IpAddress  string
+
+	Uuid       string
+	DistinctID string
 	Lat        float64
 	Lng        float64
 }
@@ -78,6 +81,9 @@ func (c *KafkaConsumer) Consume() {
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
+
+		phEvent.Uuid = wrapperMessage.Uuid
+		phEvent.DistinctID = wrapperMessage.DistinctId
 
 		if ipValue, ok := phEvent.Properties["$ip"]; ok {
 			if ipStr, ok := ipValue.(string); ok {

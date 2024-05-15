@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"sync/atomic"
 )
 
@@ -12,15 +11,17 @@ type Subscription struct {
 	EventType  string
 
 	// Response channel
-	EventChan   chan PostHogEvent
+	EventChan   chan ResponsePostHogEvent
 	ShouldClose *atomic.Bool
 }
 
 type ResponsePostHogEvent struct {
-	Timestamp  string `json:"timestamp"`
-	DistinctId string `json:"distinct_id"`
-	PersonId   string `json:"person_id"`
-	Event      string `json:"event"`
+	Uuid       string                 `json:"uuid"`
+	Timestamp  string                 `json:"timestamp"`
+	DistinctId string                 `json:"distinct_id"`
+	PersonId   string                 `json:"person_id"`
+	Event      string                 `json:"event"`
+	Properties map[string]interface{} `json:"properties"`
 }
 
 type ResponseGeoEvent struct {
@@ -39,17 +40,27 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
+func convertToResponsePostHogEvent(event PostHogEvent) *ResponsePostHogEvent {
+	return &ResponsePostHogEvent{
+		Uuid:       event.Uuid,
+		Timestamp:  event.Timestamp,
+		DistinctId: event.DistinctID,
+		PersonId:   "TODO",
+		Event:      event.Event,
+		Properties: event.Properties,
+	}
+}
+
 func (c *Filter) Run() {
 	i := 0
 	for {
 		select {
 		case newSub := <-c.subChan:
-			log.Printf("Adding new sub")
 			c.subs = append(c.subs, newSub)
-			log.Printf("Added new sub")
 		case event := <-c.inboundChan:
-			i += 1
+			var responseEvent *ResponsePostHogEvent
 
+			i += 1
 			if i%1000 == 0 {
 				for _, sub := range c.subs {
 					if sub.ShouldClose.Load() {
@@ -71,9 +82,12 @@ func (c *Filter) Run() {
 					// 	continue
 					// }
 
-					sub.EventChan <- event
-				}
+					if responseEvent == nil {
+						responseEvent = convertToResponsePostHogEvent(event)
+					}
 
+					sub.EventChan <- *responseEvent
+				}
 			}
 		}
 	}
