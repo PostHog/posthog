@@ -11,7 +11,7 @@ import type { proxyLogicType } from './proxyLogicType'
 export type ProxyRecord = {
     id: string
     domain: string
-    status: 'waiting' | 'issuing' | 'valid' | 'erroring'
+    status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
     cname_target: string
 }
 
@@ -46,13 +46,10 @@ export const proxyLogic = kea<proxyLogicType>([
                 return response
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                void api.delete(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`)
-                lemonToast.error('Record deleted')
-
-                let nextRecords = [...values.proxyRecords]
-                nextRecords = nextRecords.filter((r) => r.id != id)
-
-                return nextRecords
+                const response = await api.delete(
+                    `api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`
+                )
+                return response
             },
         },
     })),
@@ -60,7 +57,7 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         loadRecordsSuccess: () => {
-            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing'].includes(r.status))
+            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
             if (shouldRefresh) {
                 cache.refreshTimeout = setTimeout(() => {
                     actions.loadRecords()

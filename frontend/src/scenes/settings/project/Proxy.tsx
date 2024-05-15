@@ -56,19 +56,21 @@ export function Proxy(): JSX.Element {
         },
         {
             title: 'Actions',
-            render: function Render(_, { id }) {
+            render: function Render(_, { id, status }) {
                 return (
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Delete',
-                                status: 'danger',
-                                onClick: () => deleteRecord(id),
-                            },
-                        ]}
-                    >
-                        <LemonButton size="xsmall" icon={<IconEllipsis />} />
-                    </LemonMenu>
+                    status != 'deleting' && (
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => deleteRecord(id),
+                                },
+                            ]}
+                        >
+                            <LemonButton size="xsmall" icon={<IconEllipsis />} />
+                        </LemonMenu>
+                    )
                 )
             },
         },
