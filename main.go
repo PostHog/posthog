@@ -12,8 +12,17 @@ import (
 )
 
 func main() {
-
 	loadConfigs()
+
+	mmdb := viper.GetString("mmdb.path")
+	if mmdb == "" {
+		log.Fatal("mmdb.path must be set")
+	}
+
+	geolocator, err := NewGeoLocator(mmdb)
+	if err != nil {
+		log.Fatalf("Failed to open MMDB: %v", err)
+	}
 
 	brokers := viper.GetString("kafka.brokers")
 	if brokers == "" {
@@ -27,7 +36,7 @@ func main() {
 
 	groupID := viper.GetString("kafka.group_id")
 
-	consumer, err := NewKafkaConsumer(brokers, groupID, topic)
+	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}

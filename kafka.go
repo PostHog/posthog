@@ -8,6 +8,10 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
+type PostHogEventWrapper struct {
+	Data string `json:"data"`
+}
+
 type PostHogEvent struct {
 	Token      string                 `json:"token,omitempty"`
 	DistinctID interface{}            `json:"distinct_id,omitempty"`
@@ -17,11 +21,12 @@ type PostHogEvent struct {
 }
 
 type KafkaConsumer struct {
-	consumer *kafka.Consumer
-	topic    string
+	consumer   *kafka.Consumer
+	topic      string
+	geolocator *GeoLocator
 }
 
-func NewKafkaConsumer(brokers string, groupID string, topic string) (*KafkaConsumer, error) {
+func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *GeoLocator) (*KafkaConsumer, error) {
 	config := &kafka.ConfigMap{
 		"bootstrap.servers":  brokers,
 		"group.id":           groupID,
@@ -36,8 +41,9 @@ func NewKafkaConsumer(brokers string, groupID string, topic string) (*KafkaConsu
 	}
 
 	return &KafkaConsumer{
-		consumer: consumer,
-		topic:    topic,
+		consumer:   consumer,
+		topic:      topic,
+		geolocator: geolocator,
 	}, nil
 }
 
@@ -49,22 +55,44 @@ func (c *KafkaConsumer) Consume() {
 
 	i := 0
 	for {
+		i += 1
+
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
 			log.Printf("Error consuming message: %v", err)
 			continue
 		}
 
-		var message PostHogEvent
-		err = json.Unmarshal(msg.Value, &message)
+		var wrapperMessage PostHogEventWrapper
+		err = json.Unmarshal(msg.Value, &wrapperMessage)
 		if err != nil {
 			log.Printf("Error decoding JSON: %v", err)
 			continue
 		}
 
-		i += 1
-		if i%1000 == 0 {
-			fmt.Printf("Received message: Token=%s, DistinctID=%s\n", message.Token, message.DistinctID)
+		if i%10000 == 0 {
+			fmt.Printf("datamsg: %v\n", string(msg.Value))
+		}
+
+		var message PostHogEvent
+		err = json.Unmarshal([]byte(wrapperMessage.Data), &message)
+		if err != nil {
+			log.Printf("Error decoding JSON: %v", err)
+			continue
+		}
+
+		lat, lng := 0.0, 0.0
+		if ipValue, ok := message.Properties["$ip"]; ok {
+			if ipStr, ok := ipValue.(string); ok {
+				if ipStr != "" {
+					lat, lng = c.geolocator.Lookup(ipStr)
+				}
+
+			}
+		}
+
+		if i%10000 == 0 {
+			fmt.Printf("Received message: Token=%s, DistinctID=%s Lat=%f Lng=%f Property Count=%v\n", message.Token, message.DistinctID, lat, lng, len(message.Properties))
 		}
 	}
 }
