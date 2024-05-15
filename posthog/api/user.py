@@ -598,7 +598,7 @@ def get_zendesk_tickets(request):
             or ticket["status"] not in ["solved", "closed"]
         ]
 
-    return JsonResponse({"filtered": filter_tickets(tickets.json()["tickets"])})
+    return JsonResponse({"tickets": filter_tickets(tickets.json()["tickets"])})
 
 
 @authenticate_secondarily
