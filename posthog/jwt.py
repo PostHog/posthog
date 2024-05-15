@@ -9,7 +9,9 @@ from django.conf import settings
 class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
-    IMPERSONATED_USER = "posthog:impersonted_user"  # This is used by background jobs on behalf of the user e.g. exports
+    IMPERSONATED_USER = (
+        "posthog:impersonated_user"  # This is used by background jobs on behalf of the user e.g. exports
+    )
     CLI = "posthog:cli"
 
 
