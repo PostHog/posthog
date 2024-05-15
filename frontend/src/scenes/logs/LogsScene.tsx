@@ -1,5 +1,6 @@
 import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -23,35 +24,40 @@ export function LogsScene(): JSX.Element {
         },
     })
 
-    const { response, responseLoading } = useValues(builtDataLogic)
+    const { response, responseLoading, sparklineData } = useValues(builtDataLogic)
 
     return (
-        <LemonTable
-            dataSource={response?.results ?? []}
-            loading={responseLoading}
-            columns={[
-                {
-                    title: 'Timestamp',
-                    key: 'timestamp',
-                    render: (_, log) => {
-                        return log.timestamp
+        <div className="flex flex-col space-y-2 px-4 py-2">
+            <div className="py-2">
+                <Sparkline labels={sparklineData.labels} data={sparklineData.data} loading={responseLoading} />
+            </div>
+            <LemonTable
+                dataSource={response?.results ?? []}
+                loading={responseLoading}
+                columns={[
+                    {
+                        title: 'Timestamp',
+                        key: 'timestamp',
+                        render: (_, log) => {
+                            return log.timestamp
+                        },
                     },
-                },
-                {
-                    title: 'Level',
-                    key: 'level',
-                    render: (_, log) => {
-                        return log.level
+                    {
+                        title: 'Level',
+                        key: 'level',
+                        render: (_, log) => {
+                            return log.level
+                        },
                     },
-                },
-                {
-                    title: 'Message',
-                    key: 'msg',
-                    render: (_, log) => {
-                        return log.msg
+                    {
+                        title: 'Message',
+                        key: 'msg',
+                        render: (_, log) => {
+                            return log.msg
+                        },
                     },
-                },
-            ]}
-        />
+                ]}
+            />
+        </div>
     )
 }

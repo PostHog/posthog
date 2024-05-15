@@ -170,7 +170,7 @@ export function Sparkline({
         }
     }, [labels, data])
 
-    const dataPointCount = adjustedData[0].values.length
+    const dataPointCount = adjustedData[0]?.values.length
     const finalClassName = clsx(
         dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
         'h-8',
