@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -39,13 +41,18 @@ func main() {
 
 	groupID := viper.GetString("kafka.group_id")
 
-	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator)
+	phEventChan := make(chan PostHogEvent)
+	subChan := make(chan *Subscription)
+
+	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan)
 	if err != nil {
 		log.Fatalf("Failed to create Kafka consumer: %v", err)
 	}
 	defer consumer.Close()
-
 	go consumer.Consume()
+
+	filter := NewFilter(subChan, phEventChan)
+	go filter.Run()
 
 	// Echo instance
 	e := echo.New()
@@ -66,23 +73,34 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		teamId := c.QueryParam("teamId")
+		// teamId := c.QueryParam("teamId")
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+		subscription := &Subscription{
+			Token:      "token",
+			DistinctId: distinctId,
+			EventType:  eventType,
+			EventChan:  make(chan interface{}),
+		}
+
+		subChan <- subscription
+
 		for {
 			select {
 			case <-c.Request().Context().Done():
 				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
+				subscription.ShouldClose.Store(true)
 				return nil
-			case <-ticker.C:
+			case payload := <-subscription.EventChan:
+				jsonData, err := json.Marshal(payload)
+				if err != nil {
+					fmt.Println("Error:", err)
+					continue
+				}
+
 				event := Event{
-					Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano) + "\nparameters: " +
-						"\n\tteamId: " + teamId +
-						"\n\teventType: " + eventType +
-						"\n\tdistinctId: " + distinctId),
+					Data: jsonData,
 				}
 				if err := event.WriteTo(w); err != nil {
 					return err
