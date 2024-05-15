@@ -225,4 +225,6 @@ export const urls = {
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (): string => `/heatmaps`,
+    referralPrograms: (): string => `/referrals`,
+    referralProgram: (shortId: string): string => `/referrals/${shortId}`,
 }

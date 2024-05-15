@@ -404,6 +404,14 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Heatmaps',
         hideProjectNotice: true,
     },
+    [Scene.Referrals]: {
+        projectBased: true,
+        name: 'Referral programs',
+    },
+    [Scene.Referral]: {
+        projectBased: true,
+        name: 'Referral program',
+    },
 }
 
 const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
@@ -589,4 +597,6 @@ export const routes: Record<string, Scene> = {
     [urls.settings(':section' as any)]: Scene.Settings,
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
+    [urls.referralPrograms()]: Scene.Referrals,
+    [urls.referralProgram(':id')]: Scene.Referral,
 }
