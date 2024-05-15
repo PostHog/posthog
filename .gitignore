@@ -26,3 +26,6 @@ livestream
 
 # tsnet 
 .tsnet-state/
+
+# configs
+configs/

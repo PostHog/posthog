@@ -31,11 +31,11 @@ func initTailNetServer() (*net.Listener, error) {
 	}
 	localClient, _ = srv.LocalClient()
 
-	l80, err := srv.Listen("tcp", ":80")
+	l, err := srv.Listen("tcp", ":8080")
 	if err != nil {
 		return nil, err
 	}
 
 	log.Printf("tailnet server established at http://%s/ ...", hostname)
-	return &l80, nil
+	return &l, nil
 }
