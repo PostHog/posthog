@@ -89,9 +89,7 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		i += 1
-		if i%10000 == 0 {
-			log.Printf("Kafka processed %v messages", i)
-		}
+		log.Printf("Kafka processed %v messages", i)
 
 		c.outgoingChan <- phEvent
 	}

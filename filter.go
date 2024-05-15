@@ -45,9 +45,7 @@ func (c *Filter) Run() {
 	select {
 	case event := <-c.inboundChan:
 		x += 1
-		if x%10000 == 0 {
-			log.Printf("Filter processed %v messages", x)
-		}
+		log.Printf("Filter processed %v messages", x)
 
 		for i := 0; i < len(c.subs); i++ {
 			sub := c.subs[i]
@@ -73,6 +71,7 @@ func (c *Filter) Run() {
 			sub.EventChan <- event
 		}
 	case newSub := <-c.subChan:
+		log.Printf("new sub: %v\n", newSub)
 		c.subs = append(c.subs, *newSub)
 	}
 }
