@@ -188,4 +188,6 @@ class PublicReferralsViewset(viewsets.GenericViewSet):
 
         data = ReferralProgramRedeemerSerializer(redeemer).data
 
+        # TODO: Track event including referrer and redeemer ids and emails
+
         return Response(data)
