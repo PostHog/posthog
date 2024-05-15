@@ -271,7 +271,6 @@ class TestBytecodeExecute(BaseTest):
                 """
                 var i := 0;
                 while (call_three_times()) {
-                    print(1);
                     true;
                 }
                 return i;
