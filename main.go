@@ -101,7 +101,6 @@ func main() {
 				subscription.ShouldClose.Store(true)
 				return nil
 			case payload := <-subscription.EventChan:
-				log.Printf("Received event payload")
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
 					log.Println("Error:", err)
@@ -111,12 +110,10 @@ func main() {
 				event := Event{
 					Data: jsonData,
 				}
-				log.Printf("Sending event payload")
 				if err := event.WriteTo(w); err != nil {
 					return err
 				}
 				w.Flush()
-				log.Printf("Sent event payload")
 			}
 		}
 	})
