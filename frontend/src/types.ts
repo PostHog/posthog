@@ -3921,3 +3921,25 @@ export type BillingTableTierRow = {
     projectedTotal: string
     subrows: ProductPricingTierSubrows
 }
+
+export type ReferralProgram = {
+    id: string
+    name: string
+    description: string
+}
+
+export type ReferralIdentity = {
+    referrer_id: string
+    display?: string
+    code: string
+    created_at: string
+    total_redemptions: number
+    total_points: number
+}
+
+export type ReferralRedeemer = {
+    redeemer_id: string
+    referrer: ReferralIdentity
+    created_at: string
+    points: number
+}
