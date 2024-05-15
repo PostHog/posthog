@@ -21,7 +21,7 @@ type PostHogEvent struct {
 	Timestamp  string                 `json:"timestamp,omitempty"`
 
 	Uuid       string
-	DistinctID string
+	DistinctId string
 	Lat        float64
 	Lng        float64
 }
@@ -83,7 +83,7 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		phEvent.Uuid = wrapperMessage.Uuid
-		phEvent.DistinctID = wrapperMessage.DistinctId
+		phEvent.DistinctId = wrapperMessage.DistinctId
 		if phEvent.Timestamp == "" {
 			phEvent.Timestamp = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 		}

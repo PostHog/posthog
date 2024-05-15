@@ -5,6 +5,7 @@ go 1.22.2
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.4.0
 	github.com/fsnotify/fsnotify v1.7.0
+	github.com/gofrs/uuid/v5 v5.2.0
 	github.com/jackc/pgx/v5 v5.5.5
 	github.com/labstack/echo/v4 v4.12.0
 	github.com/labstack/gommon v0.4.2

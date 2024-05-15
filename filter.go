@@ -1,11 +1,15 @@
 package main
 
 import (
+	"fmt"
 	"sync/atomic"
+
+	"github.com/gofrs/uuid/v5"
 )
 
 type Subscription struct {
 	// Filters
+	TeamId     uint
 	Token      string
 	DistinctId string
 	EventType  string
@@ -27,7 +31,7 @@ type ResponsePostHogEvent struct {
 type ResponseGeoEvent struct {
 	Lat   float64 `json:"lat"`
 	Lng   float64 `json:"lng"`
-	Count int32   `json:"count"`
+	Count uint    `json:"count"`
 }
 
 type Filter struct {
@@ -40,15 +44,31 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId uint) *ResponsePostHogEvent {
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
-		DistinctId: event.DistinctID,
-		PersonId:   "TODO",
+		DistinctId: event.DistinctId,
+		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,
 		Properties: event.Properties,
 	}
+}
+
+var personUUIDV5Namespace *uuid.UUID
+
+func uuidFromDistinctId(teamId uint, distinctId string) string {
+	if teamId == 0 || distinctId == "" {
+		return ""
+	}
+
+	if personUUIDV5Namespace == nil {
+		uuid, _ := uuid.FromString("932979b4-65c3-4424-8467-0b66ec27bc22")
+		personUUIDV5Namespace = &uuid
+	}
+
+	input := fmt.Sprintf("%d:%s", teamId, distinctId)
+	return uuid.NewV5(*personUUIDV5Namespace, input).String()
 }
 
 func (c *Filter) Run() {
@@ -70,20 +90,20 @@ func (c *Filter) Run() {
 					}
 
 					// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
-					// if sub.Token != "" && event.Token != sub.Token {
-					// 	continue
-					// }
+					if sub.Token != "" && event.Token != sub.Token {
+						continue
+					}
 
-					// if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
-					// 	continue
-					// }
+					if sub.DistinctId != "" && event.DistinctId != sub.DistinctId {
+						continue
+					}
 
-					// if sub.EventType != "" && event.Event != sub.EventType {
-					// 	continue
-					// }
+					if sub.EventType != "" && event.Event != sub.EventType {
+						continue
+					}
 
 					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event)
+						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
 					}
 
 					sub.EventChan <- *responseEvent
