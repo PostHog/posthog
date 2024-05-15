@@ -263,6 +263,33 @@ class TraversingVisitor(Visitor[None]):
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         self.visit(node.value)
 
+    def visit_program(self, node: ast.Program):
+        for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_statement(self, node: ast.Statement):
+        raise NotImplementedError("visit_statement not implemented")
+
+    def visit_block(self, node: ast.Block):
+        for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        self.visit(node.expr)
+        self.visit(node.then)
+        if node.else_:
+            self.visit(node.else_)
+
+    def visit_expr_statement(self, node: ast.ExprStatement):
+        self.visit(node.expr)
+
+    def visit_declaration(self, node: ast.Declaration):
+        raise NotImplementedError("visit_declaration not implemented")
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        if node.expr:
+            self.visit(node.expr)
+
 
 class CloningVisitor(Visitor[Any]):
     """Visitor that traverses and clones the AST tree. Clears types."""
@@ -536,3 +563,47 @@ class CloningVisitor(Visitor[Any]):
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
         return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
+
+    def visit_program(self, node: ast.Program):
+        return ast.Program(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            declarations=[self.visit(expr) for expr in node.declarations],
+        )
+
+    def visit_statement(self, node: ast.Statement):
+        raise NotImplementedError("visit_statement not implemented")
+
+    def visit_block(self, node: ast.Block):
+        return ast.Block(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            declarations=[self.visit(expr) for expr in node.declarations],
+        )
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        return ast.IfStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+            then=self.visit(node.then),
+            else_=self.visit(node.else_) if node.else_ else None,
+        )
+
+    def visit_expr_statement(self, node: ast.ExprStatement):
+        return ast.ExprStatement(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            expr=self.visit(node.expr),
+        )
+
+    def visit_declaration(self, node: ast.Declaration):
+        raise NotImplementedError("visit_declaration not implemented")
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        return ast.VariableDeclaration(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            name=node.name,
+            expr=self.visit(node.expr) if node.expr else None,
+        )
