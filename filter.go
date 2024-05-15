@@ -94,7 +94,7 @@ func (c *Filter) Run() {
 		case newSub := <-c.subChan:
 			c.subs = append(c.subs, newSub)
 		case unSub := <-c.unSubChan:
-			removeSubscription(unSub.ClientId, c.subs)
+			c.subs = removeSubscription(unSub.ClientId, c.subs)
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent
 
