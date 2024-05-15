@@ -33,6 +33,7 @@ export type SettingSectionId =
     | 'user-profile'
     | 'user-api-keys'
     | 'user-customization'
+    | 'user-referral'
 
 export type SettingId =
     | 'display-name'
@@ -77,6 +78,7 @@ export type SettingId =
     | 'theme'
     | 'replay-ai-config'
     | 'heatmaps'
+    | 'user-referral'
 
 export type Setting = {
     id: SettingId

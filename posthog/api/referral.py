@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import serializers, viewsets, mixins, generics, permissions, exceptions
+from rest_framework import serializers, viewsets, mixins, permissions, exceptions
 from rest_framework.decorators import action
 from django.db.models import Count
 from rest_framework.request import Request
@@ -9,14 +9,10 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import get_token
-from posthog.exceptions import generate_exception_response
 from posthog.models.referrals import ReferralProgram, ReferralProgramReferrer
 from posthog.models.referrals.referral_program_redeemer import ReferralProgramRedeemer
-from django.views.decorators.csrf import csrf_exempt
 
 from posthog.models.team.team import Team
-from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 

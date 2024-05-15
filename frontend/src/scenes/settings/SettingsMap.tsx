@@ -39,6 +39,7 @@ import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { MyReferrals } from './user/MyReferrals'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -384,6 +385,18 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-referral',
+        title: 'Refer a friend (or enemy)',
+        settings: [
+            {
+                id: 'user-referral',
+                title: 'Referrals',
+                component: <MyReferrals />,
             },
         ],
     },
