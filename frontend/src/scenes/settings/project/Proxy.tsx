@@ -50,11 +50,11 @@ export function Proxy(): JSX.Element {
                             )}
                         >
                             {status}
-                            {status === 'waiting' &&
+                            {status === 'waiting' && (
                                 <Tooltip title="Waiting for DNS records to be created" placement="top">
                                     <IconInfo />
                                 </Tooltip>
-                            }
+                            )}
                         </span>
                     </div>
                 )
