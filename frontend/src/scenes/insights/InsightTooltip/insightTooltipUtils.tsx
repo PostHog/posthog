@@ -87,9 +87,9 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
 }
 
 export function getFormattedDate(dayInput?: string | number, interval: IntervalType = 'day'): string {
-    // Number of days
+    // Number of intervals (i.e. days, weeks)
     if (Number.isInteger(dayInput)) {
-        return pluralize(dayInput as number, 'day')
+        return pluralize(dayInput as number, interval)
     }
     const day = dayjs(dayInput)
     // Dayjs formatted day
