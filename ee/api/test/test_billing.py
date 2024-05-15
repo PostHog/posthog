@@ -17,6 +17,7 @@ from ee.billing.billing_types import (
     CustomerProduct,
     CustomerProductAddon,
 )
+from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
 from posthog.cloud_utils import (
     TEST_clear_instance_license_cache,
@@ -249,7 +250,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
                 mock.json.return_value = {"detail": "Authorization is missing."}
             elif "api/products" in url:
                 mock.status_code = 200
-                mock.json.return_value = create_billing_products_response()
+                mock.json.return_value = create_default_products_response()
 
             return mock
 
@@ -260,7 +261,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "available_features": [],
-            "products": create_billing_products_response()["products"],
+            "products": create_default_products_response()["products"],
         }
 
 

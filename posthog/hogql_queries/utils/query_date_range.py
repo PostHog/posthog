@@ -4,7 +4,6 @@ from functools import cached_property
 from typing import cast, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql.errors import ImpossibleASTError
@@ -120,6 +119,20 @@ class QueryDateRange:
     @cached_property
     def interval_name(self) -> IntervalLiteral:
         return cast(IntervalLiteral, self.interval_type.name)
+
+    @cached_property
+    def is_hourly(self) -> bool:
+        if self._interval is None:
+            return False
+
+        return self._interval == IntervalType.hour
+
+    @cached_property
+    def explicit(self) -> bool:
+        if self._date_range is None or self._date_range.explicitDate is None:
+            return False
+
+        return self._date_range.explicitDate
 
     def align_with_interval(self, start: datetime) -> datetime:
         if self.interval_name == "minute":
@@ -265,11 +278,6 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
-
-    def interval_bounds_from_str(self, time_frame: str) -> tuple[datetime, datetime]:
-        date_from = parse(time_frame, tzinfos={None: self._team.timezone_info})
-        date_to = date_from + self.interval_relativedelta()
-        return date_from, date_to
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):
