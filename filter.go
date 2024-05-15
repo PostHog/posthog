@@ -66,10 +66,13 @@ func (c *Filter) Run() {
 				continue
 			}
 
+			log.Printf("Before event send %d", x)
 			sub.EventChan <- event
+			log.Printf("After event send %d", x)
 		}
 	case newSub := <-c.subChan:
-		log.Printf("new sub: %v\n", newSub)
+		log.Printf("New sub: %v\n", newSub)
 		c.subs = append(c.subs, newSub)
+		log.Printf("New sub added: %v\n", newSub)
 	}
 }
