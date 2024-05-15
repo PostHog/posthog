@@ -127,17 +127,18 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				if sub.Geo && event.Lat != 0.0 {
-					if responseGeoEvent == nil {
-						responseGeoEvent = convertToResponseGeoEvent(event)
-					}
+				if sub.Geo {
+					if event.Lat != 0.0 {
+						if responseGeoEvent == nil {
+							responseGeoEvent = convertToResponseGeoEvent(event)
+						}
 
-					select {
-					case sub.EventChan <- *responseGeoEvent:
-					default:
-						// Don't block
+						select {
+						case sub.EventChan <- *responseGeoEvent:
+						default:
+							// Don't block
+						}
 					}
-
 				} else {
 					if responseEvent == nil {
 						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
