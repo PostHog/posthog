@@ -53,11 +53,11 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
 
     def store_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump())
+        value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def store_clickhouse_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump())
+        value = SafeJSONRenderer().render(query_status.model_dump(include={"clickhouse_query_progress"}))
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
