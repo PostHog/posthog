@@ -39,6 +39,8 @@ from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
+from posthoganalytics import capture as original_capture
+import threading
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -66,6 +68,58 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
+
+_thread_locals = threading.local()
+
+
+def get_current_request():
+    return getattr(_thread_locals, "request", None)
+
+
+class PostHogSessionIDMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self._patch_posthog_capture()
+
+    def __call__(self, request):
+        if request:
+            session_id = request.headers.get("x-posthog-session-id")
+            window_id = request.headers.get("x-posthog-window-id")
+            if session_id:
+                _thread_locals.posthog_session_id = session_id
+            if window_id:
+                _thread_locals.posthog_window_id = window_id
+
+        response = self.get_response(request)
+        return response
+
+    def process_exception(self, request, exception):
+        _thread_locals.request = None
+
+    def _patch_posthog_capture(self):
+        def patched_capture(*args, **kwargs):
+            session_id = getattr(_thread_locals, "posthog_session_id", None)
+            window_id = getattr(_thread_locals, "posthog_window_id", None)
+
+            should_update = session_id is not None or window_id is not None
+            properties_in_args = len(args) > 2 and isinstance(args[2], dict)
+            properties_in_kwargs = "properties" in kwargs
+            if should_update:
+                if properties_in_args:
+                    args[2]["$session_id"] = session_id
+                    args[2]["$window_id"] = window_id
+                elif properties_in_kwargs:
+                    kwargs["properties"]["$session_id"] = session_id
+                    kwargs["properties"]["$window_id"] = window_id
+                elif not properties_in_args and not properties_in_kwargs:
+                    kwargs["properties"] = {"$session_id": session_id, "$window_id": window_id}
+
+            return original_capture(*args, **kwargs)
+
+        # Apply the monkey patch
+        import posthoganalytics
+
+        posthoganalytics.capture = patched_capture
 
 
 class AllowIPMiddleware:
