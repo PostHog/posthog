@@ -36,7 +36,7 @@ type Filter struct {
 }
 
 func NewFilter(subChan chan *Subscription, inboundChan chan PostHogEvent) *Filter {
-	return &Filter{subChan: subChan, inboundChan: inboundChan}
+	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
 func (c *Filter) Run() {
@@ -48,7 +48,7 @@ func (c *Filter) Run() {
 		log.Printf("Filter processed %v messages", x)
 
 		for i := 0; i < len(c.subs); i++ {
-			sub := c.subs[i]
+			sub := &c.subs[i]
 
 			if sub.ShouldClose.Load() {
 				// TODO: Figure this out later. Apparently closing from the read side is dangerous
