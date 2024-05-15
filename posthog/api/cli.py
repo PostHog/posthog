@@ -87,7 +87,7 @@ def cli_login_check(request: Request):
         # We delete it so it can only be given out once
         cache.delete(f"cli-authentication/tokens/{code}")
 
-    status = "unknown"
+    status = "missing"
 
     if secret:
         status = "pending"

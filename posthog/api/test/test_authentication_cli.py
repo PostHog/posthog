@@ -31,6 +31,10 @@ class TestAuthenticationCli(APIBaseTest):
         res = self.cli_client.get(f"/api/login/cli/check?code={code}").json()
         assert res["status"] == "authenticated"
         assert res["access_token"]
+
+        # Check the second time it is gone
+        assert self.cli_client.get(f"/api/login/cli/check?code={code}").json()["status"] == "missing"
+
         return res["access_token"]
 
     def test_standard_flow(self):
