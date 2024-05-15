@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -65,7 +65,6 @@ export const proxyLogic = kea<proxyLogicType>([
             }
         },
     })),
-    selectors(() => ({})),
     forms(({ actions }) => ({
         createRecord: {
             defaults: { domain: '' },
