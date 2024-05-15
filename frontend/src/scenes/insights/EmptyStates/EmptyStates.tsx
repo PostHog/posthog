@@ -87,7 +87,10 @@ export function InsightLoadingState({
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { insightPollResponse } = useValues(insightDataLogic(insightProps))
     const secondsElapsed = dayjs().diff(dayjs(insightPollResponse?.start_time), 'second')
-    const bytesPerSecond = insightPollResponse?.query_progress.bytes_read / secondsElapsed / 0
+
+    const rowsRead = insightPollResponse?.query_progress?.rows_read || 0
+    const bytesRead = insightPollResponse?.query_progress?.bytes_read || 0
+    const bytesPerSecond = bytesRead / secondsElapsed
 
     return (
         <div className="insight-empty-state warning">
@@ -95,12 +98,11 @@ export function InsightLoadingState({
             <div className="empty-state-inner">
                 <p className="mx-auto text-center">Crunching through hogloads of data...</p>
                 <LoadingBar />
-                {insightPollResponse?.query_progress.rows_read > 0 && (
+                {rowsRead > 0 && (
                     <p className="mx-auto text-center text-xs">
-                        {humanFriendlyNumber(insightPollResponse?.query_progress.rows_read)} rows
+                        {humanFriendlyNumber(rowsRead)} rows
                         <br />
-                        {humanFileSize(insightPollResponse?.query_progress.bytes_read)} ({humanFileSize(bytesPerSecond)}{' '}
-                        GB/s)
+                        {humanFileSize(bytesRead)} ({humanFileSize(bytesPerSecond)}/s)
                     </p>
                 )}
                 <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
