@@ -12,7 +12,7 @@ declaration
 
 expression: columnExpr;
 
-varDecl: VAR IDENTIFIER ( COLON EQ_SINGLE expression )? SEMICOLON ;
+varDecl: VAR (IDENTIFIER | keyword) ( COLON EQ_SINGLE expression )? SEMICOLON ;
 
 statement      : exprStmt
                | ifStmt
