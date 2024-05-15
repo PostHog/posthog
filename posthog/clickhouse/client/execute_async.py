@@ -72,9 +72,10 @@ class QueryStatusManager:
         try:
             byte_results = self.redis_client.get(self.clickhouse_query_status_key)
         except Exception as e:
+            # Don't fail because of progress checking
             return "{}"
 
-        return byte_results
+        return byte_results if byte_results is not None else "{}"
 
     def has_results(self):
         return self._get_results() is not None
@@ -87,9 +88,7 @@ class QueryStatusManager:
 
         query_status = QueryStatus(**json.loads(byte_results))
 
-        if with_progress:
-            clickhouse_query_status_bytes = self._get_clickhouse_query_status()
-            query_status.clickhouse_query_progress = json.loads(clickhouse_query_status_bytes)
+        if with_progress and not query_status.complete:
             print(query_status)
             CLICKHOUSE_SQL = """
             SELECT
@@ -105,36 +104,37 @@ class QueryStatusManager:
             WHERE query_id like %(query_id)s
             """
 
-            if not query_status.complete:
-                print("CLICKHOUSE")
-                try:
-                    results, types = sync_execute(
-                        CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+            clickhouse_query_status_bytes = self._get_clickhouse_query_status()
+            query_status.clickhouse_query_progress = json.loads(clickhouse_query_status_bytes)
+            print("CLICKHOUSE")
+            try:
+                results, types = sync_execute(
+                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+                )
+                print(results, types)
+
+                def noNanInt(num):
+                    if math.isnan(num):
+                        return 0
+                    return int(num)
+
+                new_clickhouse_query_progress = {
+                    result[0]: ClickhouseQueryStatus(
+                        **{
+                            "bytes_read": noNanInt(result[3]),
+                            "rows_read": noNanInt(result[2]),
+                            "estimated_rows_total": noNanInt(result[4]),
+                            "time_elapsed": noNanInt(result[6]),
+                            "estimated_time_remaining": noNanInt(result[7]),
+                        }
                     )
-                    print(results, types)
-
-                    def noNanInt(num):
-                        if math.isnan(num):
-                            return 0
-                        return int(num)
-
-                    new_clickhouse_query_progress = {
-                        result[0]: ClickhouseQueryStatus(
-                            **{
-                                "bytes_read": noNanInt(result[3]),
-                                "rows_read": noNanInt(result[2]),
-                                "estimated_rows_total": noNanInt(result[4]),
-                                "time_elapsed": noNanInt(result[6]),
-                                "estimated_time_remaining": noNanInt(result[7]),
-                            }
-                        )
-                        for result in results
-                    }
-                    query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
-                    self.store_clickhouse_query_status(query_status)
-                except Exception as e:
-                    print(e)
-                    pass
+                    for result in results
+                }
+                query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
+                self.store_clickhouse_query_status(query_status)
+            except Exception as e:
+                print(e)
+                pass
 
         return query_status
 
