@@ -8,8 +8,8 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { HedgehogAccessories } from './HedgehogAccessories'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { HedgehogAccessories, HedgehogIntro, HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -52,10 +52,22 @@ export class HedgehogActor {
     animationFrame = 0
     animationIterations: number | null = null
     accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
+
+    // properties synced with the logic
     darkMode = false
+    freeMovement = true
+    interactWithElements = true
+    keyboardControlsEnabled = true
 
     constructor() {
         this.setAnimation('fall')
+    }
+
+    private getAnimationOptions(): string[] {
+        if (!this.freeMovement) {
+            return randomChoiceList.filter((x) => x !== 'walk')
+        }
+        return randomChoiceList
     }
 
     private log(message: string): void {
@@ -67,9 +79,10 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(e) || !this.keyboardControlsEnabled) {
                 return
             }
+
             const key = e.key.toLowerCase()
 
             if ([' ', 'w', 'arrowup'].includes(key)) {
@@ -161,7 +174,7 @@ export class HedgehogActor {
         if (this.animationName !== 'stop') {
             this.setAnimation('stop')
         } else {
-            this.setAnimation(sampleOne(randomChoiceList))
+            this.setAnimation(sampleOne(this.getAnimationOptions()))
         }
     }
 
@@ -258,7 +271,7 @@ export class HedgehogActor {
             this.y -= velocityToApplyInIteration * velocityDirection
             if (this.y <= 0) {
                 this.ground = document.body
-            } else {
+            } else if (this.interactWithElements) {
                 const hedgehogBoundingRect = {
                     left: this.x,
                     right: this.x + SPRITE_SIZE,
@@ -409,7 +422,7 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogBuddyLogic)
+    const { accessories, freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
     const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
@@ -426,6 +439,19 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.darkMode = isDarkModeOn
     }, [isDarkModeOn])
+
+    useEffect(() => {
+        actor.freeMovement = freeMovement
+        actor.setAnimation(freeMovement ? 'walk' : 'stop')
+    }, [freeMovement])
+
+    useEffect(() => {
+        actor.interactWithElements = interactWithElements
+    }, [interactWithElements])
+
+    useEffect(() => {
+        actor.keyboardControlsEnabled = keyboardControlsEnabled
+    }, [keyboardControlsEnabled])
 
     // NOTE: Temporary - turns on christmas clothes for the holidays
     useEffect(() => {
@@ -483,6 +509,8 @@ export function HedgehogBuddy({
             overlay={
                 popoverOverlay || (
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
+                        <HedgehogIntro />
+                        <HedgehogOptions />
                         <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
 
                         <LemonDivider />
