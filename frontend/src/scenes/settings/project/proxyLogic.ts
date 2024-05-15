@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isURL } from 'lib/utils'
+import { isDomain } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { proxyLogicType } from './proxyLogicType'
@@ -69,9 +69,9 @@ export const proxyLogic = kea<proxyLogicType>([
     forms(({ actions }) => ({
         createRecord: {
             defaults: { domain: '' },
-            errors: ({ domain }) => ({
-                domain: !isDomain(domain)
-                    ? 'Please enter a domain'
+            errors: ({ domain }: { domain: string }) => ({
+                domain: !isDomain('http://' + domain)
+                    ? 'Do not include the protocol e.g. https://'
                     : domain.includes('*')
                     ? 'Domains cannot include wildcards'
                     : undefined,
