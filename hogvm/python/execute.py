@@ -114,6 +114,8 @@ def execute_bytecode(
                     stack.append(get_nested_value(fields, chain))
                 case Operation.POP:
                     stack.pop()
+                case Operation.RETURN:
+                    return stack.pop()
                 case Operation.GET_LOCAL:
                     stack.append(stack[next(iterator)])
                 case Operation.CALL:

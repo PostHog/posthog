@@ -43,3 +43,4 @@ class Operation(int, Enum):
     FLOAT = 34
     POP = 35
     GET_LOCAL = 36
+    RETURN = 37

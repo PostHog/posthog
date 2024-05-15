@@ -133,9 +133,10 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions), "zero")
 
     def test_bytecode_program(self):
-        bc = create_bytecode(parse_program("var a := 1 + 2; return a;"))
+        program = parse_program("var a := 1 + 2; return a;")
+        bytecode = create_bytecode(program)
         self.assertEqual(
-            bc,
+            bytecode,
             [
                 _H,
                 op.INTEGER,
@@ -145,10 +146,17 @@ class TestBytecodeExecute(BaseTest):
                 op.PLUS,
                 op.GET_LOCAL,
                 0,
-                op.POP,
+                op.RETURN,
                 op.POP,
             ],
         )
 
-        self.assertEqual(self._run_program("var a := 1 + 2; a;"), 3)
-        self.assertEqual(self._run_program("var a := 1 + 2; var b := a + 4;"), 7)
+        self.assertEqual(self._run_program("var a := 1 + 2; return a;"), 3)
+        self.assertEqual(
+            self._run_program("""
+            var a := 1 + 2;
+            var b := a + 4;
+            return b;
+        """),
+            7,
+        )

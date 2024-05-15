@@ -193,6 +193,14 @@ class BytecodeBuilder(Visitor):
         response.append(Operation.POP)
         return response
 
+    def visit_return_statement(self, node: ast.ReturnStatement):
+        if node.expr:
+            response = self.visit(node.expr)
+        else:
+            response = [Operation.NULL]
+        response.append(Operation.RETURN)
+        return response
+
     def visit_if_statement(self, node: ast.IfStatement):
         raise NotImplementedError("If statements are not supported")
         # response = []
