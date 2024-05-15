@@ -79,13 +79,16 @@ LOGGING = {
             "formatter": LOGGING_FORMATTER_NAME,
             "filters": ["filter_statsd"],
         },
+        "posthog": {
+            "class": "posthog.logging.handlers.PosthogHandler",
+        },
         "null": {
             "class": "logging.NullHandler",
         },
     },
-    "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
+    "root": {"handlers": ["console", "posthog"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
-        "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
+        "django": {"handlers": ["console", "posthog"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
             "handlers": ["null"],
