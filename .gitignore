@@ -28,4 +28,4 @@ livestream
 .tsnet-state/
 
 # configs
-configs/
+configs/configs.yml

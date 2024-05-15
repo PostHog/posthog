@@ -1,0 +1,10 @@
+prod: true
+tailscale:
+  controlUrl:
+  hostname: "live-events-dev"
+kafka:
+  brokers: "b-1.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094,b-2.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094,b-3.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094,b-4.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094,b-5.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094,b-6.posthogprod.iibfkg.c1.kafka.us-east-1.amazonaws.com:9094"
+  topic: "events_plugin_ingestion"
+  group_id: "livestream_dev"
+mmdb:
+  path: "mmdb.db"
