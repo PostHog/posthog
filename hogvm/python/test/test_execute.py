@@ -156,11 +156,13 @@ class TestBytecodeExecute(BaseTest):
 
         self.assertEqual(self._run_program("var a := 1 + 2; return a;"), 3)
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 var a := 1 + 2;
                 var b := a + 4;
                 return b;
-            """),
+            """
+            ),
             7,
         )
 
@@ -201,7 +203,8 @@ class TestBytecodeExecute(BaseTest):
         )
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 var a := true;
                 if (a) {
                     var a := 3;
@@ -209,18 +212,21 @@ class TestBytecodeExecute(BaseTest):
                 } else {
                     return 2;
                 }
-            """),
+            """
+            ),
             5,
         )
 
     def test_bytecode_variable_reassignment(self):
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 var a := 1;
                 a := a + 3;
                 a := a * 2;
                 return a;
-            """),
+            """
+            ),
             8,
         )
 
@@ -260,13 +266,15 @@ class TestBytecodeExecute(BaseTest):
         )
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 var i := -1;
                 while (false) {
                     1 + 1;
                 }
                 return i;
-            """),
+            """
+            ),
             -1,
         )
 
@@ -292,23 +300,27 @@ class TestBytecodeExecute(BaseTest):
         )
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 var i := 0;
                 while (i < 3) {
                     i := i + 1;
                 }
                 return i;
-            """),
+            """
+            ),
             3,
         )
 
     def test_bytecode_functions(self):
-        program = parse_program("""
+        program = parse_program(
+            """
             fn add(a, b) {
                 return a + b;
             }
             return add(3, 4);
-        """)
+        """
+        )
         bytecode = create_bytecode(program)
         self.assertEqual(
             bytecode,
@@ -338,17 +350,20 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(response, 7)
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 fn add(a, b) {
                     return a + b;
                 }
                 return add(3, 4) + 100 + add(1, 1);
-            """),
+            """
+            ),
             109,
         )
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 fn add(a, b) {
                     return a + b;
                 }
@@ -356,12 +371,14 @@ class TestBytecodeExecute(BaseTest):
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 2);
-            """),
+            """
+            ),
             55,
         )
 
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 fn add(a, b) {
                     var c := a + b;
                     return c;
@@ -370,13 +387,15 @@ class TestBytecodeExecute(BaseTest):
                     return a / b;
                 }
                 return divide(add(3, 4) + 100 + add(2, 1), 10);
-            """),
+            """
+            ),
             11,
         )
 
     def test_bytecode_recursion(self):
         self.assertEqual(
-            self._run_program("""
+            self._run_program(
+                """
                 fn fibonacci(number) {
                     if (number < 2) {
                         return number;
@@ -385,6 +404,12 @@ class TestBytecodeExecute(BaseTest):
                     }
                 }
                 return fibonacci(6);
-            """),
+            """
+            ),
             8,
         )
+
+    def test_bytecode_functions_stl(self):
+        self.assertEqual(self._run_program("if (empty('') and notEmpty('234')) return length('123');"), 3)
+        self.assertEqual(self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');"), "TEST")
+        self.assertEqual(self._run_program("return reverse('spinner');"), "rennips")

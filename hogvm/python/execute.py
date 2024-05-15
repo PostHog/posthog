@@ -1,12 +1,10 @@
 import re
 from typing import Any, Optional
 from collections.abc import Callable
+from hogvm.python.stl import execute_stl_function
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
-
-
-class HogVMException(Exception):
-    pass
+from hogvm.python.utils import HogVMException
 
 
 def like(string, pattern, flags=0):
@@ -24,16 +22,6 @@ def get_nested_value(obj, chain) -> Any:
         else:
             obj = obj.get(key, None)
     return obj
-
-
-def to_concat_arg(arg) -> str:
-    if arg is None:
-        return ""
-    if arg is True:
-        return "true"
-    if arg is False:
-        return "false"
-    return str(arg)
 
 
 def execute_bytecode(
@@ -167,33 +155,12 @@ def execute_bytecode(
                         ip = func_ip
                     else:
                         args = [stack.pop() for _ in range(next_token())]
-                        if name == "concat":
-                            stack.append("".join([to_concat_arg(arg) for arg in args]))
-                        elif name == "match":
-                            stack.append(bool(re.search(re.compile(args[1]), args[0])))
-                        elif name == "toString" or name == "toUUID":
-                            if args[0] is True:
-                                stack.append("true")
-                            elif args[0] is False:
-                                stack.append("false")
-                            elif args[0] is None:
-                                stack.append("null")
-                            else:
-                                stack.append(str(args[0]))
-                        elif name == "toInt" or name == "toFloat":
-                            try:
-                                stack.append(int(args[0]) if name == "toInt" else float(args[0]))
-                            except ValueError:
-                                stack.append(None)
-                        elif name == "ifNull":
-                            if args[0] is not None:
-                                stack.append(args[0])
-                            else:
-                                stack.append(args[1])
-                        elif functions is not None and name in functions:
+
+                        if functions is not None and name in functions:
                             stack.append(functions[name](*args))
-                        else:
-                            raise HogVMException(f"Unsupported function call: {name}")
+                            continue
+
+                        execute_stl_function(name, args, stack)
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 
