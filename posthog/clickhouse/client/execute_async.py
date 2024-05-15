@@ -17,7 +17,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus
+from posthog.schema import QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
 
 logger = structlog.get_logger(__name__)
@@ -62,42 +62,53 @@ class QueryStatusManager:
     def has_results(self):
         return self._get_results() is not None
 
-    def get_query_status(self) -> QueryStatus:
+    def get_query_status(self, with_progress=False) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
         query_status = QueryStatus(**json.loads(byte_results))
-        print(query_status)
-        CLICKHOUSE_SQL = """
-        SELECT
-            query_id,
-            initial_query_id,
-            (100 * read_rows) / total_rows_approx AS progress_percentage,
-            elapsed AS elapsed_time,
-            (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
-        FROM clusterAllReplicas(posthog, system.processes)
-        
-        """
-        #         WHERE query_id like %(query_id)s
-        #         WHERE initial_query_id = %(query_id)s
+        if with_progress:
+            print(query_status)
+            CLICKHOUSE_SQL = """
+            SELECT
+                query_id,
+                initial_query_id,
+                read_rows,
+                read_bytes,
+                total_rows_approx,
+                (100 * read_rows) / total_rows_approx AS progress_percentage,
+                elapsed AS elapsed_time,
+                (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
+            FROM clusterAllReplicas(posthog, system.processes)
+            """
+            #         WHERE query_id like %(query_id)s
+            #         WHERE initial_query_id = %(query_id)s
 
-        if not query_status.complete:
-            # Run clickhouse query here
-            print("CLICKHOUSE")
-            try:
-                results, types = sync_execute(
-                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
-                )
-                print(results, types)
-                if len(results) >= 1:
-                    # need to handle multiple results (figure out how this works for compare and stuff)
-                    query_status.progress_percent = results[0][2]
-                    query_status.estimated_seconds_remaining = results[0][4]
-            except Exception as e:
-                print(e)
-                pass
+            if not query_status.complete:
+                # Run clickhouse query here
+                print("CLICKHOUSE")
+                try:
+                    results, types = sync_execute(
+                        CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+                    )
+                    print(results, types)
+                    query_status.clickhouse_query_progress = [
+                        ClickhouseQueryStatus(
+                            **{
+                                "bytes_read": result[3],
+                                "rows_read": result[2],
+                                "estimated_rows_total": result[4],
+                                "time_elapsed": result[6],
+                                "estimated_time_remaining": result[7],
+                            }
+                        )
+                        for result in results
+                    ]
+                except Exception as e:
+                    print(e)
+                    pass
 
         return query_status
 
@@ -237,7 +248,7 @@ def get_query_status(team_id, query_id) -> QueryStatus:
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
     manager = QueryStatusManager(query_id, team_id)
-    return manager.get_query_status()
+    return manager.get_query_status(with_progress=True)
 
 
 def cancel_query(team_id, query_id):

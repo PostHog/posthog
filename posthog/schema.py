@@ -178,6 +178,17 @@ class ChartDisplayType(str, Enum):
     WorldMap = "WorldMap"
 
 
+class ClickhouseQueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bytes_read: int
+    estimated_rows_total: int
+    estimated_time_remaining: int
+    rows_read: int
+    time_elapsed: int
+
+
 class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -745,6 +756,7 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    clickhouse_query_progress: Optional[list[ClickhouseQueryStatus]] = None
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
@@ -756,8 +768,6 @@ class QueryStatus(BaseModel):
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
     team_id: int
-    progress_percent: Optional[float] = None
-    estimated_seconds_remaining: Optional[float] = None
 
 
 class QueryTiming(BaseModel):
