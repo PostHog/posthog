@@ -373,3 +373,18 @@ class TestBytecodeExecute(BaseTest):
             """),
             11,
         )
+
+    def test_bytecode_recursion(self):
+        self.assertEqual(
+            self._run_program("""
+                fn fibonacci(number) {
+                    if (number < 2) {
+                        return number;
+                    } else {
+                        return fibonacci(number - 1) + fibonacci(number - 2);
+                    }
+                }
+                return fibonacci(6);
+            """),
+            8,
+        )

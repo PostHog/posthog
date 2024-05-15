@@ -271,6 +271,8 @@ class BytecodeBuilder(Visitor):
     def visit_function(self, node: ast.Function):
         if node.name in self.functions:
             raise NotImplementedError(f"Function `{node.name}` already declared")
-        bytecode = create_bytecode(node.body, self.supported_functions, node.params)
+        all_known_functions = self.supported_functions.union(set(self.functions.keys()))
+        all_known_functions.add(node.name)
+        bytecode = create_bytecode(node.body, all_known_functions, node.params)
         self.functions[node.name] = HogFunction(node.name, node.params, bytecode)
         return [Operation.DECLARE_FN, node.name, len(node.params), len(bytecode), *bytecode]
