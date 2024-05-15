@@ -1,7 +1,8 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { afterMount, connect, kea, path, useValues } from 'kea'
+import { actions, connect, kea, listeners, path, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +14,9 @@ const myReferralsLogic = kea<myReferralsLogicType>([
     path(['scenes', 'settings', 'user', 'myReferralsLogic']),
     connect({
         values: [userLogic, ['user'], teamLogic, ['currentTeam']],
+    }),
+    actions({
+        redeemReferral: (code: string) => ({ code }),
     }),
     loaders(({ values }) => ({
         referrerInfo: [
@@ -41,17 +45,30 @@ const myReferralsLogic = kea<myReferralsLogicType>([
             },
         ],
     })),
+    listeners(({ values }) => ({
+        redeemReferral: async ({ code }) => {
+            const host = window.location.origin // TODO: Update to us.posthog.com when ready
+            const referralProgram = '6ZrDckau' // TODO: Update to deployed value when ready
+            const token = values.currentTeam!.api_token // TODO: Update to 'sTMFPsFhdP1Ssg'
 
-    afterMount(({ actions }) => {
-        actions.loadReferrerInfo()
-    }),
+            const response = await fetch(host + `/api/referrals/${referralProgram}/redeem/?token=${token}&code=${code}`)
+
+            if (response.status !== 200) {
+                throw new Error('Failed to redeem!')
+            }
+            return response.json()
+        },
+    })),
 ])
 
 export function MyReferrals(): JSX.Element {
     const { referrerInfo, referrerInfoLoading } = useValues(myReferralsLogic)
+    const { loadReferrerInfo } = useActions(myReferralsLogic)
 
     const redeemed = referrerInfo?.total_redemptions ?? 0
     const fontSize = 1 + redeemed / 10
+
+    useEffect(() => loadReferrerInfo(), [])
 
     return (
         <div className="text-center border-2 border-dashed rounded p-4">

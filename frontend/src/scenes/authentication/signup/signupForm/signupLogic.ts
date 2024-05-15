@@ -3,7 +3,7 @@ import { isString } from '@tiptap/core'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -95,6 +95,7 @@ export const signupLogic = kea<signupLogicType>([
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
+                        referral_code: getCookie('ph_rcode') || null,
                     })
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')

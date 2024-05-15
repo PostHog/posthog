@@ -1,6 +1,7 @@
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
+import requests
 import structlog
 from django import forms
 from django.conf import settings
@@ -33,7 +34,7 @@ from posthog.models import (
     User,
 )
 from posthog.permissions import CanCreateOrg
-from posthog.utils import get_can_create_org
+from posthog.utils import get_can_create_org, get_self_capture_api_token
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +61,7 @@ class SignupSerializer(serializers.Serializer):
     )
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
     referral_source: serializers.Field = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    referral_code: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -96,6 +98,7 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data.pop("organization_name", f"{validated_data['first_name']}'s Organization")
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")
+        referral_code = validated_data.pop("referral_code", "")
 
         try:
             self._organization, self._team, self._user = User.objects.bootstrap(
@@ -105,6 +108,7 @@ class SignupSerializer(serializers.Serializer):
                 is_email_verified=self.is_email_auto_verified(),
                 **validated_data,
             )
+
         except IntegrityError:
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
@@ -126,6 +130,16 @@ class SignupSerializer(serializers.Serializer):
         )
 
         verify_email_or_login(self.context["request"], user)
+
+        if referral_code and settings.DEBUG:
+            # TODO: This is a bit hacky and needs testing
+            try:
+                host = "http://localhost:8000"  # Change to us.posthog.com
+                token = get_self_capture_api_token(None)  # Change to our token
+                referralProgram = "6ZrDckau"
+                requests.post(f"{host}/api/referrals/{referralProgram}/referrer/?token={token}&referrer_id={user.uuid}")
+            except Exception as e:
+                capture_exception(e)
 
         return user
 

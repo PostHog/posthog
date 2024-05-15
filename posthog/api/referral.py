@@ -160,3 +160,20 @@ class PublicReferralsViewset(viewsets.GenericViewSet):
         data = ReferralProgramReferrerSerializer(referrer).data
 
         return Response(data)
+
+    @action(methods=["get"], detail=True)
+    def redeem(self, request: Request, *args, **kwargs):
+        # NOTE: Should this be public???
+        code = request.GET.get("code")
+        if not code:
+            raise exceptions.ValidationError("Missing code")
+
+        program = self.get_object()
+
+        referrer = ReferralProgramReferrer.objects.get(referral_program=program, code=code)
+
+        redeemer, _ = ReferralProgramRedeemer.objects.get_or_create(referrer=referrer, user_id=request.user.id)
+
+        data = ReferralProgramRedeemerSerializer(redeemer).data
+
+        return Response(data)
