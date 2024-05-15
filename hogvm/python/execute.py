@@ -1,5 +1,6 @@
 import re
-from typing import Any
+from typing import Any, Optional
+from collections.abc import Callable
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
@@ -33,7 +34,9 @@ def to_concat_arg(arg) -> str:
     return str(arg)
 
 
-def execute_bytecode(bytecode: list[Any], fields: dict[str, Any]) -> Any:
+def execute_bytecode(
+    bytecode: list[Any], fields: dict[str, Any], functions: Optional[dict[str, Callable[..., Any]]] = None
+) -> Any:
     try:
         stack = []
         iterator = iter(bytecode)
@@ -135,6 +138,8 @@ def execute_bytecode(bytecode: list[Any], fields: dict[str, Any]) -> Any:
                             stack.append(args[0])
                         else:
                             stack.append(args[1])
+                    elif functions is not None and name in functions:
+                        stack.append(functions[name](*args))
                     else:
                         raise HogVMException(f"Unsupported function call: {name}")
                 case _:

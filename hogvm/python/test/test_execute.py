@@ -110,3 +110,16 @@ class TestBytecodeExecute(BaseTest):
         with self.assertRaises(Exception) as e:
             execute_bytecode([_H, op.TRUE, op.TRUE, op.NOT], {})
         self.assertEqual(str(e.exception), "Invalid bytecode. More than one value left on stack")
+
+    def test_functions(self):
+        def stringify(*args):
+            if args[0] == 1:
+                return "one"
+            elif args[0] == 2:
+                return "two"
+            return "zero"
+
+        functions = {"stringify": stringify}
+        self.assertEqual(execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions), "one")
+        self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions), "two")
+        self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions), "zero")

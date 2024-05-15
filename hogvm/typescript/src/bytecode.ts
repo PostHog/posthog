@@ -38,7 +38,7 @@ export const enum Operation {
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
     pattern = String(pattern)
-        .replaceAll(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        .replaceAll(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
         .replaceAll('%', '.*')
     return new RegExp(pattern, caseInsensitive ? 'i' : undefined).test(string)
 }
@@ -58,7 +58,12 @@ function toConcatArg(arg: any): string {
     return arg === null ? '' : String(arg)
 }
 
-export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any>): any {
+export async function executeHogQLBytecode(
+    bytecode: any[],
+    fields: Record<string, any>,
+    functions?: Record<string, (...args: any[]) => any>,
+    asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+): Promise<any> {
     let temp: any
     const stack: any[] = []
 
@@ -189,7 +194,9 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 stack.push(!new RegExp(popStack(), 'i').test(temp))
                 break
             case Operation.FIELD:
+                // eslint-disable-next-line no-case-declarations
                 const count = next()
+                // eslint-disable-next-line no-case-declarations
                 const chain = []
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
@@ -197,7 +204,9 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                 stack.push(getNestedValue(fields, chain))
                 break
             case Operation.CALL:
+                // eslint-disable-next-line no-case-declarations
                 const name = next()
+                // eslint-disable-next-line no-case-declarations
                 const args = Array(next())
                     .fill(null)
                     .map(() => popStack())
@@ -219,6 +228,10 @@ export function executeHogQLBytecode(bytecode: any[], fields: Record<string, any
                     } else {
                         stack.push(args[1])
                     }
+                } else if (functions && functions[name]) {
+                    stack.push(functions[name](...args))
+                } else if (asyncFunctions && asyncFunctions[name]) {
+                    stack.push(await asyncFunctions[name](...args))
                 } else {
                     throw new Error(`Unsupported function call: ${name}`)
                 }
