@@ -40,6 +40,7 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 }
 
 func (c *Filter) Run() {
+	i := 0
 	for {
 		select {
 		case newSub := <-c.subChan:
@@ -47,28 +48,33 @@ func (c *Filter) Run() {
 			c.subs = append(c.subs, newSub)
 			log.Printf("Added new sub")
 		case event := <-c.inboundChan:
-			for _, sub := range c.subs {
-				if sub.ShouldClose.Load() {
-					// TODO: Figure this out later. Apparently closing from the read side is dangerous
-					// because writing to a closed channel = panic.
-					log.Printf("Skipping because closed")
-					continue
+			i += 1
+
+			if i%1000 == 0 {
+				for _, sub := range c.subs {
+					if sub.ShouldClose.Load() {
+						// TODO: Figure this out later. Apparently closing from the read side is dangerous
+						// because writing to a closed channel = panic.
+						log.Printf("Skipping because closed")
+						continue
+					}
+
+					// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
+					// if sub.Token != "" && event.Token != sub.Token {
+					// 	continue
+					// }
+
+					// if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
+					// 	continue
+					// }
+
+					// if sub.EventType != "" && event.Event != sub.EventType {
+					// 	continue
+					// }
+
+					sub.EventChan <- event
 				}
 
-				log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
-				if sub.Token != "" && event.Token != sub.Token {
-					continue
-				}
-
-				// if sub.DistinctId != "" && event.DistinctID != sub.DistinctId {
-				// 	continue
-				// }
-
-				// if sub.EventType != "" && event.Event != sub.EventType {
-				// 	continue
-				// }
-
-				sub.EventChan <- event
 			}
 		}
 	}
