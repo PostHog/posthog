@@ -6,6 +6,7 @@ require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.4.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/labstack/echo/v4 v4.12.0
+	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/spf13/viper v1.18.2
 	tailscale.com v1.66.3
 )
