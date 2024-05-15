@@ -1,0 +1,8 @@
+prod: False
+tailscale:
+  controlUrl:
+  hostname: "live-events"
+kafka:
+  brokers: "localhost:9092"
+  topic: "live_events"
+  group_id: "livestream"
