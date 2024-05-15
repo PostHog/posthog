@@ -173,6 +173,7 @@ const WorldMapSVG = React.memo(
                                             query: {
                                                 kind: NodeKind.InsightActorsQuery,
                                                 source: querySource!,
+                                                includeRecordings: true,
                                             },
                                             additionalSelect: {
                                                 value_at_data_point: 'event_count',
