@@ -326,6 +326,8 @@ class Team(UUIDClassicModel):
 
     @property
     def shared_secret(self) -> str:
+        if not self.encrypted_shared_secret:
+            return ""
         return decrypt(self.encrypted_shared_secret)
 
     @property

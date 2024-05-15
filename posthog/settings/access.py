@@ -59,6 +59,9 @@ DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 
+# SECURITY WARNING: keep the encryption secret key used in production secret!
+ENCRYPTION_SECRET_KEY: str = os.getenv("ENCRYPTION_SECRET_KEY", "sNxC-b8AkSkNqs8nVfUz4_gn89MzuQmtckgmxm81LP8=")
+
 
 if not DEBUG and not TEST and SECRET_KEY == DEFAULT_SECRET_KEY:
     logger.critical(

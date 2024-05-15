@@ -8,9 +8,8 @@ from django.core.exceptions import ImproperlyConfigured
 @lru_cache(maxsize=1)
 def get_crypter():
     try:
-        crypter = Fernet([settings.SECRET_KEY])
+        crypter = Fernet(settings.ENCRYPTION_SECRET_KEY)
     except Exception:
-        # TODO: Confirm if we can reuse django's secret key
         raise ImproperlyConfigured("SECRET_KEY is not set or is invalid.")
 
     return crypter
