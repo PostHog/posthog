@@ -172,7 +172,7 @@ class TestTeam(BaseTest):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.disabled)
                 for args_list in mock_feature_enabled.call_args_list:
-                    # We might check other flags, but should not `persons-on-events-v2-reads-enabled` here
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):
