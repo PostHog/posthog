@@ -19,7 +19,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus
+from posthog.schema import QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
 
 logger = structlog.get_logger(__name__)
@@ -122,17 +122,18 @@ class QueryStatusManager:
                 clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
                 self.store_clickhouse_query_status(clickhouse_query_progress_dict)
 
-                query_status.query_progress = {
+                query_progress = {
                     "bytes_read": 0,
                     "rows_read": 0,
                     "estimated_rows_total": 0,
                     "time_elapsed": 0,
                 }
                 for single_query_progress in clickhouse_query_progress_dict.values():
-                    query_status.query_progress["bytes_read"] += single_query_progress["bytes_read"]
-                    query_status.query_progress["rows_read"] += single_query_progress["rows_read"]
-                    query_status.query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
-                    query_status.query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
+                    query_progress["bytes_read"] += single_query_progress["bytes_read"]
+                    query_progress["rows_read"] += single_query_progress["rows_read"]
+                    query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
+                    query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
+                query_status.query_progress = ClickhouseQueryStatus(**query_progress)
 
             except Exception as e:
                 logger.error("Clickhouse Status Check Failed", e)
