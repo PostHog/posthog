@@ -26,6 +26,7 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
+import { Proxy } from './project/Proxy'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -230,6 +231,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+            },
+            {
+                id: 'integration-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
             },
         ],
     },

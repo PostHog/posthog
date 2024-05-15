@@ -59,6 +59,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-ip-allowlist'
+    | 'integration-proxy'
     | 'project-rbac'
     | 'project-delete'
     | 'organization-display-name'
