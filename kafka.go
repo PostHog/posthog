@@ -87,6 +87,11 @@ func (c *KafkaConsumer) Consume() {
 		if phEvent.Timestamp == "" {
 			phEvent.Timestamp = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 		}
+		if phEvent.Token == "" {
+			if tokenValue, ok := phEvent.Properties["token"].(string); ok {
+				phEvent.Token = tokenValue
+			}
+		}
 
 		if ipValue, ok := phEvent.Properties["$ip"]; ok {
 			if ipStr, ok := ipValue.(string); ok {
