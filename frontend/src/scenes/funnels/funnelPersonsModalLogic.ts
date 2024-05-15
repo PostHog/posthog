@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
+// import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
@@ -245,20 +245,20 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                         if (eventName === '$autocapture') {
                             // If we have an $autocapture event, we need to
                             // convert the `elements` chain into an "action".
-                            const elements = correlation.event.elements
-                            const elementsAsAction = elementsToAction(elements)
-                            properties = Object.entries(elementsAsAction)
-                                .map(([propertyKey, propertyValue]) => {
-                                    if (propertyValue !== null) {
-                                        return {
-                                            key: propertyKey,
-                                            value: [propertyValue],
-                                            type: 'element',
-                                            operator: 'exact',
-                                        }
-                                    }
-                                })
-                                .filter(Boolean) as AnyPropertyFilter[]
+                            // const elements = correlation.event.elements
+                            // const elementsAsAction = elementsToAction(elements)
+                            // properties = Object.entries(elementsAsAction)
+                            //     .map(([propertyKey, propertyValue]) => {
+                            //         if (propertyValue !== null) {
+                            //             return {
+                            //                 key: propertyKey,
+                            //                 value: [propertyValue],
+                            //                 type: 'element',
+                            //                 operator: 'exact',
+                            //             }
+                            //         }
+                            //     })
+                            //     .filter(Boolean) as AnyPropertyFilter[]
                         } else {
                             const [_, propertyName, propertyValue] = correlation.event.event.split('::')
 

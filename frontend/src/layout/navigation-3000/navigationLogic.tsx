@@ -45,6 +45,7 @@ import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
+import { eventsManagementSidebarLogic } from './sidebars/eventsManagement'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
@@ -404,10 +405,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               to: isUsingSidebar ? undefined : urls.persons(),
                           },
                           {
-                              identifier: Scene.Events,
+                              identifier: Scene.EventsManagement,
                               label: 'Activity',
                               icon: <IconLive />,
-                              to: urls.events(),
+                              logic: isUsingSidebar ? eventsManagementSidebarLogic : undefined,
+                              to: isUsingSidebar ? undefined : urls.events(),
                           },
                       ]
                     : [

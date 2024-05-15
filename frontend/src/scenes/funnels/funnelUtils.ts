@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { autoCaptureEventToDescription, clamp } from 'lib/utils'
-import { elementsToAction } from 'scenes/events/createActionFromEvent'
+// import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
@@ -489,18 +489,19 @@ export const parseEventAndProperty = (
         return { name: components[0] }
     } else if (components[0] === '$autocapture') {
         // We use elementsToAction to generate the required property filters
-        const elementData = elementsToAction(event.elements)
-        return {
-            name: components[0],
-            properties: Object.entries(elementData)
-                .filter(([, propertyValue]) => !!propertyValue)
-                .map(([propertyKey, propertyValue]) => ({
-                    key: propertyKey as ElementPropertyFilter['key'],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Element,
-                    value: [propertyValue as string],
-                })),
-        }
+        // const elementData = elementsToAction(event.elements)
+        // return {
+        //     name: components[0],
+        //     properties: Object.entries(elementData)
+        //         .filter(([, propertyValue]) => !!propertyValue)
+        //         .map(([propertyKey, propertyValue]) => ({
+        //             key: propertyKey as ElementPropertyFilter['key'],
+        //             operator: PropertyOperator.Exact,
+        //             type: PropertyFilterType.Element,
+        //             value: [propertyValue as string],
+        //         })),
+        // }
+        return {}
     }
     return {
         name: components[0],

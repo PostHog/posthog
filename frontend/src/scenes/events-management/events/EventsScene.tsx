@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { eventsSceneLogic } from 'scenes/events/eventsSceneLogic'
+import { eventsSceneLogic } from './eventsSceneLogic'
 
 import { Query } from '~/queries/Query/Query'
 

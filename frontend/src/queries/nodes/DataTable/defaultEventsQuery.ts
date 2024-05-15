@@ -1,4 +1,4 @@
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
+// import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 
 import { EventsQuery, NodeKind } from '~/queries/schema'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
@@ -47,7 +47,7 @@ export function getEventsQueriesForTeam(team: Partial<TeamType>): Record<string,
     const projectDefault = getDefaultEventsQueryForTeam(team)
     return {
         ...(projectDefault ? { 'Project Default': projectDefault } : {}),
-        'PostHog default': getDefaultEventsSceneQuery().source as EventsQuery,
+        // 'PostHog default': getDefaultEventsSceneQuery().source as EventsQuery,
         'Event counts': {
             kind: NodeKind.EventsQuery,
             select: ['event', 'count()'],

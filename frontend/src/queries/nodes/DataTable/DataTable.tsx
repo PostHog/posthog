@@ -8,7 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useCallback, useState } from 'react'
-import { EventDetails } from 'scenes/events/EventDetails'
+import { EventDetails } from 'scenes/events-management/events/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -452,6 +452,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         </>
     )
 
+    console.log('showOpenEditorButton', showOpenEditorButton)
     // The editor button moved under "export". Show only if there's no export button.
     if (!showExport && showOpenEditorButton && !isReadOnly) {
         if (inlineEditorButtonOnRow === 1) {
