@@ -45,11 +45,11 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select"], Histogram] = {
 
 def parse_program(
     program: str, placeholders: Optional[dict[str, ast.Expr]] = None, start: Optional[int] = 0
-) -> ast.Expr:
+) -> ast.Program:
     parse_tree = get_parser(program).program()
     node = HogQLParseTreeConverter(start=start).visit(parse_tree)
     if placeholders:
-        return replace_placeholders(node, placeholders)
+        return cast(ast.Program, replace_placeholders(node, placeholders))
     return node
 
 

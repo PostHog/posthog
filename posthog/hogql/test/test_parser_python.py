@@ -22,7 +22,7 @@ from posthog.hogql import ast
 
 
 class TestParserPython(parser_test_factory("python")):
-    def _program(self, program: str, placeholders: dict[str, ast.Expr] | None = None) -> list[ast.Expr]:
+    def _program(self, program: str, placeholders: dict[str, ast.Expr] | None = None) -> ast.Program:
         return parse_program(program, placeholders=placeholders, start=None)
 
     def test_program_variable_declarations(self):
@@ -30,12 +30,11 @@ class TestParserPython(parser_test_factory("python")):
         program = self._program(code)
         expected = [
             VariableDeclaration(
-                start=None, end=None, type=None, name="a", expr=Constant(start=None, end=None, type=None, value="123")
+                start=None, end=None, name="a", expr=Constant(start=None, end=None, type=None, value="123")
             ),
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="b",
                 expr=ArithmeticOperation(
                     start=None,
@@ -49,7 +48,6 @@ class TestParserPython(parser_test_factory("python")):
             ExprStatement(
                 start=None,
                 end=None,
-                type=None,
                 expr=Call(
                     start=None,
                     end=None,
@@ -73,7 +71,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="query",
                 expr=SelectQuery(
                     start=None,
@@ -141,7 +138,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="results",
                 expr=Call(
                     start=None,
@@ -173,7 +169,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="events",
                 expr=Call(
                     start=None,
@@ -188,7 +183,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="queries",
                 expr=Call(
                     start=None,
@@ -294,7 +288,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="results",
                 expr=Call(
                     start=None,
@@ -325,7 +318,6 @@ class TestParserPython(parser_test_factory("python")):
             VariableDeclaration(
                 start=None,
                 end=None,
-                type=None,
                 name="combined_rows",
                 expr=Call(
                     start=None,
