@@ -1,1 +1,1 @@
-from .referral_code_redemption import *
+from .referral_program_redeemer import *
