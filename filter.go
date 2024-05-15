@@ -103,7 +103,7 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
+				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
