@@ -45,9 +45,10 @@ func NewKafkaConsumer(brokers string, groupID string, topic string, geolocator *
 	}
 
 	return &KafkaConsumer{
-		consumer:   consumer,
-		topic:      topic,
-		geolocator: geolocator,
+		consumer:     consumer,
+		topic:        topic,
+		geolocator:   geolocator,
+		outgoingChan: outgoingChan,
 	}, nil
 }
 
@@ -83,7 +84,6 @@ func (c *KafkaConsumer) Consume() {
 				if ipStr != "" {
 					phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
 				}
-
 			}
 		}
 
