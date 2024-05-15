@@ -20,6 +20,8 @@ import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import { QueryStatus } from './schema'
+import { QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,
@@ -38,7 +40,6 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from './utils'
-import { QueryStatus} from './schema'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
@@ -133,7 +134,9 @@ async function executeQuery<N extends DataNode>(
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results
         }
-        if(setPollResponse) setPollResponse(statusResponse)
+        if (setPollResponse) {
+            setPollResponse(statusResponse)
+        }
     }
     throw new Error('Query timed out')
 }
@@ -368,7 +371,7 @@ export async function query<N extends DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
                 }
             } else {
                 response = await fetchLegacyInsights()

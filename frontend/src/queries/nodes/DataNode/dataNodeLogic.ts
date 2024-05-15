@@ -152,7 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
-        setPollResponse: (status: QueryStatus) => {{ status }}
+        setPollResponse: (status: QueryStatus) => ({ status }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -331,8 +331,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         pollResponse: [
             null as null | QueryStatus,
             {
-                setPollResponse: (status: QueryStatus | null) => status
-            }
+                setPollResponse: (state, { status }) => status,
+            },
         ],
         autoLoadToggled: [
             false,
