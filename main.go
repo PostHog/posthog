@@ -43,7 +43,7 @@ func main() {
 	groupID := viper.GetString("kafka.group_id")
 
 	phEventChan := make(chan PostHogEvent)
-	subChan := make(chan *Subscription)
+	subChan := make(chan Subscription)
 
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan)
 	if err != nil {
@@ -78,7 +78,7 @@ func main() {
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 
-		subscription := &Subscription{
+		subscription := Subscription{
 			Token:       "sTMFPsFhdP1Ssg",
 			DistinctId:  distinctId,
 			EventType:   eventType,

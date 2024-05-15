@@ -31,11 +31,11 @@ type ResponseGeoEvent struct {
 
 type Filter struct {
 	inboundChan chan PostHogEvent
-	subChan     chan *Subscription
+	subChan     chan Subscription
 	subs        []Subscription
 }
 
-func NewFilter(subChan chan *Subscription, inboundChan chan PostHogEvent) *Filter {
+func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
 	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
@@ -47,9 +47,7 @@ func (c *Filter) Run() {
 		x += 1
 		log.Printf("Filter processed %v messages", x)
 
-		for i := 0; i < len(c.subs); i++ {
-			sub := &c.subs[i]
-
+		for _, sub := range c.subs {
 			if sub.ShouldClose.Load() {
 				// TODO: Figure this out later. Apparently closing from the read side is dangerous
 				// because writing to a closed channel = panic.
@@ -72,6 +70,6 @@ func (c *Filter) Run() {
 		}
 	case newSub := <-c.subChan:
 		log.Printf("new sub: %v\n", newSub)
-		c.subs = append(c.subs, *newSub)
+		c.subs = append(c.subs, newSub)
 	}
 }
