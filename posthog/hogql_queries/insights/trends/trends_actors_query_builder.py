@@ -39,7 +39,7 @@ class TrendsActorsQueryBuilder:
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int] = None
     compare_value: Optional[Compare] = None
-    include_recordings: Optional[bool] = (None,)
+    include_recordings: Optional[bool] = None
 
     def __init__(
         self,
