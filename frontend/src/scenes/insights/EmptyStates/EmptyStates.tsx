@@ -28,6 +28,8 @@ import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { insightDataLogic } from '../insightDataLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -73,18 +75,24 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
 
 export function InsightLoadingState({
     queryId,
-    insightProps,
+    insightProps
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { insightPollResponse } = useValues(insightDataLogic(insightProps))
 
     return (
         <div className="insight-empty-state warning">
-            <Animation type={AnimationType.LaptopHog} />
+            {/* <Animation type={AnimationType.LaptopHog} /> */}
             <div className="empty-state-inner">
-                <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
+                <p className="mx-auto text-center">Crunching through hogloads of data...</p>
+                <LoadingBar />
+                <p className="mx-auto text-center text-xs">
+                    812,958,355 rows<br />
+                    1.2 TB (5.1 GB/s)
+                </p>
                 <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />

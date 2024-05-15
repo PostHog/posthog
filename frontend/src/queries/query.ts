@@ -20,6 +20,7 @@ import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import { QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,
@@ -107,7 +108,8 @@ async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
@@ -131,6 +133,9 @@ async function executeQuery<N extends DataNode>(
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results
         }
+        if (setPollResponse) {
+            setPollResponse(statusResponse)
+        }
     }
     throw new Error('Query timed out')
 }
@@ -141,7 +146,8 @@ export async function query<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string
+    legacyUrl?: string,
+    setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -364,13 +370,13 @@ export async function query<N extends DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
                 }
             } else {
                 response = await fetchLegacyInsights()
             }
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

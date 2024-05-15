@@ -23,6 +23,7 @@ import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter 
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Paths } from 'scenes/paths/Paths'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
@@ -222,7 +223,7 @@ export function FilterBasedCardContent({
                 ) : empty ? (
                     <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
                 ) : !loading && timedOut ? (
-                    <InsightTimeoutState insightProps={{ dashboardItemId: undefined }} />
+                    <InsightTimeoutState />
                 ) : apiErrored && !loading ? (
                     <InsightErrorState query={query} excludeDetail />
                 ) : (
