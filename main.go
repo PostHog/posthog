@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -10,6 +11,26 @@ import (
 )
 
 func main() {
+	brokers := os.Getenv("KAFKA_HOSTS")
+	if brokers == "" {
+		log.Fatal("KAFKA_HOSTS must be set")
+	}
+
+	topic := os.Getenv("KAFKA_TOPIC")
+	if topic == "" {
+		log.Fatal("KAFKA_TOPIC must be set")
+	}
+
+	groupID := "livestream"
+
+	consumer, err := NewKafkaConsumer(brokers, groupID, topic)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka consumer: %v", err)
+	}
+	defer consumer.Close()
+
+	go consumer.Consume()
+
 	// Echo instance
 	e := echo.New()
 
@@ -19,7 +40,7 @@ func main() {
 	e.File("/", "./index.html")
 
 	// Routes
-	e.GET("/", hello)
+	e.GET("/", index)
 
 	e.GET("/sse", func(c echo.Context) error {
 		log.Printf("SSE client connected, ip: %v", c.RealIP())
@@ -53,6 +74,6 @@ func main() {
 }
 
 // Handler
-func hello(c echo.Context) error {
-	return c.String(http.StatusOK, "Hello, World!")
+func index(c echo.Context) error {
+	return c.String(http.StatusOK, "RealTime Hog 3000")
 }
