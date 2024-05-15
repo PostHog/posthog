@@ -116,13 +116,11 @@ class QueryStatusManager:
 
                 new_clickhouse_query_progress = {
                     result[0]: ClickhouseQueryStatus(
-                        **{
-                            "bytes_read": noNaNInt(result[3]),
-                            "rows_read": noNaNInt(result[2]),
-                            "estimated_rows_total": noNaNInt(result[4]),
-                            "time_elapsed": noNaNInt(result[6]),
-                            "estimated_time_remaining": noNaNInt(result[7]),
-                        }
+                        bytes_read=noNaNInt(result[3]),
+                        rows_read=noNaNInt(result[2]),
+                        estimated_rows_total=noNaNInt(result[4]),
+                        time_elapsed=noNaNInt(result[6]),
+                        estimated_time_remaining=noNaNInt(result[7]),
                     )
                     for result in results
                 }
