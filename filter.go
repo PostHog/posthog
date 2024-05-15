@@ -30,6 +30,7 @@ type ResponseGeoEvent struct {
 
 type Filter struct {
 	inboundChan chan PostHogEvent
+	subChan     chan *Subscription
 	subs        []Subscription
 }
 
@@ -38,7 +39,8 @@ func NewFilter(inboundChan chan PostHogEvent) *Filter {
 }
 
 func (c *Filter) Run() {
-	for event := range c.inboundChan {
+	select {
+	case event := <-c.inboundChan:
 		for i := 0; i < len(c.subs); i++ {
 			sub := c.subs[i]
 
@@ -62,9 +64,7 @@ func (c *Filter) Run() {
 
 			sub.EventChan <- event
 		}
+	case newSub := <-c.subChan:
+		c.subs = append(c.subs, *newSub)
 	}
-}
-
-func (c *Filter) AddSubscription(s Subscription) {
-	c.subs = append(c.subs, s)
 }

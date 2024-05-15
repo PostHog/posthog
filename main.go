@@ -42,6 +42,7 @@ func main() {
 	groupID := viper.GetString("kafka.group_id")
 
 	phEventChan := make(chan PostHogEvent)
+	subChan := make(chan *Subscription)
 
 	consumer, err := NewKafkaConsumer(brokers, groupID, topic, geolocator, phEventChan)
 	if err != nil {
@@ -50,7 +51,7 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	filter := NewFilter(phEventChan)
+	filter := NewFilter(subChan, phEventChan)
 	go filter.Run()
 
 	// Echo instance
@@ -82,6 +83,8 @@ func main() {
 			EventType:  eventType,
 			EventChan:  make(chan interface{}),
 		}
+
+		subChan <- subscription
 
 		for {
 			select {
