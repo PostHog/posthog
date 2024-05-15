@@ -18,11 +18,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 export function Proxy(): JSX.Element {
-    const { isCloud } = useValues(preflightLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
 
-    if (!isCloud) {
+    if (!isCloudOrDev) {
         return <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
     }
 
