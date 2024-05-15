@@ -7,7 +7,7 @@ from django.conf import settings
 EXPECTED_CNAME = settings.PROXY_TARGET_CNAME
 
 
-def validate_proxy_domains():
+def validate_proxy_domains() -> None:
     records = ProxyRecord.objects.filter(status=ProxyRecord.Status.WAITING)
     for record in records:
         try:
