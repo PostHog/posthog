@@ -95,7 +95,7 @@ function CreateRecordForm(): JSX.Element {
     return (
         <div className="bg-bg-light rounded border p-2 space-y-2">
             {formState == 'active' ? (
-                <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full">
+                <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full space-y-2">
                     <LemonField name="domain">
                         <LemonInput
                             autoFocus
