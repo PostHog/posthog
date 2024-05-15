@@ -294,8 +294,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 """
                 SELECT
                     groupArray(day_start) AS date,
-                    groupArray(count) AS total,
-                    sleep(3)
+                    groupArray(count) AS total
                 FROM {inner_query}
             """,
                 placeholders={"inner_query": inner_query},
