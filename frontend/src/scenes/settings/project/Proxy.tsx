@@ -1,5 +1,5 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonMenu, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,7 +8,7 @@ import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 export function Proxy(): JSX.Element {
     const { showingForm, proxyRecords } = useValues(proxyLogic)
-    const { toggleShowingForm } = useActions(proxyLogic)
+    const { toggleShowingForm, deleteRecord } = useActions(proxyLogic)
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -20,6 +20,24 @@ export function Proxy(): JSX.Element {
             dataIndex: 'status',
             render: function RenderStatus(status) {
                 return <span className="capitalize">{status}</span>
+            },
+        },
+        {
+            title: 'Actions',
+            render: function Render(_, { id }) {
+                return (
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Delete',
+                                status: 'danger',
+                                onClick: () => deleteRecord(id),
+                            },
+                        ]}
+                    >
+                        <LemonButton size="xsmall" icon={<IconEllipsis />} />
+                    </LemonMenu>
+                )
             },
         },
     ]

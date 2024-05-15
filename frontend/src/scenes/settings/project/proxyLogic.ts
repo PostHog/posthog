@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -38,14 +38,19 @@ export const proxyLogic = kea<proxyLogicType>([
                 actions.toggleShowingForm()
                 return response
             },
-            deleteRecord: async ({ id }: { id: ProxyRecord['id'] }) => {
-                const response = await api.delete(
-                    `api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`
-                )
-                lemonToast.info('Record deleted')
-                return response
+            deleteRecord: async (id: ProxyRecord['id']) => {
+                void api.delete(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`)
+                lemonToast.error('Record deleted')
+
+                let nextRecords = [...values.proxyRecords]
+                nextRecords = nextRecords.filter((r) => r.id != id)
+
+                return nextRecords
             },
         },
+    })),
+    listeners(({ actions }) => ({
+        deleteRecordFailure: () => actions.loadRecords(),
     })),
     selectors(() => ({})),
     forms(({ actions }) => ({
