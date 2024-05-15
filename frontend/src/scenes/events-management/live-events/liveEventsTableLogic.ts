@@ -1,6 +1,5 @@
 import { kea } from 'kea'
-
-// Import the necessary type
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 export const liveEventsTableLogic = kea({
     path: ['scenes', 'events-management', 'live-events', 'liveEventsTableLogic'],
@@ -31,7 +30,7 @@ export const liveEventsTableLogic = kea({
             },
         ],
         filters: [
-            { teamId: 2, distinctId: '', eventType: '' },
+            { teamId: getCurrentTeamId() },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
