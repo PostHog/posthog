@@ -17,11 +17,14 @@ varDecl: VAR (IDENTIFIER | keyword) ( COLON EQ_SINGLE expression )? SEMICOLON ;
 statement      : returnStmt
                | exprStmt
                | ifStmt
+               | whileStmt
+               | returnStmt
                | block ;
 
 exprStmt       : expression SEMICOLON ;
 ifStmt         : IF LPAREN expression RPAREN statement
                  ( ELSE statement )? ;
+whileStmt      : WHILE LPAREN expression RPAREN statement;
 returnStmt     : RETURN expression SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 

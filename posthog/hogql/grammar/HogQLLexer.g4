@@ -193,6 +193,7 @@ WATCH: W A T C H;
 WEEK: W E E K;
 WHEN: W H E N;
 WHERE: W H E R E;
+WHILE: W H I L E;
 WINDOW: W I N D O W;
 WITH: W I T H;
 YEAR: Y E A R | Y Y Y Y;

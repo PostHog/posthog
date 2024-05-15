@@ -197,6 +197,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             else_=self.visit(ctx.statement(1)) if ctx.statement(1) else None,
         )
 
+    def visitWhileStmt(self, ctx: HogQLParser.WhileStmtContext):
+        return ast.WhileStatement(
+            expr=self.visit(ctx.expression()),
+            body=self.visit(ctx.statement()) if ctx.statement() else None,
+        )
+
     def visitBlock(self, ctx: HogQLParser.BlockContext):
         return ast.Block(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
 

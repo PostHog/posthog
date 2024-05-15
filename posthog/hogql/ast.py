@@ -63,6 +63,12 @@ class IfStatement(Statement):
 
 
 @dataclass(kw_only=True)
+class WhileStatement(Statement):
+    expr: Expr
+    body: Statement
+
+
+@dataclass(kw_only=True)
 class Block(Statement):
     declarations: list[Declaration]
 
