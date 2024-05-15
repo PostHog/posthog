@@ -1,4 +1,4 @@
-import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -43,21 +43,20 @@ export function Proxy(): JSX.Element {
                 }
 
                 return (
-                    <div className="space-x-1">
-                        {['waiting', 'issuing'].includes(status) && <Spinner />}
-                        <Tooltip title={status === 'waiting' ? 'Waiting for DNS records to be created' : undefined}>
-                            <span
-                                className={clsx(
-                                    'capitalize',
-                                    status === 'valid'
-                                        ? 'text-success'
-                                        : status == 'erroring'
-                                        ? 'text-danger'
-                                        : 'text-warning-dark'
-                                )}
-                            >
-                                {status}
-                            </span>
+                    <div
+                        className={clsx(
+                            'space-x-1',
+                            status === 'valid'
+                                ? 'text-success'
+                                : status == 'erroring'
+                                ? 'text-danger'
+                                : 'text-warning-dark'
+                        )}
+                    >
+                        {status === 'issuing' && <Spinner />}
+                        <span className="capitalize">{status}</span>
+                        <Tooltip title="Waiting for DNS records to be created">
+                            <IconInfo className="cursor-pointer" />
                         </Tooltip>
                     </div>
                 )
