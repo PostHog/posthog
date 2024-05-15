@@ -70,7 +70,10 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         item.data.event === '$exception' ? (
                             <ErrorDisplay event={item.data} />
                         ) : (
-                            <SimpleKeyValueList item={item.data.properties} />
+                            <SimpleKeyValueList
+                                item={item.data.properties}
+                                promotedKeys={item.data.event === '$log' ? ['msg', '$level'] : []}
+                            />
                         )
                     ) : (
                         <div className="text-muted-alt flex gap-1 items-center">

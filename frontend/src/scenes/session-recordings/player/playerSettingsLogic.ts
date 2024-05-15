@@ -81,6 +81,12 @@ const MiniFilters: SharedListMiniFilter[] = [
         tooltip: 'Exception events from PostHog or its Sentry integration',
     },
     {
+        tab: SessionRecordingPlayerTab.EVENTS,
+        key: 'events-logs',
+        name: 'Logs',
+        tooltip: 'Log events from PostHog',
+    },
+    {
         tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-all',
         name: 'All',

@@ -650,6 +650,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         ) {
                             include = true
                         }
+
+                        if (miniFiltersByKey['events-logs']?.enabled && item.data.event === '$log') {
+                            include = true
+                        }
+
                         if (
                             (miniFiltersByKey['events-pageview']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&

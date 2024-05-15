@@ -155,6 +155,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $log: {
+            label: 'Log',
+            description:
+                'Log message from PostHog SDKs. Logs are used for more detailed debugging and troubleshooting than events.',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
