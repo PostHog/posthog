@@ -11,6 +11,7 @@ import (
 type PostHogEventWrapper struct {
 	Uuid       string `json:"uuid"`
 	DistinctId string `json:"distinct_id"`
+	Ip         string `json:"ip"`
 	Data       string `json:"data"`
 }
 
@@ -93,13 +94,23 @@ func (c *KafkaConsumer) Consume() {
 			}
 		}
 
+		var ipStr string = ""
 		if ipValue, ok := phEvent.Properties["$ip"]; ok {
-			if ipStr, ok := ipValue.(string); ok {
-				if ipStr != "" {
-					phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
+			if ipProp, ok := ipValue.(string); ok {
+				if ipProp != "" {
+					ipStr = ipProp
 				}
 			}
+		} else {
+			if wrapperMessage.Ip != "" {
+				ipStr = wrapperMessage.Ip
+			}
 		}
+
+		if ipStr != "" {
+			phEvent.Lat, phEvent.Lng = c.geolocator.Lookup(ipStr)
+		}
+
 		c.outgoingChan <- phEvent
 	}
 }
