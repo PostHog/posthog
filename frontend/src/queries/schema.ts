@@ -680,13 +680,37 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     breakdownFilter?: BreakdownFilter
 }
 
-export interface LogsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export interface LogsQueryResult {
+    uuid: string
+    distinct_id: string
+    event: string
+    timestamp: string
+    level: string
+    namespace?: string
+    msg: string
+    properties: string
+}
+
+export interface LogsQueryResponse extends AnalyticsQueryResponseBase<LogsQueryResult[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
 export type CachedLogsQueryResponse = LogsQueryResponse & CachedQueryResponseMixin
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     /** Date range for the query */
     dateRange?: DateRange
+    /** Number of rows to return */
+    limit?: integer
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Only fetch logs that happened before this timestamp */
+    before?: string
+    /** Only fetch logs that happened after this timestamp */
+    after?: string
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params

@@ -22,6 +22,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    LogsQuery,
     Node,
     NodeKind,
     PathsQuery,
@@ -85,6 +86,10 @@ export function isEventsNode(node?: Record<string, any> | null): node is EventsN
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
+}
+
+export function isLogsQuery(node?: Record<string, any> | null): node is LogsQuery {
+    return node?.kind === NodeKind.LogsQuery
 }
 
 export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {

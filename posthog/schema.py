@@ -561,6 +561,20 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
+class LogsQueryResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    event: str
+    level: str
+    msg: str
+    namespace: Optional[str] = None
+    properties: str
+    timestamp: str
+    uuid: str
+
+
 class NodeKind(str, Enum):
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
@@ -1363,14 +1377,17 @@ class CachedLogsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: str
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     next_allowed_client_refresh: str
-    results: list[dict[str, Any]]
+    offset: Optional[int] = None
+    results: list[LogsQueryResult]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -1949,11 +1966,14 @@ class LogsQueryResponse(BaseModel):
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
     )
+    hasMore: Optional[bool] = None
     hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    results: list[dict[str, Any]]
+    offset: Optional[int] = None
+    results: list[LogsQueryResult]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -2307,6 +2327,27 @@ class QueryResponseAlternative19(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     results: list[dict[str, Any]]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative20(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    results: list[LogsQueryResult]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -3078,11 +3119,15 @@ class LogsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    after: Optional[str] = Field(default=None, description="Only fetch logs that happened after this timestamp")
+    before: Optional[str] = Field(default=None, description="Only fetch logs that happened before this timestamp")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     kind: Literal["LogsQuery"] = "LogsQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
     response: Optional[LogsQueryResponse] = None
 
 
@@ -3209,6 +3254,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative17,
             QueryResponseAlternative18,
             QueryResponseAlternative19,
+            QueryResponseAlternative20,
             QueryResponseAlternative21,
             QueryResponseAlternative22,
             QueryResponseAlternative23,
@@ -3239,6 +3285,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative17,
         QueryResponseAlternative18,
         QueryResponseAlternative19,
+        QueryResponseAlternative20,
         QueryResponseAlternative21,
         QueryResponseAlternative22,
         QueryResponseAlternative23,

@@ -1,7 +1,7 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LogsQuery } from '~/queries/schema'
+import { LogsQuery, LogsQueryResult } from '~/queries/schema'
 
 import type { logsDataLogicType } from './logsDataLogicType'
 
@@ -19,15 +19,21 @@ export const logsDataLogic = kea<logsDataLogicType>([
                 key: props.key,
                 query: props.query,
             }),
-            ['response', 'responseLoading'],
+            ['response', 'responseLoading', 'query'],
         ],
     })),
     selectors({
-        sparklineData: [
+        data: [
             (s) => [s.response],
-            (response) => {
+            (response): LogsQueryResult[] => {
+                return response?.results ?? []
+            },
+        ],
+        sparklineData: [
+            (s) => [s.data],
+            (data) => {
                 const results: Record<string, number> = {}
-                response?.results.forEach((log: Record<string, any>) => {
+                data.forEach((log) => {
                     const toStartOfMinute = new Date(log.timestamp)
                     toStartOfMinute.setSeconds(0)
                     toStartOfMinute.setMilliseconds(0)

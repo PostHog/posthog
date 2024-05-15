@@ -38,6 +38,7 @@ import {
     EventsQueryResponse,
     HogQLQueryModifiers,
     InsightVizNode,
+    LogsQuery,
     NodeKind,
     PersonsNode,
     QueryTiming,
@@ -48,6 +49,7 @@ import {
     isFunnelsQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
+    isLogsQuery,
     isPersonsNode,
 } from '~/queries/utils'
 
@@ -238,7 +240,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
-                    if (isEventsQuery(props.query) && values.newQuery) {
+                    if ((isEventsQuery(props.query) || isLogsQuery(props.query)) && values.newQuery) {
                         const now = performance.now()
                         const newResponse = (await query(addModifiers(values.newQuery, props.modifiers))) ?? null
                         actions.setElapsedTime(performance.now() - now)
@@ -283,6 +285,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...values.response,
                             results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
                             next: newResponse?.next,
+                        }
+                    } else if (isLogsQuery(props.query)) {
+                        const newResponse = (await query(addModifiers(values.nextQuery, props.modifiers))) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        if (Array.isArray(values.response)) {
+                            // help typescript by asserting we can't have an array here
+                            throw new Error('Unexpected response type for persons node query')
+                        }
+                        return {
+                            ...values.response,
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            hasMore: newResponse?.hasMore,
                         }
                     }
                     return values.response
@@ -400,9 +414,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                if (!isEventsQuery(query)) {
-                    return null
+                if (isLogsQuery(query) && !query.before) {
+                    const typedResults = (response as LogsQuery['response'])?.results ?? []
+                    const firstTimestamp = typedResults[0].timestamp
+                    const nextQuery: LogsQuery = { ...query, after: firstTimestamp }
+                    return nextQuery
                 }
+
                 if (isEventsQuery(query) && !query.before) {
                     const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                     if (sortKey === 'timestamp DESC') {
@@ -432,6 +450,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
+                }
+
+                if (isLogsQuery(query) && !responseError && !dataLoading) {
+                    const typedResults = (response as LogsQuery['response'])?.results ?? []
+                    const lastTimestamp = typedResults[typedResults.length - 1].timestamp
+                    const nextQuery: LogsQuery = { ...query, before: lastTimestamp }
+                    return nextQuery
                 }
 
                 if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {

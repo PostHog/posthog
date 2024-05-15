@@ -1060,6 +1060,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -1070,6 +1073,9 @@
                 "last_refresh": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -1077,9 +1083,12 @@
                 "next_allowed_client_refresh": {
                     "type": "string"
                 },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/LogsQueryResult"
                     },
                     "type": "array"
                 },
@@ -4792,6 +4801,14 @@
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
+                "after": {
+                    "description": "Only fetch logs that happened after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch logs that happened before this timestamp",
+                    "type": "string"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -4800,9 +4817,17 @@
                     "const": "LogsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "description": "Number of rows to return",
+                    "type": "integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "description": "Number of rows to skip before returning rows",
+                    "type": "integer"
                 },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
@@ -4818,17 +4843,26 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/LogsQueryResult"
                     },
                     "type": "array"
                 },
@@ -4841,6 +4875,37 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "LogsQueryResult": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "msg": {
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "properties": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "required": ["uuid", "distinct_id", "event", "timestamp", "level", "msg", "properties"],
             "type": "object"
         },
         "MathType": {
@@ -6239,17 +6304,26 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
+                        },
+                        "limit": {
+                            "type": "integer"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "offset": {
+                            "type": "integer"
+                        },
                         "results": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/LogsQueryResult"
                             },
                             "type": "array"
                         },

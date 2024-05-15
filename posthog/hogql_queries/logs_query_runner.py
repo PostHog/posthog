@@ -1,11 +1,12 @@
 from datetime import timedelta
 from typing import cast
+from dateutil.parser import isoparse
 from django.utils.timezone import datetime
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
@@ -14,7 +15,9 @@ from posthog.schema import (
     IntervalType,
     LogsQuery,
     LogsQueryResponse,
+    LogsQueryResult,
 )
+from posthog.utils import relative_date_parse
 
 
 class LogsQueryRunner(QueryRunner):
@@ -22,15 +25,21 @@ class LogsQueryRunner(QueryRunner):
     response: LogsQueryResponse
     cached_response: CachedLogsQueryResponse
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
+
     def to_query(self) -> ast.SelectQuery:
         return cast(
             ast.SelectQuery,
             parse_select(
                 """
-                    SELECT timestamp, properties.$level, properties.$msg, properties
+                    SELECT uuid, distinct_id, event, timestamp, properties.$level, properties.$msg, properties.$namespace, properties
                     FROM events
                     WHERE {where_clause}
-                    ORDER BY timestamp ASC
+                    ORDER BY timestamp DESC
                 """,
                 {"where_clause": self._where_clause()},
             ),
@@ -42,7 +51,7 @@ class LogsQueryRunner(QueryRunner):
     def calculate(self) -> LogsQueryResponse:
         query = self.to_query()
 
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
             query=query,
             modifiers=self.query.modifiers or self.modifiers,
@@ -52,11 +61,21 @@ class LogsQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-        results = [
-            {"timestamp": log[0], "level": log[1], "msg": log[2], "properties": log[3]} for log in response.results
+        results: list[LogsQueryResult] = [
+            LogsQueryResult(
+                uuid=str(log[0]),
+                distinct_id=log[1],
+                event=log[2],
+                timestamp=str(log[3]),
+                level=log[4],
+                msg=log[5],
+                namespace=log[6],
+                properties=log[7],
+            )
+            for log in response.results
         ]
 
-        return LogsQueryResponse(results=results)
+        return LogsQueryResponse(results=results, **self.paginator.response_params())
 
     def _where_clause(self):
         filters: list[ast.Expr] = []
@@ -71,6 +90,37 @@ class LogsQueryRunner(QueryRunner):
                 parse_expr("timestamp <= {date_to}", placeholders=date_range_placeholders),
             ]
         )
+
+        # Before
+        if self.query.before is not None:
+            before = self.query.before
+            try:
+                parsed_date = isoparse(before)
+            except ValueError:
+                parsed_date = relative_date_parse(before, self.team.timezone_info)
+            filters.append(
+                parse_expr(
+                    "timestamp < {timestamp}",
+                    {"timestamp": ast.Constant(value=parsed_date)},
+                    timings=self.timings,
+                )
+            )
+
+        # After
+        if self.query.after is not None:
+            after = self.query.after
+            if after != "all":
+                try:
+                    parsed_date = isoparse(after)
+                except ValueError:
+                    parsed_date = relative_date_parse(after, self.team.timezone_info)
+                filters.append(
+                    parse_expr(
+                        "timestamp > {timestamp}",
+                        {"timestamp": ast.Constant(value=parsed_date)},
+                        timings=self.timings,
+                    )
+                )
 
         # Event name
         filters.append(parse_expr("event = '$log'"))
