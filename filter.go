@@ -51,9 +51,11 @@ func (c *Filter) Run() {
 				if sub.ShouldClose.Load() {
 					// TODO: Figure this out later. Apparently closing from the read side is dangerous
 					// because writing to a closed channel = panic.
+					log.Printf("Skipping because closed")
 					continue
 				}
 
+				log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
