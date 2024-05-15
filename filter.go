@@ -41,6 +41,8 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 func (c *Filter) Run() {
 	for {
 		select {
+		case newSub := <-c.subChan:
+			c.subs = append(c.subs, newSub)
 		case event := <-c.inboundChan:
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
@@ -63,8 +65,6 @@ func (c *Filter) Run() {
 
 				sub.EventChan <- event
 			}
-		case newSub := <-c.subChan:
-			c.subs = append(c.subs, newSub)
 		}
 	}
 }
