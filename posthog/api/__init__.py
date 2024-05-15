@@ -307,6 +307,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
+router.register(r"referrals", referral.PublicReferralsViewset, "public_referrals")
 
 
 from posthog.api.action import ActionViewSet  # noqa: E402
