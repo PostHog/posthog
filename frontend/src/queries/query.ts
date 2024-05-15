@@ -114,6 +114,8 @@ async function executeQuery<N extends DataNode>(
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
+    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
+
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
     if (!isAsyncQuery || !response.query_async) {
@@ -127,7 +129,7 @@ async function executeQuery<N extends DataNode>(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = await api.queryStatus.get(response.id)
+        const statusResponse = await api.queryStatus.get(response.id, showProgress)
 
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results

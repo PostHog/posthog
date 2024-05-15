@@ -81,7 +81,7 @@ class QueryStatusManager:
     def has_results(self):
         return self._get_results() is not None
 
-    def get_query_status(self, with_progress=False) -> QueryStatus:
+    def get_query_status(self, show_progress=False) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
@@ -89,7 +89,7 @@ class QueryStatusManager:
 
         query_status = QueryStatus(**json.loads(byte_results))
 
-        if with_progress and not query_status.complete:
+        if show_progress and not query_status.complete:
             CLICKHOUSE_SQL = """
             SELECT
                 query_id,
@@ -143,6 +143,7 @@ class QueryStatusManager:
     def delete_query_status(self):
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
+        self.redis_client.delete(self.clickhouse_query_status_key)
 
 
 def execute_process_query(
@@ -271,12 +272,12 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id, query_id) -> QueryStatus:
+def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
     manager = QueryStatusManager(query_id, team_id)
-    return manager.get_query_status(with_progress=True)
+    return manager.get_query_status(show_progress=show_progress)
 
 
 def cancel_query(team_id, query_id):
