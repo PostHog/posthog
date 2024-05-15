@@ -2458,6 +2458,10 @@ class SavedInsightNode(BaseModel):
     expandable: Optional[bool] = Field(
         default=None, description="Can expand row to show raw event data (default: true)"
     )
+    fitParentHeight: Optional[bool] = Field(
+        default=None,
+        description="Otherwise the insight by default has a fixed minimum height and might overflow its parent",
+    )
     full: Optional[bool] = Field(
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
@@ -4037,6 +4041,10 @@ class InsightVizNode(BaseModel):
         extra="forbid",
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
+    fitParentHeight: Optional[bool] = Field(
+        default=None,
+        description="Otherwise the insight by default has a fixed minimum height and might overflow its parent",
+    )
     full: Optional[bool] = Field(
         default=None, description="Show with most visual options enabled. Used in insight scene."
     )
