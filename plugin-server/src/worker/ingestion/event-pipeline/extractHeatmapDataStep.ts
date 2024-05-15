@@ -97,7 +97,10 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        status.warn('Invalid viewport dimensions', { $viewport_height, $viewport_width })
+        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+            $viewport_height,
+            $viewport_width,
+        })
         return drop('invalid_viewport_dimensions')
     }
 
