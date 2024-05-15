@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 from posthog.hogql import ast
@@ -51,7 +52,40 @@ def create_bytecode(expr: ast.Expr) -> list[Any]:
     return bytecode
 
 
+@dataclasses.dataclass
+class Local:
+    name: str
+    depth: int
+
+
 class BytecodeBuilder(Visitor):
+    def __init__(self):
+        super().__init__()
+        self.locals: list[Local] = []
+        self.scopeDepth = 0
+
+    def _start_scope(self):
+        self.scopeDepth += 1
+
+    def _end_scope(self):
+        response = []
+        self.scopeDepth -= 1
+        for local in reversed(self.locals):
+            if local.depth < self.scopeDepth:
+                break
+            self.locals.pop()
+            response.append(Operation.POP)
+        return response
+
+    def _declare_local(self, name: str):
+        for local in reversed(self.locals):
+            if local.depth < self.scopeDepth:
+                break
+            if local.name == name:
+                raise NotImplementedError(f"Variable `{name}` already declared in this scope")
+
+        self.locals.append(Local(name, self.scopeDepth))
+
     def visit_and(self, node: ast.And):
         response = []
         for expr in reversed(node.exprs):
@@ -85,6 +119,11 @@ class BytecodeBuilder(Visitor):
         ]
 
     def visit_field(self, node: ast.Field):
+        if len(node.chain) == 1:
+            for index, local in reversed(list(enumerate(self.locals))):
+                if local.name == node.chain[0]:
+                    return [Operation.GET_LOCAL, index]
+
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])
@@ -132,3 +171,39 @@ class BytecodeBuilder(Visitor):
             response.extend(self.visit(expr))
         response.extend([Operation.CALL, node.name, len(node.args)])
         return response
+
+    def visit_program(self, node: ast.Program):
+        response = []
+        self._start_scope()
+        for expr in node.declarations:
+            response.extend(self.visit(expr))
+        response.extend(self._end_scope())
+        return response
+
+    def visit_block(self, node: ast.Block):
+        response = []
+        self._start_scope()
+        for expr in node.declarations:
+            response.extend(self.visit(expr))
+        response.extend(self._end_scope())
+        return response
+
+    def visit_expr_statement(self, node: ast.ExprStatement):
+        response = self.visit(node.expr)
+        response.append(Operation.POP)
+        return response
+
+    def visit_if_statement(self, node: ast.IfStatement):
+        raise NotImplementedError("If statements are not supported")
+        # response = []
+        # response.append(self.visit(node.expr))
+        # response.append(self.visit(node.then))
+        # if node.else_:
+        #     response.append(self.visit(node.else_))
+        # return response
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration):
+        self._declare_local(node.name)
+        if node.expr:
+            return self.visit(node.expr)
+        return [Operation.NULL]

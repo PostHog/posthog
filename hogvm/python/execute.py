@@ -112,6 +112,10 @@ def execute_bytecode(
                 case Operation.FIELD:
                     chain = [stack.pop() for _ in range(next(iterator))]
                     stack.append(get_nested_value(fields, chain))
+                case Operation.POP:
+                    stack.pop()
+                case Operation.GET_LOCAL:
+                    stack.append(stack[next(iterator)])
                 case Operation.CALL:
                     name = next(iterator)
                     args = [stack.pop() for _ in range(next(iterator))]

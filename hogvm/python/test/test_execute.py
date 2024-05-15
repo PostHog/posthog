@@ -3,7 +3,7 @@ from typing import Any
 from hogvm.python.execute import execute_bytecode, get_nested_value
 from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H
 from posthog.hogql.bytecode import create_bytecode
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
 
 
@@ -13,6 +13,14 @@ class TestBytecodeExecute(BaseTest):
             "properties": {"foo": "bar", "nullValue": None},
         }
         return execute_bytecode(create_bytecode(parse_expr(expr)), fields)
+
+    def _run_program(self, program: str) -> Any:
+        fields = {
+            "properties": {"foo": "bar", "nullValue": None},
+        }
+        program = parse_program(program)
+        # print(program)
+        return execute_bytecode(create_bytecode(program), fields)
 
     def test_bytecode_create(self):
         self.assertEqual(self._run("1 + 2"), 3)
@@ -123,3 +131,24 @@ class TestBytecodeExecute(BaseTest):
         self.assertEqual(execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions), "one")
         self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions), "two")
         self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions), "zero")
+
+    def test_bytecode_program(self):
+        bc = create_bytecode(parse_program("var a := 1 + 2; return a;"))
+        self.assertEqual(
+            bc,
+            [
+                _H,
+                op.INTEGER,
+                2,
+                op.INTEGER,
+                1,
+                op.PLUS,
+                op.GET_LOCAL,
+                0,
+                op.POP,
+                op.POP,
+            ],
+        )
+
+        self.assertEqual(self._run_program("var a := 1 + 2; a;"), 3)
+        self.assertEqual(self._run_program("var a := 1 + 2; var b := a + 4;"), 7)

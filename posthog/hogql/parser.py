@@ -167,7 +167,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise e
 
     def visitProgram(self, ctx: HogQLParser.ProgramContext):
-        return [self.visit(declaration) for declaration in ctx.declaration()]
+        return ast.Program(declarations=[self.visit(declaration) for declaration in ctx.declaration()])
 
     def visitDeclaration(self, ctx: HogQLParser.DeclarationContext):
         return self.visitChildren(ctx)

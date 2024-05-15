@@ -41,3 +41,5 @@ class Operation(int, Enum):
     STRING = 32
     INTEGER = 33
     FLOAT = 34
+    POP = 35
+    GET_LOCAL = 36
