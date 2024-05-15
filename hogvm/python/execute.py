@@ -1,6 +1,7 @@
 import re
 from typing import Any, Optional
 from collections.abc import Callable
+import time
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 
@@ -40,12 +41,15 @@ def execute_bytecode(
     bytecode: list[Any],
     fields: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
+    timeout=5,
 ) -> Any:
     try:
+        start_time = time.time()
         stack = []
         call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
         declared_functions: dict[str, tuple[int, int]] = {}
         ip = -1
+        steps = 0
 
         def next_token():
             nonlocal ip
@@ -57,7 +61,14 @@ def execute_bytecode(
         if next_token() != HOGQL_BYTECODE_IDENTIFIER:
             raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
 
+        def check_timeout():
+            if time.time() - start_time > timeout:
+                raise HogVMException(f"Execution timed out after {timeout} seconds")
+
         while True:
+            steps += 1
+            if steps % 100 == 0:
+                check_timeout()
             symbol = next_token()
             match symbol:
                 case None:
@@ -160,6 +171,7 @@ def execute_bytecode(
                     declared_functions[name] = (ip, arg_len)
                     ip += body_len
                 case Operation.CALL:
+                    check_timeout()
                     name = next_token()
                     if name in declared_functions:
                         func_ip, arg_len = declared_functions[name]

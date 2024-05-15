@@ -119,8 +119,12 @@ export function HogDebug({ query, setQuery, queryKey }: HogDebugProps): JSX.Elem
                 ) : (
                     <CodeEditor
                         className="border"
-                        language="json"
-                        value={JSON.stringify(response?.results, null, 2)}
+                        language={typeof response?.results === 'object' ? 'json' : 'text'}
+                        value={
+                            typeof response?.results === 'object'
+                                ? JSON.stringify(response?.results ?? '', null, 2)
+                                : String(response?.results ?? '')
+                        }
                         height={500}
                         path={`debug/${queryKey}/hog-result.json`}
                     />

@@ -67,9 +67,12 @@ def process_query_model(
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQuery):
-            program = parse_program(query.code)
-            bytecode = create_bytecode(program)
-            result = HogQueryResponse(results=execute_bytecode(bytecode))
+            try:
+                program = parse_program(query.code)
+                bytecode = create_bytecode(program)
+                result = HogQueryResponse(results=execute_bytecode(bytecode))
+            except Exception as e:
+                result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
