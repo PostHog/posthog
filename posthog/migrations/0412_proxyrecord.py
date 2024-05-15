@@ -31,6 +31,7 @@ class Migration(migrations.Migration):
                             ("issuing", "Issuing"),
                             ("valid", "Valid"),
                             ("erroring", "Erroring"),
+                            ("deleting", "Deleting"),
                         ],
                         default="waiting",
                     ),
