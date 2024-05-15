@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -83,7 +82,7 @@ func main() {
 			Token:       "sTMFPsFhdP1Ssg",
 			DistinctId:  distinctId,
 			EventType:   eventType,
-			EventChan:   make(chan interface{}),
+			EventChan:   make(chan PostHogEvent),
 			ShouldClose: &atomic.Bool{},
 		}
 
@@ -101,7 +100,7 @@ func main() {
 				log.Printf("Received event payload")
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
-					fmt.Println("Error:", err)
+					log.Println("Error:", err)
 					continue
 				}
 

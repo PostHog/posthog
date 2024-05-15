@@ -12,7 +12,7 @@ type Subscription struct {
 	EventType  string
 
 	// Response channel
-	EventChan   chan interface{}
+	EventChan   chan PostHogEvent
 	ShouldClose *atomic.Bool
 }
 
@@ -53,8 +53,6 @@ func (c *Filter) Run() {
 					// because writing to a closed channel = panic.
 					continue
 				}
-
-				// log.Printf("Checking again filter")
 
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
