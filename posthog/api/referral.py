@@ -53,15 +53,22 @@ class ReferralProgramSerializer(serializers.ModelSerializer):
 
 
 class ReferralProgramReferrerSerializer(serializers.ModelSerializer):
+    total_redemptions = serializers.SerializerMethodField()
+
     class Meta:
         model = ReferralProgramReferrer
         fields = [
             "user_id",
             "code",
             "max_redemption_count",
+            "total_redemptions",
             "created_at",
         ]
-        read_only_fields = ["code", "max_redemption_count", "created_at"]
+        read_only_fields = ["code", "max_redemption_count", "created_at", "total_redemptions"]
+
+    def get_total_redemptions(self, obj: ReferralProgramReferrer) -> int:
+        # TODO: This should be the plural but for some reason it isn't...
+        return obj.redeemer.count()
 
     def create(self, validated_data: dict, *args, **kwargs) -> ReferralProgram:
         context = self.context
@@ -102,7 +109,7 @@ class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewset
 
 class ReferralProgramReferrerViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = ReferralProgramReferrer.objects.all()
+    queryset = ReferralProgramReferrer.objects.annotate(Count("redeemers")).all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["user_id", "code"]
     lookup_field = "user_id"
@@ -151,12 +158,15 @@ class PublicReferralsViewset(viewsets.GenericViewSet):
     @action(methods=["get"], detail=True)
     def referrer(self, request: Request, *args, **kwargs):
         program = self.get_object()
-        referrer_id = request.GET.get("referrer_id")
+        user_id = request.GET.get("user_id")
+        user_email = request.GET.get("user_email")
 
-        if not referrer_id:
-            raise exceptions.ValidationError("Missing referrer_id")
+        if not user_id:
+            raise exceptions.ValidationError("Missing user_id")
 
-        referrer, _ = ReferralProgramReferrer.objects.get_or_create(referral_program=program, user_id=referrer_id)
+        referrer, _ = ReferralProgramReferrer.objects.get_or_create(
+            referral_program=program, user_id=user_id, defaults={"email": user_email}
+        )
         data = ReferralProgramReferrerSerializer(referrer).data
 
         return Response(data)
@@ -165,14 +175,16 @@ class PublicReferralsViewset(viewsets.GenericViewSet):
     def redeem(self, request: Request, *args, **kwargs):
         # NOTE: Should this be public???
         code = request.GET.get("code")
-        if not code:
+        user_id = request.GET.get("user_id")
+        user_email = request.GET.get("user_email")
+        if not code or not user_id:
             raise exceptions.ValidationError("Missing code")
 
         program = self.get_object()
-
         referrer = ReferralProgramReferrer.objects.get(referral_program=program, code=code)
-
-        redeemer, _ = ReferralProgramRedeemer.objects.get_or_create(referrer=referrer, user_id=request.user.id)
+        redeemer = ReferralProgramRedeemer.objects.create(
+            referrer=referrer, referral_program=program, user_id=user_id, email=user_email
+        )
 
         data = ReferralProgramRedeemerSerializer(redeemer).data
 

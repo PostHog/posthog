@@ -22,6 +22,7 @@ class ReferralProgramReferrer(UUIDModel):
         ]
 
     user_id: models.CharField = models.CharField(max_length=128)
+    email: models.CharField = models.CharField(max_length=128, null=True, blank=True)
     code: models.TextField = models.TextField(max_length=128, default=generate_referral_code)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     referral_program: models.ForeignKey = models.ForeignKey(

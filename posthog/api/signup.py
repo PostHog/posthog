@@ -137,7 +137,9 @@ class SignupSerializer(serializers.Serializer):
                 host = "http://localhost:8000"  # Change to us.posthog.com
                 token = get_self_capture_api_token(None)  # Change to our token
                 referralProgram = "6ZrDckau"
-                requests.post(f"{host}/api/referrals/{referralProgram}/referrer/?token={token}&referrer_id={user.uuid}")
+                requests.post(
+                    f"{host}/api/referrals/{referralProgram}/referrer/?token={token}&user_id={user.uuid}&code={referral_code}"
+                )
             except Exception as e:
                 capture_exception(e)
 

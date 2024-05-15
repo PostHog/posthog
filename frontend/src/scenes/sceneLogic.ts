@@ -18,6 +18,7 @@ import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
+import { myReferralsLogic } from './settings/user/MyReferrals'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -36,7 +37,7 @@ export const sceneLogic = kea<sceneLogicType>([
     ),
     path(['scenes', 'sceneLogic']),
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, myReferralsLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [featureFlagLogic, ['featureFlags']],
     })),

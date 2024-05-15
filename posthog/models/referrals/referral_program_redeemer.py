@@ -10,6 +10,7 @@ class ReferralProgramRedeemer(UUIDModel):
         ]
 
     user_id: models.CharField = models.CharField(max_length=128)
+    email: models.CharField = models.CharField(max_length=128, null=True, blank=True)
     referrer: models.ForeignKey = models.ForeignKey(
         "ReferralProgramReferrer",
         on_delete=models.CASCADE,

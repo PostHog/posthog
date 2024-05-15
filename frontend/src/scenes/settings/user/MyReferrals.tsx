@@ -1,22 +1,22 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, useActions, useValues } from 'kea'
+import { LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, useActions, useValues } from 'kea'
 import { loaders } from 'kea-loaders'
+import { getCookie, setCookie } from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { useEffect } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ReferralIdentity } from '~/types'
 
 import type { myReferralsLogicType } from './MyReferralsType'
 
-const myReferralsLogic = kea<myReferralsLogicType>([
+export const myReferralsLogic = kea<myReferralsLogicType>([
     path(['scenes', 'settings', 'user', 'myReferralsLogic']),
     connect({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam']],
+        values: [userLogic, ['user']],
     }),
     actions({
-        redeemReferral: (code: string) => ({ code }),
+        redeemReferralIfExists: true,
     }),
     loaders(({ values }) => ({
         referrerInfo: [
@@ -28,13 +28,10 @@ const myReferralsLogic = kea<myReferralsLogicType>([
 
                     const host = window.location.origin // TODO: Update to us.posthog.com when ready
                     const referralProgram = '6ZrDckau' // TODO: Update to deployed value when ready
-                    const token = values.currentTeam!.api_token // TODO: Update to 'sTMFPsFhdP1Ssg'
+                    const token = 'phc_g5GJ0z1vcm2HOpatOT2484heTH66tpoS2cIyZy4khxb' // TODO: Update to 'sTMFPsFhdP1Ssg'
 
                     const response = await fetch(
-                        host +
-                            `/api/referrals/${referralProgram}/referrer/?token=${token}&referrer_id=${
-                                values.user!.uuid
-                            }`
+                        host + `/api/referrals/${referralProgram}/referrer/?token=${token}&user_id=${values.user!.uuid}`
                     )
 
                     if (response.status !== 200) {
@@ -46,19 +43,38 @@ const myReferralsLogic = kea<myReferralsLogicType>([
         ],
     })),
     listeners(({ values }) => ({
-        redeemReferral: async ({ code }) => {
+        redeemReferralIfExists: async () => {
+            const code = getCookie('ph_rcode')
+            // TODO: Remove testing code
+            const userID = values.user?.uuid ?? Math.round(Math.random() * 10000)
+            if (!code) {
+                console.log('NO CODE OR NO USER')
+                return
+            }
             const host = window.location.origin // TODO: Update to us.posthog.com when ready
             const referralProgram = '6ZrDckau' // TODO: Update to deployed value when ready
-            const token = values.currentTeam!.api_token // TODO: Update to 'sTMFPsFhdP1Ssg'
+            const token = 'phc_g5GJ0z1vcm2HOpatOT2484heTH66tpoS2cIyZy4khxb' // TODO: Update to 'sTMFPsFhdP1Ssg'
 
-            const response = await fetch(host + `/api/referrals/${referralProgram}/redeem/?token=${token}&code=${code}`)
+            const response = await fetch(
+                host + `/api/referrals/${referralProgram}/redeem/?token=${token}&code=${code}&user_id=${userID}`
+            )
 
             if (response.status !== 200) {
+                lemonToast.error('Failed to redeem code 💩')
                 throw new Error('Failed to redeem!')
             }
+
+            lemonToast.success('Code redeemed! 🎉')
+
+            setCookie('ph_rcode', '', -1)
+
             return response.json()
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.redeemReferralIfExists()
+    }),
 ])
 
 export function MyReferrals(): JSX.Element {
