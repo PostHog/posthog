@@ -207,6 +207,9 @@
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
+                    "$ref": "#/definitions/HogQuery"
+                },
+                {
                     "$ref": "#/definitions/HogQLQuery"
                 },
                 {
@@ -283,6 +286,9 @@
             "anyOf": [
                 {
                     "type": "object"
+                },
+                {
+                    "$ref": "#/definitions/HogQueryResponse"
                 },
                 {
                     "$ref": "#/definitions/HogQLQueryResponse"
@@ -3997,6 +4003,35 @@
             "required": ["results"],
             "type": "object"
         },
+        "HogQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "HogQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQueryResponse"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "HogQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {}
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "InsightActorsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -4771,6 +4806,7 @@
                 "DataWarehouseNode",
                 "EventsQuery",
                 "PersonsNode",
+                "HogQuery",
                 "HogQLQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
@@ -5511,6 +5547,14 @@
                             },
                             "type": "array"
                         }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "results": {}
                     },
                     "required": ["results"],
                     "type": "object"
@@ -6384,6 +6428,9 @@
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
+                },
+                {
+                    "$ref": "#/definitions/HogQuery"
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"

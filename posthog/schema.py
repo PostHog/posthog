@@ -492,6 +492,13 @@ class HogQLQueryModifiers(BaseModel):
     s3TableUseInvalidColumns: Optional[bool] = None
 
 
+class HogQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: Any
+
+
 class Compare(str, Enum):
     current = "current"
     previous = "previous"
@@ -567,6 +574,7 @@ class NodeKind(str, Enum):
     DataWarehouseNode = "DataWarehouseNode"
     EventsQuery = "EventsQuery"
     PersonsNode = "PersonsNode"
+    HogQuery = "HogQuery"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
     HogQLAutocomplete = "HogQLAutocomplete"
@@ -721,7 +729,14 @@ class QueryResponseAlternative4(BaseModel):
     status: Optional[list[StatusItem]] = None
 
 
-class QueryResponseAlternative7(BaseModel):
+class QueryResponseAlternative6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: Any
+
+
+class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -734,7 +749,7 @@ class QueryResponseAlternative7(BaseModel):
     warnings: list[HogQLNotice]
 
 
-class QueryResponseAlternative15(BaseModel):
+class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1869,6 +1884,18 @@ class HogQLQueryResponse(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
+class HogQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    code: Optional[str] = None
+    kind: Literal["HogQuery"] = "HogQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[HogQueryResponse] = None
+
+
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2012,7 +2039,7 @@ class QueryResponseAlternative5(BaseModel):
     )
 
 
-class QueryResponseAlternative6(BaseModel):
+class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2039,7 +2066,7 @@ class QueryResponseAlternative6(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative8(BaseModel):
+class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2050,7 +2077,7 @@ class QueryResponseAlternative8(BaseModel):
     )
 
 
-class QueryResponseAlternative9(BaseModel):
+class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2069,7 +2096,7 @@ class QueryResponseAlternative9(BaseModel):
     )
 
 
-class QueryResponseAlternative10(BaseModel):
+class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2093,7 +2120,7 @@ class QueryResponseAlternative10(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative11(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2114,7 +2141,7 @@ class QueryResponseAlternative11(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative12(BaseModel):
+class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2137,7 +2164,7 @@ class QueryResponseAlternative12(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative13(BaseModel):
+class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2161,7 +2188,7 @@ class QueryResponseAlternative13(BaseModel):
     types: list[str]
 
 
-class QueryResponseAlternative14(BaseModel):
+class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2188,7 +2215,7 @@ class QueryResponseAlternative14(BaseModel):
     types: Optional[list] = Field(default=None, description="Types of returned columns")
 
 
-class QueryResponseAlternative16(BaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2207,7 +2234,7 @@ class QueryResponseAlternative16(BaseModel):
     )
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2231,7 +2258,7 @@ class QueryResponseAlternative17(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2252,7 +2279,7 @@ class QueryResponseAlternative18(BaseModel):
     types: Optional[list] = None
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2270,7 +2297,7 @@ class QueryResponseAlternative19(BaseModel):
     )
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2288,7 +2315,7 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2306,7 +2333,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2516,6 +2543,7 @@ class AnyResponseType(
     RootModel[
         Union[
             dict[str, Any],
+            HogQueryResponse,
             HogQLQueryResponse,
             HogQLMetadataResponse,
             HogQLAutocompleteResponse,
@@ -2525,7 +2553,13 @@ class AnyResponseType(
     ]
 ):
     root: Union[
-        dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, HogQLAutocompleteResponse, Any, EventsQueryResponse
+        dict[str, Any],
+        HogQueryResponse,
+        HogQLQueryResponse,
+        HogQLMetadataResponse,
+        HogQLAutocompleteResponse,
+        Any,
+        EventsQueryResponse,
     ]
 
 
@@ -3113,7 +3147,7 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -3146,8 +3180,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative9,
             QueryResponseAlternative10,
             QueryResponseAlternative11,
-            Any,
             QueryResponseAlternative12,
+            Any,
             QueryResponseAlternative13,
             QueryResponseAlternative14,
             QueryResponseAlternative15,
@@ -3158,7 +3192,8 @@ class QueryResponseAlternative(
             QueryResponseAlternative20,
             QueryResponseAlternative21,
             QueryResponseAlternative22,
-            QueryResponseAlternative25,
+            QueryResponseAlternative23,
+            QueryResponseAlternative26,
             dict[str, list[DatabaseSchemaQueryResponseField]],
         ]
     ]
@@ -3176,8 +3211,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative9,
         QueryResponseAlternative10,
         QueryResponseAlternative11,
-        Any,
         QueryResponseAlternative12,
+        Any,
         QueryResponseAlternative13,
         QueryResponseAlternative14,
         QueryResponseAlternative15,
@@ -3188,7 +3223,8 @@ class QueryResponseAlternative(
         QueryResponseAlternative20,
         QueryResponseAlternative21,
         QueryResponseAlternative22,
-        QueryResponseAlternative25,
+        QueryResponseAlternative23,
+        QueryResponseAlternative26,
         dict[str, list[DatabaseSchemaQueryResponseField]],
     ]
 
@@ -4154,6 +4190,7 @@ class HogQLMetadata(BaseModel):
             InsightActorsQuery,
             InsightActorsQueryOptions,
             SessionsTimelineQuery,
+            HogQuery,
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
@@ -4198,6 +4235,7 @@ class QueryRequest(BaseModel):
         InsightActorsQuery,
         InsightActorsQueryOptions,
         SessionsTimelineQuery,
+        HogQuery,
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,
@@ -4237,6 +4275,7 @@ class QuerySchemaRoot(
             InsightActorsQuery,
             InsightActorsQueryOptions,
             SessionsTimelineQuery,
+            HogQuery,
             HogQLQuery,
             HogQLMetadata,
             HogQLAutocomplete,
@@ -4269,6 +4308,7 @@ class QuerySchemaRoot(
         InsightActorsQuery,
         InsightActorsQueryOptions,
         SessionsTimelineQuery,
+        HogQuery,
         HogQLQuery,
         HogQLMetadata,
         HogQLAutocomplete,

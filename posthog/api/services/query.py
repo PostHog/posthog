@@ -4,18 +4,22 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
+from hogvm.python.execute import execute_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_program
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
+    HogQuery,
     HogQLAutocomplete,
     HogQLMetadata,
     QuerySchemaRoot,
@@ -61,6 +65,10 @@ def process_query_model(
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
+        elif isinstance(query, HogQuery):
+            program = parse_program(query.code)
+            bytecode = create_bytecode(program)
+            result = execute_bytecode(bytecode)
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
