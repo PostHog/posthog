@@ -110,7 +110,7 @@ func main() {
 		}
 	})
 
-	if viper.GetBool("dev") {
+	if !viper.GetBool("prod") {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
 		// Start Tailnet

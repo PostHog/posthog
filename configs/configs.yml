@@ -1,4 +1,4 @@
-dev: True
+prod: False
 tailscale:
   controlUrl:
   hostname: "live-events"
