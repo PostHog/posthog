@@ -26,6 +26,7 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
+import { Proxy } from './project/Proxy'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -314,6 +315,19 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-rbac',
                 title: 'Role-based access',
                 component: <PermissionsGrid />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-proxy',
+        title: 'Proxy',
+        flag: 'PROXY_AS_A_SERVICE',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
             },
         ],
     },
