@@ -109,10 +109,7 @@ class QueryStatusManager:
                     CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
                 )
 
-                def noNaNInt(num):
-                    if math.isnan(num):
-                        return 0
-                    return int(num)
+                noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 
                 new_clickhouse_query_progress = {
                     result[0]: ClickhouseQueryStatus(
