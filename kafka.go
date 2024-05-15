@@ -114,7 +114,7 @@ func (c *KafkaConsumer) Consume() {
 		}
 
 		c.outgoingChan <- phEvent
-		// c.statsChan <- phEvent
+		c.statsChan <- phEvent
 	}
 }
 
