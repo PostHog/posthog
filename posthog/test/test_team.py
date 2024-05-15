@@ -165,7 +165,7 @@ class TestTeam(BaseTest):
                     team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
                 )
                 for args_list in mock_feature_enabled.call_args_list:
-                    # We might check other flags, but should not `persons-on-events-v2-reads-enabled` here
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
