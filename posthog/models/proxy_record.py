@@ -13,8 +13,8 @@ class ProxyRecord(UUIDModel):
     status: models.JSONField = models.JSONField(null=True, blank=True)
 
     class Status(models.TextChoices):
-        GENERATING = "generating"
         PROVISIONING = "provisioning"
+        WAITING = "waiting"
         VALID = "valid"
         REMOVED = "removed"
 
