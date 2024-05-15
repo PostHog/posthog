@@ -40,12 +40,12 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
+import { eventsManagementSidebarLogic } from './sidebars/eventsManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
 import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
-import { eventsManagementSidebarLogic } from './sidebars/eventsManagement'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
 export const ITEM_KEY_PART_SEPARATOR = '::'
@@ -409,7 +409,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               label: 'Activity',
                               icon: <IconLive />,
                               logic: isUsingSidebar ? eventsManagementSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.events(),
+                              to: isUsingSidebar ? undefined : urls.exploreEvents(),
                           },
                       ]
                     : [

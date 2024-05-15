@@ -66,7 +66,7 @@ export const urls = {
     propertyDefinitionEdit: (id: string | number): string => `/data-management/properties/${id}/edit`,
     dataManagementHistory: (): string => '/data-management/history',
     database: (): string => '/data-management/database',
-    events: (): string => '/activity/events',
+    exploreEvents: (): string => '/activity/explore',
     liveEvents: (): string => '/activity/live',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,

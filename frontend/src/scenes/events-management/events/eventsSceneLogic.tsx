@@ -31,7 +31,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: () => [
-            urls.events(),
+            urls.exploreEvents(),
             {},
             objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
@@ -39,7 +39,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.events()]: (_, __, { q: queryParam }): void => {
+        [urls.exploreEvents()]: (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {

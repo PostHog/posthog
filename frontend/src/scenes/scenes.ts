@@ -70,7 +70,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Cohort',
         defaultDocsPath: '/docs/data/cohorts',
     },
-    [Scene.Events]: {
+    [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Activity',
         defaultDocsPath: '/docs/data/events',
@@ -420,7 +420,7 @@ export const redirects: Record<
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
-    '/events': urls.events(),
+    '/events': urls.exploreEvents(),
     '/project/plugins': urls.projectApps(),
     '/actions': urls.actions(),
     '/organization/members': urls.settings('organization'),
@@ -446,7 +446,7 @@ export const redirects: Record<
         } catch (e) {
             lemonToast.error('Invalid event timestamp')
         }
-        return combineUrl(urls.events(), {}, { q: query }).url
+        return combineUrl(urls.exploreEvents(), {}, { q: query }).url
     },
     '/events/properties': urls.propertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
@@ -506,7 +506,7 @@ export const routes: Record<string, Scene> = {
     [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
     [urls.dataManagementHistory()]: Scene.DataManagement,
     [urls.database()]: Scene.DataManagement,
-    [urls.events()]: Scene.EventsManagement,
+    [urls.exploreEvents()]: Scene.EventsManagement,
     [urls.liveEvents()]: Scene.EventsManagement,
     [urls.replay()]: Scene.Replay,
     // One entry for every available tab

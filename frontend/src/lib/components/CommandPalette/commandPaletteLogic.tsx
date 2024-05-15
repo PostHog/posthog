@@ -512,7 +512,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         icon: IconLive,
                         display: 'Go to Events explorer',
                         executor: () => {
-                            push(urls.events())
+                            push(urls.exploreEvents())
                         },
                     },
                     {

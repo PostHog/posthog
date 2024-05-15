@@ -10,12 +10,12 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { eventsManagementSceneLogicType } from './EventsManagementSceneType'
 import { EventsScene } from './events/EventsScene'
-import { LiveEventsScene } from './live-events/LiveEventsScene'
+import type { eventsManagementSceneLogicType } from './EventsManagementSceneType'
+import { LiveEventsTable } from './live-events/LiveEventsTable'
 
 export enum EventsManagementTab {
-    Events = 'events',
+    ExploreEvents = 'explore',
     LiveEvents = 'live',
 }
 
@@ -23,15 +23,15 @@ const tabs: Record<
     EventsManagementTab,
     { url: string; label: LemonTab<any>['label']; content: JSX.Element; buttons?: React.ReactNode }
 > = {
-    [EventsManagementTab.Events]: {
-        url: urls.events(),
-        label: 'Events',
+    [EventsManagementTab.ExploreEvents]: {
+        url: urls.exploreEvents(),
+        label: 'Explore',
         content: <EventsScene />,
     },
     [EventsManagementTab.LiveEvents]: {
         url: urls.liveEvents(),
-        label: 'Live Events',
-        content: <LiveEventsScene />,
+        label: 'Live',
+        content: <LiveEventsTable />,
     },
 }
 
@@ -45,7 +45,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
     }),
     reducers({
         tab: [
-            EventsManagementTab.Events as EventsManagementTab,
+            EventsManagementTab.ExploreEvents as EventsManagementTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -59,7 +59,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
                     {
                         key: Scene.EventsManagement,
                         name: `Activity`,
-                        path: tabs.events.url,
+                        path: tabs.explore.url,
                     },
                     {
                         key: tab,
@@ -78,7 +78,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
     }),
     actionToUrl(() => ({
         setTab: ({ tab }) => {
-            const tabUrl = tabs[tab as EventsManagementTab]?.url || tabs.events.url
+            const tabUrl = tabs[tab as EventsManagementTab]?.url || tabs.explore.url
             if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
                 // don't clear the parameters if we're already on the right page
                 // otherwise we can't use a url with parameters as a landing page
@@ -105,7 +105,6 @@ export function EventsManagementScene(): JSX.Element {
     const { tab, enabledTabs } = useValues(eventsManagementSceneLogic)
     const { setTab } = useActions(eventsManagementSceneLogic)
 
-    console.log('tabs', tabs)
     const lemonTabs: LemonTab<EventsManagementTab>[] = enabledTabs.map((key) => ({
         key: key as EventsManagementTab,
         label: <span data-attr={`events-management-${key}-tab`}>{tabs[key].label}</span>,

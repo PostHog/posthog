@@ -26,7 +26,7 @@ const meta: Meta = {
 export default meta
 export const EventExplorer = (): JSX.Element => {
     useEffect(() => {
-        router.actions.push(urls.events())
+        router.actions.push(urls.exploreEvents())
     }, [])
 
     return <App />
