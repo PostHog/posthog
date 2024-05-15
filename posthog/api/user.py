@@ -561,9 +561,7 @@ def get_zendesk_tickets(request):
     except (TypeError, json.decoder.JSONDecodeError):
         return JsonResponse({"error": "Cannot parse request body"}, status=400)
 
-    headers = {
-        "Authorization": "Basic bWFyY3VzLmhAcG9zdGhvZy5jb20vdG9rZW46ZHRvZkdicGdicXY1RWgyNERHZTNxNUdMcGRTQ3ZkUHA5dlVHSXJqaw=="
-    }
+    headers = {"Authorization": "Basic TOKEN"}
 
     response = requests.request(
         "GET",
@@ -592,6 +590,36 @@ def get_zendesk_tickets(request):
     )
 
     return JsonResponse({"tickets": tickets.json()["tickets"]})
+
+
+@authenticate_secondarily
+def reply_zendesk_ticket(request):
+    # do auth
+    email = "marcus.h@posthog.com"
+
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
+
+    headers = {"Authorization": "Basic TOKEN"}
+
+    author = requests.request(
+        "GET", "https://posthoghelp.zendesk.com/api/v2/users/search", json={"query": f"email:{email}"}, headers=headers
+    ).json()
+    author_id = author["users"][0]["id"]
+
+    ticket_id = body.get("ticket_id")
+    comment_body = body.get("comment")["body"]
+
+    tickets = requests.request(
+        "PUT",
+        f"https://posthoghelp.zendesk.com/api/v2/tickets/{ticket_id}.json",
+        json={"ticket": {"comment": {"body": comment_body, "public": True, "author_id": author_id}}},
+        headers=headers,
+    )
+
+    return JsonResponse({"tickets": tickets.json()})
 
 
 @require_http_methods(["POST"])
