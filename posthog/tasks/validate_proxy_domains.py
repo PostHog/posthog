@@ -17,6 +17,9 @@ def validate_proxy_domains() -> None:
 
             if value == EXPECTED_CNAME:
                 domain.status = ProxyRecord.Status.ISSUING
+                response = requests.post(f"{settings.PROXY_PROVISIONER_URL}create", data={"domain": record.domain})
+                if response.status_code != 200:
+                    domain.status = ProxyRecord.Status.ERRORING
                 domain.save()
         except dns.resolver.NoAnswer:
             break
