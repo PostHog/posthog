@@ -3,3 +3,17 @@
 # RealTime Hog 3000
 
 The start of something fresh.
+
+## Installing
+
+```bash
+curl https://mmdbcdn.posthog.net/ | brotli -d > mmdb.db
+```
+
+Config the configs in `configs/config.yml`. You can take a peak at the examples in `configs/configs.example.yml`
+
+Run it!
+
+```bash
+go run .
+```
