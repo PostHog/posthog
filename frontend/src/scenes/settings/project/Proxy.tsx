@@ -1,4 +1,4 @@
-import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -13,6 +13,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
@@ -49,6 +50,11 @@ export function Proxy(): JSX.Element {
                             )}
                         >
                             {status}
+                            {status === 'waiting' &&
+                                <Tooltip title="Waiting for DNS records to be created" placement="top">
+                                    <IconInfo />
+                                </Tooltip>
+                            }
                         </span>
                     </div>
                 )
