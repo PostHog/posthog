@@ -58,7 +58,6 @@ func (c *KafkaConsumer) Consume() {
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
 
-	i := 0
 	for {
 		msg, err := c.consumer.ReadMessage(-1)
 		if err != nil {
@@ -87,10 +86,6 @@ func (c *KafkaConsumer) Consume() {
 				}
 			}
 		}
-
-		i += 1
-		log.Printf("Kafka processed %v messages", i)
-
 		c.outgoingChan <- phEvent
 	}
 }

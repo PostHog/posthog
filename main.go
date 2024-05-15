@@ -95,7 +95,6 @@ func main() {
 				subscription.ShouldClose.Store(true)
 				return nil
 			case payload := <-subscription.EventChan:
-				log.Printf("Event endpoint payload received: %+v\n", payload)
 				jsonData, err := json.Marshal(payload)
 				if err != nil {
 					fmt.Println("Error:", err)

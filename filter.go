@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"sync/atomic"
 )
 
@@ -40,14 +39,9 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 }
 
 func (c *Filter) Run() {
-	x := 0
-
 	for {
 		select {
 		case event := <-c.inboundChan:
-			x += 1
-			log.Printf("Filter processed %v messages", x)
-
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
 					// TODO: Figure this out later. Apparently closing from the read side is dangerous
@@ -67,14 +61,10 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				log.Printf("Before event send %d", x)
 				sub.EventChan <- event
-				log.Printf("After event send %d", x)
 			}
 		case newSub := <-c.subChan:
-			log.Printf("New sub: %v\n", newSub)
 			c.subs = append(c.subs, newSub)
-			log.Printf("New sub added: %v\n", newSub)
 		}
 	}
 }
