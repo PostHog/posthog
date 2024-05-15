@@ -1,0 +1,13 @@
+prod: False
+tailscale:
+  controlUrl:
+  hostname: "live-events"
+kafka:
+  brokers: "localhost:9092"
+  topic: "live_events"
+  group_id: "livestream"
+mmdb:
+  # TODO: we could do this in Go, assuming the app has write access
+  # apt-get install -y curl ca-certificates brotli
+  # curl https://mmdbcdn.posthog.net/ | brotli -d > mmdb.db
+  path: "mmdb.db"
