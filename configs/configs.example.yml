@@ -8,3 +8,5 @@ kafka:
   group_id: "livestream-dev"
 mmdb:
   path: "mmdb.db"
+jwt:
+  secret: "<randomly generated secret key>"
