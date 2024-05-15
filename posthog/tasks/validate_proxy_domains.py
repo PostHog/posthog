@@ -37,5 +37,4 @@ def validate_proxy_domains() -> None:
             data = response.json()
             if data.get("status") == "Ready":
                 domain.status = ProxyRecord.Status.VALID
-
-            domain.save()
+                domain.save()
