@@ -1,7 +1,6 @@
 import { LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,6 +9,7 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 
 import { logsDataLogic } from './logsDataLogic'
@@ -40,19 +40,49 @@ export function LogsScene(): JSX.Element {
 }
 
 const SomeComponent = (): JSX.Element => {
-    const { data, responseLoading, query, sparklineData } = useValues(logsDataLogic)
+    const { data, responseLoading, query } = useValues(logsDataLogic)
 
     return (
         <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
-            <div className="py-2">
-                <Sparkline labels={sparklineData.labels} data={sparklineData.data} loading={responseLoading} />
-            </div>
-
             <div className="flex gap-4 justify-between flex-wrap">
                 <div className="flex gap-4 items-center">
                     <Reload />
                     <AutoLoad />
                 </div>
+            </div>
+
+            <div className="py-2 max-h-60 overflow-hidden">
+                <h2>Log volume</h2>
+                <Query
+                    key="logs"
+                    readOnly={true}
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        full: false,
+                        embedded: true,
+                        fitParentHeight: true,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            filterTestAccounts: false,
+                            breakdownFilter: {
+                                breakdown_type: 'event',
+                                breakdown: '$level',
+                            },
+                            series: [
+                                {
+                                    kind: 'EventsNode',
+                                    event: '$log',
+                                    name: '$log',
+                                    math: 'total',
+                                },
+                            ],
+                            interval: 'day',
+                            trendsFilter: {
+                                display: 'ActionsBar',
+                            },
+                        },
+                    }}
+                />
             </div>
 
             <LemonTable

@@ -28,6 +28,13 @@
     display: flex;
     flex-direction: column;
 
+    &InsightVizDisplay--fit-parent-height {
+        --insight-viz-min-height: unset;
+
+        flex: 1;
+        height: 100%;
+    }
+
     .NotebookNode & {
         flex: 1;
         height: 100%;

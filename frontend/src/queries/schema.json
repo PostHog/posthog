@@ -4373,6 +4373,10 @@
                     "description": "Query is embedded inside another bordered component",
                     "type": "boolean"
                 },
+                "fitParentHeight": {
+                    "description": "Otherwise the insight by default has a fixed minimum height and might overflow its parent",
+                    "type": "boolean"
+                },
                 "full": {
                     "description": "Show with most visual options enabled. Used in insight scene.",
                     "type": "boolean"
@@ -6981,6 +6985,10 @@
                 },
                 "expandable": {
                     "description": "Can expand row to show raw event data (default: true)",
+                    "type": "boolean"
+                },
+                "fitParentHeight": {
+                    "description": "Otherwise the insight by default has a fixed minimum height and might overflow its parent",
                     "type": "boolean"
                 },
                 "full": {

@@ -44,6 +44,7 @@ export function InsightVizDisplay({
     insightMode,
     context,
     embedded,
+    fitParentHeight,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -54,6 +55,7 @@ export function InsightVizDisplay({
     insightMode?: ItemMode
     context?: QueryContext
     embedded: boolean
+    fitParentHeight: boolean
 }): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
@@ -218,7 +220,8 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
-                    !embedded && 'border rounded bg-bg-light'
+                    !embedded && 'border rounded bg-bg-light',
+                    fitParentHeight && 'InsightVizDisplay--fit-parent-height'
                 )}
                 data-attr="insights-graph"
             >

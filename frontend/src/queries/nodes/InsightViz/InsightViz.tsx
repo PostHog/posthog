@@ -76,6 +76,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
     const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
     const showingResults = query.showResults ?? true
     const embedded = query.embedded ?? false
+    const fitParentHeight = query.fitParentHeight ?? false
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
@@ -101,6 +102,7 @@ export function InsightViz({ uniqueKey, query, setQuery, context, readOnly }: In
                                 disableLastComputationRefresh={disableLastComputationRefresh}
                                 showingResults={showingResults}
                                 embedded={embedded}
+                                fitParentHeight={fitParentHeight}
                             />
                         </div>
                     </div>

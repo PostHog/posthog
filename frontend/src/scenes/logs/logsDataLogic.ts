@@ -29,21 +29,5 @@ export const logsDataLogic = kea<logsDataLogicType>([
                 return response?.results ?? []
             },
         ],
-        sparklineData: [
-            (s) => [s.data],
-            (data) => {
-                const results: Record<string, number> = {}
-                data.forEach((log) => {
-                    const toStartOfMinute = new Date(log.timestamp)
-                    toStartOfMinute.setSeconds(0)
-                    toStartOfMinute.setMilliseconds(0)
-                    results[toStartOfMinute.toISOString()] = (results[toStartOfMinute.toISOString()] || 0) + 1
-                })
-                return {
-                    labels: Object.keys(results),
-                    data: Object.values(results),
-                }
-            },
-        ],
     }),
 ])

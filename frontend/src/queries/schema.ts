@@ -621,6 +621,10 @@ interface InsightVizNodeViewProps {
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
     vizSpecificOptions?: VizSpecificOptions
+    /**
+     * Otherwise the insight by default has a fixed minimum height and might overflow its parent
+     */
+    fitParentHeight?: boolean
 }
 
 /** Base class for insight query nodes. Should not be used directly. */
