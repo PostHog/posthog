@@ -12,6 +12,7 @@ import {
     IconPeople,
     IconPieChart,
     IconPlusSmall,
+    IconPresent,
     IconRewindPlay,
     IconRocket,
     IconServer,
@@ -511,6 +512,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                       icon: <IconDecisionTree />,
                                       to: urls.projectApps(),
                                   }
+                            : null,
+                        hasOnboardedAnyProduct && featureFlags[FEATURE_FLAGS.PYRAMID_SCHEME]
+                            ? {
+                                  identifier: Scene.Referrals,
+                                  label: 'Referrals',
+                                  icon: <IconPresent />,
+                                  to: urls.referralPrograms(),
+                                  tag: 'alpha' as const,
+                              }
                             : null,
                     ].filter(isNotNil),
                 ]

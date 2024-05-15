@@ -178,6 +178,7 @@ export enum ProductKey {
     GROUP_ANALYTICS = 'group_analytics',
     INTEGRATIONS = 'integrations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
+    REFERRALS = 'referrals',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -3924,8 +3925,12 @@ export type BillingTableTierRow = {
 
 export type ReferralProgram = {
     id: string
-    name: string
+    short_id: string
+    title: string
     description: string
+    created_at: string
+    referrers_count: number
+    redeemers_count: number
 }
 
 export type ReferralIdentity = {
