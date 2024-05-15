@@ -431,10 +431,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _refresh_frequency(self):
         raise NotImplementedError()
 
-    @abstractmethod
-    def get_progress(self):
-        raise NotImplementedError()
-
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversably update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):

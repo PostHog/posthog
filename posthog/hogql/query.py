@@ -178,6 +178,7 @@ def execute_hogql_query(
             )
 
             try:
+                print("EXECUTING CLICKHOUSE", clickhouse_sql)
                 results, types = sync_execute(
                     clickhouse_sql,
                     clickhouse_context.values,

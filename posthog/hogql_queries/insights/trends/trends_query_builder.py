@@ -193,15 +193,32 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
         default_query = ast.SelectQuery(
-            select=[ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation())],
-            select_from=ast.JoinExpr(table=self._table_expr, alias="e"),
+            select=[
+                ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation()),
+            ],
+            # need to make this a subselect with sleepEachRow
+            select_from=ast.JoinExpr(
+                table=parse_select(
+                    """select 
+                        events.uuid as uuid, 
+                        events.timestamp as timestamp,
+                        events.person_id as person_id, 
+                        events.event as event,
+                        sleepEachRow(1) as sleep
+                       from events""",
+                ),
+                alias="e",
+            ),  # ast.JoinExpr(table=self._table_expr, alias="e"),
             where=events_filter,
         )
+
+        """
         if not isinstance(self.series, DataWarehouseNode):
             assert default_query.select_from is not None
             default_query.select_from.sample = ast.SampleExpr(
                 sample_value=self._sample_value(),
             )
+        """
 
         default_query.group_by = []
 

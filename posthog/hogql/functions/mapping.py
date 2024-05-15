@@ -69,6 +69,8 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
 
 HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # arithmetic
+    "sleep": HogQLFunctionMeta("sleep", 1, 1),
+    "sleepEachRow": HogQLFunctionMeta("sleepEachRow", 1, 1),
     "plus": HogQLFunctionMeta("plus", 2, 2),
     "minus": HogQLFunctionMeta("minus", 2, 2),
     "multiply": HogQLFunctionMeta("multiply", 2, 2),

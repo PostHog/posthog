@@ -80,6 +80,9 @@ class QueryStatusManager:
         WHERE initial_query_id = %(query_id)s
         """
         CLICKHOUSE_SQL = "SELECT query_id, read_bytes, read_rows, total_rows_approx, elapsed AS elapsed_time FROM clusterAllReplicas(posthog, system.processes)"
+        CLICKHOUSE_SQL = (
+            "SELECT query_id, read_bytes, read_rows, total_rows_approx, elapsed AS elapsed_time FROM system.processes"
+        )
 
         if True or not query_status.complete:
             # Run clickhouse query here
