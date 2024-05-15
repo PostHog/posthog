@@ -81,8 +81,8 @@ func main() {
 	e.GET("/stats", func(c echo.Context) error {
 
 		type stats struct {
-			UsersOnProduct int `json:"users_on_product"`
-			Error          string
+			UsersOnProduct int    `json:"users_on_product"`
+			Error          string `json:"error,omitempty"`
 		}
 
 		teamId := c.QueryParam("teamId")
