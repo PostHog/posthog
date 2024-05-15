@@ -15,6 +15,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setFreeMovement: (enabled: boolean) => ({ enabled }),
         setInteractWithElements: (enabled: boolean) => ({ enabled }),
         setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
+        setImageFilter: (enabled: boolean) => ({ enabled }),
     }),
 
     reducers(() => ({
@@ -39,6 +40,13 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             { persist: true },
             {
                 setKeyboardControlsEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        imageFilter: [
+            true,
+            { persist: true },
+            {
+                setImageFilter: (_, { enabled }) => enabled,
             },
         ],
 

@@ -58,6 +58,7 @@ export class HedgehogActor {
     freeMovement = true
     interactWithElements = true
     keyboardControlsEnabled = true
+    imageFilter: string | null = null
 
     constructor() {
         this.setAnimation('fall')
@@ -371,6 +372,7 @@ export class HedgehogActor {
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
+                        filter: this.imageFilter as any,
                     }}
                 />
                 {this.accessories.map((accessory, index) => (
