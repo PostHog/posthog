@@ -40,7 +40,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             organization_id=self.organization.id,
             created_by=request.user,
             domain=domain,
-            target_cname=settings.PROXY_TARGET_CNAME
+            target_cname=settings.PROXY_TARGET_CNAME,
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
