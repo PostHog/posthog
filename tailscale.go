@@ -6,11 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
-	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
-
-var localClient *tailscale.LocalClient
 
 func initTailNetServer() (*net.Listener, error) {
 	hostname := viper.GetString("tailscale.hostname")
@@ -29,7 +26,6 @@ func initTailNetServer() (*net.Listener, error) {
 	if err := srv.Start(); err != nil {
 		return nil, err
 	}
-	localClient, _ = srv.LocalClient()
 
 	l, err := srv.Listen("tcp", ":8080")
 	if err != nil {
