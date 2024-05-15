@@ -29,6 +29,7 @@ export type SettingSectionId =
     | 'organization-members'
     | 'organization-authentication'
     | 'organization-rbac'
+    | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
     | 'user-api-keys'
