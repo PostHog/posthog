@@ -27,7 +27,7 @@ func initTailNetServer() (*net.Listener, error) {
 		return nil, err
 	}
 
-	l, err := srv.Listen("tcp", ":8080")
+	l, err := srv.Listen("tcp", ":80")
 	if err != nil {
 		return nil, err
 	}
