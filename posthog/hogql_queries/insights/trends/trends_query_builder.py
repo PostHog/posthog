@@ -196,19 +196,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             select=[
                 ast.Alias(alias="total", expr=self._aggregation_operation.select_aggregation()),
             ],
-            # need to make this a subselect with sleepEachRow
-            select_from=ast.JoinExpr(
-                table=parse_select(
-                    """select 
-                        events.uuid as uuid, 
-                        events.timestamp as timestamp,
-                        events.person_id as person_id, 
-                        events.event as event,
-                        sleepEachRow(1) as sleep
-                       from events""",
-                ),
-                alias="e",
-            ),  # ast.JoinExpr(table=self._table_expr, alias="e"),
+            select_from=ast.JoinExpr(table=self._table_expr, alias="e"),
             where=events_filter,
         )
 
@@ -370,7 +358,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 """
                 SELECT
                     groupArray(day_start) AS date,
-                    groupArray(count) AS total
+                    groupArray(count) AS total,
+                    sleep(3)
                 FROM {inner_query}
             """,
                 placeholders={"inner_query": inner_query},

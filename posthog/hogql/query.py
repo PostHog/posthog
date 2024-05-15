@@ -185,7 +185,7 @@ def execute_hogql_query(
                     with_column_types=True,
                     workload=workload,
                     team_id=team.pk,
-                    readonly=True,
+                    readonly=True
                 )
             except Exception as e:
                 if debug:
