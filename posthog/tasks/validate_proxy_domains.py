@@ -3,7 +3,7 @@ import requests
 from posthog.models import ProxyRecord
 from django.conf import settings
 
-EXPECTED_CNAME = "k8s-proxyasa-proxyasa-e8343c0048-1f26b5a36cde44fd.elb.us-east-1.amazonaws.com."
+EXPECTED_CNAME = settings.PROXY_TARGET_CNAME
 
 
 def validate_proxy_domains() -> None:
