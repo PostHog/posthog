@@ -350,7 +350,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tag_queries(cache_key=cache_key)
         CachedResponse: type[CR] = self.cached_response_type
 
-        if execution_mode != ExecutionMode.CALCULATION_ALWAYS and self.limit_context != LimitContext.EXPORT:
+        if execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # Let's look in the cache first
             cached_response: CR | CacheMissResponse
             cached_response_candidate_bytes: Optional[bytes] = get_safe_cache(cache_key)
@@ -403,7 +403,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # Dont cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+        if (has_error is None or len(has_error) == 0) and execution_mode != ExecutionMode.CALCULATION_ALWAYS:
             # TODO: Use JSON serializer in general for redis cache
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
             cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
