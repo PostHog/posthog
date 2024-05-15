@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 
 func main() {
 	loadConfigs()
+	initPG()
+	defer pgConn.Close(context.Background())
 
 	mmdb := viper.GetString("mmdb.path")
 	if mmdb == "" {
@@ -116,6 +119,10 @@ func main() {
 		}
 	})
 
+	e.GET("/version", pgVersion)
+	e.GET("/token", getToken)
+	e.GET("/person", getPerson)
+
 	if !viper.GetBool("prod") {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
@@ -134,9 +141,4 @@ func main() {
 			e.Logger.Fatal(err)
 		}
 	}
-}
-
-// Handler
-func index(c echo.Context) error {
-	return c.String(http.StatusOK, "RealTime Hog 3000")
 }
