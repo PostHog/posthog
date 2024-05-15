@@ -1,10 +1,12 @@
 import json
 from functools import cached_property
 from typing import Any, Optional, cast
+from datetime import timedelta
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from rest_framework import (
     exceptions,
     request,
@@ -120,6 +122,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
+    jwt_token = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -171,6 +174,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "jwt_token",
         )
         read_only_fields = (
             "id",
@@ -185,6 +189,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
+            "jwt_token",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -195,6 +200,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
+
+    def get_jwt_token(self, team: Team) -> Optional[str]:
+        return encode_jwt(
+            {"team_id": team.id},
+            timedelta(days=2),
+            PosthogJwtAudience.LIVE_EVENTS,
+        )
 
     def validate_session_recording_linked_flag(self, value) -> dict | None:
         if value is None:
