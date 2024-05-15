@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -80,6 +81,7 @@ func main() {
 		teamId := c.QueryParam("teamId")
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
+		geo := c.QueryParam("geo")
 
 		if teamId == "" {
 			return errors.New("teamId is required")
@@ -101,8 +103,12 @@ func main() {
 			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			DistinctId:  distinctId,
 			EventType:   eventType,
-			EventChan:   make(chan ResponsePostHogEvent, 100),
+			EventChan:   make(chan interface{}, 100),
 			ShouldClose: &atomic.Bool{},
+		}
+
+		if strings.ToLower(geo) == "true" || geo == "1" {
+			subscription.Geo = true
 		}
 
 		subChan <- subscription

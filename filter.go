@@ -19,8 +19,10 @@ type Subscription struct {
 	DistinctId string
 	EventType  string
 
-	// Response channel
-	EventChan   chan ResponsePostHogEvent
+	Geo bool
+
+	// Channels
+	EventChan   chan interface{}
 	ShouldClose *atomic.Bool
 }
 
@@ -48,6 +50,14 @@ type Filter struct {
 
 func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
 	return &Filter{subChan: subChan, unSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
+}
+
+func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
+	return &ResponseGeoEvent{
+		Lat:   event.Lat,
+		Lng:   event.Lng,
+		Count: 1,
+	}
 }
 
 func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
@@ -96,6 +106,7 @@ func (c *Filter) Run() {
 			c.subs = removeSubscription(unSub.ClientId, c.subs)
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent
+			var responseGeoEvent *ResponseGeoEvent
 
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
@@ -116,14 +127,27 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				if responseEvent == nil {
-					responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
-				}
+				if sub.Geo && event.Lat != 0.0 {
+					if responseGeoEvent == nil {
+						responseGeoEvent = convertToResponseGeoEvent(event)
+					}
 
-				select {
-				case sub.EventChan <- *responseEvent:
-				default:
-					// Don't block
+					select {
+					case sub.EventChan <- *responseGeoEvent:
+					default:
+						// Don't block
+					}
+
+				} else {
+					if responseEvent == nil {
+						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
+					}
+
+					select {
+					case sub.EventChan <- *responseEvent:
+					default:
+						// Don't block
+					}
 				}
 			}
 
