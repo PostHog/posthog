@@ -340,7 +340,7 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, JwtAuthentication]
+    authentication_classes = [JwtAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]

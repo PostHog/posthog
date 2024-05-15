@@ -218,16 +218,18 @@ class JwtAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                try:
-                    token = authorization_match.group(1).strip()
-                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                    user = User.objects.get(pk=info["id"])
-                    return (user, None)
-                except jwt.DecodeError:
-                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
-                    return None
-                except Exception:
-                    raise AuthenticationFailed(detail=f"Token invalid.")
+                for audience in cls.valid_audiences:
+                    try:
+                        token = authorization_match.group(1).strip()
+                        info = decode_jwt(token, audience=audience)
+                        user = User.objects.get(pk=info["id"])
+                        return (user, None)
+                    except Exception as e:
+                        # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                        if not isinstance(e, jwt.InvalidTokenError):
+                            raise AuthenticationFailed(detail=f"Token invalid.")
+
+                return None
             else:
                 # We don't throw so that the PersonalAPIKeyAuthentication can have a go
                 return None

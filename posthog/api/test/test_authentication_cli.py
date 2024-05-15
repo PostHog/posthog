@@ -38,7 +38,6 @@ class TestAuthenticationCli(APIBaseTest):
 
     def test_can_call_api_with_created_token(self):
         access_token = self.do_successful_flow()
-
         res = self.cli_client.get("/api/users/@me", HTTP_AUTHORIZATION=f"Bearer {access_token}")
 
         assert res.status_code == status.HTTP_200_OK
