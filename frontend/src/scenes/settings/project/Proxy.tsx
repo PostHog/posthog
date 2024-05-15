@@ -39,6 +39,7 @@ export function Proxy(): JSX.Element {
 }
 
 function CreateRecordForm(): JSX.Element {
+    const { proxyRecordsLoading } = useValues(proxyLogic)
     const { toggleShowingForm } = useActions(proxyLogic)
 
     return (
@@ -52,10 +53,14 @@ function CreateRecordForm(): JSX.Element {
                 <LemonInput autoFocus placeholder="Enter a URL (e.g. https://posthog.com)" data-attr="domain-input" />
             </LemonField>
             <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={toggleShowingForm}>
+                <LemonButton
+                    type="secondary"
+                    onClick={toggleShowingForm}
+                    disabledReason={proxyRecordsLoading ? 'Saving' : undefined}
+                >
                     Cancel
                 </LemonButton>
-                <LemonButton htmlType="submit" type="primary" data-attr="domain-save">
+                <LemonButton htmlType="submit" type="primary" data-attr="domain-save" loading={proxyRecordsLoading}>
                     Add
                 </LemonButton>
             </div>
