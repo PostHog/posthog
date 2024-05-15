@@ -3882,6 +3882,7 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
+    ZenHog = 'zenhog',
 }
 
 export interface SourceFieldConfig {

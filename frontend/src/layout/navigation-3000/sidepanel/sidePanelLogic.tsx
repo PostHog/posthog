@@ -18,6 +18,8 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Activity,
     SidePanelTab.Status,
     SidePanelTab.Exports,
+    // TODO Dylan: Zenhog should only be visible if the user has tickets
+    // but we'll fix that down the line
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -53,6 +55,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
+                    tabs.push(SidePanelTab.ZenHog)
                 }
                 tabs.push(SidePanelTab.Activity)
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
@@ -74,6 +77,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
+            // TODO Dylan: need to figure out how to add zenhog logic here so that it appears in the sidepanel as a visible
+            // tab whenever the user has tickets, and doesn't appear if not.  For now, let's always add it
             (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
             (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
