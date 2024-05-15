@@ -1,16 +1,30 @@
 import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonTable, LemonTableColumns, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonTable,
+    LemonTableColumns,
+    Spinner,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 export function Proxy(): JSX.Element {
+    const { isCloud } = useValues(preflightLogic)
     const { formState, proxyRecords } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
+
+    if (!isCloud) {
+        return <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
+    }
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
