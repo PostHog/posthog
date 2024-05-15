@@ -152,7 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
-        setPollResponse: (status: QueryStatus) => ({ status }),
+        setPollResponse: (status: QueryStatus | null) => ({ status }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -186,6 +186,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
