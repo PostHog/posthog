@@ -5,6 +5,7 @@ from rest_framework import serializers, viewsets
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.referrals import ReferralProgram
 
 logger = structlog.get_logger(__name__)
 
@@ -14,13 +15,28 @@ class ReferralProgramSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReferralProgram
-        fields = ["short_id", "title", "created_at", "created_by"]
+        fields = [
+            "short_id",
+            "title",
+            "description",
+            "max_total_redemption_count",
+            "max_redemption_count_per_referrer",
+            "created_at",
+            "created_by",
+        ]
         read_only_fields = ["short_id", "created_at", "created_by"]
+
+    def create(self, validated_data: dict, *args, **kwargs) -> ReferralProgram:
+        request = self.context["request"]
+        validated_data["created_by"] = request.user
+        validated_data["team_id"] = self.context["team_id"]
+
+        return super().create(validated_data, *args, **kwargs)
 
 
 class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    # scope_object = "referrals"
-    queryset = ReferrerProgram.objects.all()
+    scope_object = "INTERNAL"
+    queryset = ReferralProgram.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     lookup_field = "short_id"

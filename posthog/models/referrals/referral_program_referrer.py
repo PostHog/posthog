@@ -7,11 +7,11 @@ from posthog.utils import generate_short_id
 class ReferralProgramReferrer(UUIDModel):
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["user_id", "referral_program"], name="unique user_id for program")
+            models.UniqueConstraint(fields=["user_id", "referral_program"], name="unique user_id for program referrer")
         ]
 
-    user_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    code: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id)
+    user_id: models.CharField = models.CharField(max_length=128)
+    code: models.TextField = models.TextField(max_length=128, default=generate_short_id)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     referral_program: models.ForeignKey = models.ForeignKey(
         "ReferralProgram",

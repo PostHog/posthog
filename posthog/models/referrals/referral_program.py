@@ -10,6 +10,15 @@ class ReferralProgram(UUIDModel):
 
     short_id: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    created_by: models.ForeignKey = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        related_name="created_referral_programs",
+        related_query_name="created_referral_program",
+    )
+    title: models.TextField = models.TextField(blank=True, null=True, default="")
+    description: models.TextField = models.TextField(blank=True, null=True, default="")
+
     team: models.ForeignKey = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
