@@ -322,6 +322,7 @@ export const SettingsMap: SettingSection[] = [
         level: 'organization',
         id: 'organization-proxy',
         title: 'Proxy',
+        flag: 'PROXY_AS_A_SERVICE',
         settings: [
             {
                 id: 'organization-proxy',
