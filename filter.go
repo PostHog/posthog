@@ -9,7 +9,7 @@ import (
 
 type Subscription struct {
 	// Filters
-	TeamId     uint
+	TeamId     int
 	Token      string
 	DistinctId string
 	EventType  string
@@ -44,7 +44,7 @@ func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter
 	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId uint) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
@@ -57,7 +57,7 @@ func convertToResponsePostHogEvent(event PostHogEvent, teamId uint) *ResponsePos
 
 var personUUIDV5Namespace *uuid.UUID
 
-func uuidFromDistinctId(teamId uint, distinctId string) string {
+func uuidFromDistinctId(teamId int, distinctId string) string {
 	if teamId == 0 || distinctId == "" {
 		return ""
 	}

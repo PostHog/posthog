@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -77,13 +78,28 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
-		// teamId := c.QueryParam("teamId")
+		teamId := c.QueryParam("teamId")
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
 
+		if teamId == "" {
+			return errors.New("teamId is required")
+		}
+		teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
+		if err != nil {
+			return err
+		}
+
+		teamIdInt := int(teamIdInt64)
+		token, err := tokenFromTeamId(teamIdInt)
+		if err != nil {
+			return err
+		}
+
 		log.Printf("Making new sub")
 		subscription := Subscription{
-			Token:       "sTMFPsFhdP1Ssg",
+			TeamId:      teamIdInt,
+			Token:       token,
 			DistinctId:  distinctId,
 			EventType:   eventType,
 			EventChan:   make(chan ResponsePostHogEvent),
