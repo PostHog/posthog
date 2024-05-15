@@ -554,6 +554,46 @@ def redirect_to_website(request):
     return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
 
 
+@authenticate_secondarily
+def get_zendesk_tickets(request):
+    try:
+        body = json.loads(request.body)
+    except (TypeError, json.decoder.JSONDecodeError):
+        return JsonResponse({"error": "Cannot parse request body"}, status=400)
+
+    headers = {
+        "Authorization": "Basic bWFyY3VzLmhAcG9zdGhvZy5jb20vdG9rZW46ZHRvZkdicGdicXY1RWgyNERHZTNxNUdMcGRTQ3ZkUHA5dlVHSXJqaw=="
+    }
+
+    response = requests.request(
+        "GET",
+        "https://posthoghelp.zendesk.com/api/v2/organizations/search",
+        data="",
+        headers=headers,
+        params={"external_id": body.get("org_id")},
+    )
+
+    zendesk_orgs = response.json()
+
+    if len(zendesk_orgs["organizations"]) == 0:
+        return JsonResponse({"error": "No organization found with that ID"}, status=404)
+
+    if zendesk_orgs["organizations"][0]["external_id"] != body.get("org_id"):
+        return JsonResponse({"error": "Something weird is going on"}, status=404)
+
+    zendesk_org_id = zendesk_orgs["organizations"][0]["id"]
+
+    # get all tickets from that org
+    tickets = requests.request(
+        "GET",
+        f"https://posthoghelp.zendesk.com/api/v2/organizations/{zendesk_org_id}/tickets",
+        data="",
+        headers=headers,
+    )
+
+    return JsonResponse({"tickets": tickets.json()["tickets"]})
+
+
 @require_http_methods(["POST"])
 @authenticate_secondarily
 def test_slack_webhook(request):
