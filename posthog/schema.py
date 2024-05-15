@@ -756,7 +756,7 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clickhouse_query_progress: Optional[list[ClickhouseQueryStatus]] = None
+    clickhouse_query_progress: Optional[dict[str, ClickhouseQueryStatus]] = None
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False

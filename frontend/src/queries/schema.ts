@@ -954,7 +954,7 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
-    clickhouse_query_progress?: Array<ClickhouseQueryStatus>
+    clickhouse_query_progress?: { [queryId: string]: ClickhouseQueryStatus }
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}

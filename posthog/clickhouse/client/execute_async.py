@@ -48,15 +48,31 @@ class QueryStatusManager:
     def results_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
 
+    @property
+    def clickhouse_query_status_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
     def store_query_status(self, query_status: QueryStatus):
         value = SafeJSONRenderer().render(query_status.model_dump())
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
+
+    def store_clickhouse_query_status(self, query_status: QueryStatus):
+        value = SafeJSONRenderer().render(query_status.clickhouse_query_progress)
+        self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
         try:
             byte_results = self.redis_client.get(self.results_key)
         except Exception as e:
             raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
+
+        return byte_results
+
+    def _get_clickhouse_query_status(self):
+        try:
+            byte_results = self.redis_client.get(self.clickhouse_query_status_key)
+        except Exception as e:
+            return "{}"
 
         return byte_results
 
@@ -70,7 +86,10 @@ class QueryStatusManager:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
         query_status = QueryStatus(**json.loads(byte_results))
+
         if with_progress:
+            clickhouse_query_status_bytes = self._get_clickhouse_query_status()
+            query_status.clickhouse_query_progress = json.loads(clickhouse_query_status_bytes)
             print(query_status)
             CLICKHOUSE_SQL = """
             SELECT
@@ -85,11 +104,8 @@ class QueryStatusManager:
             FROM clusterAllReplicas(posthog, system.processes)
             WHERE query_id like %(query_id)s
             """
-            #
-            #         WHERE initial_query_id = %(query_id)s
 
             if not query_status.complete:
-                # Run clickhouse query here
                 print("CLICKHOUSE")
                 try:
                     results, types = sync_execute(
@@ -102,8 +118,8 @@ class QueryStatusManager:
                             return 0
                         return int(num)
 
-                    query_status.clickhouse_query_progress = [
-                        ClickhouseQueryStatus(
+                    new_clickhouse_query_progress = {
+                        result[0]: ClickhouseQueryStatus(
                             **{
                                 "bytes_read": noNanInt(result[3]),
                                 "rows_read": noNanInt(result[2]),
@@ -113,7 +129,9 @@ class QueryStatusManager:
                             }
                         )
                         for result in results
-                    ]
+                    }
+                    query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
+                    self.store_clickhouse_query_status(query_status)
                 except Exception as e:
                     print(e)
                     pass

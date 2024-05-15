@@ -6472,10 +6472,10 @@
             "additionalProperties": false,
             "properties": {
                 "clickhouse_query_progress": {
-                    "items": {
+                    "additionalProperties": {
                         "$ref": "#/definitions/ClickhouseQueryStatus"
                     },
-                    "type": "array"
+                    "type": "object"
                 },
                 "complete": {
                     "default": false,
