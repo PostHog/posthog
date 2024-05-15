@@ -1,5 +1,7 @@
 from typing import Any
 import re
+import requests
+
 from hogvm.python.utils import HogVMException
 
 
@@ -13,7 +15,7 @@ def _to_concat_arg(arg) -> str:
     return str(arg)
 
 
-def execute_stl_function(name: str, args: list[Any]):
+def execute_stl_function(name: str, args: list[Any], timeout=5):
     match name:
         case "concat":
             return "".join([_to_concat_arg(arg) for arg in args])
@@ -50,5 +52,8 @@ def execute_stl_function(name: str, args: list[Any]):
             return args[0].upper()
         case "reverse":
             return args[0][::-1]
+        case "httpGet":
+            response = requests.get(args[0], timeout=timeout)
+            return response.text
         case _:
             raise HogVMException(f"Unsupported function call: {name}")

@@ -17,6 +17,7 @@ HOG_FUNCTIONS = (
     "lower",
     "upper",
     "reverse",
+    "httpGet",
 )
 
 
