@@ -34,6 +34,7 @@ import {
 import {
     containsHogQLQuery,
     filterKeyForQuery,
+    isHogQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -151,6 +152,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     if (query) {
                         if (containsHogQLQuery(query)) {
                             return InsightType.SQL
+                        } else if (isHogQuery(query)) {
+                            return InsightType.HOG
                         } else if (isInsightVizNode(query)) {
                             return insightMap[query.source.kind] || InsightType.TRENDS
                         }
@@ -195,20 +198,24 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.LIFECYCLE,
                         dataAttr: 'insight-lifecycle-tab',
                     },
+                    {
+                        label: (
+                            <>
+                                SQL
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
+                        type: InsightType.SQL,
+                        dataAttr: 'insight-sql-tab',
+                    },
+                    {
+                        label: <>Hog 🦔</>,
+                        type: InsightType.HOG,
+                        dataAttr: 'insight-hog-tab',
+                    },
                 ]
-
-                tabs.push({
-                    label: (
-                        <>
-                            SQL
-                            <LemonTag type="warning" className="uppercase ml-2">
-                                Beta
-                            </LemonTag>
-                        </>
-                    ),
-                    type: InsightType.SQL,
-                    dataAttr: 'insight-sql-tab',
-                })
 
                 if (activeView === InsightType.JSON) {
                     // only display this tab when it is selected by the provided insight query
@@ -234,7 +241,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
     }),
     listeners(({ values, actions }) => ({
         setActiveView: ({ view }) => {
-            if ([InsightType.SQL, InsightType.JSON].includes(view as InsightType)) {
+            if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(view as InsightType)) {
                 // if the selected view is SQL or JSON then we must have the "allow queries" flag on,
                 // so no need to check it
                 if (view === InsightType.JSON) {
@@ -242,6 +249,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 } else if (view === InsightType.SQL) {
                     const biVizFlag = Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ])
                     actions.setQuery(biVizFlag ? examples.DataVisualization : examples.HogQLTable)
+                } else if (view === InsightType.HOG) {
+                    actions.setQuery(examples.Hoggonacci)
                 }
             } else {
                 let query: InsightVizNode

@@ -93,9 +93,9 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
 }
 
 interface HogDebugProps {
-    queryKey: `new-${string}`
+    queryKey: string
     query: HogQuery
-    setQuery: (query: HogQuery) => void
+    setQuery?: (query: HogQuery) => void
 }
 
 export function HogDebug({ query, setQuery, queryKey }: HogDebugProps): JSX.Element {
@@ -106,11 +106,15 @@ export function HogDebug({ query, setQuery, queryKey }: HogDebugProps): JSX.Elem
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <div className="space-y-2">
-                <HogQueryEditor query={query} setQuery={setQuery} />
-                <LemonDivider className="my-4" />
-                <div className="flex gap-2">
-                    <Reload />
-                </div>
+                {setQuery ? (
+                    <>
+                        <HogQueryEditor query={query} setQuery={setQuery} />
+                        <LemonDivider className="my-4" />
+                        <div className="flex gap-2">
+                            <Reload />
+                        </div>
+                    </>
+                ) : null}
                 {dataLoading ? (
                     <>
                         <h2>Running query...</h2>

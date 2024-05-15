@@ -1906,6 +1906,7 @@ export enum InsightType {
     PATHS = 'PATHS',
     JSON = 'JSON',
     SQL = 'SQL',
+    HOG = 'HOG',
 }
 
 export enum PathType {
