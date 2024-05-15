@@ -2,12 +2,17 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
+	"golang.org/x/exp/slices"
 )
 
 type Subscription struct {
+	// Client
+	ClientId string
+
 	// Filters
 	TeamId     int
 	Token      string
@@ -37,11 +42,12 @@ type ResponseGeoEvent struct {
 type Filter struct {
 	inboundChan chan PostHogEvent
 	subChan     chan Subscription
+	unSubChan   chan Subscription
 	subs        []Subscription
 }
 
-func NewFilter(subChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
-	return &Filter{subChan: subChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
+func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
+	return &Filter{subChan: subChan, unSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
 }
 
 func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
@@ -71,18 +77,29 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 	return uuid.NewV5(*personUUIDV5Namespace, input).String()
 }
 
+func removeSubscription(clientId string, subs []Subscription) []Subscription {
+	var lighterSubs []Subscription
+	for i, sub := range subs {
+		if clientId == sub.ClientId {
+			lighterSubs = slices.Delete(subs, i, i+1)
+		}
+	}
+	return lighterSubs
+}
+
 func (c *Filter) Run() {
 	for {
 		select {
 		case newSub := <-c.subChan:
 			c.subs = append(c.subs, newSub)
+		case unSub := <-c.unSubChan:
+			c.subs = removeSubscription(unSub.ClientId, c.subs)
 		case event := <-c.inboundChan:
 			var responseEvent *ResponsePostHogEvent
 
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
-					// TODO: Figure this out later. Apparently closing from the read side is dangerous
-					// because writing to a closed channel = panic.
+					log.Println("User has unsubscribed, but not been removed from the slice of subs")
 					continue
 				}
 
@@ -104,6 +121,7 @@ func (c *Filter) Run() {
 				}
 
 				sub.EventChan <- *responseEvent
+
 			}
 
 		}
