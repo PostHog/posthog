@@ -227,4 +227,5 @@ export const urls = {
     heatmaps: (): string => `/heatmaps`,
     referralPrograms: (): string => `/referrals`,
     referralProgram: (shortId: string): string => `/referrals/${shortId}`,
+    createReferralProgram: (): string => `/referrals/new`,
 }

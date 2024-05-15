@@ -64,6 +64,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    ReferralProgram,
     RoleMemberType,
     RolesListParams,
     RoleType,
@@ -790,6 +791,15 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // # Referrals
+    public referralPrograms(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('referrals')
+    }
+
+    public referralProgram(id: ReferralProgram['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.referralPrograms(teamId).addPathComponent(id)
     }
 }
 
@@ -2009,6 +2019,27 @@ const api = {
             >
         ): Promise<DataWarehouseViewLink> {
             return await new ApiRequest().dataWarehouseViewLink(viewId).update({ data })
+        },
+    },
+
+    referralPrograms: {
+        async get(programId: ReferralProgram['id']): Promise<ReferralProgram> {
+            return await new ApiRequest().referralProgram(programId).get()
+        },
+        // async create(data: NewEarlyAccessFeatureType): Promise<EarlyAccessFeatureType> {
+        //     return await new ApiRequest().earlyAccessFeatures().create({ data })
+        // },
+        // async delete(featureId: EarlyAccessFeatureType['id']): Promise<void> {
+        //     await new ApiRequest().earlyAccessFeature(featureId).delete()
+        // },
+        // async update(
+        //     featureId: EarlyAccessFeatureType['id'],
+        //     data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+        // ): Promise<EarlyAccessFeatureType> {
+        //     return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
+        // },
+        async list(): Promise<PaginatedResponse<ReferralProgram>> {
+            return await new ApiRequest().referralPrograms().get()
         },
     },
 
