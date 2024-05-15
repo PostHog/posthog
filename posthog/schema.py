@@ -184,7 +184,6 @@ class ClickhouseQueryStatus(BaseModel):
     )
     bytes_read: int
     estimated_rows_total: int
-    estimated_time_remaining: int
     rows_read: int
     time_elapsed: int
 
@@ -756,7 +755,6 @@ class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clickhouse_query_progress: Optional[dict[str, ClickhouseQueryStatus]] = None
     complete: Optional[bool] = False
     end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False

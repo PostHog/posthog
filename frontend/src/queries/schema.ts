@@ -932,7 +932,6 @@ export type ClickhouseQueryStatus = {
     rows_read: integer
     estimated_rows_total: integer
     time_elapsed: integer
-    estimated_time_remaining: integer
 }
 
 export type QueryStatus = {
@@ -954,8 +953,6 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
-    // TODO: Move this to the backend only
-    clickhouse_query_progress?: { [queryId: string]: ClickhouseQueryStatus }
     query_progress?: ClickhouseQueryStatus
 }
 

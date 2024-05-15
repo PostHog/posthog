@@ -1,4 +1,5 @@
 import datetime
+
 import orjson as json
 import math
 from functools import partial
@@ -18,7 +19,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus, ClickhouseQueryStatus
+from posthog.schema import QueryStatus
 from posthog.tasks.tasks import process_query_task
 
 logger = structlog.get_logger(__name__)
@@ -56,8 +57,8 @@ class QueryStatusManager:
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
 
-    def store_clickhouse_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump(include={"clickhouse_query_progress"}))
+    def store_clickhouse_query_status(self, query_statuses):
+        value = json.dumps(query_statuses)
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
@@ -75,7 +76,7 @@ class QueryStatusManager:
             # Don't fail because of progress checking
             return {}
 
-        return json.loads(byte_results)["clickhouse_query_progress"] if byte_results is not None else {}
+        return json.loads(byte_results) if byte_results is not None else {}
 
     def has_results(self):
         return self._get_results() is not None
@@ -96,14 +97,12 @@ class QueryStatusManager:
                 read_rows,
                 read_bytes,
                 total_rows_approx,
-                (100 * read_rows) / total_rows_approx AS progress_percentage,
-                elapsed AS elapsed_time,
-                (elapsed / (read_rows / total_rows_approx)) * (1 - (read_rows / total_rows_approx)) AS estimated_remaining_time
+                elapsed
             FROM clusterAllReplicas(posthog, system.processes)
             WHERE query_id like %(query_id)s
             """
 
-            query_status.clickhouse_query_progress = self._get_clickhouse_query_status()
+            clickhouse_query_progress_dict = self._get_clickhouse_query_status()
             try:
                 results, types = sync_execute(
                     CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
@@ -112,27 +111,29 @@ class QueryStatusManager:
                 noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 
                 new_clickhouse_query_progress = {
-                    result[0]: ClickhouseQueryStatus(
-                        bytes_read=noNaNInt(result[3]),
-                        rows_read=noNaNInt(result[2]),
-                        estimated_rows_total=noNaNInt(result[4]),
-                        time_elapsed=noNaNInt(result[6]),
-                        estimated_time_remaining=noNaNInt(result[7]),
-                    )
+                    result[0]: {
+                        "bytes_read": noNaNInt(result[3]),
+                        "rows_read": noNaNInt(result[2]),
+                        "estimated_rows_total": noNaNInt(result[4]),
+                        "time_elapsed": noNaNInt(result[5]),
+                    }
                     for result in results
                 }
-                query_status.clickhouse_query_progress.update(new_clickhouse_query_progress)
-                self.store_clickhouse_query_status(query_status)
+                clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
+                self.store_clickhouse_query_status(clickhouse_query_progress_dict)
 
                 query_status.query_progress = {
-                    "bytes_read": sum(x.bytes_read for x in query_status.clickhouse_query_progress.values()),
-                    "rows_read": sum(x.rows_read for x in query_status.clickhouse_query_progress.values()),
-                    "estimated_rows_total": sum(
-                        x.estimated_rows_total for x in query_status.clickhouse_query_progress.values()
-                    ),
-                    "time_elapsed": sum(x.time_elapsed for x in query_status.clickhouse_query_progress.values()),
-                    "estimated_time_remaining": -1,
+                    "bytes_read": 0,
+                    "rows_read": 0,
+                    "estimated_rows_total": 0,
+                    "time_elapsed": 0,
                 }
+                for single_query_progress in clickhouse_query_progress_dict.values():
+                    query_status.query_progress["bytes_read"] += single_query_progress["bytes_read"]
+                    query_status.query_progress["rows_read"] += single_query_progress["rows_read"]
+                    query_status.query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
+                    query_status.query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
+
             except Exception as e:
                 logger.error("Clickhouse Status Check Failed", e)
                 pass

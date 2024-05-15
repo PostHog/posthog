@@ -19,9 +19,7 @@ import {
 import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
-import { QueryStatus } from './schema'
-import { QueryStatus } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,

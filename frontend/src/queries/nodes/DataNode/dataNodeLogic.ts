@@ -331,7 +331,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         pollResponse: [
             null as null | QueryStatus,
             {
-                setPollResponse: (state, { status }) => status,
+                setPollResponse: (_, { status }) => status,
             },
         ],
         autoLoadToggled: [

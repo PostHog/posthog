@@ -1548,9 +1548,6 @@
                 "estimated_rows_total": {
                     "type": "integer"
                 },
-                "estimated_time_remaining": {
-                    "type": "integer"
-                },
                 "rows_read": {
                     "type": "integer"
                 },
@@ -1558,7 +1555,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "estimated_time_remaining"],
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -6471,12 +6468,6 @@
         "QueryStatus": {
             "additionalProperties": false,
             "properties": {
-                "clickhouse_query_progress": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/ClickhouseQueryStatus"
-                    },
-                    "type": "object"
-                },
                 "complete": {
                     "default": false,
                     "type": "boolean"
