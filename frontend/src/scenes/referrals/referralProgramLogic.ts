@@ -56,7 +56,7 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
                 let result: ReferralProgram
                 if (props.id === 'new') {
                     result = await api.referralPrograms.create(updatedReferralProgram as ReferralProgram)
-                    router.actions.replace(urls.referralProgram(result.id))
+                    router.actions.replace(urls.referralProgram(result.short_id))
                 } else {
                     result = await api.referralPrograms.update(props.id, updatedReferralProgram as ReferralProgram)
                 }
@@ -86,12 +86,6 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
             false,
             {
                 editProgram: (_, { editing }) => editing,
-            },
-        ],
-        implementOptInInstructionsModal: [
-            false,
-            {
-                toggleImplementOptInInstructionsModal: (state) => !state,
             },
         ],
     }),

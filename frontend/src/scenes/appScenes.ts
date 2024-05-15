@@ -78,5 +78,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.Heatmaps]: () => import('./heatmaps/HeatmapsScene'),
     [Scene.Referrals]: () => import('./referrals/ReferralsScene'),
-    [Scene.Referral]: () => import('./referrals/ReferralDetailScene'),
+    [Scene.Referral]: () => import('./referrals/ReferralProgramScene'),
 }

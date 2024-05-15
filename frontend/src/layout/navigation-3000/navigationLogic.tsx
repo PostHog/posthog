@@ -12,7 +12,6 @@ import {
     IconPeople,
     IconPieChart,
     IconPlusSmall,
-    IconPresent,
     IconRewindPlay,
     IconRocket,
     IconServer,
@@ -25,6 +24,7 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconPyramid } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
@@ -516,8 +516,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         hasOnboardedAnyProduct && featureFlags[FEATURE_FLAGS.PYRAMID_SCHEME]
                             ? {
                                   identifier: Scene.Referrals,
-                                  label: 'Referrals',
-                                  icon: <IconPresent />,
+                                  label: 'Pyramid schemes',
+                                  icon: <IconPyramid className="text-muted" />,
                                   to: urls.referralPrograms(),
                                   tag: 'alpha' as const,
                               }
