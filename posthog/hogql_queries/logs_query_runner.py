@@ -10,6 +10,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    CachedLogsQueryResponse,
     IntervalType,
     LogsQuery,
     LogsQueryResponse,
@@ -19,6 +20,7 @@ from posthog.schema import (
 class LogsQueryRunner(QueryRunner):
     query: LogsQuery
     response: LogsQueryResponse
+    cached_response: CachedLogsQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
         return cast(
@@ -28,6 +30,7 @@ class LogsQueryRunner(QueryRunner):
                     SELECT timestamp, properties.$level, properties.$msg, properties
                     FROM events
                     WHERE {where_clause}
+                    ORDER BY timestamp ASC
                 """,
                 {"where_clause": self._where_clause()},
             ),
@@ -49,7 +52,11 @@ class LogsQueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-        return LogsQueryResponse(results=response.results)
+        results = [
+            {"timestamp": log[0], "level": log[1], "msg": log[2], "properties": log[3]} for log in response.results
+        ]
+
+        return LogsQueryResponse(results=results)
 
     def _where_clause(self):
         filters: list[ast.Expr] = []

@@ -681,6 +681,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type CachedLogsQueryResponse = LogsQueryResponse & CachedQueryResponseMixin
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
