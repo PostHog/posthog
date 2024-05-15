@@ -1,10 +1,12 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-export const liveEventsTableLogic = kea({
-    path: ['scenes', 'events-management', 'live-events', 'liveEventsTableLogic'],
-
-    actions: () => ({
+export const liveEventsTableLogic = kea([
+    path(['scenes', 'events-management', 'live-events', 'liveEventsTableLogic']),
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
+    actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,
         setFilters: (filters) => ({ filters }),
@@ -14,9 +16,8 @@ export const liveEventsTableLogic = kea({
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
         setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
-    }),
-
-    reducers: () => ({
+    })),
+    reducers({
         events: [
             [],
             {
@@ -62,8 +63,7 @@ export const liveEventsTableLogic = kea({
             },
         ],
     }),
-
-    selectors: ({ selectors }) => ({
+    selectors(({ selectors }) => ({
         eventCount: [() => [selectors.events], (events: any) => events.length],
         filteredEvents: [
             (s) => [s.events, s.clientSideFilters],
@@ -75,16 +75,10 @@ export const liveEventsTableLogic = kea({
                 })
             },
         ],
-    }),
-
-    listeners: ({ actions, values }) => ({
-        addEvents: () => {
-            // Optionally handle side effects here
-        },
+    })),
+    listeners(({ actions, values }) => ({
         setFilters: () => {
-            // Clear events when filters change
             actions.clearEvents()
-            // Update the SSE connection with new filters
             actions.updateSSEConnection()
         },
         updateSSEConnection: async () => {
@@ -135,9 +129,8 @@ export const liveEventsTableLogic = kea({
         resumeStream: () => {
             actions.updateSSEConnection()
         },
-    }),
-
-    events: ({ actions, values }) => ({
+    })),
+    events(({ actions, values }) => ({
         afterMount: () => {
             actions.updateSSEConnection()
             return () => {
@@ -146,5 +139,5 @@ export const liveEventsTableLogic = kea({
                 }
             }
         },
-    }),
-})
+    })),
+])
