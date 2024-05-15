@@ -290,6 +290,11 @@ class Team(UUIDClassicModel):
     event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
     external_data_workspace_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    zendesk_key: models.CharField = models.CharField(max_length=500, null=True, blank=True)
+    zenhog_message_urgent: models.CharField = models.CharField(max_length=500, null=True, blank=True)
+    zenhog_message_high: models.CharField = models.CharField(max_length=500, null=True, blank=True)
+    zenhog_message_medium: models.CharField = models.CharField(max_length=500, null=True, blank=True)
+    zenhog_message_low: models.CharField = models.CharField(max_length=500, null=True, blank=True)
 
     objects: TeamManager = TeamManager()
 
