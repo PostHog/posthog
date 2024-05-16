@@ -92,11 +92,12 @@ const SomeComponent = (): JSX.Element => {
                         embedded: true,
                         fitParentHeight: true,
                         source: {
+                            ...query,
                             kind: NodeKind.TrendsQuery,
                             filterTestAccounts: false,
                             breakdownFilter: {
-                                breakdown_type: 'event',
-                                breakdown: '$level',
+                                breakdown_type: 'hogql',
+                                breakdown: 'upper(properties.$level)',
                             },
                             series: [
                                 {
