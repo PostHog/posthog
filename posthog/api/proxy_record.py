@@ -13,7 +13,8 @@ def generate_target_cname(organization_id, domain) -> str:
     m = hashlib.sha256()
     m.update(f"{organization_id}".encode("utf-8"))
     m.update(domain.encode("utf-8"))
-    return m.hexdigest()[:20]
+    digest = m.hexdigest()[:20]
+    return f"{digest}.{settings.PROXY_BASE_CNAME}"
 
 
 class ProxyRecordSerializer(serializers.ModelSerializer):
