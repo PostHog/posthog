@@ -1,6 +1,7 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 
 import { LogsQuery, NodeKind } from '~/queries/schema'
+import { EventPropertyFilter, FilterLogicalOperator, PropertyGroupFilterValue } from '~/types'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
@@ -9,12 +10,22 @@ const DEFAULT_QUERY: LogsQuery = {
     dateRange: {
         date_from: '-7d',
     },
+    properties: {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [],
+            },
+        ],
+    },
 }
 
 export const logsSceneLogic = kea<logsSceneLogicType>([
     path(['scenes', 'logs', 'logsSceneLogic']),
     actions({
         setQuery: (query: Partial<LogsQuery>) => ({ query }),
+        addFilter: (filter: EventPropertyFilter) => ({ filter }),
     }),
     reducers({
         query: [
@@ -24,4 +35,21 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        addFilter: ({ filter }) => {
+            const propValues = (values.query.properties?.values as PropertyGroupFilterValue[])?.[0]?.values ?? []
+
+            actions.setQuery({
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [...propValues, filter],
+                        },
+                    ],
+                },
+            })
+        },
+    })),
 ])

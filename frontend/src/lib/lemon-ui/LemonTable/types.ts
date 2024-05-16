@@ -69,4 +69,6 @@ export interface ExpandableConfig<T extends Record<string, any>> {
      * A negative value (like -1) means that the row is uncontrolled.
      */
     isRowExpanded?: (record: T, recordIndex: number) => boolean | number
+    /** Whether an expanded row should be collapsed when the loading state changes */
+    collapseOnLoading?: boolean
 }

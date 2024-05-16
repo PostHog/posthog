@@ -393,6 +393,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             onRow={onRow}
                                             expandable={expandable}
                                             firstColumnSticky={firstColumnSticky}
+                                            loading={loading}
                                         />
                                     )
                                 })

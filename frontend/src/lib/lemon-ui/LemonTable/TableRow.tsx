@@ -1,7 +1,7 @@
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import React, { HTMLProps, useState } from 'react'
+import React, { HTMLProps, useEffect, useState } from 'react'
 
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
 
@@ -16,6 +16,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
+    loading?: boolean
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -29,6 +30,7 @@ function TableRowRaw<T extends Record<string, any>>({
     onRow,
     expandable,
     firstColumnSticky,
+    loading,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -49,6 +51,12 @@ function TableRowRaw<T extends Record<string, any>>({
             : expandable.expandedRowClassName)
 
     const { className, style, ...extraProps } = onRow?.(record) || {}
+
+    useEffect(() => {
+        if (expandable?.collapseOnLoading && isRowExpanded) {
+            setIsRowExpanded(false)
+        }
+    }, [loading])
 
     return (
         <>

@@ -1,6 +1,6 @@
 import './PropertiesTable.scss'
 
-import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -11,11 +11,12 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
+import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType, PropertyType } from '~/types'
+import { PropertyDefinitionType, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
@@ -188,6 +189,7 @@ interface PropertiesTableType extends BasePropertyType {
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
     type: PropertyDefinitionType
+    eventName?: string
 }
 
 export function PropertiesTable({
@@ -205,6 +207,7 @@ export function PropertiesTable({
     tableProps,
     highlightedKeys,
     type,
+    eventName,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
@@ -322,6 +325,35 @@ export function PropertiesTable({
                 },
             },
         ]
+
+        if (eventName === '$log') {
+            columns.push({
+                key: 'filter',
+                title: '',
+                width: 0,
+                render: function Filter(_, item: any): JSX.Element | false {
+                    const { addFilter } = useActions(logsSceneLogic)
+
+                    return (
+                        <LemonButton
+                            size="small"
+                            icon={<IconFilter />}
+                            noPadding
+                            className="ml-1"
+                            data-attr="copy-icon"
+                            onClick={() => {
+                                addFilter({
+                                    key: item[0],
+                                    value: item[1],
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                })
+                            }}
+                        />
+                    )
+                },
+            })
+        }
 
         columns.push({
             key: 'copy',

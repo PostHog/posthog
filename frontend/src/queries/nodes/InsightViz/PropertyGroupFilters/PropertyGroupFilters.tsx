@@ -47,7 +47,7 @@ export function PropertyGroupFilters({
         setPropertyFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
-    const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
+    const showHeader = !isLogsQuery(query) && propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = isDataWarehouseSeries
         ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
         : undefined
@@ -84,27 +84,29 @@ export function PropertyGroupFilters({
                                     return (
                                         <React.Fragment key={propertyGroupIndex}>
                                             <div className="property-group">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <AndOrFilterSelect
-                                                        onChange={(type) =>
-                                                            setInnerPropertyGroupType(type, propertyGroupIndex)
-                                                        }
-                                                        value={group.type}
-                                                    />
-                                                    <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center space-x-2">
-                                                        <LemonButton
-                                                            icon={<IconCopy />}
-                                                            onClick={() => duplicateFilterGroup(propertyGroupIndex)}
-                                                            size="small"
+                                                {!isLogsQuery(query) && (
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <AndOrFilterSelect
+                                                            onChange={(type) =>
+                                                                setInnerPropertyGroupType(type, propertyGroupIndex)
+                                                            }
+                                                            value={group.type}
                                                         />
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            onClick={() => removeFilterGroup(propertyGroupIndex)}
-                                                            size="small"
-                                                        />
+                                                        <LemonDivider className="flex-1 mx-2" />
+                                                        <div className="flex items-center space-x-2">
+                                                            <LemonButton
+                                                                icon={<IconCopy />}
+                                                                onClick={() => duplicateFilterGroup(propertyGroupIndex)}
+                                                                size="small"
+                                                            />
+                                                            <LemonButton
+                                                                icon={<IconTrash />}
+                                                                onClick={() => removeFilterGroup(propertyGroupIndex)}
+                                                                size="small"
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
                                                 <PropertyFilters
                                                     addText="Add filter"
                                                     propertyFilters={
@@ -137,16 +139,18 @@ export function PropertyGroupFilters({
                     ) : null}
                 </BindLogic>
             )}
-            <LemonButton
-                data-attr={`${pageKey}-add-filter-group`}
-                type="secondary"
-                onClick={addFilterGroup}
-                icon={<IconPlusSmall color="var(--primary)" />}
-                sideIcon={null}
-                disabledReason={disabledReason}
-            >
-                Add filter group
-            </LemonButton>
+            {!isLogsQuery(query) && (
+                <LemonButton
+                    data-attr={`${pageKey}-add-filter-group`}
+                    type="secondary"
+                    onClick={addFilterGroup}
+                    icon={<IconPlusSmall color="var(--primary)" />}
+                    sideIcon={null}
+                    disabledReason={disabledReason}
+                >
+                    Add filter group
+                </LemonButton>
+            )}
         </div>
     )
 }

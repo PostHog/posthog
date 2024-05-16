@@ -164,6 +164,7 @@ const SomeComponent = (): JSX.Element => {
                     },
                 ]}
                 expandable={{
+                    collapseOnLoading: true,
                     expandedRowRender: (log) => {
                         return (
                             <EventDetails
@@ -195,7 +196,7 @@ const Filters = (): JSX.Element => {
             pageKey={`${keyForInsightLogicProps('new')({
                 dashboardItemId: 'new',
                 setQuery: ((query: LogsQuery) => setQuery(query)) as any, // Forcing some prop typings
-            })}-GlobalAndOrFilters`}
+            })}-Logs`}
             query={query as LogsQuery}
             setQuery={((query: LogsQuery) => setQuery(query)) as any} // Forcing some prop typings
             eventNames={['$log']}

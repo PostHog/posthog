@@ -56,6 +56,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         tableProps={tableProps}
                         filterable
                         searchable
+                        eventName={event.event}
                     />
                     {systemPropsCount > 0 && (
                         <LemonButton className="mb-2" onClick={() => setShowSystemProps(!showSystemProps)} size="small">
