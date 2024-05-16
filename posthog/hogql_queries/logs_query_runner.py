@@ -6,6 +6,7 @@ from django.utils.timezone import datetime
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -138,6 +139,10 @@ class LogsQueryRunner(QueryRunner):
                     {"term": ast.Constant(value=self.query.searchTerm)},
                 )
             )
+
+        # Properties
+        if self.query.properties is not None and self.query.properties != []:
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         if len(filters) == 0:
             return ast.Constant(value=True)

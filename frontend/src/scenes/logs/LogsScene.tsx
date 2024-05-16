@@ -1,8 +1,10 @@
 import { LemonInput, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useState } from 'react'
 import { EventDetails } from 'scenes/events/EventDetails'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useDebouncedCallback } from 'use-debounce'
@@ -12,6 +14,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { PropertyGroupFilters } from '~/queries/nodes/InsightViz/PropertyGroupFilters/PropertyGroupFilters'
 import { Query } from '~/queries/Query/Query'
 import { LogsQuery, NodeKind } from '~/queries/schema'
 
@@ -62,6 +65,12 @@ const SomeComponent = (): JSX.Element => {
                         allowClear
                         className="w-full"
                     />
+                </div>
+            </div>
+
+            <div className="flex gap-4 justify-between flex-wrap">
+                <div className="flex grow gap-4 items-center">
+                    <Filters />
                 </div>
             </div>
 
@@ -172,5 +181,25 @@ const SomeComponent = (): JSX.Element => {
                 footer={<LoadNext query={query} />}
             />
         </div>
+    )
+}
+
+const Filters = (): JSX.Element => {
+    const { setQuery } = useActions(logsSceneLogic)
+    const { query } = useValues(logsDataLogic)
+
+    return (
+        <PropertyGroupFilters
+            insightProps={{ dashboardItemId: 'new', setQuery: ((query: LogsQuery) => setQuery(query)) as any }} // Forcing some prop typings
+            pageKey={`${keyForInsightLogicProps('new')({
+                dashboardItemId: 'new',
+                setQuery: ((query: LogsQuery) => setQuery(query)) as any, // Forcing some prop typings
+            })}-GlobalAndOrFilters`}
+            query={query as LogsQuery}
+            setQuery={((query: LogsQuery) => setQuery(query)) as any} // Forcing some prop typings
+            eventNames={['$log']}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+            isDataWarehouseSeries={false}
+        />
     )
 }

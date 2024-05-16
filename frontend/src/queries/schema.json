@@ -4833,6 +4833,20 @@
                     "description": "Number of rows to skip before returning rows",
                     "type": "integer"
                 },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"
                 },

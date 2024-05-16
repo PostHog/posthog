@@ -9,7 +9,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { InsightQueryNode, LogsQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { isLogsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { TestAccountFilter } from '../filters/TestAccountFilter'
@@ -18,8 +19,8 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+    query: TrendsQuery | StickinessQuery | LogsQuery
+    setQuery: (node: TrendsQuery | StickinessQuery | Partial<LogsQuery>) => void
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -54,11 +55,13 @@ export function PropertyGroupFilters({
         <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <TestAccountFilter
-                        disabledReason={disabledReason}
-                        query={query}
-                        setQuery={setQuery as (node: InsightQueryNode) => void}
-                    />
+                    {!isLogsQuery(query) && (
+                        <TestAccountFilter
+                            disabledReason={disabledReason}
+                            query={query}
+                            setQuery={setQuery as (node: InsightQueryNode) => void}
+                        />
+                    )}
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
