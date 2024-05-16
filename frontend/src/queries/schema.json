@@ -4920,6 +4920,9 @@
                 "properties": {
                     "type": "string"
                 },
+                "session_id": {
+                    "type": "string"
+                },
                 "timestamp": {
                     "type": "string"
                 },

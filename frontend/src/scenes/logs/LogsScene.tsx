@@ -1,4 +1,5 @@
-import { LemonInput, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconRewindPlay } from '@posthog/icons'
+import { LemonInput, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -7,6 +8,7 @@ import { EventDetails } from 'scenes/events/EventDetails'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
@@ -159,6 +161,22 @@ const SomeComponent = (): JSX.Element => {
                                     {namespace}
                                     {log.msg}
                                 </>
+                            )
+                        },
+                    },
+                    {
+                        title: '',
+                        width: 0,
+                        key: 'recording',
+                        render: (_, log) => {
+                            if (!log.session_id) {
+                                return null
+                            }
+
+                            return (
+                                <Link to={urls.replaySingle(log.session_id)} target="_new">
+                                    <IconRewindPlay />
+                                </Link>
                             )
                         },
                     },

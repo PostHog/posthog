@@ -37,7 +37,7 @@ class LogsQueryRunner(QueryRunner):
             ast.SelectQuery,
             parse_select(
                 """
-                    SELECT uuid, distinct_id, event, timestamp, properties.$level, properties.$msg, properties.$namespace, properties
+                    SELECT uuid, distinct_id, event, timestamp, properties.$level, properties.$msg, properties.$namespace, $session_id, properties
                     FROM events
                     WHERE {where_clause}
                     ORDER BY timestamp DESC
@@ -71,7 +71,8 @@ class LogsQueryRunner(QueryRunner):
                 level=log[4],
                 msg=log[5],
                 namespace=log[6],
-                properties=log[7],
+                session_id=log[7],
+                properties=log[8],
             )
             for log in response.results
         ]

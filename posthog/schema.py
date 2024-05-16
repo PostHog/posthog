@@ -571,6 +571,7 @@ class LogsQueryResult(BaseModel):
     msg: str
     namespace: Optional[str] = None
     properties: str
+    session_id: Optional[str] = None
     timestamp: str
     uuid: str
 

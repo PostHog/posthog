@@ -692,6 +692,7 @@ export interface LogsQueryResult {
     level: string
     namespace?: string
     msg: string
+    session_id?: string
     properties: string
 }
 
