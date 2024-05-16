@@ -460,6 +460,7 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+    live_events_token: string
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
