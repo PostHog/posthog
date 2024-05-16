@@ -162,6 +162,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
+            if (!liveEventsHostOrigin()) {
+                return
+            }
+
             actions.updateEventsConnection()
             const interval = setInterval(() => {
                 actions.pollStats()
