@@ -1,4 +1,3 @@
-import EventSource from 'eventsource'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -108,7 +107,7 @@ export const liveEventsTableLogic = kea([
                 url.searchParams.append('eventType', eventType)
             }
 
-            const source = new EventSource(url.toString(), {
+            const source = new window.EventSource(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${actions.currentTeam.jwt_token}`,
                 },
