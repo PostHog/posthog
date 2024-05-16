@@ -123,7 +123,8 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
             parent: event.event,
             teamId: teamId,
             eventTimestamp: timestamp,
-            $current_url,
+            $viewport_height,
+            $viewport_width,
         })
         return drop('invalid_viewport_dimensions')
     }
