@@ -13,7 +13,7 @@ type TeamStats struct {
 
 func (ts *TeamStats) keepStats(statsChan chan PostHogEvent) {
 	log.Println("starting stats keeper...")
-	for {
+	for { // ignore the range warning here - it's wrong
 		select {
 		case event := <-statsChan:
 			token := event.Token
