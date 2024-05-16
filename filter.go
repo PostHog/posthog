@@ -17,7 +17,7 @@ type Subscription struct {
 	TeamId     int
 	Token      string
 	DistinctId string
-	EventType  string
+	EventTypes []string
 
 	Geo bool
 
@@ -123,7 +123,7 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				if sub.EventType != "" && event.Event != sub.EventType {
+				if len(sub.EventTypes) > 0 && !slices.Contains(sub.EventTypes, event.Event) {
 					continue
 				}
 

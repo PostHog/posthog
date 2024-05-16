@@ -153,13 +153,18 @@ func main() {
 			}
 		}
 
+		eventTypes := []string{}
+		if eventType != "" {
+			eventTypes = strings.Split(eventType, ",")
+		}
+
 		subscription := Subscription{
 			TeamId:      teamIdInt,
 			Token:       token,
 			ClientId:    c.Response().Header().Get(echo.HeaderXRequestID),
 			DistinctId:  distinctId,
 			Geo:         geoOnly,
-			EventType:   eventType,
+			EventTypes:  eventTypes,
 			EventChan:   make(chan interface{}, 100),
 			ShouldClose: &atomic.Bool{},
 		}
