@@ -165,8 +165,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView],
-            (activeView) => {
+            (s) => [s.activeView, s.featureFlags],
+            (activeView, featureFlags) => {
                 const tabs: Tab[] = [
                     {
                         label: 'Trends',
@@ -210,12 +210,15 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         type: InsightType.SQL,
                         dataAttr: 'insight-sql-tab',
                     },
-                    {
+                ]
+
+                if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
+                    tabs.push({
                         label: <>Hog 🦔</>,
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
-                    },
-                ]
+                    })
+                }
 
                 if (activeView === InsightType.JSON) {
                     // only display this tab when it is selected by the provided insight query

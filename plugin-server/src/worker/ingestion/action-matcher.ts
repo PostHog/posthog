@@ -1,4 +1,3 @@
-import { exec } from '@posthog/hogvm'
 import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
@@ -169,12 +168,10 @@ export class ActionMatcher {
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
     public async checkAction(event: PostIngestionEvent, action: Action): Promise<boolean> {
-        let matches = false
         for (const step of action.steps) {
             try {
                 if (await this.checkStep(event, step)) {
-                    matches = true
-                    break
+                    return true
                 }
             } catch (error) {
                 captureException(error, {
@@ -183,20 +180,7 @@ export class ActionMatcher {
                 })
             }
         }
-        if (matches && action.campaign_bytecode && action.campaign_bytecode.length > 1) {
-            try {
-                await exec(action.campaign_bytecode, event, {}, {}, 30)
-            } catch (e) {
-                console.log(e)
-            }
-
-            // :HACK: if we have a Hog script, and no custom webhook message, break to not run both
-            if ((action.slack_message_format || '') === '') {
-                return false
-            }
-        }
-
-        return matches
+        return false
     }
 
     /**

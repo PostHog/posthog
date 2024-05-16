@@ -53,14 +53,17 @@ function like(string: string, pattern: string, caseInsensitive = false): boolean
 }
 
 function getNestedValue(obj: any, chain: any[]): any {
-    for (const key of chain) {
-        if (typeof key === 'number') {
-            obj = obj[key]
-        } else {
-            obj = obj[key] ?? null
+    if (typeof obj === 'object' && obj !== null) {
+        for (const key of chain) {
+            if (typeof key === 'number') {
+                obj = obj[key]
+            } else {
+                obj = obj[key] ?? null
+            }
         }
+        return obj
     }
-    return obj
+    return null
 }
 
 export async function exec(

@@ -37,7 +37,7 @@ def execute_bytecode(
     bytecode: list[Any],
     fields: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
-    timeout=5,
+    timeout=10,
     team: Team | None = None,
 ) -> BytecodeResult:
     try:

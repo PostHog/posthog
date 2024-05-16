@@ -20,7 +20,7 @@ import type { actionEditLogicType } from './actionEditLogicType'
 import { actionLogic } from './actionLogic'
 
 export type NewActionType = Partial<ActionType> &
-    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'campaign_code' | 'steps'>
+    Pick<ActionType, 'name' | 'post_to_slack' | 'slack_message_format' | 'steps'>
 export type ActionEditType = ActionType | NewActionType
 
 export interface SetActionProps {
