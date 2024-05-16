@@ -8,7 +8,6 @@ from posthog.exceptions import generate_exception_response
 from rest_framework.request import Request
 from rest_framework import status
 
-from posthog.models import User
 from posthog.models.team.team import Team
 from django.views.decorators.csrf import csrf_exempt
 
@@ -98,6 +97,13 @@ def get_support_tickets(request: Request):
             if (current_time - datetime.strptime(ticket["updated_at"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() < 604800
                or ticket["status"] not in ["solved", "closed"]
         ]
+
+    def add_ticket_comments(ticket):
+        response = requests.request("GET", "https://posthoghelp.zendesk.com/api/v2/tickets/13535/comments", data="", headers=headers)
+        ticket['conversations'] = response.json()['comments']
+        return ticket
+
+    result = list(map(add_ticket_comments, filter_tickets(tickets.json()["tickets"])))
 
     return cors_response(
         request,
