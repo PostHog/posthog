@@ -55,9 +55,11 @@ export function Proxy(): JSX.Element {
                     >
                         {status === 'issuing' && <Spinner />}
                         <span className="capitalize">{status}</span>
-                        <Tooltip title="Waiting for DNS records to be created">
-                            <IconInfo className="cursor-pointer" />
-                        </Tooltip>
+                        {status === 'waiting' && (
+                            <Tooltip title="Waiting for DNS records to be created">
+                                <IconInfo className="cursor-pointer" />
+                            </Tooltip>
+                        )}
                     </div>
                 )
             },
