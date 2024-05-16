@@ -1,3 +1,4 @@
+import { FeatureExtractionPipeline, FeatureExtractionPipelineOptions } from '@xenova/transformers'
 import { URL } from 'url'
 
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
@@ -16,6 +17,40 @@ type HeatmapDataItem = {
 }
 
 type HeatmapData = Record<string, HeatmapDataItem[]>
+
+let featureExtractionPipeline: FeatureExtractionPipeline
+const embeddingsPipeline = async (): Promise<FeatureExtractionPipeline> => {
+    if (!featureExtractionPipeline) {
+        // a little magic here to both delay the slow import until the first time it is needed
+        // and to make it work due to some ESM/commonjs faff
+        const TransformersApi = Function('return import("@xenova/transformers")')()
+        const { pipeline } = await TransformersApi
+        featureExtractionPipeline = await pipeline('feature-extraction', 'Xenova/gte-small')
+    }
+    return Promise.resolve(featureExtractionPipeline)
+}
+
+export async function embedLogs(
+    runner: EventPipelineRunner,
+    event: PreIngestionEvent,
+    precision = 7
+): Promise<PreIngestionEvent> {
+    if (event.event !== '$log') {
+        return Promise.resolve(event)
+    }
+
+    const options: FeatureExtractionPipelineOptions = { pooling: 'mean', normalize: false }
+    const currentPipeline = await embeddingsPipeline()
+    const output = await currentPipeline(
+        `${event.properties['$msg']}-${event.properties['$namespace']}-${event.properties['$level']}`,
+        options
+    )
+    const roundedOutput = Array.from(output.data as number[]).map((value: number) =>
+        parseFloat(value.toFixed(precision))
+    )
+    event.properties['$embedding'] = roundedOutput
+    return event
+}
 
 export function extractHeatmapDataStep(
     runner: EventPipelineRunner,
