@@ -261,19 +261,6 @@ func main() {
 	if !viper.GetBool("prod") {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
-		// Start Tailnet
-		tailNetServer, err := initTailNetServer()
-		if err != nil {
-			e.Logger.Panic("cannot start tailnet server")
-		}
-
-		// Start server
-		s := http.Server{
-			Handler: e,
-		}
-
-		if err := s.Serve(*tailNetServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			e.Logger.Fatal(err)
-		}
+		e.Logger.Fatal(e.StartAutoTLS(viper.GetString("url")))
 	}
 }
