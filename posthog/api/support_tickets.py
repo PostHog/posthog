@@ -8,7 +8,6 @@ from posthog.exceptions import generate_exception_response
 from rest_framework.request import Request
 from rest_framework import status
 
-from posthog.models import User
 from posthog.models.team.team import Team
 from django.views.decorators.csrf import csrf_exempt
 
@@ -62,7 +61,7 @@ def get_support_tickets(request: Request):
     validation_token = request.GET.get("validation_token")
     organization_id = team.organization_id
 
-        # do validation using the token above
+    # do validation using the token above
 
     headers = {"Authorization": f"Basic {zendesk_key}"}
     response = requests.request(
@@ -99,11 +98,18 @@ def get_support_tickets(request: Request):
                or ticket["status"] not in ["solved", "closed"]
         ]
 
+    def add_ticket_comments(ticket):
+        response = requests.request("GET", "https://posthoghelp.zendesk.com/api/v2/tickets/13535/comments", data="", headers=headers)
+        ticket['conversations'] = response.json()['comments']
+        return ticket
+
+    result = list(map(add_ticket_comments, filter_tickets(tickets.json()["tickets"])))
+
     return cors_response(
         request,
         JsonResponse(
             {
-                "tickets": filter_tickets(tickets.json()["tickets"])
+                "tickets": result
             }
         ),
     )
