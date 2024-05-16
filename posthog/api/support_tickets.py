@@ -109,7 +109,7 @@ def get_support_tickets(request: Request):
         request,
         JsonResponse(
             {
-                "supportTickets": filter_tickets(tickets.json()["tickets"])
+                "supportTickets": result
             }
         ),
     )
