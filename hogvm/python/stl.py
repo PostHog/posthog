@@ -1,3 +1,4 @@
+import time
 from typing import Any
 import re
 import requests
@@ -55,5 +56,11 @@ def execute_stl_function(name: str, args: list[Any], timeout=5):
         case "httpGet":
             response = requests.get(args[0], timeout=timeout)
             return response.text
+        case "sleep":
+            time.sleep(args[0])
+            return None
+        case "print":
+            print(*args)  # noqa: T201
+            return None
         case _:
             raise HogVMException(f"Unsupported function call: {name}")

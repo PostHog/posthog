@@ -270,7 +270,7 @@ export async function exec(
                     const args = Array(next())
                         .fill(null)
                         .map(() => popStack())
-                    stack.push(executeStlFunction(name, args, timeout))
+                    stack.push(await executeStlFunction(name, args, timeout))
                 } else if (name in declaredFunctions) {
                     const [funcIp, argLen] = declaredFunctions[name]
                     callStack.push([ip + 1, stack.length - argLen, argLen])
@@ -284,7 +284,7 @@ export async function exec(
                     } else if (asyncFunctions && asyncFunctions[name]) {
                         stack.push(await asyncFunctions[name](...args))
                     } else {
-                        stack.push(executeStlFunction(name, args, timeout))
+                        stack.push(await executeStlFunction(name, args, timeout))
                     }
                 }
                 break
@@ -296,6 +296,8 @@ export async function exec(
 
     if (stack.length > 1) {
         throw new Error('Invalid bytecode. More than one value left on stack')
+    } else if (stack.length === 0) {
+        return null
     }
 
     return popStack() ?? null

@@ -5,20 +5,22 @@ function toConcatArg(arg: any): string {
     return String(arg)
 }
 
-async function httpGet(url: string, timeout: number = 5000): Promise<string | null> {
+async function httpGet(url: string, timeout: number = 5): Promise<string | null> {
     const timeoutPromise = new Promise<null>((_, reject) => {
         setTimeout(() => {
-            reject(new Error(`Request timed out after ${timeout} milliseconds`))
-        }, timeout)
+            reject(new Error(`Request timed out after ${timeout} seconds`))
+        }, timeout * 1000)
     })
 
-    const response = await Promise.race([fetch(url), timeoutPromise])
-
-    if (!response || !response.ok) {
-        throw new Error('Network response was not ok.')
+    try {
+        const response = await Promise.race([fetch(url), timeoutPromise])
+        if (!response || !response.ok) {
+            throw new Error('Network response was not ok.')
+        }
+        return await response.text()
+    } catch (error) {
+        throw new Error(`Failed to fetch: ${error.message}`)
     }
-
-    return await response.text()
 }
 
 export async function executeStlFunction(name: string, args: any[], timeout: number = 5): Promise<any> {
@@ -52,6 +54,13 @@ export async function executeStlFunction(name: string, args: any[], timeout: num
             return args[0].split('').reverse().join('')
         case 'httpGet':
             return httpGet(args[0], timeout)
+        case 'print':
+            // eslint-disable-next-line no-console
+            console.log(...args)
+            return
+        case 'sleep':
+            await new Promise((resolve) => setTimeout(resolve, args[0] * 1000))
+            return
         default:
             throw new Error(`Unsupported function call: ${name}`)
     }

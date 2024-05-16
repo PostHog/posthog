@@ -1,5 +1,11 @@
 import { exec, Operation as op } from '../bytecode'
 
+export function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
+
 describe('HogQL Bytecode', () => {
     test('execution results', async () => {
         const fields = { properties: { foo: 'bar', nullValue: null } }
@@ -286,5 +292,56 @@ describe('HogQL Bytecode', () => {
             op.RETURN,
         ]
         expect(await exec(bytecode)).toBe(8)
+    })
+
+    test('sleep', async () => {
+        // print('!');
+        // httpGet('https://webhook.site/ac6ec36d-60a4-4f86-8389-3b057e029531');
+        // sleep(1);
+        // httpGet('https://webhook.site/ac6ec36d-60a4-4f86-8389-3b057e029531');
+        // return 2;
+        const bytecode = [
+            '_h',
+            32,
+            '!',
+            2,
+            'print',
+            1,
+            35,
+            32,
+            'https://webhook.site/ac6ec36d-60a4-4f86-8389-3b057e029531',
+            2,
+            'httpGet',
+            1,
+            35,
+            33,
+            0.2, // seconds to sleep
+            2,
+            'sleep',
+            1,
+            35,
+            32,
+            'https://webhook.site/ac6ec36d-60a4-4f86-8389-3b057e029531',
+            2,
+            'httpGet',
+            1,
+            35,
+            33,
+            2,
+            38,
+        ]
+        expect(
+            await exec(
+                bytecode,
+                {},
+                {},
+                {
+                    httpGet: async (url: string) => {
+                        await delay(1)
+                        return 'hello ' + url
+                    },
+                }
+            )
+        ).toBe(2)
     })
 })

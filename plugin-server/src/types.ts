@@ -958,6 +958,8 @@ export interface RawAction {
     steps_json: ActionStep[] | null
     bytecode: any[] | null
     bytecode_error: string | null
+    campaign_bytecode: any[] | null
+    campaign_error: string | null
 }
 
 /** Usable Action model. */

@@ -97,7 +97,9 @@ export async function fetchAllActionsGroupedByTeam(
                 last_calculated_at,
                 steps_json,
                 bytecode,
-                bytecode_error
+                bytecode_error,
+                campaign_bytecode,
+                campaign_error
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,

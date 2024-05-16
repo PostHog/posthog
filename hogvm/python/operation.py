@@ -18,6 +18,8 @@ HOG_FUNCTIONS = (
     "upper",
     "reverse",
     "httpGet",
+    "sleep",
+    "print",
 )
 
 
