@@ -49,10 +49,10 @@ export const myReferralsLogic = kea<myReferralsLogicType>([
     listeners(({ values }) => ({
         redeemReferralIfExists: async () => {
             const code = getCookie('ph_rcode')
-            // TODO: Remove testing code
+            // TODO: Remove testing code of random values - this would then trigger after the signup flow
             const userID = values.user?.uuid ?? Math.round(Math.random() * 10000)
             const email = values.user?.email ?? `${userID}-test@posthog.com`
-            if (!code) {
+            if (!code || !userID) {
                 console.log('NO CODE OR NO USER')
                 return
             }

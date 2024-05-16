@@ -130,7 +130,6 @@ class ReferrerProgramRedeemerViewSet(
 
 
 class PublicReferralsViewset(viewsets.GenericViewSet):
-    # serializer_class = SignupSerializer
     permission_classes = (permissions.AllowAny,)
 
     def get_object(self):
