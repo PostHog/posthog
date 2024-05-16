@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import type { zenHogLogicType } from './sidePanelZenHogLogicType'
@@ -48,6 +49,18 @@ export const zenHogLogic = kea<zenHogLogicType>([
             [] as ZendeskTicket[],
             {
                 loadZendeskTickets: async () => {
+                    // eslint-disable-next-line no-console
+                    console.log('no calls yet')
+                    const realTickets = await new Promise((resolve) =>
+                        posthog.getTicketsForUser(
+                            { user: 'marcus.h@posthog.com', userHash: 'garbage', forceReload: true },
+                            (tickets) => resolve(tickets)
+                        )
+                    )
+                    // eslint-disable-next-line no-console
+                    console.log('api was called')
+                    // eslint-disable-next-line no-console
+                    console.log('realTickets', realTickets)
                     return await new Promise((resolve) =>
                         resolve([
                             {
