@@ -5,7 +5,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { hedgehogBuddyLogic } from '../hedgehogBuddyLogic'
-import { AccessoryInfo, baseSpriteAccessoriesPath, baseSpritePath } from '../sprites/sprites'
+import { HedgehogBuddyStatic } from '../HedgehogBuddyStatic'
+import { AccessoryInfo } from '../sprites/sprites'
 
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
@@ -26,9 +27,6 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
         }
     }
 
-    const imgSize = 60
-    const hedgehogImgSize = imgSize * 4
-
     const enabled = accessories.includes(accessory)
 
     return (
@@ -45,35 +43,8 @@ export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBudd
             }
         >
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
-            <div
-                className="relative overflow-hidden pointer-events-none"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    width: imgSize,
-                    height: imgSize,
-                    margin: -2,
-                }}
-            >
-                <img
-                    src={`${baseSpritePath()}/wave.png`}
-                    className="object-cover absolute inset-0 image-pixelated"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: hedgehogImgSize,
-                        height: hedgehogImgSize,
-                    }}
-                />
 
-                <img
-                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.png`}
-                    className="object-cover absolute inset-0 image-pixelated"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: imgSize,
-                        height: imgSize,
-                    }}
-                />
-            </div>
+            <HedgehogBuddyStatic accessories={[accessoryKey]} />
         </LemonButton>
     )
 }

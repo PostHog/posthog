@@ -6,7 +6,8 @@ import React from 'react'
 
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
-import { accessoryGroups, baseSpritePath, standardAccessories } from './sprites/sprites'
+import { HedgehogBuddyStatic } from './HedgehogBuddyStatic'
+import { accessoryGroups, standardAccessories } from './sprites/sprites'
 
 export function HedgehogOptions(): JSX.Element {
     const { freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
@@ -79,14 +80,9 @@ function HedgehogColor(): JSX.Element {
     const { color } = useValues(hedgehogBuddyLogic)
     const { setColor } = useActions(hedgehogBuddyLogic)
 
-    // filter: sepia(100%) saturate(300%) brightness(70%) hue-rotate(180deg);
-
-    const imgSize = 60
-    const hedgehogImgSize = imgSize * 4
-
     return (
         <>
-            <h4 className="mt-4">Colors</h4>
+            <h4>Colors</h4>
 
             <div className="flex items-center gap-2 flex-wrap">
                 {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
@@ -98,26 +94,7 @@ function HedgehogColor(): JSX.Element {
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >
-                        <div
-                            className="relative overflow-hidden pointer-events-none"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: imgSize,
-                                height: imgSize,
-                                margin: -2,
-                            }}
-                        >
-                            <img
-                                src={`${baseSpritePath()}/wave.png`}
-                                className="object-cover absolute inset-0 image-pixelated"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: hedgehogImgSize,
-                                    height: hedgehogImgSize,
-                                    filter: option ? COLOR_TO_FILTER_MAP[option] : null,
-                                }}
-                            />
-                        </div>
+                        <HedgehogBuddyStatic color={option as any} />
                     </LemonButton>
                 ))}
             </div>
