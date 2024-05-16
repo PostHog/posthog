@@ -23,7 +23,7 @@ def validate_proxy_domains() -> None:
                 if response.status_code != 200:
                     record.status = ProxyRecord.Status.ERRORING
                 record.save()
-        except dns.resolver.NoAnswer:
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             break
 
     records = ProxyRecord.objects.filter(status=ProxyRecord.Status.ISSUING)

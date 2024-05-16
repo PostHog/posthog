@@ -56,6 +56,7 @@ export const proxyLogic = kea<proxyLogicType>([
     listeners(({ actions, values, cache }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
+        createRecordSuccess: () => actions.loadRecords(),
         loadRecordsSuccess: () => {
             const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
             if (shouldRefresh) {
