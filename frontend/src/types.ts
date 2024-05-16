@@ -3924,7 +3924,6 @@ export type BillingTableTierRow = {
 }
 
 export type ReferralProgram = {
-    id: string
     short_id: string
     title: string
     description?: string
@@ -3936,11 +3935,11 @@ export type ReferralProgram = {
 }
 
 export type ReferralIdentity = {
-    referrer_id: string
-    display?: string
+    user_id: string
     code: string
     created_at: string
     total_redemptions: number
+    max_redemptions_count?: number
     total_points: number
 }
 

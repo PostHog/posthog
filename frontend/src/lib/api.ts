@@ -64,6 +64,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     RawAnnotationType,
+    ReferralIdentity,
     ReferralProgram,
     RoleMemberType,
     RolesListParams,
@@ -804,8 +805,15 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('referrals')
     }
 
-    public referralProgram(id: ReferralProgram['id'], teamId?: TeamType['id']): ApiRequest {
+    public referralProgram(id: ReferralProgram['short_id'], teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('referrals').addPathComponent(id)
+    }
+
+    public referralProgramReferrers(id: ReferralProgram['short_id'], teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('referrals')
+            .addPathComponent(id)
+            .addPathComponent('referrers')
     }
 }
 
@@ -2046,6 +2054,20 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<ReferralProgram>> {
             return await new ApiRequest().referralPrograms().get()
+        },
+    },
+    referralProgramReferrers: {
+        async list(programId: ReferralProgram['short_id']): Promise<PaginatedResponse<ReferralIdentity>> {
+            return await new ApiRequest().referralProgramReferrers(programId).get()
+        },
+        async create(
+            programId: ReferralProgram['short_id'],
+            data: Pick<ReferralIdentity, 'user_id' | 'code' | 'max_redemptions_count'>
+        ): Promise<ReferralIdentity> {
+            return await new ApiRequest().referralProgramReferrers(programId).create({ data })
+        },
+        async delete(programId: ReferralProgram['short_id'], referrerId: ReferralIdentity['user_id']): Promise<void> {
+            await new ApiRequest().referralProgramReferrers(programId, referrerId).delete()
         },
     },
 

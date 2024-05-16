@@ -16,7 +16,6 @@ import { referralsSceneLogic } from './referralsSceneLogic'
 export const NEW_REFERRAL_PROGRAM: ReferralProgram = {
     title: '',
     description: '',
-    id: '',
     short_id: '',
 }
 
@@ -44,6 +43,9 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
                 if (props.id && props.id !== 'new') {
                     try {
                         const response = await api.referralPrograms.get(props.id)
+                        if (response.short_id) {
+                            actions.loadProgramReferrers()
+                        }
                         return response
                     } catch (error: any) {
                         actions.setReferralProgramMissing()
@@ -61,6 +63,15 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
                     result = await api.referralPrograms.update(props.id, updatedReferralProgram as ReferralProgram)
                 }
                 return result
+            },
+        },
+        programReferrers: {
+            loadProgramReferrers: async () => {
+                if (props.id && props.id !== 'new') {
+                    const res = await api.referralProgramReferrers.list(props.id)
+                    return res.results
+                }
+                return []
             },
         },
     })),
