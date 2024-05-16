@@ -62,7 +62,7 @@ def get_support_tickets(request: Request):
     validation_token = request.GET.get("validation_token")
     organization_id = team.organization_id
 
-    # do validation using the token above
+        # do validation using the token above
 
     headers = {"Authorization": f"Basic {zendesk_key}"}
     response = requests.request(
@@ -111,7 +111,10 @@ def get_support_tickets(request: Request):
 
 @csrf_exempt
 def reply_support_ticket(request: Request):
-    token = get_token(None, request)
+    token = request.GET.get("token")
+
+    body_unicode = request.body.decode('utf-8')
+    body = json.loads(body_unicode)
 
     if not token:
         return cors_response(
@@ -152,7 +155,7 @@ def reply_support_ticket(request: Request):
             ),
         )
 
-    email = request.POST.get("user")
+    email = body['email']
     validation_token = request.POST.get("validation_token")
     organization_id = team.organization_id
 
@@ -164,8 +167,8 @@ def reply_support_ticket(request: Request):
     ).json()
     author_id = author["users"][0]["id"]
 
-    ticket_id = request.POST.get("ticket_id")
-    comment_body = request.POST.get("comment_body")
+    ticket_id = body['ticket_id']
+    comment_body = body['comment']['body']
 
     tickets = requests.request(
         "PUT",
@@ -178,7 +181,7 @@ def reply_support_ticket(request: Request):
         request,
         JsonResponse(
             {
-                "tickets": tickets
+                "tickets": tickets.json()
             }
         ),
     )
@@ -186,7 +189,10 @@ def reply_support_ticket(request: Request):
 
 @csrf_exempt
 def create_support_ticket(request: Request):
-    token = get_token(None, request)
+    token = request.GET.get("token")
+
+    body_unicode = request.body.decode('utf-8')
+    body = json.loads(body_unicode)
 
     if not token:
         return cors_response(
@@ -231,14 +237,14 @@ def create_support_ticket(request: Request):
 
     payload = {
         "request": {
-            "requester": {"name": request.POST.get("name"), "email": request.POST.get("email")},
-            "subject": request.POST.get("subject"),
+            "requester": {"name": body['comment']['body'], "email": body['email']},
+            "subject": body['comment']["subject"],
             "custom_fields": [
-                {"id": 22084126888475, "value": request.POST.get("severity_level")},
-                {"id": 22129191462555, "value": request.POST.get("distinct_id")},
+                {"id": 22084126888475, "value": body['comment']['severity_level']},
+                {"id": 22129191462555, "value": body['comment']['distinct_id']},
             ],
             "comment": {
-                "body": request.POST.get("body"),
+                "body": body['comment']['body'],
             },
         },
     }
@@ -257,7 +263,10 @@ def create_support_ticket(request: Request):
 
 @csrf_exempt
 def close_support_ticket(request: Request):
-    token = get_token(None, request)
+    token = request.GET.get("token")
+
+    body_unicode = request.body.decode('utf-8')
+    body = json.loads(body_unicode)
 
     if not token:
         return cors_response(
@@ -301,9 +310,9 @@ def close_support_ticket(request: Request):
     # do validation using the token above
     headers = {"Authorization": f"Basic {zendesk_key}"}
 
-    ticket_id = request.POST.get("ticket_id")
+    ticket_id = body["ticket_id"]
     organization_id = team.organization_id
-    email = request.POST.get('email')
+    email = body['email']
 
     ticket = requests.request(
         "GET", f"https://posthoghelp.zendesk.com/api/v2/tickets/{ticket_id}.json", data="", headers=headers
@@ -328,7 +337,7 @@ def close_support_ticket(request: Request):
         request,
         JsonResponse(
             {
-                "response": response
+                "response": response.json()
             }
         ),
     )
