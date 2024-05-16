@@ -109,9 +109,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 url.searchParams.append('eventType', eventType)
             }
 
-            const source = new window.EventSource(url.toString(), {
+            // @ts-expect-error
+            const source = new window.EventSourcePolyfill(url.toString(), {
                 headers: {
-                    Authorization: `Bearer ${actions.currentTeam.jwt_token}`,
+                    Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
                 },
             })
 
