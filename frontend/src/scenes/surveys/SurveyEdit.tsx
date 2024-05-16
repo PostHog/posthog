@@ -707,12 +707,12 @@ export default function SurveyEdit(): JSX.Element {
                                                 }}
                                             </LemonField>{' '}
                                             times, once every
-                                            <LemonField name="iteration_repeat_days">
+                                            <LemonField name="iteration_frequency_days">
                                                 {({ onChange, value }) => {
                                                     return (
                                                         <LemonInput
                                                             type="number"
-                                                            name="iteration_repeat_days"
+                                                            name="iteration_frequency_days"
                                                             data-attr="survey-responses-iteration-repeat-days"
                                                             size="small"
                                                             min={1}
@@ -720,7 +720,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             onChange={(newValue) => {
                                                                 if (newValue && newValue > 0) {
                                                                     onChange(newValue)
-                                                                    setSurveyValue('iteration_repeat_days', newValue)
+                                                                    setSurveyValue('iteration_frequency_days', newValue)
                                                                 } else {
                                                                     onChange(null)
                                                                 }

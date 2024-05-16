@@ -2462,7 +2462,7 @@ export interface Survey {
     remove_targeting_flag?: boolean
     responses_limit: number | null
     iteration_count: number | null
-    iteration_repeat_days: number | null
+    iteration_frequency_days: number | null
 }
 
 export enum SurveyUrlMatchType {

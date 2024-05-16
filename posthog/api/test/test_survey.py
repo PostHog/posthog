@@ -1495,6 +1495,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "appearance": None,
                         "start_date": None,
                         "end_date": None,
+                        "current_iteration": 1,
                     },
                     {
                         "id": str(survey_with_flags.id),
@@ -1506,6 +1507,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "questions": [{"type": "open", "question": "What's a hedgehog?"}],
                         "linked_flag_key": "linked-flag",
                         "targeting_flag_key": "targeting-flag",
+                        "current_iteration": 1,
                         "start_date": None,
                         "end_date": None,
                     },
