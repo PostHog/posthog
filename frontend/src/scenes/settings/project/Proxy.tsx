@@ -141,7 +141,7 @@ function CreateRecordForm(): JSX.Element {
                     </div>
                     {waitingRecords.each((r) => (
                         <CodeSnippet language={Language.HTTP}>
-                           {r.domain} -> {r ? r.cname_target : DEFAULT_CNAME}
+                            {r.domain} {'->'} {r ? r.cname_target : DEFAULT_CNAME}
                         </CodeSnippet>
                     ))}
                     <div className="flex justify-end">

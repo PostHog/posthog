@@ -1,3 +1,4 @@
+import hashlib
 from django.conf import settings
 from rest_framework import serializers
 from rest_framework.viewsets import ModelViewSet
@@ -6,6 +7,13 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import ProxyRecord
 from posthog.permissions import OrganizationAdminWritePermissions
 from rest_framework.response import Response
+
+
+def generate_target_cname(organization_id, domain) -> str:
+    m = hashlib.sha256()
+    m.update(f"{organization_id}".encode("utf-8"))
+    m.update(domain.encode("utf-8"))
+    return m.hexdigest()[:20]
 
 
 class ProxyRecordSerializer(serializers.ModelSerializer):
@@ -40,7 +48,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             organization_id=self.organization.id,
             created_by=request.user,
             domain=domain,
-            target_cname=settings.PROXY_TARGET_CNAME,
+            target_cname=generate_target_cname(self.organization.id, domain),
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
