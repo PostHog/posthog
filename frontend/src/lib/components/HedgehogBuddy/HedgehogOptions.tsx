@@ -10,8 +10,9 @@ import { HedgehogBuddyStatic } from './HedgehogBuddyStatic'
 import { accessoryGroups, standardAccessories } from './sprites/sprites'
 
 export function HedgehogOptions(): JSX.Element {
-    const { freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
-    const { setFreeMovement, setInteractWithElements, setKeyboardControlsEnabled } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+
     return (
         <div>
             <h3>Hi, I'm Max!</h3>
@@ -26,22 +27,34 @@ export function HedgehogOptions(): JSX.Element {
                     <LemonSwitch
                         bordered
                         label="Walk around freely"
-                        checked={freeMovement}
-                        onChange={setFreeMovement}
+                        checked={hedgehogConfig.walking_enabled}
+                        onChange={(val) =>
+                            patchHedgehogConfig({
+                                walking_enabled: val,
+                            })
+                        }
                         tooltip="If enabled the Hedgehog will walk around the screen, otherwise they will stay in one place. You can still move them around by dragging them."
                     />
                     <LemonSwitch
                         bordered
                         label="Interact with elements"
-                        checked={interactWithElements}
-                        onChange={setInteractWithElements}
+                        checked={hedgehogConfig.interactions_enabled}
+                        onChange={(val) =>
+                            patchHedgehogConfig({
+                                interactions_enabled: val,
+                            })
+                        }
                         tooltip="If enabled the Hedgehog might land on elements of the application, otherwise they will always land on the ground"
                     />
                     <LemonSwitch
                         bordered
                         label="Keyboard controls (WASD / arrow keys)"
-                        checked={keyboardControlsEnabled}
-                        onChange={setKeyboardControlsEnabled}
+                        checked={hedgehogConfig.controls_enabled}
+                        onChange={(val) =>
+                            patchHedgehogConfig({
+                                controls_enabled: val,
+                            })
+                        }
                         tooltip="If enabled you can use the WASD or arrow key + space to move around and jump."
                     />
                 </div>
@@ -77,8 +90,8 @@ function HedgehogAccessories(): JSX.Element {
 }
 
 function HedgehogColor(): JSX.Element {
-    const { color } = useValues(hedgehogBuddyLogic)
-    const { setColor } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
 
     return (
         <>
@@ -88,9 +101,12 @@ function HedgehogColor(): JSX.Element {
                 {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
                     <LemonButton
                         key={option}
-                        className={clsx('border-2', color === option ? 'border-primary' : 'border-transparent')}
+                        className={clsx(
+                            'border-2',
+                            hedgehogConfig.color === option ? 'border-primary' : 'border-transparent'
+                        )}
                         size="small"
-                        onClick={() => setColor(option as any)}
+                        onClick={() => patchHedgehogConfig({ color: option as any })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >

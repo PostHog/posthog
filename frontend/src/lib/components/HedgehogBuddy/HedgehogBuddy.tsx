@@ -7,8 +7,10 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
+import { HedgehogConfig } from '~/types'
+
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
@@ -54,17 +56,14 @@ export class HedgehogActor {
     accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
 
     // properties synced with the logic
-    freeMovement = true
-    interactWithElements = true
-    keyboardControlsEnabled = true
-    imageFilter: string | null = null
+    hedgehogConfig: HedgehogConfig = {}
 
     constructor() {
         this.setAnimation('fall')
     }
 
     private getAnimationOptions(): string[] {
-        if (!this.freeMovement) {
+        if (!this.hedgehogConfig.walking_enabled) {
             return randomChoiceList.filter((x) => x !== 'walk')
         }
         return randomChoiceList
@@ -79,7 +78,7 @@ export class HedgehogActor {
 
     setupKeyboardListeners(): () => void {
         const keyDownListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e) || !this.keyboardControlsEnabled) {
+            if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
             }
 
@@ -271,7 +270,7 @@ export class HedgehogActor {
             this.y -= velocityToApplyInIteration * velocityDirection
             if (this.y <= 0) {
                 this.ground = document.body
-            } else if (this.interactWithElements) {
+            } else if (this.hedgehogConfig.interactions_enabled) {
                 const hedgehogBoundingRect = {
                     left: this.x,
                     right: this.x + SPRITE_SIZE,
@@ -317,6 +316,8 @@ export class HedgehogActor {
                 .join(' ') +
             ' ' +
             this.accessories.map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`).join(' ')
+
+        const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
 
         return (
             <div
@@ -368,7 +369,7 @@ export class HedgehogActor {
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
-                        filter: this.imageFilter as any,
+                        filter: imageFilter as any,
                     }}
                 />
                 {this.accessories.map((accessory, index) => (
@@ -386,7 +387,7 @@ export class HedgehogActor {
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
-                            filter: this.imageFilter as any,
+                            filter: imageFilter as any,
                         }}
                     />
                 ))}
@@ -416,8 +417,7 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories, freeMovement, interactWithElements, keyboardControlsEnabled, imageFilter } =
-        useValues(hedgehogBuddyLogic)
+    const { accessories, freeMovement, hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
@@ -432,21 +432,9 @@ export function HedgehogBuddy({
     }, [accessories])
 
     useEffect(() => {
-        actor.freeMovement = freeMovement
+        actor.hedgehogConfig = hedgehogConfig
         actor.setAnimation(freeMovement ? 'walk' : 'stop')
-    }, [freeMovement])
-
-    useEffect(() => {
-        actor.interactWithElements = interactWithElements
-    }, [interactWithElements])
-
-    useEffect(() => {
-        actor.keyboardControlsEnabled = keyboardControlsEnabled
-    }, [keyboardControlsEnabled])
-
-    useEffect(() => {
-        actor.imageFilter = imageFilter
-    }, [imageFilter])
+    }, [hedgehogConfig])
 
     // NOTE: Temporary - turns on christmas clothes for the holidays
     useEffect(() => {

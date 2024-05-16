@@ -27,11 +27,6 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
         addAccessory: (accessory: AccessoryInfo) => ({ accessory }),
         removeAccessory: (accessory: AccessoryInfo) => ({ accessory }),
-        setFreeMovement: (enabled: boolean) => ({ enabled }),
-        setInteractWithElements: (enabled: boolean) => ({ enabled }),
-        setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
-        setImageFilter: (enabled: boolean) => ({ enabled }),
-        setColor: (color: HedgehogColorOptions | null) => ({ color }),
         patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         clearLocalConfig: true,
     }),
@@ -66,10 +61,21 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                 }
             },
         ],
+
+        hedgehogModeEnabled: [
+            (s) => [s.hedgehogConfig],
+            (hedgehogConfig): boolean => {
+                return !!hedgehogConfig.enabled
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
+            actions.patchHedgehogConfig({
+                enabled,
+            })
+
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
 
