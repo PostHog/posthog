@@ -72,15 +72,13 @@ export function LiveEventsTable(): JSX.Element {
                 feature.
             </LemonBanner>
             <div className="mb-2 flex w-full justify-between items-center">
-                {stats?.users_on_product ? (
-                    <div className="flex justify-center">
-                        <div className="flex flex-justify-center items-center bg-white px-2 py-1 rounded border border-3000 text-xs font-medium text-gray-600">
-                            <p className="mb-0">🚀 Live users on product: 🟢 {stats?.users_on_product}</p>
-                        </div>
+                <div className="flex justify-center">
+                    <div className="flex flex-justify-center items-center bg-white px-2 py-1 rounded border border-3000 text-xs font-medium text-gray-600">
+                        <p className="mb-0">
+                            🚀 Live users on product: {stats?.users_on_product ? `🟢 ${stats?.users_on_product}` : '-'}
+                        </p>
                     </div>
-                ) : (
-                    <div />
-                )}
+                </div>
                 {/* <div className="space-y-2 flex-1">
                     {filteredMenuOptions.length > 0 && (
                         <LemonMenu items={[{ items: filteredMenuOptions }]}>
@@ -120,7 +118,7 @@ export function LiveEventsTable(): JSX.Element {
                         data-attr="live-events-refresh-toggle"
                         id="live-events-switch"
                         label={streamPaused ? 'Resume' : 'Pause'}
-                        checked={streamPaused}
+                        checked={!streamPaused}
                         onChange={streamPaused ? resumeStream : pauseStream}
                     />
                 </div>

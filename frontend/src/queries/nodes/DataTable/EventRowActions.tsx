@@ -4,11 +4,11 @@ import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-// import { getCurrentTeamId } from 'lib/utils/getAppContext'
-// import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { createActionFromEvent } from 'scenes/events-management/events/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-// import { teamLogic } from 'scenes/teamLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EventType } from '~/types'
@@ -25,7 +25,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
         <More
             overlay={
                 <>
-                    {/* {getCurrentTeamId() && (
+                    {getCurrentTeamId() && (
                         <LemonButton
                             onClick={() =>
                                 void createActionFromEvent(
@@ -40,7 +40,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         >
                             Create action from event
                         </LemonButton>
-                    )} */}
+                    )}
                     {event.uuid && event.timestamp && (
                         <LemonButton
                             fullWidth

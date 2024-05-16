@@ -40,7 +40,6 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
 import { dashboardsSidebarLogic } from './sidebars/dashboards'
 import { dataManagementSidebarLogic } from './sidebars/dataManagement'
-import { eventsManagementSidebarLogic } from './sidebars/eventsManagement'
 import { experimentsSidebarLogic } from './sidebars/experiments'
 import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
 import { insightsSidebarLogic } from './sidebars/insights'
@@ -408,8 +407,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                               identifier: Scene.EventsManagement,
                               label: 'Activity',
                               icon: <IconLive />,
-                              logic: isUsingSidebar ? eventsManagementSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.exploreEvents(),
+                              to: urls.exploreEvents(),
                           },
                       ]
                     : [
