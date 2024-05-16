@@ -80,7 +80,39 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    const options: ProductConfigOption[] = [
+        {
+            title: 'Autocapture frontend interactions',
+            description: `If you use our JavaScript or React Native libraries, we'll automagically 
+            capture frontend interactions like clicks, submits, and more. Fine-tune what you 
+            capture directly in your code snippet.`,
+            teamProperty: 'autocapture_opt_out',
+            value: !currentTeam?.autocapture_opt_out,
+            type: 'toggle',
+            inverseToggle: true,
+        },
+        {
+            title: 'Enable heatmaps',
+            description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
+                   and scrolling to create heatmaps. 
+                   No additional events are created, and you can disable this at any time.`,
+            teamProperty: 'heatmaps_opt_in',
+            value: currentTeam?.heatmaps_opt_in ?? true,
+            type: 'toggle',
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.ENABLE_SESSION_REPLAY_PA_ONBOARDING]) {
+        options.push({
+            title: 'Enable session recordings',
+            description: `Turn on session recordings and watch how users experience your app.`,
+            teamProperty: 'session_recording_opt_in',
+            value: currentTeam?.session_recording_opt_in ?? true,
+            type: 'toggle',
+        })
+    }
     return (
         <OnboardingWrapper>
             <SDKs
@@ -88,31 +120,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
-            <OnboardingProductConfiguration
-                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
-                options={[
-                    {
-                        title: 'Autocapture frontend interactions',
-                        description: `If you use our JavaScript or React Native libraries, we'll automagically 
-                        capture frontend interactions like clicks, submits, and more. Fine-tune what you 
-                        capture directly in your code snippet.`,
-                        teamProperty: 'autocapture_opt_out',
-                        value: !currentTeam?.autocapture_opt_out,
-                        type: 'toggle',
-                        inverseToggle: true,
-                    },
-
-                    {
-                        title: 'Enable heatmaps',
-                        description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
-                               and scrolling to create heatmaps. 
-                               No additional events are created, and you can disable this at any time.`,
-                        teamProperty: 'heatmaps_opt_in',
-                        value: currentTeam?.heatmaps_opt_in ?? true,
-                        type: 'toggle',
-                    },
-                ]}
-            />
+            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
         </OnboardingWrapper>
     )
 }
