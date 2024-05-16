@@ -178,10 +178,11 @@ class User(AbstractUser, UUIDClassicModel):
         All teams the user has access to on any organization, taking into account project based permissioning
         """
         teams = Team.objects.filter(organization__members=self)
-        if Organization.objects.filter(
-            members=self,
-            available_features__contains=[AvailableFeature.PROJECT_BASED_PERMISSIONING],
-        ).exists():
+        org_available_product_features = Organization.objects.filter(members=self).values_list(
+            "available_product_features", flat=True
+        )
+        org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
+        if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
             try:
                 from ee.models import ExplicitTeamMembership
             except ImportError:
@@ -230,8 +231,9 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
+            available_product_feature_keys = [feature["key"] for feature in organization.available_product_features]
             if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
+                AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case

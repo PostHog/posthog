@@ -52,7 +52,7 @@ export class OrganizationManager {
         }
 
         const organization = await this.fetchOrganization(_team.organization_id)
-        const availableFeatures = organization?.available_features || []
+        const availableFeatures = organization?.available_product_features || []
         this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
 
         return availableFeatures.includes(feature)
