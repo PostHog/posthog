@@ -102,13 +102,13 @@ export function InsightLoadingStateWithLoadingBar({
         const interval = setInterval(() => {
             setRowsRead((rowsRead) => {
                 const diff =
-                    insightPollResponse?.status?.query_progress?.rows_read -
+                    (insightPollResponse?.status?.query_progress?.rows_read || 0) -
                     (insightPollResponse?.previousStatus?.query_progress?.rows_read || 0)
                 return rowsRead + diff / 30
             })
             setBytesRead((bytesRead) => {
                 const diff =
-                    insightPollResponse?.status?.query_progress?.bytes_read -
+                    (insightPollResponse?.status?.query_progress?.bytes_read || 0) -
                     (insightPollResponse?.previousStatus?.query_progress?.bytes_read || 0)
                 return bytesRead + diff / 30
             })

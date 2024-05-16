@@ -305,9 +305,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         queryId: [
-            null,
+            null as null | string,
             {
-                loadData: (state, { queryId }) => queryId,
+                loadData: (_, { queryId }) => queryId,
             },
         ],
         newDataLoading: [
@@ -336,10 +336,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
         pollResponse: [
-            null as null | { status; QueryStatus; previousStatus: QueryStatus },
+            null as null | Record<string, QueryStatus | null>,
             {
                 setPollResponse: (state, { status }) => {
-                    return { status, previousStatus: state?.status }
+                    return { status, previousStatus: state && state.status }
                 },
             },
         ],
