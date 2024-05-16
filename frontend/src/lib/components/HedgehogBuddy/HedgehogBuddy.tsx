@@ -3,11 +3,11 @@ import './HedgehogBuddy.scss'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogAccessories, HedgehogIntro, HedgehogOptions } from './HedgehogOptions'
 import {
@@ -400,13 +400,11 @@ export function HedgehogBuddy({
     onClose,
     onClick: _onClick,
     onPositionChange,
-    popoverOverlay,
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
-    popoverOverlay?: React.ReactNode
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
@@ -498,29 +496,29 @@ export function HedgehogBuddy({
 
     return (
         <Popover
-            onClickOutside={() => {
-                setPopoverVisible(false)
-            }}
+            onClickOutside={() => setPopoverVisible(false)}
             visible={popoverVisible}
             placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
+            overflowHidden
             overlay={
-                popoverOverlay || (
-                    <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <HedgehogIntro />
-                        <HedgehogOptions />
-                        <HedgehogAccessories />
-
-                        <LemonDivider />
-                        <div className="flex justify-end gap-2">
-                            <LemonButton type="secondary" status="danger" onClick={disappear}>
-                                Good bye!
-                            </LemonButton>
-                            <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
-                                Carry on!
-                            </LemonButton>
+                <div className="HedgehogBuddyPopove max-w-140 flex flex-col flex-1 overflow-hidden">
+                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
+                        <div className="p-2">
+                            <HedgehogIntro />
+                            <HedgehogOptions />
+                            <HedgehogAccessories />
                         </div>
+                    </ScrollableShadows>
+                    <div className="flex shrink-0 justify-end gap-2 p-2 border-t">
+                        <LemonButton type="secondary" status="danger" onClick={disappear}>
+                            Good bye!
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
                     </div>
-                )
+                </div>
             }
         >
             {actor.render({ onClick })}

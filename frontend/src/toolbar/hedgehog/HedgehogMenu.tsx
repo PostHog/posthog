@@ -1,5 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { HedgehogAccessories, HedgehogIntro, HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -7,7 +7,6 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { toolbarLogic } from '../bar/toolbarLogic'
 
 export const HedgehogMenu = (): JSX.Element => {
-    const { theme } = useValues(toolbarLogic)
     const { setHedgehogMode, setVisibleMenu } = useActions(toolbarLogic)
 
     return (
@@ -16,7 +15,7 @@ export const HedgehogMenu = (): JSX.Element => {
                 <div className="p-1">
                     <HedgehogIntro />
                     <HedgehogOptions />
-                    <HedgehogAccessories isDarkModeOn={theme === 'dark'} />
+                    <HedgehogAccessories />
                 </div>
             </ToolbarMenu.Body>
 
