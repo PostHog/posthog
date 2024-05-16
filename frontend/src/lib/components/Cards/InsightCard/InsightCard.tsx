@@ -283,7 +283,7 @@ function InsightCardInternal(
         if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         }
-        if (!hasFunnelResults) {
+        if (!hasFunnelResults && !apiErrored) {
             empty = true
         }
     }
