@@ -151,7 +151,7 @@ export const userLogic = kea<userLogicType>([
                             name: user.organization.name,
                             slug: user.organization.slug,
                             created_at: user.organization.created_at,
-                            avaible_product_features: user.organization.available_product_features,
+                            available_product_features: user.organization.available_product_features,
                             ...user.organization.metadata,
                         })
 
