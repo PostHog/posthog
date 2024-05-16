@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { ForwardedRef, MutableRefObject, useEffect, useRef, useState } from 'react'
+import { ForwardedRef, useEffect, useRef, useState } from 'react'
 import React from 'react'
 
 import { HedgehogConfig, OrganizationMemberType } from '~/types'
@@ -36,7 +36,7 @@ const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: 
 }, [])
 
 export type HedgehogBuddyProps = {
-    actorRef?: MutableRefObject<HedgehogActor | undefined>
+    onActorLoaded?: (actor: HedgehogActor) => void
     onClose?: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
@@ -127,7 +127,7 @@ export class HedgehogActor {
         }
 
         const keyUpListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
             }
 
@@ -412,16 +412,14 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { actorRef: _actorRef, onClick: _onClick, onPositionChange, hedgehogConfig },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
-        if (_actorRef) {
-            _actorRef.current = actorRef.current
-        }
+        onActorLoaded?.(actorRef.current)
     }
 
     const actor = actorRef.current
@@ -471,26 +469,17 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 })
 
 export function MyHedgehogBuddy({
-    actorRef: _actorRef,
+    onActorLoaded,
     onClose,
     onClick: _onClick,
     onPositionChange,
 }: HedgehogBuddyProps): JSX.Element {
-    const actorRef = useRef<HedgehogActor>()
-
-    if (!actorRef.current) {
-        actorRef.current = new HedgehogActor()
-        if (_actorRef) {
-            _actorRef.current = actorRef.current
-        }
-    }
-
-    const actor = actorRef.current
+    const [actor, setActor] = useState<HedgehogActor | null>(null)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
 
     useEffect(() => {
-        return actor.setupKeyboardListeners()
-    }, [])
+        return actor?.setupKeyboardListeners()
+    }, [actor])
 
     const [popoverVisible, setPopoverVisible] = useState(false)
 
@@ -500,8 +489,8 @@ export function MyHedgehogBuddy({
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        actor.setAnimation('wave')
-        setTimeout(() => onClose?.(), (actor.animations.wave.frames * 1000) / FPS)
+        actor?.setAnimation('wave')
+        setTimeout(() => onClose?.(), (actor!.animations.wave.frames * 1000) / FPS)
     }
 
     return (
@@ -530,7 +519,10 @@ export function MyHedgehogBuddy({
             }
         >
             <HedgehogBuddy
-                actorRef={actorRef}
+                onActorLoaded={(actor) => {
+                    setActor(actor)
+                    onActorLoaded?.(actor)
+                }}
                 onClick={onClick}
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
