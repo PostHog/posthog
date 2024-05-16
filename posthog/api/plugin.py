@@ -412,7 +412,7 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 elif key == "frontend.tsx":
                     transpiled = transpile(source, type="frontend")
                     status = PluginSourceFile.Status.TRANSPILED
-                elif key == "plugin.hog":
+                elif key == "onEvent.hog":
                     transpiled = None
                     bytecode = create_bytecode(parse_program(source))
                     status = PluginSourceFile.Status.TRANSPILED

@@ -1,4 +1,5 @@
-import { RetryError } from '@posthog/plugin-scaffold'
+import { exec } from '@posthog/hogvm'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { Summary } from 'prom-client'
 import { VM } from 'vm2'
@@ -35,18 +36,35 @@ const vmSetupMsSummary = new Summary({
 export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
-    indexJs: string
+    indexJs: string,
+    bytecode?: any[]
 ): PluginConfigVMResponse {
     const timer = new Date()
 
     const usedImports: Set<string> = new Set()
-    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
     // Create virtual machine
     const vm = new VM({
         timeout: hub.TASK_TIMEOUT * 1000 + 1,
         sandbox: {},
     })
+
+    if (bytecode) {
+        return {
+            vm,
+            methods: {
+                onEvent: async (event: ProcessedPluginEvent) => {
+                    const response = await exec(bytecode, { event })
+                    return response
+                },
+            },
+            tasks: { job: {}, schedule: {} },
+            vmResponseVariable: '',
+            usedImports,
+        }
+    }
+
+    const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
 
     // Add PostHog utilities to virtual machine
     vm.freeze(createConsole(hub, pluginConfig), 'console')
