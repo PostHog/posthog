@@ -27,7 +27,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
-from posthog import rate_limit
+from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -245,6 +245,8 @@ class PostHogTestCase(SimpleTestCase):
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
+        # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
+        redis.get_client().flushdb()
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()

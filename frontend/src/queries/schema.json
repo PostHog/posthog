@@ -1602,6 +1602,25 @@
             ],
             "type": "string"
         },
+        "ClickhouseQueryStatus": {
+            "additionalProperties": false,
+            "properties": {
+                "bytes_read": {
+                    "type": "integer"
+                },
+                "estimated_rows_total": {
+                    "type": "integer"
+                },
+                "rows_read": {
+                    "type": "integer"
+                },
+                "time_elapsed": {
+                    "type": "integer"
+                }
+            },
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed"],
+            "type": "object"
+        },
         "CohortPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -6718,6 +6737,9 @@
                 "query_async": {
                     "default": true,
                     "type": "boolean"
+                },
+                "query_progress": {
+                    "$ref": "#/definitions/ClickhouseQueryStatus"
                 },
                 "results": {},
                 "start_time": {

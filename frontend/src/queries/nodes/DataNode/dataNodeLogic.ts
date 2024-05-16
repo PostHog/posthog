@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
+import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -153,6 +154,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setPollResponse: (status: QueryStatus | null) => ({ status }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -186,6 +188,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
@@ -206,7 +209,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
-                                            queryId
+                                            queryId,
+                                            undefined,
+                                            actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -313,6 +318,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => false,
             },
         ],
+        queryId: [
+            null as null | string,
+            {
+                loadData: (_, { queryId }) => queryId,
+            },
+        ],
         newDataLoading: [
             false,
             {
@@ -336,6 +347,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+            },
+        ],
+        pollResponse: [
+            null as null | Record<string, QueryStatus | null>,
+            {
+                setPollResponse: (state, { status }) => {
+                    return { status, previousStatus: state && state.status }
+                },
             },
         ],
         autoLoadToggled: [
