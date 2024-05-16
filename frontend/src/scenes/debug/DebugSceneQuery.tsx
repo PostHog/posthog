@@ -41,6 +41,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                     queryKey={queryKey}
                     query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    debug
                 />
             ) : isHogQLQuery(parsed) ? (
                 <HogQLDebug

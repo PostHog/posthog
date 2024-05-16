@@ -247,6 +247,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
 
 export interface HogQueryResponse {
     results: any
+    bytecode?: any[]
 }
 
 export interface HogQuery extends DataNode<HogQueryResponse> {

@@ -70,7 +70,7 @@ def process_query_model(
             try:
                 program = parse_program(query.code)
                 bytecode = create_bytecode(program)
-                result = HogQueryResponse(results=execute_bytecode(bytecode))
+                result = HogQueryResponse(results=execute_bytecode(bytecode), bytecode=bytecode)
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")
         elif isinstance(query, HogQLAutocomplete):

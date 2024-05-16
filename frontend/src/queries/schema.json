@@ -4027,6 +4027,10 @@
         "HogQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bytecode": {
+                    "items": {},
+                    "type": "array"
+                },
                 "results": {}
             },
             "required": ["results"],
@@ -4335,7 +4339,7 @@
             "type": "string"
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "JSON", "SQL", "HOG"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -5554,6 +5558,10 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bytecode": {
+                            "items": {},
+                            "type": "array"
+                        },
                         "results": {}
                     },
                     "required": ["results"],

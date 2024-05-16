@@ -3,6 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -96,12 +97,14 @@ interface HogDebugProps {
     queryKey: string
     query: HogQuery
     setQuery?: (query: HogQuery) => void
+    debug?: boolean
 }
 
-export function HogDebug({ query, setQuery, queryKey }: HogDebugProps): JSX.Element {
+export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
+    const [tab, setTab] = useState('results' as 'results' | 'bytecode')
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -124,17 +127,44 @@ export function HogDebug({ query, setQuery, queryKey }: HogDebugProps): JSX.Elem
                         </div>
                     </>
                 ) : (
-                    <CodeEditor
-                        className="border"
-                        language={typeof response?.results === 'object' ? 'json' : 'text'}
-                        value={
-                            typeof response?.results === 'object'
-                                ? JSON.stringify(response?.results ?? '', null, 2)
-                                : String(response?.results ?? '')
-                        }
-                        height={500}
-                        path={`debug/${queryKey}/hog-result.json`}
-                    />
+                    <>
+                        {debug ? (
+                            <LemonTabs
+                                tabs={[
+                                    { label: 'Results', key: 'results' },
+                                    { label: 'Bytecode', key: 'bytecode' },
+                                ]}
+                                activeKey={tab}
+                                onChange={(key) => setTab(String(key) as 'results' | 'bytecode')}
+                            />
+                        ) : null}
+                        {tab === 'bytecode' && debug ? (
+                            <CodeEditor
+                                className="border"
+                                language="json"
+                                value={
+                                    response?.bytecode
+                                        ? JSON.stringify(response?.bytecode)
+                                        : 'No bytecode returned with response'
+                                }
+                                height={500}
+                                path={`debug/${queryKey}/hog-bytecode.json`}
+                                options={{ wordWrap: 'on' }}
+                            />
+                        ) : (
+                            <CodeEditor
+                                className="border"
+                                language={typeof response?.results === 'object' ? 'json' : 'text'}
+                                value={
+                                    typeof response?.results === 'object'
+                                        ? JSON.stringify(response?.results ?? '', null, 2)
+                                        : String(response?.results ?? '')
+                                }
+                                height={500}
+                                path={`debug/${queryKey}/hog-result.json`}
+                            />
+                        )}
+                    </>
                 )}
             </div>
         </BindLogic>

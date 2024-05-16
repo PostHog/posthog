@@ -496,6 +496,7 @@ class HogQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bytecode: Optional[list] = None
     results: Any
 
 
@@ -551,6 +552,7 @@ class InsightType(str, Enum):
     PATHS = "PATHS"
     JSON = "JSON"
     SQL = "SQL"
+    HOG = "HOG"
 
 
 class IntervalType(str, Enum):
@@ -733,6 +735,7 @@ class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bytecode: Optional[list] = None
     results: Any
 
 
