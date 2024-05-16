@@ -62,6 +62,17 @@ export function HedgehogOptions(): JSX.Element {
                         }
                         tooltip="If enabled you can use the WASD or arrow key + space to move around and jump."
                     />
+                    <LemonSwitch
+                        bordered
+                        label="Party mode"
+                        checked={hedgehogConfig.party_mode_enabled}
+                        onChange={(val) =>
+                            patchHedgehogConfig({
+                                party_mode_enabled: val,
+                            })
+                        }
+                        tooltip="If enabled then all of your organization members will appear as hedgehogs as well!"
+                    />
                 </div>
                 <HedgehogColor />
                 <HedgehogAccessories />

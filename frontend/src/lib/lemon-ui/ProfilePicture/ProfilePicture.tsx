@@ -2,6 +2,7 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import { useMemo, useState } from 'react'
@@ -13,7 +14,7 @@ import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 
 export interface ProfilePictureProps {
-    user?: Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> | null
+    user?: Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name' | 'hedgehog_config'> | null
     name?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
@@ -45,8 +46,10 @@ export function ProfilePicture({
 
     const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
 
+    const hedgehogProfile = !!user?.hedgehog_config?.use_as_profile
+
     const gravatarUrl = useMemo(() => {
-        if (inStorybookTestRunner()) {
+        if (hedgehogProfile || inStorybookTestRunner()) {
             return // There are no guarantees on how long it takes to fetch a Gravatar, so we skip this in snapshots
         }
         // Check if Gravatar exists
@@ -63,13 +66,15 @@ export function ProfilePicture({
                 <>
                     {type === 'bot' ? (
                         <IconRobot className="p-0.5" />
-                    ) : (
+                    ) : !hedgehogProfile ? (
                         <Lettermark
                             name={combinedNameAndEmail}
                             index={index}
                             rounded
                             color={type === 'system' ? LettermarkColor.Gray : undefined}
                         />
+                    ) : (
+                        <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
                     )}
                 </>
             )}
