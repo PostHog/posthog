@@ -42,6 +42,8 @@ from posthog.api import (
 )
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.early_access_feature import early_access_features
+from posthog.api.support_tickets import get_support_tickets, reply_support_ticket, create_support_ticket, \
+    close_support_ticket
 from posthog.api.survey import surveys
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -183,6 +185,10 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/early_access_features", early_access_features),
+    opt_slash_path("api/support_tickets", get_support_tickets),
+    opt_slash_path("api/support_tickets/reply", reply_support_ticket),
+    opt_slash_path("api/support_tickets/create", create_support_ticket),
+    opt_slash_path("api/support_tickets/close", close_support_ticket),
     opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),

@@ -37,6 +37,7 @@ import { SlackIntegration } from './project/SlackIntegration'
 import { SurveySettings } from './project/SurveySettings'
 import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
 import { WebhookIntegration } from './project/WebhookIntegration'
+import { ZenHog } from './project/ZenHog'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { OptOutCapture } from './user/OptOutCapture'
@@ -230,6 +231,12 @@ export const SettingsMap: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+            },
+            {
+                id: 'integration-zenhog',
+                title: 'Zendesk integration',
+                component: <ZenHog />,
+                flag: 'ZENHOG',
             },
         ],
     },

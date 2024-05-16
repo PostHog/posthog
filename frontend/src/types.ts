@@ -475,6 +475,12 @@ export interface TeamType extends TeamBasicType {
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
     default_modifiers?: HogQLQueryModifiers
+    // ZenHog
+    zendesk_key: string
+    zenhog_message_urgent: string
+    zenhog_message_high: string
+    zenhog_message_medium: string
+    zenhog_message_low: string
 }
 
 // This type would be more correct without `Partial<TeamType>`, but it's only used in the shared dashboard/insight

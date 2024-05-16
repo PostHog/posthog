@@ -54,7 +54,10 @@ export const zenHogLogic = kea<zenHogLogicType>([
                     const realTickets = await new Promise((resolve) =>
                         posthog.getTicketsForUser(
                             { user: 'marcus.h@posthog.com', userHash: 'garbage', forceReload: true },
-                            (tickets) => resolve(tickets)
+                            (tickets) => {
+                                console.log(tickets)
+                                return resolve(tickets)
+                            }
                         )
                     )
                     // eslint-disable-next-line no-console
