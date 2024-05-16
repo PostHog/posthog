@@ -334,6 +334,8 @@ export function PropertiesTable({
                 render: function Filter(_, item: any): JSX.Element | false {
                     const { addFilter } = useActions(logsSceneLogic)
 
+                    const operator = Array.isArray(item[1]) ? PropertyOperator.IContains : PropertyOperator.Exact
+
                     return (
                         <LemonButton
                             size="small"
@@ -342,12 +344,15 @@ export function PropertiesTable({
                             className="ml-1"
                             data-attr="copy-icon"
                             onClick={() => {
-                                addFilter({
-                                    key: item[0],
-                                    value: item[1],
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                })
+                                const valueAsArray = Array.isArray(item[1]) ? item[1] : [item[1]]
+                                valueAsArray.forEach((val) =>
+                                    addFilter({
+                                        key: item[0],
+                                        value: val,
+                                        operator,
+                                        type: PropertyFilterType.Event,
+                                    })
+                                )
                             }}
                         />
                     )

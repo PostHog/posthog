@@ -46,7 +46,7 @@ export function LogsScene(): JSX.Element {
 
 const SomeComponent = (): JSX.Element => {
     const [localSearchTerm, setLocalSearchTerm] = useState('')
-    const { data, responseLoading, query } = useValues(logsDataLogic)
+    const { data, responseLoading, query, queryParamsForTimeSeries } = useValues(logsDataLogic)
     const { setQuery } = useActions(logsSceneLogic)
 
     const setSearchTerm = useDebouncedCallback((value: string) => setQuery({ searchTerm: value }), 500)
@@ -94,7 +94,7 @@ const SomeComponent = (): JSX.Element => {
                         embedded: true,
                         fitParentHeight: true,
                         source: {
-                            ...query,
+                            ...queryParamsForTimeSeries,
                             kind: NodeKind.TrendsQuery,
                             filterTestAccounts: false,
                             breakdownFilter: {

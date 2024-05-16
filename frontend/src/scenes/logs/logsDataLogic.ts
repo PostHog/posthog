@@ -1,7 +1,7 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LogsQuery, LogsQueryResult } from '~/queries/schema'
+import { LogsQuery, LogsQueryResult, TrendsQuery } from '~/queries/schema'
 
 import type { logsDataLogicType } from './logsDataLogicType'
 
@@ -27,6 +27,12 @@ export const logsDataLogic = kea<logsDataLogicType>([
             (s) => [s.response],
             (response): LogsQueryResult[] => {
                 return response?.results ?? []
+            },
+        ],
+        queryParamsForTimeSeries: [
+            (s) => [s.query],
+            (query: LogsQuery): Partial<TrendsQuery> => {
+                return { properties: query.properties, dateRange: query.dateRange }
             },
         ],
     }),
