@@ -4,9 +4,8 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 
-import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
-import { HedgehogBuddyStatic } from './HedgehogBuddyStatic'
+import { HedgehogBuddyProfile, HedgehogBuddyStatic } from './HedgehogBuddyRender'
 import { accessoryGroups, standardAccessories } from './sprites/sprites'
 
 export function HedgehogOptions(): JSX.Element {
@@ -15,12 +14,18 @@ export function HedgehogOptions(): JSX.Element {
 
     return (
         <div>
-            <h3>Hi, I'm Max!</h3>
-            <p>
-                Don't mind me. I'm just here to keep you company.
-                <br />
-                You can move me around by clicking and dragging or control me with WASD / arrow keys.
-            </p>
+            <div className="flex items-start gap-2">
+                <HedgehogBuddyProfile {...hedgehogConfig} size={100} />
+                <div className="flex-1">
+                    <h3>Hi, I'm Max!</h3>
+                    <p>
+                        Don't mind me. I'm just here to keep you company.
+                        <br />
+                        You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                    </p>
+                </div>
+            </div>
+
             <div className="space-y-2">
                 <h4>Options</h4>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -66,6 +71,28 @@ export function HedgehogOptions(): JSX.Element {
 }
 
 function HedgehogAccessories(): JSX.Element {
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+
+    const accessories = hedgehogConfig.accessories
+
+    const onClick = (accessory: string): void => {
+        // If it is in the list - remove it
+        // If it isn't in the list, remove al accessories of the same group and add the new one
+
+        if (accessories.includes(accessory)) {
+            patchHedgehogConfig({
+                accessories: accessories.filter((acc) => acc !== accessory),
+            })
+        } else {
+            patchHedgehogConfig({
+                accessories: accessories
+                    .filter((acc) => standardAccessories[acc].group !== standardAccessories[accessory].group)
+                    .concat(accessory),
+            })
+        }
+    }
+
     return (
         <>
             {accessoryGroups.map((group) => (
@@ -76,11 +103,19 @@ function HedgehogAccessories(): JSX.Element {
                         {Object.keys(standardAccessories)
                             .filter((acc) => standardAccessories[acc].group === group)
                             .map((acc) => (
-                                <HedgehogBuddyAccessory
+                                <LemonButton
                                     key={acc}
-                                    accessoryKey={acc}
-                                    accessory={standardAccessories[acc]}
-                                />
+                                    className={clsx(
+                                        'border-2',
+                                        accessories.includes(acc) ? 'border-primary' : 'border-transparent'
+                                    )}
+                                    size="small"
+                                    onClick={() => onClick(acc)}
+                                    noPadding
+                                    tooltip={<>{capitalizeFirstLetter(acc)}</>}
+                                >
+                                    <HedgehogBuddyStatic accessories={[acc]} />
+                                </LemonButton>
                             ))}
                     </div>
                 </React.Fragment>

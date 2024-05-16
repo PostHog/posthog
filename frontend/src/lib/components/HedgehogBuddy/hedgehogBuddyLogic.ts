@@ -6,7 +6,6 @@ import { userLogic } from 'scenes/userLogic'
 import { HedgehogColorOptions, HedgehogConfig } from '~/types'
 
 import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
-import { AccessoryInfo, standardAccessories } from './sprites/sprites'
 
 export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
     red: 'hue-rotate(340deg) saturate(300%) brightness(90%)',
@@ -25,15 +24,15 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     path(['hedgehog', 'hedgehogBuddyLogic']),
     actions({
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
-        addAccessory: (accessory: AccessoryInfo) => ({ accessory }),
-        removeAccessory: (accessory: AccessoryInfo) => ({ accessory }),
+        addAccessory: (accessory: string) => ({ accessory }),
+        removeAccessory: (accessory: string) => ({ accessory }),
         patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         clearLocalConfig: true,
     }),
 
     reducers(() => ({
         localConfig: [
-            null as Partial<HedgehogConfig>,
+            null as Partial<HedgehogConfig> | null,
             {
                 clearLocalConfig: () => null,
                 patchHedgehogConfig: (state, { config }) => ({
@@ -45,19 +44,27 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     })),
 
     selectors({
-        availableAccessories: [
-            () => [],
-            () => {
-                return Object.keys(standardAccessories)
+        partialHedgehogConfig: [
+            (s) => [s.localConfig, userLogic.selectors.user],
+            (localConfig, user): Partial<HedgehogConfig> => {
+                return {
+                    ...(user?.hedgehog_config ?? {}),
+                    ...(localConfig ?? {}),
+                }
             },
         ],
 
         hedgehogConfig: [
-            (s) => [s.localConfig, userLogic.selectors.user],
-            (localConfig, user): HedgehogConfig => {
+            (s) => [s.partialHedgehogConfig],
+            (partialHedgehogConfig): HedgehogConfig => {
                 return {
-                    ...(user.hedgehog_config ?? {}),
-                    ...(localConfig ?? {}),
+                    enabled: false,
+                    color: null,
+                    accessories: [],
+                    walking_enabled: true,
+                    interactions_enabled: true,
+                    controls_enabled: true,
+                    ...partialHedgehogConfig,
                 }
             },
         ],
@@ -70,7 +77,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
             actions.patchHedgehogConfig({
                 enabled,
@@ -79,13 +86,27 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
 
-        setHedgehogConfig: async ({ config }, breakpoint) => {
+        addAccessory: ({ accessory }) => {
+            actions.patchHedgehogConfig({
+                accessories: [...(values.hedgehogConfig.accessories ?? []), accessory],
+            })
+        },
+
+        removeAccessory: ({ accessory }) => {
+            actions.patchHedgehogConfig({
+                accessories: (values.hedgehogConfig.accessories ?? []).filter((acc) => acc !== accessory),
+            })
+        },
+
+        patchHedgehogConfig: async (_, breakpoint) => {
             await breakpoint(1000)
 
             await new Promise<void>((res) => {
+                // TODO: Fix the rate limiting of this...
                 userLogic.findMounted()?.actions.updateUser(
                     {
-                        hedgehog_config: config,
+                        // We use the partialHedgehogConfig here to avoid including defaults
+                        hedgehog_config: values.partialHedgehogConfig,
                     },
                     res
                 )

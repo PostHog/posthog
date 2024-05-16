@@ -53,13 +53,16 @@ export class HedgehogActor {
     animation = this.animations[this.animationName]
     animationFrame = 0
     animationIterations: number | null = null
-    accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
 
     // properties synced with the logic
-    hedgehogConfig: HedgehogConfig = {}
+    hedgehogConfig: Partial<HedgehogConfig> = {}
 
     constructor() {
         this.setAnimation('fall')
+    }
+
+    private accessories(): AccessoryInfo[] {
+        return this.hedgehogConfig.accessories?.map((acc) => standardAccessories[acc]) ?? []
     }
 
     private getAnimationOptions(): string[] {
@@ -315,7 +318,9 @@ export class HedgehogActor {
                 .map((x) => `url(${baseSpritePath()}/${x.img}.png)`)
                 .join(' ') +
             ' ' +
-            this.accessories.map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`).join(' ')
+            this.accessories()
+                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`)
+                .join(' ')
 
         const imageFilter = this.hedgehogConfig.color ? COLOR_TO_FILTER_MAP[this.hedgehogConfig.color] : undefined
 
@@ -372,7 +377,7 @@ export class HedgehogActor {
                         filter: imageFilter as any,
                     }}
                 />
-                {this.accessories.map((accessory, index) => (
+                {this.accessories().map((accessory, index) => (
                     <div
                         key={index}
                         // eslint-disable-next-line react/forbid-dom-props
@@ -417,7 +422,7 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories, freeMovement, hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
@@ -428,19 +433,15 @@ export function HedgehogBuddy({
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     useEffect(() => {
-        actor.accessories = accessories
-    }, [accessories])
-
-    useEffect(() => {
         actor.hedgehogConfig = hedgehogConfig
-        actor.setAnimation(freeMovement ? 'walk' : 'stop')
+        actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
     }, [hedgehogConfig])
 
     // NOTE: Temporary - turns on christmas clothes for the holidays
     useEffect(() => {
-        if (accessories.length === 0 && dayjs().month() === 11) {
-            addAccessory(standardAccessories['xmas_hat'])
-            addAccessory(standardAccessories['xmas_scarf'])
+        if (hedgehogConfig.accessories.length === 0 && dayjs().month() === 11) {
+            addAccessory('xmas_hat')
+            addAccessory('xmas_scarf')
         }
     }, [])
 
