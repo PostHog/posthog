@@ -1,3 +1,4 @@
+import posthoganalytics
 import structlog
 from typing import Optional
 
@@ -6,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from hogvm.python.execute import execute_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
 from posthog.hogql.bytecode import create_bytecode
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
@@ -67,6 +69,22 @@ def process_query_model(
             # Caching is handled by query runners, so in this case we can only return a cache miss
             result = CacheMissResponse(cache_key=None)
         elif isinstance(query, HogQuery):
+            if is_cloud():
+                if not posthoganalytics.feature_enabled(
+                    "hog",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id)},
+                    group_properties={
+                        "organization": {
+                            "id": str(team.organization_id),
+                            "created_at": team.organization.created_at,
+                        }
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                ):
+                    return {"results": "Hog queries not enabled for this organization."}
+
             try:
                 program = parse_program(query.code)
                 bytecode = create_bytecode(program)
