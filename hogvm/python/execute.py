@@ -5,7 +5,7 @@ from hogvm.python.stl import execute_stl_function
 import time
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
-from hogvm.python.utils import HogVMException
+from hogvm.python.vm_utils import HogVMException
 
 
 def like(string, pattern, flags=0):

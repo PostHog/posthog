@@ -16,6 +16,8 @@ from posthog.hogql.ast import (
     Block,
     WhileStatement,
     Function,
+    Array,
+    Dict,
 )
 
 from posthog.hogql.parser import parse_program
@@ -332,6 +334,98 @@ class TestParserPython(parser_test_factory("python")):
                         ],
                     ),
                 ),
+            ],
+        )
+        self.assertEqual(program, expected)
+
+    def test_program_array(self):
+        code = "var a := [1, 2, 3];"
+        program = self._program(code)
+
+        expected = Program(
+            start=None,
+            end=None,
+            declarations=[
+                VariableAssignment(
+                    start=None,
+                    end=None,
+                    name="a",
+                    expr=Array(
+                        start=None,
+                        end=None,
+                        type=None,
+                        exprs=[
+                            Constant(start=None, end=None, type=None, value=1),
+                            Constant(start=None, end=None, type=None, value=2),
+                            Constant(start=None, end=None, type=None, value=3),
+                        ],
+                    ),
+                    is_declaration=True,
+                )
+            ],
+        )
+        self.assertEqual(program, expected)
+
+    def test_program_dict(self):
+        code = "var a := {};"
+        program = self._program(code)
+
+        expected = Program(
+            start=None,
+            end=None,
+            declarations=[
+                VariableAssignment(
+                    start=None,
+                    end=None,
+                    name="a",
+                    expr=Dict(start=None, end=None, type=None, items=[]),
+                    is_declaration=True,
+                )
+            ],
+        )
+
+        self.assertEqual(program, expected)
+
+        code = "var a := {1: 2, 'a': [3, 4], g: true};"
+        program = self._program(code)
+
+        expected = Program(
+            start=None,
+            end=None,
+            declarations=[
+                VariableAssignment(
+                    start=None,
+                    end=None,
+                    name="a",
+                    expr=Dict(
+                        start=None,
+                        end=None,
+                        type=None,
+                        items=[
+                            (
+                                Constant(start=None, end=None, type=None, value=1),
+                                Constant(start=None, end=None, type=None, value=2),
+                            ),
+                            (
+                                Constant(start=None, end=None, type=None, value="a"),
+                                Array(
+                                    start=None,
+                                    end=None,
+                                    type=None,
+                                    exprs=[
+                                        Constant(start=None, end=None, type=None, value=3),
+                                        Constant(start=None, end=None, type=None, value=4),
+                                    ],
+                                ),
+                            ),
+                            (
+                                Field(start=None, end=None, type=None, chain=["g"]),
+                                Constant(start=None, end=None, type=None, value=True),
+                            ),
+                        ],
+                    ),
+                    is_declaration=True,
+                )
             ],
         )
         self.assertEqual(program, expected)
