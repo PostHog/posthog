@@ -261,6 +261,6 @@ func main() {
 	if !viper.GetBool("prod") {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
-		e.Logger.Fatal(e.StartAutoTLS(viper.GetString("url")))
+		e.Logger.Fatal(e.StartAutoTLS(":443"))
 	}
 }
