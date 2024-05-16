@@ -108,6 +108,16 @@ export function IconJavascript(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconZendesk(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 16 16" fill="currentColor" {...props}>
+            <path
+                fill="currentColor"
+                d="M7.385 5.168V14H0l7.385-8.832zm0-3.168c0 2.01-1.662 3.655-3.693 3.655C1.662 5.655 0 4.01 0 2h7.385zm1.23 12c0-2.01 1.662-3.655 3.693-3.655C14.338 10.345 16 11.99 16 14H8.615zm0-3.168V2H16l-7.385 8.832z"
+            />
+        </LemonIconBase>
+    )
+}
 export function IconNodeJS(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 256 282" fill="currentColor" {...props}>

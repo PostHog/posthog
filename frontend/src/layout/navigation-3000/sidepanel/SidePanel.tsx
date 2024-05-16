@@ -24,6 +24,7 @@ import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelZenHog, SidePanelZenHogIcon } from './panels/SidePanelZenHog'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -42,6 +43,13 @@ export const SIDE_PANEL_TABS: Record<
         Icon: IconSupport,
         Content: SidePanelSupport,
     },
+
+    [SidePanelTab.ZenHog]: {
+        label: 'ZenHog',
+        Icon: SidePanelZenHogIcon,
+        Content: SidePanelZenHog,
+    },
+
     [SidePanelTab.Docs]: {
         label: 'Docs',
         Icon: IconInfo,
@@ -99,7 +107,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelContent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -151,12 +159,12 @@ export function SidePanel(): JSX.Element | null {
         return (
             <LemonModal
                 simple
-                isOpen={!!PanelConent && supportsModal}
+                isOpen={!!PanelContent && supportsModal}
                 onClose={closeSidePanel}
                 hideCloseButton
                 width="40rem"
             >
-                {PanelConent ? <PanelConent /> : null}
+                {PanelContent ? <PanelContent /> : null}
             </LemonModal>
         )
     }
@@ -210,9 +218,9 @@ export function SidePanel(): JSX.Element | null {
             </div>
             <Resizer {...resizerLogicProps} offset="3rem" />
 
-            {PanelConent ? (
+            {PanelContent ? (
                 <div className="SidePanel3000__content">
-                    <PanelConent />
+                    <PanelContent />
                 </div>
             ) : null}
         </div>

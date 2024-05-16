@@ -70,7 +70,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     )
 }
 
-const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
+export const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
     const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
 
     return (
