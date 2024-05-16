@@ -665,6 +665,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The URL visited at the time of the event.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
+        $msg: {
+            label: 'Log message',
+            description: 'The message sent in the PostHog log messaage.',
+            examples: ['User clicked on button'],
+        },
+        $level: {
+            label: 'Log level',
+            description: 'The log level of the PostHog log message.',
+            examples: ['INFO', 'ERROR'],
+        },
+        $namespace: {
+            label: 'Log namespace',
+            description: 'The namespace of the PostHog log message.',
+            examples: ['posthog', 'plugin'],
+        },
         $browser_version: {
             label: 'Browser Version',
             description: 'The version of the browser that was used. Used in combination with Browser.',
