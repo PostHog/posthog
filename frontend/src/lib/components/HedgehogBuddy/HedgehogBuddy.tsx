@@ -1,11 +1,11 @@
 import './HedgehogBuddy.scss'
 
-import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
+import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { ForwardedRef, MutableRefObject, useEffect, useRef, useState } from 'react'
+import React from 'react'
 
 import { HedgehogConfig } from '~/types'
 
@@ -33,6 +33,14 @@ const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
+
+export type HedgehogBuddyProps = {
+    actorRef?: MutableRefObject<HedgehogActor | undefined>
+    onClose?: () => void
+    onClick?: () => void
+    onPositionChange?: (actor: HedgehogActor) => void
+    hedgehogConfig?: HedgehogConfig
+}
 
 export class HedgehogActor {
     animations = standardAnimations
@@ -311,7 +319,7 @@ export class HedgehogActor {
         return groundBoundingRect
     }
 
-    render({ onClick }: { onClick: () => void }): JSX.Element {
+    render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         const preloadContent =
             Object.values(this.animations)
@@ -326,6 +334,7 @@ export class HedgehogActor {
 
         return (
             <div
+                ref={ref}
                 className="HedgehogBuddy"
                 data-content={preloadContent}
                 onMouseDown={(e) => {
@@ -401,17 +410,10 @@ export class HedgehogActor {
     }
 }
 
-export function HedgehogBuddy({
-    actorRef: _actorRef,
-    onClose,
-    onClick: _onClick,
-    onPositionChange,
-}: {
-    actorRef?: MutableRefObject<HedgehogActor | undefined>
-    onClose: () => void
-    onClick?: () => void
-    onPositionChange?: (actor: HedgehogActor) => void
-}): JSX.Element {
+export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
+    { actorRef: _actorRef, onClick: _onClick, onPositionChange, hedgehogConfig },
+    ref
+): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
@@ -422,28 +424,14 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { addAccessory } = useActions(hedgehogBuddyLogic)
-
-    useEffect(() => {
-        return actor.setupKeyboardListeners()
-    }, [])
-
     const [_, setTimerLoop] = useState(0)
-    const [popoverVisible, setPopoverVisible] = useState(false)
 
     useEffect(() => {
-        actor.hedgehogConfig = hedgehogConfig
-        actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
-    }, [hedgehogConfig])
-
-    // NOTE: Temporary - turns on christmas clothes for the holidays
-    useEffect(() => {
-        if (hedgehogConfig.accessories.length === 0 && dayjs().month() === 11) {
-            addAccessory('xmas_hat')
-            addAccessory('xmas_scarf')
+        if (hedgehogConfig) {
+            actor.hedgehogConfig = hedgehogConfig
+            actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
-    }, [])
+    }, [hedgehogConfig])
 
     useEffect(() => {
         let timer: any = null
@@ -475,12 +463,44 @@ export function HedgehogBuddy({
     }, [actor.x, actor.y])
 
     const onClick = (): void => {
-        !actor.isDragging && (_onClick ? _onClick() : setPopoverVisible(!popoverVisible))
+        !actor.isDragging && _onClick?.()
+    }
+
+    return actor.render({ onClick, ref })
+})
+
+export function MyHedgehogBuddy({
+    actorRef: _actorRef,
+    onClose,
+    onClick: _onClick,
+    onPositionChange,
+}: HedgehogBuddyProps): JSX.Element {
+    const actorRef = useRef<HedgehogActor>()
+
+    if (!actorRef.current) {
+        actorRef.current = new HedgehogActor()
+        if (_actorRef) {
+            _actorRef.current = actorRef.current
+        }
+    }
+
+    const actor = actorRef.current
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+
+    useEffect(() => {
+        return actor.setupKeyboardListeners()
+    }, [])
+
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+        _onClick?.()
     }
     const disappear = (): void => {
         setPopoverVisible(false)
         actor.setAnimation('wave')
-        setTimeout(() => onClose(), (actor.animations.wave.frames * 1000) / FPS)
+        setTimeout(() => onClose?.(), (actor.animations.wave.frames * 1000) / FPS)
     }
 
     return (
@@ -508,7 +528,12 @@ export function HedgehogBuddy({
                 </div>
             }
         >
-            {actor.render({ onClick })}
+            <HedgehogBuddy
+                actorRef={actorRef}
+                onClick={onClick}
+                onPositionChange={onPositionChange}
+                hedgehogConfig={hedgehogConfig}
+            />
         </Popover>
     )
 }
