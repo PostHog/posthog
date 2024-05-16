@@ -105,9 +105,11 @@ export function Proxy(): JSX.Element {
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
-    // //     return <CodeSnippet key={r.id} language={Language.HTTP}>
-    // //     {r.domain + ' -> ' + r.target_cname}
-    // // </CodeSnippet>
+    return (
+        <CodeSnippet key={record.id} language={Language.HTTP}>
+            {`${record.domain} ${record.cname_target}`}
+        </CodeSnippet>
+    )
 }
 
 function CreateRecordForm(): JSX.Element {
