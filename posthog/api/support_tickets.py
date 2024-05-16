@@ -59,7 +59,7 @@ def get_support_tickets(request: Request):
 
     user = request.GET.get("user")
     validation_token = request.GET.get("validation_token")
-    organization_id = "01793e12-eb59-0000-315b-bc82f70c7086"
+    organization_id = "018ba7d2-0b14-0000-903c-abbd8df79d1a"
 
     # do validation using the token above
 
