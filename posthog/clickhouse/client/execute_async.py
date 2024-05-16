@@ -97,7 +97,8 @@ class QueryStatusManager:
                 read_rows,
                 read_bytes,
                 total_rows_approx,
-                elapsed
+                elapsed,
+                ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
             FROM clusterAllReplicas(posthog, system.processes)
             WHERE query_id like %(query_id)s
             """
@@ -116,6 +117,7 @@ class QueryStatusManager:
                         "rows_read": noNaNInt(result[2]),
                         "estimated_rows_total": noNaNInt(result[4]),
                         "time_elapsed": noNaNInt(result[5]),
+                        "active_cpu_time": noNaNInt(result[6]),
                     }
                     for result in results
                 }
@@ -127,12 +129,14 @@ class QueryStatusManager:
                     "rows_read": 0,
                     "estimated_rows_total": 0,
                     "time_elapsed": 0,
+                    "active_cpu_time": 0,
                 }
                 for single_query_progress in clickhouse_query_progress_dict.values():
                     query_progress["bytes_read"] += single_query_progress["bytes_read"]
                     query_progress["rows_read"] += single_query_progress["rows_read"]
                     query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
                     query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
+                    query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
                 query_status.query_progress = ClickhouseQueryStatus(**query_progress)
 
             except Exception as e:

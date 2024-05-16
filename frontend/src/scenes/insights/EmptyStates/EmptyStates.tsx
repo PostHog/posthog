@@ -119,6 +119,11 @@ export function InsightLoadingStateWithLoadingBar({
     }, [insightPollResponse])
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
 
+    const cpuUtilization =
+        (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (insightPollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
+
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
@@ -130,6 +135,8 @@ export function InsightLoadingStateWithLoadingBar({
                             {humanFriendlyNumber(rowsRead || 0, 0)} rows
                             <br />
                             {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
+                            <br />
+                            CPU {humanFriendlyNumber(cpuUtilization, 0)}%
                         </>
                     )}
                 </p>
