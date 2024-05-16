@@ -60,9 +60,9 @@ def get_support_tickets(request: Request):
 
     user = request.GET.get("user")
     validation_token = request.GET.get("validation_token")
-    organization_id = team.organization_id
+    organization_id = "01793e12-eb59-0000-315b-bc82f70c7086"
 
-        # do validation using the token above
+    # do validation using the token above
 
     headers = {"Authorization": f"Basic {zendesk_key}"}
     response = requests.request(
