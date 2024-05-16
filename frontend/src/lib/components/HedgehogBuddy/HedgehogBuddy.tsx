@@ -1,13 +1,14 @@
 import './HedgehogBuddy.scss'
 
-import { useValues } from 'kea'
+import { ProfilePicture } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { ForwardedRef, MutableRefObject, useEffect, useRef, useState } from 'react'
 import React from 'react'
 
-import { HedgehogConfig } from '~/types'
+import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
@@ -534,6 +535,57 @@ export function MyHedgehogBuddy({
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
             />
+        </Popover>
+    )
+}
+
+export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const memberHedgehogConfig: HedgehogConfig = {
+        ...hedgehogConfig,
+        ...member.user.hedgehog_config,
+        controls_enabled: false,
+    }
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+    }
+    return (
+        <Popover
+            onClickOutside={() => setPopoverVisible(false)}
+            visible={popoverVisible}
+            placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
+            overflowHidden
+            overlay={
+                <div className="min-w-50 max-w-140">
+                    <div className="p-3">
+                        <ProfilePicture user={member.user} size="xl" showName />
+                    </div>
+
+                    <div className="flex items-end gap-2 border-t p-3">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() =>
+                                patchHedgehogConfig({
+                                    party_mode_enabled: false,
+                                })
+                            }
+                        >
+                            Turn off party mode
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <HedgehogBuddy onClick={onClick} hedgehogConfig={memberHedgehogConfig} />
         </Popover>
     )
 }

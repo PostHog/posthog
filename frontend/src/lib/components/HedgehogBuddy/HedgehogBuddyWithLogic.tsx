@@ -1,19 +1,34 @@
 import './HedgehogBuddy.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { HedgehogBuddy, MyHedgehogBuddy } from './HedgehogBuddy'
+import { MemberHedgehogBuddy, MyHedgehogBuddy } from './HedgehogBuddy'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 
 export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogBuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { user } = useValues(userLogic)
 
-    return hedgehogModeEnabled ? (
+    const { members } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
+
+    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
+
+    return hedgehogConfig.enabled ? (
         <>
-            <MyHedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} />
+            <MyHedgehogBuddy onClose={() => patchHedgehogConfig({ enabled: false })} />
 
-            <HedgehogBuddy />
+            {hedgehogConfig.party_mode_enabled
+                ? members?.map((member) => {
+                      if (member.user.uuid !== user?.uuid && member.user.hedgehog_config) {
+                          return <MemberHedgehogBuddy key={member.user.uuid} member={member} />
+                      }
+                  })
+                : null}
         </>
     ) : (
         <></>
