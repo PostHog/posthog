@@ -18,8 +18,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
-const DEFAULT_CNAME = 'k8s-proxyasa-proxyasa-e8343c0048-1f26b5a36cde44fd.elb.us-east-1.amazonaws.com.'
-
 export function Proxy(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords } = useValues(proxyLogic)
@@ -143,9 +141,7 @@ function CreateRecordForm(): JSX.Element {
                     </div>
                     {waitingRecords.map((r) => (
                         <CodeSnippet key={r.id} language={Language.HTTP}>
-                            <span>
-                                {r.domain} {'->'} {r ? r.cname_target : DEFAULT_CNAME}
-                            </span>
+                            {r.domain + ' -> ' + r.cname_target}
                         </CodeSnippet>
                     ))}
                     <div className="flex justify-end">
