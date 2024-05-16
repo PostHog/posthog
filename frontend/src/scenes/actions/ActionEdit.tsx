@@ -3,6 +3,7 @@ import { LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
+import { CodeEditor } from 'lib/components/CodeEditors'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -254,6 +255,37 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                                     </Link>
                                                 </small>
                                             </>
+                                        )}
+                                    </LemonField>
+                                    <LemonField name="campaign_code">
+                                        {({ value, onChange }) => (
+                                            <div className="mt-2">
+                                                <LemonLabel showOptional>Hog code to run after the action</LemonLabel>
+                                                {action.campaign_error ? (
+                                                    <div>
+                                                        <IconWarning className="text-danger text-xl" />
+                                                        <span className="ml-2 text-danger">
+                                                            Error in Hog code: {String(action.campaign_error)}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
+                                                <div className="resize-ne min-h-[200px]">
+                                                    <CodeEditor
+                                                        className="border rounded overflow-hidden h-full min-h-[200px]"
+                                                        language="rust"
+                                                        value={value}
+                                                        onChange={onChange}
+                                                        height="100%"
+                                                        wrapperProps={{ style: { minHeight: '200px' } }}
+                                                        options={{
+                                                            minimap: {
+                                                                enabled: false,
+                                                            },
+                                                            automaticLayout: true,
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
                                         )}
                                     </LemonField>
                                 </>

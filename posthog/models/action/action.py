@@ -1,6 +1,6 @@
 from dataclasses import asdict, dataclass
 import json
-from typing import Any, Literal, Optional, Union, get_args
+from typing import Literal, Optional, Union, get_args
 
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -8,6 +8,7 @@ from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_program
 from posthog.models.signals import mutable_receiver
 from posthog.redis import get_client
 
@@ -47,6 +48,9 @@ class Action(models.Model):
     bytecode: models.JSONField = models.JSONField(null=True, blank=True)
     bytecode_error: models.TextField = models.TextField(blank=True, null=True)
     steps_json: models.JSONField = models.JSONField(null=True, blank=True)
+    campaign_code: models.TextField = models.TextField(blank=True, null=True)
+    campaign_bytecode: models.JSONField = models.JSONField(null=True, blank=True)
+    campaign_error: models.TextField = models.TextField(blank=True, null=True)
 
     # DEPRECATED: these were used before ClickHouse was our database
     is_calculating: models.BooleanField = models.BooleanField(default=False)
@@ -82,15 +86,12 @@ class Action(models.Model):
     def get_step_events(self) -> list[Union[str, None]]:
         return [action_step.event for action_step in self.steps]
 
-    def generate_bytecode(self) -> list[Any]:
+    def refresh_bytecode(self):
         from posthog.hogql.property import action_to_expr
         from posthog.hogql.bytecode import create_bytecode
 
-        return create_bytecode(action_to_expr(self))
-
-    def refresh_bytecode(self):
         try:
-            new_bytecode = self.generate_bytecode()
+            new_bytecode = create_bytecode(action_to_expr(self))
             if new_bytecode != self.bytecode or self.bytecode_error is not None:
                 self.bytecode = new_bytecode
                 self.bytecode_error = None
@@ -100,6 +101,20 @@ class Action(models.Model):
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)
+
+        try:
+            campaign_bytecode = (
+                create_bytecode(parse_program(self.campaign_code)) if self.campaign_code is not None else None
+            )
+            if campaign_bytecode != self.campaign_bytecode or self.campaign_error is not None:
+                self.campaign_bytecode = campaign_bytecode
+                self.campaign_error = None
+        except BaseHogQLError as e:
+            # There are several known cases when bytecode generation can fail. Instead of spamming
+            # Sentry with errors, ignore those cases for now.
+            if self.campaign_bytecode is not None or self.campaign_error != str(e):
+                self.campaign_bytecode = None
+                self.campaign_error = str(e)
 
     def save(self, *args, **kwargs):
         self.refresh_bytecode()
