@@ -52,10 +52,9 @@ export function HedgehogBuddyStatic({ accessories, color, size }: HedgehogBuddyS
 }
 
 export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProps): JSX.Element {
-    const imgSize = (size ?? 60) * 2
     return (
         <div
-            className="relative rounded-full overflow-hidden bg-bg-light"
+            className="relative rounded-full overflow-hidden bg-bg-light border"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: size,
@@ -66,10 +65,10 @@ export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProp
                 className="absolute top-0 left-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    transform: 'translate(-25%%, -25%)',
+                    transform: 'translate(-3%, 10%) scale(1.8)',
                 }}
             >
-                <HedgehogBuddyStatic {...props} size={imgSize} />
+                <HedgehogBuddyStatic {...props} size={size} />
             </div>
         </div>
     )
