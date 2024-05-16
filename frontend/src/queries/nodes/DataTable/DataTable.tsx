@@ -4,9 +4,11 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/events-management/events/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -125,6 +127,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         showActions,
@@ -427,8 +430,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ) : null,
     ].filter((x) => !!x)
 
+    const hideReload = featureFlags[FEATURE_FLAGS.LIVE_EVENTS]
     const secondRowLeft = [
-        showReload ? <Reload key="reload" /> : null,
+        showReload && !hideReload ? <Reload key="reload" /> : null,
         showReload && canLoadNewData ? <AutoLoad key="auto-load" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
@@ -452,7 +456,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         </>
     )
 
-    console.log('showOpenEditorButton', showOpenEditorButton)
     // The editor button moved under "export". Show only if there's no export button.
     if (!showExport && showOpenEditorButton && !isReadOnly) {
         if (inlineEditorButtonOnRow === 1) {

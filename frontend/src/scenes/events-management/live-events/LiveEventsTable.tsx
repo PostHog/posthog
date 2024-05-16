@@ -1,12 +1,9 @@
-import { LemonButton, LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/events-management/live-events/liveEventsTableLogic'
-
-import { EventPropertyFilter, PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 interface LiveEvent {
     uuid: string
@@ -15,23 +12,22 @@ interface LiveEvent {
     timestamp: string
     team_id: number
     distinct_id: string
-    elements_chain: string
     created_at: string
 }
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
         title: 'ID',
-        key: 'id',
+        key: 'uuid',
         render: function Render(_, event: LiveEvent) {
-            return <span className="">{event.uuid}</span>
+            return <span>{event.uuid}</span>
         },
     },
     {
         title: 'Event',
         key: 'event',
         render: function Render(_, event: LiveEvent) {
-            return <span className="">{event.event}</span>
+            return <span>{event.event}</span>
         },
     },
     {
@@ -44,46 +40,48 @@ const columns: LemonTableColumns<LiveEvent> = [
 ]
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, liveEventsLoading, filters, streamPaused, curEventProperties } = useValues(liveEventsTableLogic)
-    const { setFilters, pauseStream, resumeStream, setCurEventProperties } = useActions(liveEventsTableLogic)
+    const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
+    const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
-    const menuOptions = [
-        {
-            label: 'Event Type',
-            key: '$event_type',
-            queryKey: 'eventType',
-            onClick: () => {
-                const newFilter: EventPropertyFilter = {
-                    key: '$event_type',
-                    type: PropertyFilterType.Event,
-                    operator: PropertyOperator.Exact,
-                }
-                setCurEventProperties([...curEventProperties, newFilter])
-            },
-        },
-        {
-            label: 'Distinct ID',
-            key: 'distinct_id',
-            queryKey: 'distinctId',
-            onClick: () => {
-                const newFilter: PersonPropertyFilter = {
-                    key: 'distinct_id',
-                    type: PropertyFilterType.Person,
-                    operator: PropertyOperator.Exact,
-                }
-                setCurEventProperties([...curEventProperties, newFilter])
-            },
-        },
-    ]
+    // const menuOptions = [
+    //     {
+    //         label: 'Event Type',
+    //         key: '$event_type',
+    //         queryKey: 'eventType',
+    //         onClick: () => {
+    //             const newFilter: EventPropertyFilter = {
+    //                 key: '$event_type',
+    //                 type: PropertyFilterType.Event,
+    //                 operator: PropertyOperator.Exact,
+    //             }
+    //             setCurEventProperties([...curEventProperties, newFilter])
+    //         },
+    //     },
+    // ]
 
-    const filteredMenuOptions = menuOptions.filter((option) => {
-        return !curEventProperties.some((filter: any) => filter.key === option.key)
-    })
+    // const filteredMenuOptions = menuOptions.filter((option) => {
+    //     return !curEventProperties.some((filter: any) => filter.key === option.key)
+    // })
 
     return (
         <div data-attr="manage-events-table">
-            <div className="mb-2 flex w-full justify-between items-start">
-                <div className="space-y-2 flex-1">
+            <LemonBanner className="mb-4" type="info">
+                Live events is a beta feature and may not be fully accurate.{' '}
+                <Link onClick={() => openSupportForm({ kind: 'feedback' })}>Contact us</Link> if you need help with this
+                feature.
+            </LemonBanner>
+            <div className="mb-2 flex w-full justify-between items-center">
+                {stats?.users_on_product ? (
+                    <div className="flex justify-center">
+                        <div className="flex flex-justify-center items-center bg-white px-2 py-1 rounded border border-3000 text-xs font-medium text-gray-600">
+                            <p className="mb-0">🚀 Live users on product: 🟢 {stats?.users_on_product}</p>
+                        </div>
+                    </div>
+                ) : (
+                    <div />
+                )}
+                {/* <div className="space-y-2 flex-1">
                     {filteredMenuOptions.length > 0 && (
                         <LemonMenu items={[{ items: filteredMenuOptions }]}>
                             <LemonButton size="small" type="secondary">
@@ -115,7 +113,7 @@ export function LiveEventsTable(): JSX.Element {
                         openOnInsert
                         disablePopover
                     />
-                </div>
+                </div> */}
                 <div>
                     <LemonSwitch
                         bordered
@@ -128,9 +126,9 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                // @ts-expect-error
                 columns={columns}
                 data-attr="live-events-table"
-                loading={liveEventsLoading}
                 rowKey="uuid"
                 dataSource={events}
                 useURLForSorting={false}

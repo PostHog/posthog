@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { liveEventsHostOrigin } from 'lib/utils/liveEventHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
@@ -13,12 +13,14 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
         addEvents: (events) => ({ events }),
         clearEvents: true,
         setFilters: (filters) => ({ filters }),
-        updateSSESource: (source) => ({ source }),
-        updateSSEConnection: true,
+        updateEventsSource: (source) => ({ source }),
+        updateEventsConnection: true,
         pauseStream: true,
         resumeStream: true,
         setCurEventProperties: (curEventProperties) => ({ curEventProperties }),
         setClientSideFilters: (clientSideFilters) => ({ clientSideFilters }),
+        pollStats: true,
+        setStats: (stats) => ({ stats }),
     })),
     reducers({
         events: [
@@ -35,7 +37,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             },
         ],
         filters: [
-            { teamId: getCurrentTeamId() },
+            { eventType: null },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -46,10 +48,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 setClientSideFilters: (_, { clientSideFilters }) => clientSideFilters,
             },
         ],
-        sseSource: [
+        eventsSource: [
             null,
             {
-                updateSSESource: (_, { source }) => source,
+                updateEventsSource: (_, { source }) => source,
             },
         ],
         streamPaused: [
@@ -63,6 +65,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             [],
             {
                 setCurEventProperties: (_, { curEventProperties }) => curEventProperties,
+            },
+        ],
+        stats: [
+            { users_on_product: null },
+            {
+                setStats: (_, { stats }) => stats,
             },
         ],
     }),
@@ -82,11 +90,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     listeners(({ actions, values }) => ({
         setFilters: () => {
             actions.clearEvents()
-            actions.updateSSEConnection()
+            actions.updateEventsConnection()
         },
-        updateSSEConnection: async () => {
-            if (values.sseSource) {
-                values.sseSource.close()
+        updateEventsConnection: async () => {
+            if (values.eventsSource) {
+                // @ts-expect-error
+                values.eventsSource.close()
             }
 
             if (values.streamPaused) {
@@ -97,14 +106,9 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 return
             }
 
-            const { teamId, distinctId, eventType } = values.filters
-            const url = new URL('http://live-events/events')
-            if (teamId) {
-                url.searchParams.append('teamId', teamId)
-            }
-            if (distinctId) {
-                url.searchParams.append('distinctId', distinctId)
-            }
+            const { eventType } = values.filters
+            const url = new URL(`${liveEventsHostOrigin()}/events`)
+            url.searchParams.append('teamId', '2')
             if (eventType) {
                 url.searchParams.append('eventType', eventType)
             }
@@ -117,7 +121,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             })
 
             const batch: Record<string, any>[] = []
-            source.onmessage = function (event) {
+            source.onmessage = function (event: any) {
                 const eventData = JSON.parse(event.data) // Assuming the event data is in JSON format
                 batch.push(eventData)
                 if (batch.length >= 5) {
@@ -131,24 +135,43 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 // Handle errors, possibly retrying connection
             }
 
-            actions.updateSSESource(source)
+            actions.updateEventsSource(source)
         },
         pauseStream: () => {
-            if (values.sseSource) {
-                values.sseSource.close()
+            if (values.eventsSource) {
+                // @ts-expect-error
+                values.eventsSource.close()
             }
         },
         resumeStream: () => {
-            actions.updateSSEConnection()
+            actions.updateEventsConnection()
+        },
+        pollStats: async () => {
+            try {
+                const response = await fetch(`${liveEventsHostOrigin()}/stats?teamId=${'2'}`, {
+                    headers: {
+                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                    },
+                })
+                const data = await response.json()
+                actions.setStats(data)
+            } catch (error) {
+                console.error('Failed to poll stats:', error)
+            }
         },
     })),
     events(({ actions, values }) => ({
         afterMount: () => {
-            actions.updateSSEConnection()
+            actions.updateEventsConnection()
+            const interval = setInterval(() => {
+                actions.pollStats()
+            }, 1500)
             return () => {
-                if (values.sseSource) {
-                    values.sseSource.close()
+                if (values.eventsSource) {
+                    // @ts-expect-error
+                    values.eventsSource.close()
                 }
+                clearInterval(interval)
             }
         },
     })),

@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -104,6 +105,7 @@ const eventsManagementSceneLogic = kea<eventsManagementSceneLogicType>([
 export function EventsManagementScene(): JSX.Element {
     const { tab, enabledTabs } = useValues(eventsManagementSceneLogic)
     const { setTab } = useActions(eventsManagementSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const lemonTabs: LemonTab<EventsManagementTab>[] = enabledTabs.map((key) => ({
         key: key as EventsManagementTab,
@@ -113,13 +115,13 @@ export function EventsManagementScene(): JSX.Element {
 
     return (
         <>
-            <PageHeader
-                caption="Monitor your events with live event streams, and filtering of events."
-                tabbedPage
-                buttons={<>{tabs[tab].buttons}</>}
-            />
+            <PageHeader tabbedPage buttons={<>{tabs[tab].buttons}</>} />
 
-            <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
+            {featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? (
+                <LemonTabs activeKey={tab} onChange={(t) => setTab(t)} tabs={lemonTabs} />
+            ) : (
+                <EventsScene />
+            )}
         </>
     )
 }

@@ -212,6 +212,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_HOG_QL_FILTERING: 'session-replay-hogql-filtering', // owner: #team-replay
     SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
+    LIVE_EVENTS: 'live-events', // owner: @zach or @jams
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
