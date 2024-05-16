@@ -18,7 +18,7 @@ import { ZendeskTicket, ZendeskTicketEvent, zenHogLogic } from './sidePanelZenHo
 export const SidePanelZenHogIcon = (props: { className?: string }): JSX.Element => {
     // TODO Dylan load these from the sidePanelZenHogLogic
     const zenHogTicketCount = 4
-    // const { zenHogTicketCount, zenHogTicketPage } = useValues(sidePanelStatusLogic)
+    // const { zenHogTicketCount } = useValues(sidePanelStatusLogic)
 
     const title =
         zenHogTicketCount >= 0
@@ -62,7 +62,7 @@ export const SidePanelZenHog = (): JSX.Element => {
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : (
                         <>
-                            <Section title="My Zendesk Tickets">
+                            <Section title="Open Zendesk Tickets">
                                 <ZendeskTicketPanel />
                             </Section>
                             <Section title="Create a New Zendesk Ticket">
@@ -148,18 +148,18 @@ function ZendeskTicketDisplay({ ticket }: { ticket: ZendeskTicket }): JSX.Elemen
                 })
             )
             setUploading(false)
-            uploadedFilesRef.current = uploadedFiles // Store uploaded files for display
+            uploadedFilesRef.current = uploadedFiles
             fileLinks = uploadedFiles.map((file) => `\n\nAttachment "${file.fileName}": ${file.url}`).join('')
         }
 
         await submitZendeskTicketReply(ticket.id, replyMessage + fileLinks)
 
         const newEvent: ZendeskTicketEvent = {
-            id: events.length + 1,
+            id: events.length + 1, // TODO DYLAN this should be the actual ID from the backend response when submitting a new event
             created_at: new Date(),
             updated_at: new Date(),
             message: replyMessage + fileLinks,
-            kind: 'user' as any, // TODO DYLAN make these types, "any" is for pussies and democrats
+            kind: 'user',
         }
         setEvents((prevEvents) => [...prevEvents, newEvent])
         setReplyMessage('')
@@ -174,50 +174,70 @@ function ZendeskTicketDisplay({ ticket }: { ticket: ZendeskTicket }): JSX.Elemen
         })
     }
 
-    // Determine SLA based on urgency
+    // TODO DYLAN replace these values with the actual SLA values and severity
     const urgencyToSLA = {
         low: 'Response within 48 hours',
         medium: 'Response within 24 hours',
         high: 'Response within 4 hours',
     }
 
-    const lastEvent = events[events.length - 1] // TODO DYLAN consider safe tail instead
+    const lastEvent = events[events.length - 1]
     const buttonText = lastEvent.kind === 'user' ? 'Add additional information' : 'Reply'
     const buttonClass = lastEvent.kind === 'user' ? 'w-48' : 'w-24'
     const placeHolderText = lastEvent.kind === 'user' ? 'Add additional information...' : 'Type your reply...'
     const slaMessage = urgencyToSLA[ticket.urgency]
 
     return (
-        <div>
-            <div className="cursor-pointer" onClick={handleTicketToggle}>
+        <div
+            className={`ticket-item border border-gray-300 rounded-lg p-4 mb-3 bg-white transition-shadow duration-300 ease-in-out ${
+                expandTicket ? 'shadow-lg border-gray-500' : 'hover:shadow-md cursor-pointer'
+            }`}
+            onClick={handleTicketToggle}
+        >
+            <div className="flex justify-between items-center">
                 <h4 className="font-semibold mb-0">
                     {ticket.subject} <LemonTag className="ml-2">{slaMessage}</LemonTag>
                 </h4>
-                <p className="text-gray-600">{ticket.description}</p>
+                <span className={`transition-transform duration-300 ${expandTicket ? 'transform rotate-90' : ''}`}>
+                    ➔
+                </span>
             </div>
+            <p className="text-gray-600">{ticket.description}</p>
             {expandTicket && (
                 <>
                     {events.map((event) => (
-                        <div key={event.id} className="pl-4">
-                            <p>
-                                <b>{event.kind.replace('_', ' ').toUpperCase()}:</b>{' '}
-                                {event.message.split('\n\n').map((msg, idx) => (
-                                    <span key={idx}>
-                                        {msg.includes('Attachment') ? (
-                                            // eslint-disable-next-line react/forbid-elements
-                                            <a href={msg.split(': ')[1]} target="_blank" rel="noopener noreferrer">
-                                                {msg.split('"')[1]}
-                                            </a>
-                                        ) : (
-                                            msg
-                                        )}
-                                        <br />
-                                    </span>
-                                ))}
-                            </p>
+                        <div
+                            key={event.id}
+                            className={`flex ${event.kind === 'user' ? 'justify-end' : 'justify-start'} mt-2`}
+                        >
+                            <div
+                                className={`max-w-md p-2 rounded-lg ${
+                                    event.kind === 'user' ? 'bg-blue-100 text-right' : 'bg-gray-100 text-left'
+                                }`}
+                            >
+                                <p className="text-sm">
+                                    <b>{event.kind.replace('_', ' ').toUpperCase()}:</b>
+                                    {event.message.split('\n\n').map((msg, idx) => (
+                                        <span key={idx}>
+                                            {msg.includes('Attachment') ? (
+                                                // eslint-disable-next-line react/forbid-elements
+                                                <a href={msg.split(': ')[1]} target="_blank" rel="noopener noreferrer">
+                                                    {msg.split('"')[1]}
+                                                </a>
+                                            ) : (
+                                                msg
+                                            )}
+                                            <br />
+                                        </span>
+                                    ))}
+                                </p>
+                            </div>
                         </div>
                     ))}
-                    <div className="flex flex-col gap-2 mt-2">
+                    <div
+                        className="flex flex-col gap-2 mt-2"
+                        onClick={(e) => e.stopPropagation()} // need this to prevent the parent onClick from firing inside the textarea, on the buttons, etc
+                    >
                         {objectStorageAvailable && !!user && (
                             <LemonFileInput
                                 accept="image/*"
@@ -238,7 +258,8 @@ function ZendeskTicketDisplay({ ticket }: { ticket: ZendeskTicket }): JSX.Elemen
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="secondary"
-                                onClick={() => {
+                                onClick={(e) => {
+                                    e.stopPropagation()
                                     setReplyMessage('')
                                 }}
                             >
@@ -246,10 +267,9 @@ function ZendeskTicketDisplay({ ticket }: { ticket: ZendeskTicket }): JSX.Elemen
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={() => {
-                                    void handleSubmitReply().then(() => {
-                                        setReplyMessage('')
-                                    })
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    void handleSubmitReply().then(() => setReplyMessage(''))
                                 }}
                                 className={buttonClass}
                                 center
