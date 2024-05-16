@@ -86,7 +86,13 @@ export function Proxy(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <LemonTable columns={columns} dataSource={proxyRecords} />
+            <LemonTable
+                columns={columns}
+                dataSource={proxyRecords}
+                expandable={{
+                    expandedRowRender: (record) => <ExpandedRow record={record} />,
+                }}
+            />
             {formState === 'collapsed' ? (
                 <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
                     Add domain
@@ -96,6 +102,12 @@ export function Proxy(): JSX.Element {
             )}
         </div>
     )
+}
+
+const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
+    // //     return <CodeSnippet key={r.id} language={Language.HTTP}>
+    // //     {r.domain + ' -> ' + r.target_cname}
+    // // </CodeSnippet>
 }
 
 function CreateRecordForm(): JSX.Element {
