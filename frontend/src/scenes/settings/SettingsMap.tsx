@@ -39,6 +39,7 @@ import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -384,6 +385,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+            },
+            {
+                id: 'hedgehog-mode',
+                title: 'Hedgehog mode',
+                component: <HedgehogModeSettings />,
             },
         ],
     },

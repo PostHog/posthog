@@ -7,26 +7,18 @@ import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { accessoryGroups, baseSpritePath, standardAccessories } from './sprites/sprites'
 
-export function HedgehogIntro(): JSX.Element {
+export function HedgehogOptions(): JSX.Element {
+    const { freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
+    const { setFreeMovement, setInteractWithElements, setKeyboardControlsEnabled } = useActions(hedgehogBuddyLogic)
     return (
-        <>
+        <div>
             <h3>Hi, I'm Max!</h3>
             <p>
                 Don't mind me. I'm just here to keep you company.
                 <br />
                 You can move me around by clicking and dragging or control me with WASD / arrow keys.
             </p>
-        </>
-    )
-}
-
-export function HedgehogOptions(): JSX.Element {
-    const { freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
-    const { setFreeMovement, setInteractWithElements, setKeyboardControlsEnabled } = useActions(hedgehogBuddyLogic)
-    return (
-        <div className="mb-2">
             <h4>Options</h4>
-
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonSwitch
                     bordered
@@ -50,14 +42,13 @@ export function HedgehogOptions(): JSX.Element {
                     tooltip="If enabled you can use the WASD or arrow key + space to move around and jump."
                 />
             </div>
-
-            <h4 className="mt-4">Colors</h4>
             <HedgehogColor />
+            <HedgehogAccessories />
         </div>
     )
 }
 
-export function HedgehogAccessories(): JSX.Element {
+function HedgehogAccessories(): JSX.Element {
     return (
         <>
             {accessoryGroups.map((group) => (
@@ -91,38 +82,42 @@ function HedgehogColor(): JSX.Element {
     const hedgehogImgSize = imgSize * 4
 
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
-                <LemonButton
-                    key={option}
-                    className={clsx('border border-2', color === option ? 'border-primary' : 'border-transparent')}
-                    size="small"
-                    onClick={() => setColor(option as any)}
-                    noPadding
-                    tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
-                >
-                    <div
-                        className="relative overflow-hidden pointer-events-none"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            width: imgSize,
-                            height: imgSize,
-                            margin: -2,
-                        }}
+        <>
+            <h4 className="mt-4">Colors</h4>
+
+            <div className="flex items-center gap-2 flex-wrap">
+                {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+                    <LemonButton
+                        key={option}
+                        className={clsx('border-2', color === option ? 'border-primary' : 'border-transparent')}
+                        size="small"
+                        onClick={() => setColor(option as any)}
+                        noPadding
+                        tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >
-                        <img
-                            src={`${baseSpritePath()}/wave.png`}
-                            className="object-cover absolute inset-0 image-pixelated"
+                        <div
+                            className="relative overflow-hidden pointer-events-none"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
-                                width: hedgehogImgSize,
-                                height: hedgehogImgSize,
-                                filter: option ? COLOR_TO_FILTER_MAP[option] : null,
+                                width: imgSize,
+                                height: imgSize,
+                                margin: -2,
                             }}
-                        />
-                    </div>
-                </LemonButton>
-            ))}
-        </div>
+                        >
+                            <img
+                                src={`${baseSpritePath()}/wave.png`}
+                                className="object-cover absolute inset-0 image-pixelated"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: hedgehogImgSize,
+                                    height: hedgehogImgSize,
+                                    filter: option ? COLOR_TO_FILTER_MAP[option] : null,
+                                }}
+                            />
+                        </div>
+                    </LemonButton>
+                ))}
+            </div>
+        </>
     )
 }

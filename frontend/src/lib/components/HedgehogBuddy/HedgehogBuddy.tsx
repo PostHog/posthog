@@ -9,7 +9,7 @@ import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
-import { HedgehogAccessories, HedgehogIntro, HedgehogOptions } from './HedgehogOptions'
+import { HedgehogOptions } from './HedgehogOptions'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -425,7 +425,7 @@ export function HedgehogBuddy({
     }, [])
 
     const [_, setTimerLoop] = useState(0)
-    const [popoverVisible, setPopoverVisible] = useState(true) // TODO: Swap back to false
+    const [popoverVisible, setPopoverVisible] = useState(false)
 
     useEffect(() => {
         actor.accessories = accessories
@@ -502,12 +502,10 @@ export function HedgehogBuddy({
             fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
             overlay={
-                <div className="HedgehogBuddyPopove max-w-140 flex flex-col flex-1 overflow-hidden">
+                <div className="max-w-140 flex flex-col flex-1 overflow-hidden">
                     <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
                         <div className="p-2">
-                            <HedgehogIntro />
                             <HedgehogOptions />
-                            <HedgehogAccessories />
                         </div>
                     </ScrollableShadows>
                     <div className="flex shrink-0 justify-end gap-2 p-2 border-t">

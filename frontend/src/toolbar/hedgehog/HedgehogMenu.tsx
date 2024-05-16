@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { HedgehogAccessories, HedgehogIntro, HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
+import { HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
@@ -13,9 +13,7 @@ export const HedgehogMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Body>
                 <div className="p-1">
-                    <HedgehogIntro />
                     <HedgehogOptions />
-                    <HedgehogAccessories />
                 </div>
             </ToolbarMenu.Body>
 

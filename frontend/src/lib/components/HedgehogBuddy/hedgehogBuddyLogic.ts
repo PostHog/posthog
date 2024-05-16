@@ -1,6 +1,5 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 
 import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
@@ -92,6 +91,14 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                 },
             },
         ],
+
+        hedgehogModeEnabled: [
+            false,
+            { persist: true },
+            {
+                setHedgehogModeEnabled: (_, { enabled }) => enabled,
+            },
+        ],
     })),
 
     selectors({
@@ -100,10 +107,6 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             () => {
                 return Object.keys(standardAccessories)
             },
-        ],
-        hedgehogModeEnabled: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEDGEHOG_MODE],
         ],
 
         imageFilter: [
@@ -116,8 +119,20 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
 
     listeners(() => ({
         setHedgehogModeEnabled: ({ enabled }) => {
-            posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, enabled)
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
     })),
+
+    afterMount(({ actions }) => {
+        posthog.getEarlyAccessFeatures((features) => {
+            const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
+            if (relatedEAF) {
+                if (posthog.getFeatureFlag(FEATURE_FLAGS.HEDGEHOG_MODE)) {
+                    actions.setHedgehogModeEnabled(true)
+                }
+
+                posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, false)
+            }
+        })
+    }),
 ])
