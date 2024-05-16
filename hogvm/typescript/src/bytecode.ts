@@ -1,3 +1,5 @@
+import { executeStlFunction } from './stl'
+
 export const enum Operation {
     FIELD = 1,
     CALL = 2,
@@ -34,6 +36,13 @@ export const enum Operation {
     STRING = 32,
     INTEGER = 33,
     FLOAT = 34,
+    POP = 35,
+    GET_LOCAL = 36,
+    SET_LOCAL = 37,
+    RETURN = 38,
+    JUMP = 39,
+    JUMP_IF_FALSE = 40,
+    DECLARE_FN = 41,
 }
 
 function like(string: string, pattern: string, caseInsensitive = false): boolean {
@@ -54,18 +63,20 @@ function getNestedValue(obj: any, chain: any[]): any {
     return obj
 }
 
-function toConcatArg(arg: any): string {
-    return arg === null ? '' : String(arg)
-}
-
-export async function executeHogQLBytecode(
+export async function exec(
     bytecode: any[],
-    fields: Record<string, any>,
-    functions?: Record<string, (...args: any[]) => any>,
-    asyncFunctions?: Record<string, (...args: any[]) => Promise<any>>
+    fields: Record<string, any> = {},
+    functions: Record<string, (...args: any[]) => any> = {},
+    asyncFunctions: Record<string, (...args: any[]) => Promise<any>> = {},
+    timeout: number = 5
 ): Promise<any> {
+    const startTime = Date.now()
     let temp: any
     const stack: any[] = []
+    const callStack: [number, number, number][] = []
+    const declaredFunctions: Record<string, [number, number]> = {}
+    let ip = 1
+    let ops = 0
 
     if (bytecode.length === 0 || bytecode[0] !== '_h') {
         throw new Error("Invalid HogQL bytecode, must start with '_h'")
@@ -77,16 +88,26 @@ export async function executeHogQLBytecode(
         return stack.pop()
     }
 
-    let i = 1
     function next(): any {
-        if (i >= bytecode.length - 1) {
+        if (ip >= bytecode.length - 1) {
             throw new Error('Unexpected end of bytecode')
         }
-        return bytecode[++i]
+        return bytecode[++ip]
+    }
+    function checkTimeout(): void {
+        if (Date.now() - startTime > timeout * 1000) {
+            throw new Error(`Execution timed out after ${timeout} seconds`)
+        }
     }
 
-    for (; i < bytecode.length; i++) {
-        switch (bytecode[i]) {
+    for (; ip < bytecode.length; ip++) {
+        ops += 1
+        if (ops % 100 === 0) {
+            checkTimeout()
+        }
+        switch (bytecode[ip]) {
+            case null:
+                break
             case Operation.STRING:
                 stack.push(next())
                 break
@@ -193,51 +214,83 @@ export async function executeHogQLBytecode(
                 temp = popStack()
                 stack.push(!new RegExp(popStack(), 'i').test(temp))
                 break
-            case Operation.FIELD:
-                // eslint-disable-next-line no-case-declarations
+            case Operation.FIELD: {
                 const count = next()
-                // eslint-disable-next-line no-case-declarations
                 const chain = []
                 for (let i = 0; i < count; i++) {
                     chain.push(popStack())
                 }
                 stack.push(getNestedValue(fields, chain))
                 break
-            case Operation.CALL:
-                // eslint-disable-next-line no-case-declarations
-                const name = next()
-                // eslint-disable-next-line no-case-declarations
-                const args = Array(next())
-                    .fill(null)
-                    .map(() => popStack())
-                if (name === 'concat') {
-                    stack.push(args.map((arg) => toConcatArg(arg)).join(''))
-                } else if (name === 'match') {
-                    stack.push(new RegExp(args[1]).test(args[0]))
-                } else if (name == 'toString' || name == 'toUUID') {
-                    stack.push(String(args[0] ?? null))
-                } else if (name == 'toInt') {
-                    const value = parseInt(args[0])
-                    stack.push(isNaN(value) ? null : value)
-                } else if (name == 'toFloat') {
-                    const value = parseFloat(args[0])
-                    stack.push(isNaN(value) ? null : value)
-                } else if (name == 'ifNull') {
-                    if (args[0] != null) {
-                        stack.push(args[0])
-                    } else {
-                        stack.push(args[1])
-                    }
-                } else if (functions && functions[name]) {
-                    stack.push(functions[name](...args))
-                } else if (asyncFunctions && asyncFunctions[name]) {
-                    stack.push(await asyncFunctions[name](...args))
+            }
+            case Operation.POP:
+                popStack()
+                break
+            case Operation.RETURN:
+                if (callStack.length > 0) {
+                    const [newIp, stackStart, _] = callStack.pop()!
+                    const response = popStack()
+                    stack.splice(stackStart)
+                    stack.push(response)
+                    ip = newIp
+                    break
                 } else {
-                    throw new Error(`Unsupported function call: ${name}`)
+                    return popStack()
+                }
+            case Operation.GET_LOCAL:
+                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
+                stack.push(stack[next() + temp])
+                break
+            case Operation.SET_LOCAL:
+                temp = callStack.length > 0 ? callStack[callStack.length - 1][1] : 0
+                stack[next() + temp] = popStack()
+                break
+            case Operation.JUMP:
+                temp = next()
+                ip += temp
+                break
+            case Operation.JUMP_IF_FALSE:
+                temp = next()
+                if (!popStack()) {
+                    ip += temp
                 }
                 break
+            case Operation.DECLARE_FN: {
+                const name = next()
+                const argCount = next()
+                const bodyLength = next()
+                declaredFunctions[name] = [ip, argCount]
+                ip += bodyLength
+                break
+            }
+            case Operation.CALL: {
+                checkTimeout()
+                const name = next()
+                if (name === 'toString') {
+                    const args = Array(next())
+                        .fill(null)
+                        .map(() => popStack())
+                    stack.push(executeStlFunction(name, args, timeout))
+                } else if (name in declaredFunctions) {
+                    const [funcIp, argLen] = declaredFunctions[name]
+                    callStack.push([ip + 1, stack.length - argLen, argLen])
+                    ip = funcIp
+                } else {
+                    const args = Array(next())
+                        .fill(null)
+                        .map(() => popStack())
+                    if (functions && functions[name]) {
+                        stack.push(functions[name](...args))
+                    } else if (asyncFunctions && asyncFunctions[name]) {
+                        stack.push(await asyncFunctions[name](...args))
+                    } else {
+                        stack.push(executeStlFunction(name, args, timeout))
+                    }
+                }
+                break
+            }
             default:
-                throw new Error(`Unexpected node while running bytecode: ${bytecode[i]}`)
+                throw new Error(`Unexpected node while running bytecode: ${bytecode[ip]}`)
         }
     }
 

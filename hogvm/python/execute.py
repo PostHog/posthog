@@ -37,7 +37,7 @@ def execute_bytecode(
         call_stack: list[tuple[int, int, int]] = []  # (ip, stack_start, arg_len)
         declared_functions: dict[str, tuple[int, int]] = {}
         ip = -1
-        steps = 0
+        ops = 0
 
         def next_token():
             nonlocal ip
@@ -54,8 +54,8 @@ def execute_bytecode(
                 raise HogVMException(f"Execution timed out after {timeout} seconds")
 
         while True:
-            steps += 1
-            if steps % 100 == 0:
+            ops += 1
+            if ops % 100 == 0:
                 check_timeout()
             symbol = next_token()
             match symbol:
