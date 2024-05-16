@@ -348,8 +348,7 @@ class EventsSubQuery:
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.In,
-                            # TODO: update to the correct level field
-                            left=ast.Field(chain=["properties", "level"]),
+                            left=ast.Field(chain=["properties", "$level"]),
                             right=ast.Constant(value=self._filter.console_logs_filter),
                         ),
                     ]
@@ -372,8 +371,7 @@ class EventsSubQuery:
                                     left=ast.Call(
                                         name="positionCaseInsensitive",
                                         args=[
-                                            # TODO update to the correct message field
-                                            ast.Field(chain=["properties", "message"]),
+                                            ast.Field(chain=["properties", "$msg"]),
                                             ast.Constant(value=self._filter.console_search_query),
                                         ],
                                     ),
@@ -384,8 +382,7 @@ class EventsSubQuery:
                                     left=ast.Call(
                                         name="positionCaseInsensitive",
                                         args=[
-                                            # TODO update to the correct namespace field
-                                            ast.Field(chain=["properties", "namespace"]),
+                                            ast.Field(chain=["properties", "$namespace"]),
                                             ast.Constant(value=self._filter.console_search_query),
                                         ],
                                     ),
