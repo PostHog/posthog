@@ -2,7 +2,9 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
-export const liveEventsTableLogic = kea([
+import type { liveEventsTableLogicType } from './liveEventsTableLogicType'
+
+export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'events-management', 'live-events', 'liveEventsTableLogic']),
     connect({
         values: [teamLogic, ['currentTeam']],
