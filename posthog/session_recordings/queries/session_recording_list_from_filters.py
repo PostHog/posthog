@@ -336,6 +336,67 @@ class EventsSubQuery:
                 )
             )
 
+        if self._filter.console_logs_filter:
+            # must be a $log event with the expected level
+            exprs.append(
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="$log"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.In,
+                            # TODO: update to the correct level field
+                            left=ast.Field(chain=["properties", "level"]),
+                            right=ast.Constant(value=self._filter.console_logs_filter),
+                        ),
+                    ]
+                )
+            )
+        if self._filter.console_search_query:
+            # must be a $log event with the expected message or namespace
+            exprs.append(
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="$log"),
+                        ),
+                        ast.Or(
+                            exprs=[
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Gt,
+                                    left=ast.Call(
+                                        name="positionCaseInsensitive",
+                                        args=[
+                                            # TODO update to the correct message field
+                                            ast.Field(chain=["properties", "message"]),
+                                            ast.Constant(value=self._filter.console_search_query),
+                                        ],
+                                    ),
+                                    right=ast.Constant(value=0),
+                                ),
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Gt,
+                                    left=ast.Call(
+                                        name="positionCaseInsensitive",
+                                        args=[
+                                            # TODO update to the correct namespace field
+                                            ast.Field(chain=["properties", "namespace"]),
+                                            ast.Constant(value=self._filter.console_search_query),
+                                        ],
+                                    ),
+                                    right=ast.Constant(value=0),
+                                ),
+                            ]
+                        ),
+                    ]
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
