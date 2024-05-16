@@ -141,7 +141,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			teamId = claims["team_id"].(string)
+			teamId = strconv.Itoa(int(claims["team_id"].(float64)))
 
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
