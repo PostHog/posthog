@@ -156,7 +156,7 @@ function ConsoleFilters({
 
     return (
         <>
-            <LemonLabel>Console logs</LemonLabel>
+            <LemonLabel>Logs</LemonLabel>
             <div className="flex flex-row space-x-2">
                 <LemonInput
                     className="grow"
@@ -207,7 +207,7 @@ function ConsoleFilters({
                 }}
             >
                 {filters.console_logs?.map((x) => `console.${x}`).join(' or ') || (
-                    <span className="text-muted">Console types to filter for...</span>
+                    <span className="text-muted">Log Levels to filter for...</span>
                 )}
             </LemonButtonWithDropdown>
         </>
