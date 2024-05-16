@@ -69,6 +69,8 @@ class Survey(UUIDModel):
         null=True,
         size=None,
     )
+    current_iteration = models.PositiveIntegerField(null=True)
+    current_iteration_start_date = models.DateTimeField(null=True)
 
 
 @mutable_receiver([post_save, post_delete], sender=Survey)

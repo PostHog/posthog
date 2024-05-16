@@ -217,6 +217,17 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     </div>
                                                 )}
                                             </div>
+                                            <div className="flex flex-row gap-8">
+                                                {survey.iteration_count > 0 && survey.iteration_frequency_days > 0 && (
+                                                    <div className="flex flex-col">
+                                                        <span className="card-secondary mt-4">Schedule</span>
+                                                        <span>
+                                                            Repeats every {survey.iteration_frequency_days} days,{' '}
+                                                            {survey.iteration_count} times
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
                                             {survey.responses_limit && (
                                                 <>
                                                     <span className="card-secondary mt-4">Completion conditions</span>
@@ -305,17 +316,38 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="font-semibold text-muted-alt mb-2">Total NPS Score</div>
+                                        <div className="font-semibold text-muted-alt mb-2">Overall NPS Score</div>
                                         {/* TODO: rework this to show nps scores over time */}
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}
-                                <RatingQuestionBarChart
-                                    key={`survey-q-${i}`}
-                                    surveyRatingResults={surveyRatingResults}
-                                    surveyRatingResultsReady={surveyRatingResultsReady}
-                                    questionIndex={i}
-                                />
+                                <ol>
+                                    {survey.iteration_count != undefined &&
+                                        survey.iteration_start_dates != undefined &&
+                                        survey.iteration_start_dates.length == survey.iteration_count &&
+                                        survey.iteration_count > 0 &&
+                                        [...Array(survey.current_iteration)].map((e, idx) => (
+                                            // @ts-expect-error
+                                            <li key={`li-survey-q-${i}-${e}-${idx}`}>
+                                                <RatingQuestionBarChart
+                                                    key={`survey-q-${i}-${e}-${idx}`}
+                                                    surveyRatingResults={surveyRatingResults}
+                                                    surveyRatingResultsReady={surveyRatingResultsReady}
+                                                    iterationStartDate={survey.iteration_start_dates[idx]}
+                                                    iteration={idx + 1}
+                                                    questionIndex={i}
+                                                />
+                                            </li>
+                                        ))}
+                                </ol>
+                                {survey.iteration_count == 0 && (
+                                    <RatingQuestionBarChart
+                                        key={`survey-q-${i}`}
+                                        surveyRatingResults={surveyRatingResults}
+                                        surveyRatingResultsReady={surveyRatingResultsReady}
+                                        questionIndex={i}
+                                    />
+                                )}
                             </>
                         )
                     } else if (question.type === SurveyQuestionType.SingleChoice) {

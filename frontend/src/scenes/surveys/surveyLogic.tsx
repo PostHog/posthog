@@ -251,8 +251,10 @@ export const surveyLogic = kea<surveyLogicType>([
         surveyRatingResults: {
             loadSurveyRatingResults: async ({
                 questionIndex,
+                iteration,
             }: {
                 questionIndex: number
+                iteration?: number
             }): Promise<SurveyRatingResults> => {
                 const { survey } = values
 
@@ -266,6 +268,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
                     : dayjs().add(1, 'day').format('YYYY-MM-DD')
 
+                let iterationCondition = ''
+                if (iteration && iteration > 0) {
+                    iterationCondition = ` AND properties.$survey_iteration='${iteration}' `
+                }
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -275,6 +281,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event = 'survey sent' 
                             AND properties.$survey_id = '${props.id}'
+                            ${iterationCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                         GROUP BY survey_response
@@ -478,7 +485,7 @@ export const surveyLogic = kea<surveyLogicType>([
             actions.setSurveyValue('remove_targeting_flag', true)
             actions.setSurveyValue('responses_limit', NEW_SURVEY.responses_limit)
             actions.setSurveyValue('iteration_count', NEW_SURVEY.iteration_count)
-            actions.setSurveyValue('iteration_repeat_days', NEW_SURVEY.iteration_repeat_days)
+            actions.setSurveyValue('iteration_frequency_days', NEW_SURVEY.iteration_frequency_days)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first

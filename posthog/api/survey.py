@@ -3,7 +3,6 @@ from contextlib import contextmanager
 from django.db.models import Min
 from django.http import JsonResponse
 from dateutil.rrule import rrule, DAILY
-from datetime import date
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.client import sync_execute
@@ -66,6 +65,9 @@ class SurveySerializer(serializers.ModelSerializer):
             "responses_limit",
             "iteration_count",
             "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -100,6 +102,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
             "responses_limit",
             "iteration_count",
             "iteration_frequency_days",
+            "iteration_start_dates",
+            "current_iteration",
+            "current_iteration_start_date",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -265,6 +270,9 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                     dtstart=instance.start_date,
                 )
             )
+
+            instance.current_iteration = 1
+            instance.current_iteration_start_date = instance.start_date
             instance.save()
 
         return instance
@@ -346,7 +354,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     linked_flag_key = serializers.CharField(source="linked_flag.key", read_only=True)
     targeting_flag_key = serializers.CharField(source="targeting_flag.key", read_only=True)
-    current_iteration = serializers.SerializerMethodField()
 
     class Meta:
         model = Survey
@@ -365,17 +372,6 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "current_iteration",
         ]
         read_only_fields = fields
-
-    def get_current_iteration(self, obj):
-        if obj.iteration_start_dates is None or obj.end_date is not None:
-            return 0
-
-        for idx, start_date in enumerate(obj.iteration_start_dates):
-            delta = (date.today() - start_date).days
-            if delta > 0 and delta < obj.iteration_frequency_days:
-                return idx + 1
-
-        return 0
 
 
 @csrf_exempt

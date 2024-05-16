@@ -170,14 +170,31 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
+    iterationStartDate,
+    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
     surveyRatingResultsReady: QuestionResultsReady
+    iterationStartDate?: string
+    iteration?: number
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
+    // let iterationEndDate = undefined
+    // // if (iterationStartDate != undefined) {
+    // iterationEndDate = useMemo((iterationStartDate, iterationFrequencyDays)=> {
+    //     if (iterationStartDate) {
+    //         console.log(`iterationStartDate is `, iterationStartDate)
+    //         iterationEndDate = new Date(iterationStartDate)
+    //         iterationEndDate = new Date(iterationEndDate.getDate() + iterationFrequencyDays)
+    //         console.log(` Date(iterationEndDate.getDate() + iterationFrequencyDays) is `,Date(iterationEndDate.getDate() + iterationFrequencyDays))
+    //     }
+    // }, [iterationStartDate, iterationFrequencyDays])
+
+    // }
+    // console.log(`iterationStartDate `, iterationStartDate, `iterationEndDate `, iterationEndDate)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Rating) {
@@ -185,7 +202,7 @@ export function RatingQuestionBarChart({
     }
 
     useEffect(() => {
-        loadSurveyRatingResults({ questionIndex })
+        loadSurveyRatingResults({ questionIndex, iteration })
     }, [questionIndex])
 
     return (
@@ -199,7 +216,16 @@ export function RatingQuestionBarChart({
                     <div className="font-semibold text-muted-alt">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                    <div className="text-xl font-bold mb-2">
+                        {question.question} Starting{' '}
+                        {iterationStartDate &&
+                            new Date(iterationStartDate).toLocaleDateString('default', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                            })}{' '}
+                    </div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>

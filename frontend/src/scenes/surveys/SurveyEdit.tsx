@@ -606,7 +606,7 @@ export default function SurveyEdit(): JSX.Element {
                             key: SurveyEditSection.CompletionConditions,
                             header: 'Completion conditions',
                             content: (
-                                <LemonField name="responses_limit_x">
+                                <LemonField name="responses_limit">
                                     {({ onChange, value }) => {
                                         return (
                                             <div className="flex flex-row gap-2 items-center">
@@ -649,13 +649,12 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <>
                                     <h2> How often should we show this survey? </h2>
-                                    <LemonField name="responses_limit">
-                                        {({ onChange, value }) => {
+                                    <LemonField>
+                                        {({ onChange }) => {
                                             return (
                                                 <LemonRadio
-                                                    value={value}
                                                     onChange={(newValue) => {
-                                                        if (newValue === 1) {
+                                                        if (newValue === 'inactive_seconds') {
                                                             onChange(newValue)
                                                             setShowSurveyRepeatSchedule(false)
                                                         } else {
@@ -665,14 +664,14 @@ export default function SurveyEdit(): JSX.Element {
                                                     }}
                                                     options={[
                                                         {
-                                                            value: 1,
+                                                            value: 'console_error_count',
                                                             label: 'Once',
-                                                            'data-attr': 'session-replay-ordering-latest',
+                                                            'data-attr': 'survey-iteration-frequency-days',
                                                         },
                                                         {
-                                                            value: 10,
+                                                            value: 'inactive_seconds',
                                                             label: 'Repeat on a Schedule',
-                                                            'data-attr': 'session-replay-ordering-errors',
+                                                            'data-attr': 'survey-iteration-frequency-days',
                                                         },
                                                     ]}
                                                 />
@@ -688,8 +687,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     return (
                                                         <LemonInput
                                                             type="number"
-                                                            name="iteration_count"
-                                                            data-attr="survey-responses-iteration-count"
+                                                            data-attr="survey-iteration-count"
                                                             size="small"
                                                             min={1}
                                                             value={value || 1}
@@ -712,8 +710,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     return (
                                                         <LemonInput
                                                             type="number"
-                                                            name="iteration_frequency_days"
-                                                            data-attr="survey-responses-iteration-repeat-days"
+                                                            data-attr="survey-iteration-frequency-days"
                                                             size="small"
                                                             min={1}
                                                             value={value || 90}

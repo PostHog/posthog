@@ -817,6 +817,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Survey ID',
             description: 'The unique identifier for the survey.',
         },
+        $survey_iteration: {
+            label: 'Survey Iteration Number',
+            description: 'The iteration number for the survey.',
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
