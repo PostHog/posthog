@@ -11,8 +11,8 @@ from rest_framework.response import Response
 
 def generate_target_cname(organization_id, domain) -> str:
     m = hashlib.sha256()
-    m.update(f"{organization_id}".encode("utf-8"))
-    m.update(domain.encode("utf-8"))
+    m.update(f"{organization_id}".encode())
+    m.update(domain.encode())
     digest = m.hexdigest()[:20]
     return f"{digest}.{settings.PROXY_BASE_CNAME}"
 
