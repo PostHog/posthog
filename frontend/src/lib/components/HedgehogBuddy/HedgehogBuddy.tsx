@@ -54,7 +54,6 @@ export class HedgehogActor {
     accessories: AccessoryInfo[] = [standardAccessories.beret, standardAccessories.sunglasses]
 
     // properties synced with the logic
-    darkMode = false
     freeMovement = true
     interactWithElements = true
     keyboardControlsEnabled = true
@@ -312,15 +311,12 @@ export class HedgehogActor {
 
     render({ onClick }: { onClick: () => void }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
-        const imgExt = this.darkMode ? 'dark.png' : 'png'
         const preloadContent =
             Object.values(this.animations)
-                .map((x) => `url(${baseSpritePath()}/${x.img}.${imgExt})`)
+                .map((x) => `url(${baseSpritePath()}/${x.img}.png)`)
                 .join(' ') +
             ' ' +
-            this.accessories
-                .map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.${imgExt})`)
-                .join(' ')
+            this.accessories.map((accessory) => `url(${baseSpriteAccessoriesPath}/${accessory.img}.png)`).join(' ')
 
         return (
             <div
@@ -368,7 +364,7 @@ export class HedgehogActor {
                         imageRendering: 'pixelated',
                         width: SPRITE_SIZE,
                         height: SPRITE_SIZE,
-                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.${imgExt})`,
+                        backgroundImage: `url(${baseSpritePath()}/${this.animation.img}.png)`,
                         backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
                             Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
                         }px`,
@@ -386,10 +382,11 @@ export class HedgehogActor {
                             imageRendering: 'pixelated',
                             width: SPRITE_SIZE,
                             height: SPRITE_SIZE,
-                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt})`,
+                            backgroundImage: `url(${baseSpriteAccessoriesPath()}/${accessory.img}.png)`,
                             transform: accessoryPosition
                                 ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
                                 : undefined,
+                            filter: this.imageFilter as any,
                         }}
                     />
                 ))}
@@ -404,15 +401,12 @@ export function HedgehogBuddy({
     onClick: _onClick,
     onPositionChange,
     popoverOverlay,
-    isDarkModeOn,
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
-    // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
-    isDarkModeOn: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
@@ -424,7 +418,8 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories, freeMovement, interactWithElements, keyboardControlsEnabled } = useValues(hedgehogBuddyLogic)
+    const { accessories, freeMovement, interactWithElements, keyboardControlsEnabled, imageFilter } =
+        useValues(hedgehogBuddyLogic)
     const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
@@ -432,15 +427,11 @@ export function HedgehogBuddy({
     }, [])
 
     const [_, setTimerLoop] = useState(0)
-    const [popoverVisible, setPopoverVisible] = useState(false)
+    const [popoverVisible, setPopoverVisible] = useState(true) // TODO: Swap back to false
 
     useEffect(() => {
         actor.accessories = accessories
     }, [accessories])
-
-    useEffect(() => {
-        actor.darkMode = isDarkModeOn
-    }, [isDarkModeOn])
 
     useEffect(() => {
         actor.freeMovement = freeMovement
@@ -454,6 +445,10 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.keyboardControlsEnabled = keyboardControlsEnabled
     }, [keyboardControlsEnabled])
+
+    useEffect(() => {
+        actor.imageFilter = imageFilter
+    }, [imageFilter])
 
     // NOTE: Temporary - turns on christmas clothes for the holidays
     useEffect(() => {
@@ -513,7 +508,7 @@ export function HedgehogBuddy({
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
                         <HedgehogIntro />
                         <HedgehogOptions />
-                        <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
+                        <HedgehogAccessories />
 
                         <LemonDivider />
                         <div className="flex justify-end gap-2">

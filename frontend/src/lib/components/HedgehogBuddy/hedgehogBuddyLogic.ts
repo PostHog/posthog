@@ -6,6 +6,31 @@ import posthog from 'posthog-js'
 import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 import { AccessoryInfo, standardAccessories } from './sprites/sprites'
 
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
+    red: 'hue-rotate(340deg) saturate(300%) brightness(90%)',
+    green: 'hue-rotate(60deg) saturate(100%)',
+    blue: 'hue-rotate(210deg) saturate(300%) brightness(90%)',
+    purple: 'hue-rotate(240deg)',
+    dark: 'brightness(70%)',
+    light: 'brightness(130%)',
+    sepia: 'sepia(100%) saturate(300%) brightness(70%)',
+    invert: 'invert(100%)',
+    'invert-hue': 'invert(100%) hue-rotate(180deg)',
+    greyscale: 'saturate(0%)',
+}
+
 export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     path(['hedgehog', 'hedgehogBuddyLogic']),
     actions({
@@ -16,7 +41,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setInteractWithElements: (enabled: boolean) => ({ enabled }),
         setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
         setImageFilter: (enabled: boolean) => ({ enabled }),
-        setColor: (color: string) => ({ color }),
+        setColor: (color: HedgehogColorOptions | null) => ({ color }),
     }),
 
     reducers(() => ({
@@ -44,7 +69,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             },
         ],
         color: [
-            'default',
+            null as HedgehogColorOptions | null,
             { persist: true },
             {
                 setColor: (_, { color }) => color,
@@ -83,30 +108,8 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
 
         imageFilter: [
             (s) => [s.color],
-            (color) => {
-                // green, red, blue, yellow, dark, light, default, sepia, invert, invert-hue
-                switch (color) {
-                    case 'green':
-                        return 'hue-rotate(120deg)'
-                    case 'red':
-                        return 'hue-rotate(0deg)'
-                    case 'blue':
-                        return 'hue-rotate(240deg)'
-                    case 'yellow':
-                        return 'hue-rotate(60deg)'
-                    case 'dark':
-                        return 'brightness(70%)'
-                    case 'light':
-                        return 'brightness(130%)'
-                    case 'sepia':
-                        return 'sepia(100%) saturate(300%) brightness(70%)'
-                    case 'invert':
-                        return 'invert(100%)'
-                    case 'invert-hue':
-                        return 'invert(100%) hue-rotate(180deg)'
-                    default:
-                        return 'none'
-                }
+            (color): string | null => {
+                return color ? COLOR_TO_FILTER_MAP[color] : null
             },
         ],
     }),

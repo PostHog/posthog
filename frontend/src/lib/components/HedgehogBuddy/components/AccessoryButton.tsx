@@ -10,14 +10,9 @@ import { AccessoryInfo, baseSpriteAccessoriesPath, baseSpritePath } from '../spr
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
     accessoryKey: string
-    isDarkModeOn: boolean
 }
 
-export function HedgehogBuddyAccessory({
-    accessoryKey,
-    accessory,
-    isDarkModeOn,
-}: HedgehogBuddyAccessoryProps): JSX.Element {
+export function HedgehogBuddyAccessory({ accessoryKey, accessory }: HedgehogBuddyAccessoryProps): JSX.Element {
     const { accessories, availableAccessories } = useValues(hedgehogBuddyLogic)
     const { addAccessory, removeAccessory } = useActions(hedgehogBuddyLogic)
 
@@ -31,7 +26,6 @@ export function HedgehogBuddyAccessory({
         }
     }
 
-    const imgExt = isDarkModeOn ? 'dark.png' : 'png'
     const imgSize = 60
     const hedgehogImgSize = imgSize * 4
 
@@ -61,7 +55,7 @@ export function HedgehogBuddyAccessory({
                 }}
             >
                 <img
-                    src={`${baseSpritePath()}/wave.${imgExt}`}
+                    src={`${baseSpritePath()}/wave.png`}
                     className="object-cover absolute inset-0 image-pixelated"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
@@ -71,7 +65,7 @@ export function HedgehogBuddyAccessory({
                 />
 
                 <img
-                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
+                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.png`}
                     className="object-cover absolute inset-0 image-pixelated"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{

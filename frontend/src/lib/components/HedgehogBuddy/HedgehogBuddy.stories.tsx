@@ -18,7 +18,6 @@ export const TheHedgehog: StoryFn<typeof HedgehogBuddy> = () => {
                     // eslint-disable-next-line no-console
                     console.log('should close')
                 }}
-                isDarkModeOn={false}
             />
         </div>
     )

@@ -7,7 +7,7 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { heatmapLogic } from '../elements/heatmapLogic'
 
 export function HedgehogButton(): JSX.Element {
-    const { hedgehogMode, theme } = useValues(toolbarLogic)
+    const { hedgehogMode } = useValues(toolbarLogic)
     const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarLogic)
 
     const { heatmapEnabled } = useValues(heatmapLogic)
@@ -32,7 +32,6 @@ export function HedgehogButton(): JSX.Element {
                 <HedgehogBuddy
                     onClose={() => {}}
                     actorRef={actorRef}
-                    isDarkModeOn={theme === 'dark'}
                     onPositionChange={() => {
                         syncWithHedgehog()
                     }}
