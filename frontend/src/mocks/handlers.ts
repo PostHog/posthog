@@ -12,7 +12,6 @@ import {
 } from 'lib/api.mock'
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
 
 import { billingJson } from './fixtures/_billing_v2'
@@ -75,10 +74,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
-        '/api/organizations/@current/': (): MockSignature => [
-            200,
-            { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
-        ],
+        '/api/organizations/@current/': (): MockSignature => [200, { ...MOCK_DEFAULT_ORGANIZATION }],
         '/api/organizations/@current/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/members/': toPaginatedResponse([
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
@@ -97,7 +93,7 @@ export const defaultMocks: Mocks = {
             200,
             {
                 ...MOCK_DEFAULT_USER,
-                organization: { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
+                organization: { ...MOCK_DEFAULT_ORGANIZATION },
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
