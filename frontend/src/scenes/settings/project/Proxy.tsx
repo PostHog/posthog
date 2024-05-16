@@ -140,7 +140,7 @@ function CreateRecordForm(): JSX.Element {
                         You need to set the following <b>CNAME</b> records in your DNS provider:
                     </div>
                     {waitingRecords.map((r) => (
-                        <CodeSnippet language={Language.HTTP}>
+                        <CodeSnippet key={r.id} language={Language.HTTP}>
                             {r.domain} {'->'} {r ? r.cname_target : DEFAULT_CNAME}
                         </CodeSnippet>
                     ))}
