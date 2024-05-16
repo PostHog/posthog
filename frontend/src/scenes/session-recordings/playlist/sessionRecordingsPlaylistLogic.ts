@@ -219,6 +219,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hog_ql_filtering: values.useHogQLFiltering,
                     }
 
+                    if (values.artificialLag) {
+                        params['date_to'] = values.artificialLag
+                    }
+
                     if (values.orderBy === 'start_time') {
                         if (direction === 'older') {
                             params['date_to'] =
@@ -487,6 +491,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
     })),
     selectors({
+        artificialLag: [
+            (s) => [s.featureFlags],
+            (featureFlags): string | null => {
+                const lag = featureFlags[FEATURE_FLAGS.SESSION_REPLAY_ARTIFICIAL_LAG]
+                // you can't edit variants right now, and I didn't put minus on the variant name 🤷
+                return lag === undefined || lag === 'control' ? null : '-' + lag
+            },
+        ],
         useHogQLFiltering: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_HOG_QL_FILTERING],
