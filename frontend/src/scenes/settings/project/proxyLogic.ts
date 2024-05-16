@@ -12,7 +12,7 @@ export type ProxyRecord = {
     id: string
     domain: string
     status: 'waiting' | 'issuing' | 'valid' | 'erroring' | 'deleting'
-    cname_target: string
+    target_cname: string
 }
 
 export type FormState = 'collapsed' | 'active' | 'complete'
