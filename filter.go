@@ -148,7 +148,6 @@ func (c *Filter) Run() {
 					case sub.EventChan <- *responseEvent:
 					default:
 						// Don't block
-						log.Println("Could not send event to client")
 					}
 				}
 			}

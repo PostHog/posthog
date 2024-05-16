@@ -118,11 +118,6 @@ func main() {
 	e.GET("/events", func(c echo.Context) error {
 		e.Logger.Printf("SSE client connected, ip: %v", c.RealIP())
 
-		w := c.Response()
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-
 		teamId := c.QueryParam("teamId")
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
@@ -135,6 +130,19 @@ func main() {
 		if strings.ToLower(geo) == "true" || geo == "1" {
 			geoOnly = true
 		} else {
+			teamId = ""
+
+			authHeader := c.Request().Header.Get("Authorization")
+			if authHeader == "" {
+				return errors.New("authorization header is required")
+			}
+
+			claims, err := decodeAuthToken(authHeader)
+			if err != nil {
+				return err
+			}
+			teamId = claims["team_id"].(string)
+
 			if teamId == "" {
 				return errors.New("teamId is required unless geo=true")
 			}
@@ -170,6 +178,11 @@ func main() {
 		}
 
 		subChan <- subscription
+
+		w := c.Response()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
 
 		for {
 			select {
