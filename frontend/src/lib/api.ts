@@ -767,6 +767,10 @@ class ApiRequest {
         return this.addPathComponent('personal_api_keys')
     }
 
+    public cliLogin(code: string): ApiRequest {
+        return this.addPathComponent('login/cli?code=' + code)
+    }
+
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
     }
@@ -2101,6 +2105,11 @@ const api = {
         },
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
+        },
+    },
+    cliLogin: {
+        async get(code: string): Promise<any> {
+            return await new ApiRequest().cliLogin(code).get()
         },
     },
 
