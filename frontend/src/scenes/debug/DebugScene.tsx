@@ -4,8 +4,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { stringifiedExamples } from '~/queries/examples'
@@ -15,7 +15,7 @@ import { debugSceneLogic } from './debugSceneLogic'
 export function DebugScene(): JSX.Element {
     const { query1, query2 } = useValues(debugSceneLogic)
     const { setQuery1, setQuery2 } = useActions(debugSceneLogic)
-    const { featureFlags } = useValues(featureFlagsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="QueryScene">
