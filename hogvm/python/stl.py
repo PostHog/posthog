@@ -4,6 +4,8 @@ import re
 import requests
 
 from hogvm.python.vm_utils import HogVMException
+from posthog.hogql.query import execute_hogql_query
+from posthog.models import Team
 
 
 def _to_concat_arg(arg) -> str:
@@ -16,7 +18,7 @@ def _to_concat_arg(arg) -> str:
     return str(arg)
 
 
-def execute_stl_function(name: str, args: list[Any], timeout=5):
+def execute_stl_function(name: str, args: list[Any], team: Team, stdout: list[str] | None = None, timeout=5):
     match name:
         case "concat":
             return "".join([_to_concat_arg(arg) for arg in args])
@@ -60,7 +62,10 @@ def execute_stl_function(name: str, args: list[Any], timeout=5):
             time.sleep(args[0])
             return None
         case "print":
-            print(*args)  # noqa: T201
-            return None
+            stdout is not None and stdout.append(f"{(' '.join(map(str, args)))}\n")
+            return
+        case "run":
+            response = execute_hogql_query(query=args[0], team=team)
+            return response.results
         case _:
             raise HogVMException(f"Unsupported function call: {name}")

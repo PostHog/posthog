@@ -13,7 +13,7 @@ class TestBytecodeExecute(BaseTest):
         fields = {
             "properties": {"foo": "bar", "nullValue": None},
         }
-        return execute_bytecode(create_bytecode(parse_expr(expr)), fields)
+        return execute_bytecode(create_bytecode(parse_expr(expr)), fields).result
 
     def _run_program(self, code: str, functions: Optional[dict[str, Callable[..., Any]]] = None) -> Any:
         fields = {
@@ -21,7 +21,7 @@ class TestBytecodeExecute(BaseTest):
         }
         program = parse_program(code)
         bytecode = create_bytecode(program, set(functions.keys()) if functions else None)
-        return execute_bytecode(bytecode, fields, functions)
+        return execute_bytecode(bytecode, fields, functions).result
 
     def test_bytecode_create(self):
         self.assertEqual(self._run("1 + 2"), 3)
@@ -129,9 +129,9 @@ class TestBytecodeExecute(BaseTest):
             return "zero"
 
         functions = {"stringify": stringify}
-        self.assertEqual(execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions), "one")
-        self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions), "two")
-        self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions), "zero")
+        self.assertEqual(execute_bytecode([_H, op.INTEGER, 1, op.CALL, "stringify", 1], {}, functions).result, "one")
+        self.assertEqual(execute_bytecode([_H, op.INTEGER, 2, op.CALL, "stringify", 1], {}, functions).result, "two")
+        self.assertEqual(execute_bytecode([_H, op.STRING, "2", op.CALL, "stringify", 1], {}, functions).result, "zero")
 
     def test_bytecode_variable_assignment(self):
         program = parse_program("var a := 1 + 2; return a;")
@@ -344,7 +344,7 @@ class TestBytecodeExecute(BaseTest):
                 op.RETURN,
             ],
         )
-        response = execute_bytecode(bytecode)
+        response = execute_bytecode(bytecode).result
         self.assertEqual(response, 7)
 
         self.assertEqual(

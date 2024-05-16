@@ -8,7 +8,6 @@ from posthog.hogql.visitor import Visitor
 from hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
-    HOG_FUNCTIONS,
 )
 
 COMPARE_OPERATIONS = {
@@ -185,12 +184,9 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
-        if (
-            node.name not in HOG_FUNCTIONS
-            and node.name not in self.supported_functions
-            and node.name not in self.functions
-        ):
-            raise NotImplementedError(f"HogQL function `{node.name}` is not supported")
+        # TODO: do we want this check? gives better errors earlier
+        # if node.name not in self.supported_functions and node.name not in self.functions:
+        #     raise NotImplementedError(f"HogQL function `{node.name}` is not supported")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
             raise NotImplementedError(
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"
