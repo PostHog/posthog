@@ -3,25 +3,6 @@ from enum import Enum
 HOGQL_BYTECODE_IDENTIFIER = "_h"
 HOGQL_BYTECODE_FUNCTION = "_f"
 
-HOG_FUNCTIONS = (
-    "concat",
-    "match",
-    "toString",
-    "toInt",
-    "toFloat",
-    "toUUID",
-    "ifNull",
-    "length",
-    "empty",
-    "notEmpty",
-    "lower",
-    "upper",
-    "reverse",
-    "httpGet",
-    "sleep",
-    "print",
-)
-
 
 class Operation(int, Enum):
     FIELD = 1

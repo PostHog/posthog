@@ -122,9 +122,9 @@ def calculate_for_query_based_insight(
     response = process_query(
         insight.team,
         effective_query,
-        execution_mode=ExecutionMode.CALCULATION_ALWAYS
-        if refresh_requested
-        else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+        execution_mode=(
+            ExecutionMode.CALCULATION_ALWAYS if refresh_requested else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+        ),
     )
 
     if "results" not in response:

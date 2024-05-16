@@ -6,6 +6,8 @@ import time
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
 from hogvm.python.vm_utils import HogVMException
+from posthog.models import Team
+from dataclasses import dataclass
 
 
 def like(string, pattern, flags=0):
@@ -25,12 +27,19 @@ def get_nested_value(obj, chain) -> Any:
     return obj
 
 
+@dataclass
+class BytecodeResult:
+    result: Any
+    stdout: list[str]
+
+
 def execute_bytecode(
     bytecode: list[Any],
     fields: Optional[dict[str, Any]] = None,
     functions: Optional[dict[str, Callable[..., Any]]] = None,
     timeout=5,
-) -> Any:
+    team: Team | None = None,
+) -> BytecodeResult:
     try:
         start_time = time.time()
         stack = []
@@ -38,6 +47,7 @@ def execute_bytecode(
         declared_functions: dict[str, tuple[int, int]] = {}
         ip = -1
         ops = 0
+        stdout = []
 
         def next_token():
             nonlocal ip
@@ -137,7 +147,7 @@ def execute_bytecode(
                         stack = stack[0:stack_start]
                         stack.append(response)
                     else:
-                        return stack.pop()
+                        return BytecodeResult(stack.pop(), stdout="".join(stdout))
                 case Operation.GET_LOCAL:
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     stack.append(stack[next_token() + stack_start])
@@ -171,13 +181,13 @@ def execute_bytecode(
                             stack.append(functions[name](*args))
                             continue
 
-                        stack.append(execute_stl_function(name, args))
+                        stack.append(execute_stl_function(name, args, team=team, stdout=stdout))
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 
         if len(stack) > 1:
             raise HogVMException("Invalid bytecode. More than one value left on stack")
 
-        return stack.pop()
+        return BytecodeResult(result=stack.pop(), stdout="".join(stdout))
     except IndexError:
         raise HogVMException("Unexpected end of bytecode")
