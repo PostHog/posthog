@@ -560,7 +560,7 @@ export interface RawOrganization {
     name: string
     created_at: string
     updated_at: string
-    available_features: string[]
+    available_product_features: string[]
 }
 
 /** Usable Team model. */

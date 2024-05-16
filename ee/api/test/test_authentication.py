@@ -152,7 +152,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.client.logout()
         License.objects.filter(pk=-1).delete()  # No instance licenses
         self.create_enforced_domain()
-        self.organization.available_features = ["sso_enforcement"]
+        self.organization.available_product_features = [{"key": "sso_enforcement", "name": "sso_enforcement"}]
         self.organization.save()
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
@@ -652,7 +652,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
 
     def test_cannot_use_saml_without_enterprise_license(self):
-        self.organization.available_features = [AvailableFeature.SSO_ENFORCEMENT]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT}
+        ]
         self.organization.save()
 
         # Enforcement is ignored
