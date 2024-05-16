@@ -1,21 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { userLogic } from 'scenes/userLogic'
+
+import { HedgehogColorOptions, HedgehogConfig } from '~/types'
 
 import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 import { AccessoryInfo, standardAccessories } from './sprites/sprites'
-
-export type HedgehogColorOptions =
-    | 'green'
-    | 'red'
-    | 'blue'
-    | 'purple'
-    | 'dark'
-    | 'light'
-    | 'sepia'
-    | 'invert'
-    | 'invert-hue'
-    | 'greyscale'
 
 export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
     red: 'hue-rotate(340deg) saturate(300%) brightness(90%)',
@@ -41,62 +32,19 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
         setImageFilter: (enabled: boolean) => ({ enabled }),
         setColor: (color: HedgehogColorOptions | null) => ({ color }),
+        patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
+        clearLocalConfig: true,
     }),
 
     reducers(() => ({
-        freeMovement: [
-            true,
-            { persist: true },
+        localConfig: [
+            null as Partial<HedgehogConfig>,
             {
-                setFreeMovement: (_, { enabled }) => enabled,
-            },
-        ],
-
-        interactWithElements: [
-            true,
-            { persist: true },
-            {
-                setInteractWithElements: (_, { enabled }) => enabled,
-            },
-        ],
-
-        keyboardControlsEnabled: [
-            true,
-            { persist: true },
-            {
-                setKeyboardControlsEnabled: (_, { enabled }) => enabled,
-            },
-        ],
-        color: [
-            null as HedgehogColorOptions | null,
-            { persist: true },
-            {
-                setColor: (_, { color }) => color,
-            },
-        ],
-
-        accessories: [
-            [] as AccessoryInfo[],
-            { persist: true },
-            {
-                addAccessory(state, { accessory }) {
-                    return [...state]
-                        .filter((oldOne) => {
-                            return accessory.group !== oldOne.group
-                        })
-                        .concat([accessory])
-                },
-                removeAccessory(state, { accessory }) {
-                    return state.filter((x) => x !== accessory)
-                },
-            },
-        ],
-
-        hedgehogModeEnabled: [
-            false,
-            { persist: true },
-            {
-                setHedgehogModeEnabled: (_, { enabled }) => enabled,
+                clearLocalConfig: () => null,
+                patchHedgehogConfig: (state, { config }) => ({
+                    ...(state ?? {}),
+                    ...config,
+                }),
             },
         ],
     })),
@@ -109,17 +57,37 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             },
         ],
 
-        imageFilter: [
-            (s) => [s.color],
-            (color): string | null => {
-                return color ? COLOR_TO_FILTER_MAP[color] : null
+        hedgehogConfig: [
+            (s) => [s.localConfig, userLogic.selectors.user],
+            (localConfig, user): HedgehogConfig => {
+                return {
+                    ...(user.hedgehog_config ?? {}),
+                    ...(localConfig ?? {}),
+                }
             },
         ],
     }),
 
-    listeners(() => ({
+    listeners(({ actions }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
+        },
+
+        setHedgehogConfig: async ({ config }, breakpoint) => {
+            await breakpoint(1000)
+
+            await new Promise<void>((res) => {
+                userLogic.findMounted()?.actions.updateUser(
+                    {
+                        hedgehog_config: config,
+                    },
+                    res
+                )
+            })
+
+            await breakpoint(100)
+
+            actions.clearLocalConfig()
         },
     })),
 

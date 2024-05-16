@@ -1,14 +1,10 @@
-import { COLOR_TO_FILTER_MAP, HedgehogColorOptions } from './hedgehogBuddyLogic'
+import { HedgehogConfig } from '~/types'
+
+import { COLOR_TO_FILTER_MAP } from './hedgehogBuddyLogic'
 import { baseSpriteAccessoriesPath, baseSpritePath, standardAccessories } from './sprites/sprites'
 
-export type HedgehogBuddyStaticProps = {
-    size?: number
-    accessories?: string[]
-    color?: HedgehogColorOptions | null
-}
-
 // Takes a range of options and renders a static hedgehog
-export function HedgehogBuddyStatic({ accessories, color }: HedgehogBuddyStaticProps): JSX.Element {
+export function HedgehogBuddyStatic({ accessories, color }: Partial<HedgehogConfig>): JSX.Element {
     const imgSize = 60
     const hedgehogImgSize = imgSize * 4
 
@@ -32,7 +28,7 @@ export function HedgehogBuddyStatic({ accessories, color }: HedgehogBuddyStaticP
                 style={{
                     width: hedgehogImgSize,
                     height: hedgehogImgSize,
-                    filter: filter as any,
+                    filter: filter,
                 }}
             />
 
@@ -45,7 +41,7 @@ export function HedgehogBuddyStatic({ accessories, color }: HedgehogBuddyStaticP
                     style={{
                         width: imgSize,
                         height: imgSize,
-                        filter: filter as any,
+                        filter: filter,
                     }}
                 />
             ))}

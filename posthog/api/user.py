@@ -113,6 +113,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
+            "hedgehog_config",
         ]
 
         read_only_fields = [

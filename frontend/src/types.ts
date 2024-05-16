@@ -264,6 +264,28 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
+    hedgehog_config?: HedgehogConfig
+}
+
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export interface HedgehogConfig {
+    enabled?: boolean
+    color?: HedgehogColorOptions
+    accessories?: string[]
+    walking_enabled?: boolean
+    interactions_enabled?: boolean
+    controls_enabled?: boolean
 }
 
 export interface NotificationSettings {
