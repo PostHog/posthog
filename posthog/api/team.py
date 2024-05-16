@@ -122,7 +122,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
-    jwt_token = serializers.SerializerMethodField()
+    live_events_token = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -174,7 +174,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
-            "jwt_token",
+            "live_events_token",
         )
         read_only_fields = (
             "id",
@@ -189,7 +189,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
-            "jwt_token",
+            "live_events_token",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -201,7 +201,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
         return groups_on_events_querying_enabled()
 
-    def get_jwt_token(self, team: Team) -> Optional[str]:
+    def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
             {"team_id": team.id},
             timedelta(days=7),
