@@ -60,7 +60,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
         if record and record.status in (ProxyRecord.Status.WAITING, ProxyRecord.Status.ERRORING):
             record.delete()
-        else if record:
+        elif record:
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
