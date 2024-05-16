@@ -16,6 +16,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setInteractWithElements: (enabled: boolean) => ({ enabled }),
         setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
         setImageFilter: (enabled: boolean) => ({ enabled }),
+        setColor: (color: string) => ({ color }),
     }),
 
     reducers(() => ({
@@ -42,11 +43,11 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                 setKeyboardControlsEnabled: (_, { enabled }) => enabled,
             },
         ],
-        imageFilter: [
-            true,
+        color: [
+            'default',
             { persist: true },
             {
-                setImageFilter: (_, { enabled }) => enabled,
+                setColor: (_, { color }) => color,
             },
         ],
 
@@ -78,6 +79,35 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         hedgehogModeEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEDGEHOG_MODE],
+        ],
+
+        imageFilter: [
+            (s) => [s.color],
+            (color) => {
+                // green, red, blue, yellow, dark, light, default, sepia, invert, invert-hue
+                switch (color) {
+                    case 'green':
+                        return 'hue-rotate(120deg)'
+                    case 'red':
+                        return 'hue-rotate(0deg)'
+                    case 'blue':
+                        return 'hue-rotate(240deg)'
+                    case 'yellow':
+                        return 'hue-rotate(60deg)'
+                    case 'dark':
+                        return 'brightness(70%)'
+                    case 'light':
+                        return 'brightness(130%)'
+                    case 'sepia':
+                        return 'sepia(100%) saturate(300%) brightness(70%)'
+                    case 'invert':
+                        return 'invert(100%)'
+                    case 'invert-hue':
+                        return 'invert(100%) hue-rotate(180deg)'
+                    default:
+                        return 'none'
+                }
+            },
         ],
     }),
 

@@ -1,10 +1,11 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { HedgehogBuddyAccessory } from './components/AccessoryButton'
 import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
-import { accessoryGroups, standardAccessories } from './sprites/sprites'
+import { accessoryGroups, baseSpritePath, standardAccessories } from './sprites/sprites'
 
 export function HedgehogIntro(): JSX.Element {
     return (
@@ -75,5 +76,59 @@ export function HedgehogAccessories({ isDarkModeOn }: { isDarkModeOn: boolean })
                 </div>
             ))}
         </>
+    )
+}
+
+export function HedgehogColor(): JSX.Element {
+    const { color } = useValues(hedgehogBuddyLogic)
+    const { setColor } = useActions(hedgehogBuddyLogic)
+
+    // filter: sepia(100%) saturate(300%) brightness(70%) hue-rotate(180deg);
+
+    const options = ['green', 'red', 'blue', 'yellow', 'dark', 'light', 'sepia', 'invert', 'invert-hue']
+
+    const onClick = (color: string): void => {
+        setColor(color)
+    }
+
+    const imgSize = 60
+    const hedgehogImgSize = imgSize * 4
+
+    return (
+        <div className="mb-2">
+            <h4>Colors</h4>
+
+            <div className="flex items-center gap-2 flex-wrap">
+                {options.map((option) => (
+                    <LemonButton
+                        key={option}
+                        className={clsx('border border-2', color === option ? 'border-primary' : 'border-transparent')}
+                        size="small"
+                        onClick={() => onClick(option)}
+                        noPadding
+                    >
+                        <div
+                            className="relative overflow-hidden pointer-events-none"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: imgSize,
+                                height: imgSize,
+                                margin: -2,
+                            }}
+                        >
+                            <img
+                                src={`${baseSpritePath()}/wave.png`}
+                                className="object-cover absolute inset-0 image-pixelated"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    width: hedgehogImgSize,
+                                    height: hedgehogImgSize,
+                                }}
+                            />
+                        </div>
+                    </LemonButton>
+                ))}
+            </div>
+        </div>
     )
 }
