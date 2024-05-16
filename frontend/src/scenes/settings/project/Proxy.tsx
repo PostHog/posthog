@@ -18,8 +18,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
-const DEFAULT_CNAME = 'k8s-proxyasa-proxyasa-e8343c0048-1f26b5a36cde44fd.elb.us-east-1.amazonaws.com.'
-
 export function Proxy(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords } = useValues(proxyLogic)
@@ -104,7 +102,7 @@ function CreateRecordForm(): JSX.Element {
     const { formState, proxyRecordsLoading, proxyRecords } = useValues(proxyLogic)
     const { collapseForm } = useActions(proxyLogic)
 
-    const mostRecentRecord = proxyRecords.find((r) => r.status === 'waiting')
+    const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
         <div className="bg-bg-light rounded border p-2 space-y-2">
@@ -139,11 +137,13 @@ function CreateRecordForm(): JSX.Element {
                 <>
                     <div className="text-xl font-semibold leading-tight">Almost there</div>
                     <div>
-                        You need to set the <b>CNAME</b> record on your DNS provider:
+                        You need to set the following <b>CNAME</b> records in your DNS provider:
                     </div>
-                    <CodeSnippet language={Language.HTTP}>
-                        {mostRecentRecord ? mostRecentRecord.cname_target : DEFAULT_CNAME}
-                    </CodeSnippet>
+                    {waitingRecords.map((r) => (
+                        <CodeSnippet key={r.id} language={Language.HTTP}>
+                            {r.domain + ' -> ' + r.target_cname}
+                        </CodeSnippet>
+                    ))}
                     <div className="flex justify-end">
                         <LemonButton onClick={collapseForm} type="primary">
                             Done

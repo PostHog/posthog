@@ -117,6 +117,7 @@ function RecordingsLists(): JSX.Element {
         showOtherRecordings,
         recordingsCount,
         isRecordingsListCollapsed,
+        sessionSummaryLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -128,10 +129,15 @@ function RecordingsLists(): JSX.Element {
         resetFilters,
         toggleShowOtherRecordings,
         toggleRecordingsListCollapsed,
+        summarizeSession,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
+    }
+
+    const onSummarizeClick = (recording: SessionRecordingType): void => {
+        summarizeSession(recording.id)
     }
 
     const lastScrollPositionRef = useRef(0)
@@ -268,6 +274,8 @@ function RecordingsLists(): JSX.Element {
                                               onClick={() => onRecordingClick(rec)}
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
+                                              summariseFn={onSummarizeClick}
+                                              sessionSummaryLoading={sessionSummaryLoading}
                                           />
                                       </div>
                                   ))
