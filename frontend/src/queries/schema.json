@@ -4853,18 +4853,11 @@
                     "type": "integer"
                 },
                 "properties": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyGroupFilter"
-                        }
-                    ],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/LogsQueryResponse"

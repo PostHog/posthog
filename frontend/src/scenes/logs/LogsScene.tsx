@@ -5,7 +5,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useState } from 'react'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { logsSceneLogic } from 'scenes/logs/logsSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,7 +15,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { PropertyGroupFilters } from '~/queries/nodes/InsightViz/PropertyGroupFilters/PropertyGroupFilters'
+import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { Query } from '~/queries/Query/Query'
 import { LogsQuery, NodeKind } from '~/queries/schema'
 
@@ -209,17 +208,10 @@ const Filters = (): JSX.Element => {
     const { query } = useValues(logsDataLogic)
 
     return (
-        <PropertyGroupFilters
-            insightProps={{ dashboardItemId: 'new', setQuery: ((query: LogsQuery) => setQuery(query)) as any }} // Forcing some prop typings
-            pageKey={`${keyForInsightLogicProps('new')({
-                dashboardItemId: 'new',
-                setQuery: ((query: LogsQuery) => setQuery(query)) as any, // Forcing some prop typings
-            })}-Logs`}
+        <EventPropertyFilters
             query={query as LogsQuery}
-            setQuery={((query: LogsQuery) => setQuery(query)) as any} // Forcing some prop typings
-            eventNames={['$log']}
-            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-            isDataWarehouseSeries={false}
+            setQuery={setQuery}
+            filterGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
         />
     )
 }
