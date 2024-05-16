@@ -1,4 +1,4 @@
-import { IconEllipsis, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -7,6 +7,7 @@ import {
     LemonTable,
     LemonTableColumns,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -16,6 +17,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
+
+const DEFAULT_CNAME = 'k8s-proxyasa-proxyasa-e8343c0048-1f26b5a36cde44fd.elb.us-east-1.amazonaws.com.'
 
 export function Proxy(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -35,21 +38,26 @@ export function Proxy(): JSX.Element {
             title: 'Status',
             dataIndex: 'status',
             render: function RenderStatus(status) {
+                if (!status) {
+                    return <span>Unknown</span>
+                }
+
                 return (
-                    <div className="space-x-1">
+                    <div
+                        className={clsx(
+                            'space-x-1',
+                            status === 'valid'
+                                ? 'text-success'
+                                : status == 'erroring'
+                                ? 'text-danger'
+                                : 'text-warning-dark'
+                        )}
+                    >
                         {status === 'issuing' && <Spinner />}
-                        <span
-                            className={clsx(
-                                'capitalize',
-                                status === 'valid'
-                                    ? 'text-success'
-                                    : status == 'erroring'
-                                    ? 'text-danger'
-                                    : 'text-warning'
-                            )}
-                        >
-                            {status}
-                        </span>
+                        <span className="capitalize">{status}</span>
+                        <Tooltip title="Waiting for DNS records to be created">
+                            <IconInfo className="cursor-pointer" />
+                        </Tooltip>
                     </div>
                 )
             },
@@ -91,8 +99,10 @@ export function Proxy(): JSX.Element {
 }
 
 function CreateRecordForm(): JSX.Element {
-    const { formState, proxyRecordsLoading } = useValues(proxyLogic)
+    const { formState, proxyRecordsLoading, proxyRecords } = useValues(proxyLogic)
     const { collapseForm } = useActions(proxyLogic)
+
+    const mostRecentRecord = proxyRecords.find((r) => r.status === 'waiting')
 
     return (
         <div className="bg-bg-light rounded border p-2 space-y-2">
@@ -129,7 +139,9 @@ function CreateRecordForm(): JSX.Element {
                     <div>
                         You need to set the <b>CNAME</b> record on your DNS provider:
                     </div>
-                    <CodeSnippet language={Language.HTTP}>sdfghgfdsdfghgfdsw.com</CodeSnippet>
+                    <CodeSnippet language={Language.HTTP}>
+                        {mostRecentRecord ? mostRecentRecord.cname_target : DEFAULT_CNAME}
+                    </CodeSnippet>
                     <div className="flex justify-end">
                         <LemonButton onClick={collapseForm} type="primary">
                             Done
