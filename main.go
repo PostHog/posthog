@@ -85,16 +85,17 @@ func main() {
 			Error          string `json:"error,omitempty"`
 		}
 
-		teamId := c.QueryParam("teamId")
-		if teamId == "" {
-			return errors.New("teamId is required")
+		authHeader := c.Request().Header.Get("Authorization")
+		if authHeader == "" {
+			return errors.New("authorization header is required")
 		}
-		teamIdInt64, err := strconv.ParseInt(teamId, 10, 0)
+
+		claims, err := decodeAuthToken(authHeader)
 		if err != nil {
 			return err
 		}
+		teamIdInt := int(claims["team_id"].(float64))
 
-		teamIdInt := int(teamIdInt64)
 		token, err := tokenFromTeamId(teamIdInt)
 		if err != nil {
 			return err
