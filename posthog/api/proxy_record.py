@@ -58,7 +58,9 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         queryset = self.organization.proxy_records.order_by("-created_at")
         record = queryset.get(id=pk)
 
-        if record:
+        if record and record.status in (ProxyRecord.Status.WAITING, ProxyRecord.Status.ERRORING):
+            record.delete()
+        else if record:
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
