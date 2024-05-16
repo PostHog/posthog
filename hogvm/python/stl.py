@@ -3,7 +3,7 @@ from typing import Any
 import re
 import requests
 
-from hogvm.python.utils import HogVMException
+from hogvm.python.vm_utils import HogVMException
 
 
 def _to_concat_arg(arg) -> str:

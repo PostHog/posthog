@@ -218,6 +218,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             body=self.visit(ctx.block()),
         )
 
+    def visitDict(self, ctx: HogQLParser.DictContext):
+        return ast.Dict(items=self.visit(ctx.kvPairList()) if ctx.kvPairList() else [])
+
+    def visitKvPairList(self, ctx: HogQLParser.KvPairListContext):
+        return [self.visit(kv) for kv in ctx.kvPair()]
+
+    def visitKvPair(self, ctx: HogQLParser.KvPairContext):
+        k, v = ctx.expression()
+        return (self.visit(k), self.visit(v))
+
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
         return [ident.getText() for ident in ctx.identifier()]
 

@@ -581,6 +581,11 @@ class Array(Expr):
 
 
 @dataclass(kw_only=True)
+class Dict(Expr):
+    items: list[Expr, Expr]
+
+
+@dataclass(kw_only=True)
 class TupleAccess(Expr):
     tuple: Expr
     index: int

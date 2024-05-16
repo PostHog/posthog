@@ -10,7 +10,7 @@ declaration
     : varDecl
     | statement ;
 
-expression: columnExpr;
+expression: columnExpr | dict;
 
 varDecl: VAR identifier ( COLON EQ_SINGLE expression )? SEMICOLON ;
 varAssignment: identifier COLON EQ_SINGLE expression SEMICOLON ;
@@ -34,6 +34,11 @@ funcStmt       : FN identifier LPAREN identifierList? RPAREN block;
 block          : LBRACE declaration* RBRACE ;
 
 
+dict:
+    | LBRACE (kvPairList)? RBRACE ;
+
+kvPair: expression ':' expression ;
+kvPairList: kvPair (COMMA kvPair)* ;
 
 
 // SELECT statement

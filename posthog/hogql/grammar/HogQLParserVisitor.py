@@ -74,6 +74,21 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#dict.
+    def visitDict(self, ctx:HogQLParser.DictContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#kvPair.
+    def visitKvPair(self, ctx:HogQLParser.KvPairContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#kvPairList.
+    def visitKvPairList(self, ctx:HogQLParser.KvPairListContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#select.
     def visitSelect(self, ctx:HogQLParser.SelectContext):
         return self.visitChildren(ctx)
