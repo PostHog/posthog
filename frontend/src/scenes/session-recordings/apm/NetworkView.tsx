@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { getSeriesColor } from 'lib/colors'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -10,6 +11,25 @@ import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspec
 import { PerformanceEvent } from '~/types'
 
 import { networkViewLogic } from './networkViewLogic'
+
+const initiatorTypeToColor = {
+    navigation: getSeriesColor(13),
+    css: getSeriesColor(14),
+    script: getSeriesColor(15),
+    xmlhttprequest: getSeriesColor(16),
+    fetch: getSeriesColor(17),
+    beacon: getSeriesColor(18),
+    video: getSeriesColor(19),
+    audio: getSeriesColor(20),
+    track: getSeriesColor(21),
+    img: getSeriesColor(22),
+    image: getSeriesColor(23),
+    input: getSeriesColor(24),
+    a: getSeriesColor(25),
+    iframe: getSeriesColor(26),
+    frame: getSeriesColor(27),
+    other: getSeriesColor(28),
+}
 
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
     // TODO we should show hostname if it isn't the same as the navigation for the page(s) we're looking at
@@ -48,8 +68,9 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
 
 function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null {
     return (
-        <div className="flex flex-row">
-            <MethodTag item={item} label={false} /> <StatusTag item={item} label={false} />
+        <div className="flex flex-row justify-between">
+            <MethodTag item={item} label={false} />
+            <StatusTag item={item} label={false} />
         </div>
     )
 }
@@ -60,23 +81,21 @@ function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | null {
     const positionPercentages = positionPercentagesFor(item)
 
     return (
-        <div className="flex-1 grow relative">
-            <div
-                className="relative h-full"
-                /* eslint-disable-next-line react/forbid-dom-props */
-                style={{
-                    backgroundColor: 'red',
-                    width: positionPercentages?.widthPercentage ?? '0%',
-                    left: positionPercentages?.startPercentage ?? '0%',
-                }}
-            />
-        </div>
+        <div
+            className="relative h-full"
+            /* eslint-disable-next-line react/forbid-dom-props */
+            style={{
+                backgroundColor: initiatorTypeToColor[item.initiator_type || 'other'] ?? 'red',
+                width: positionPercentages?.widthPercentage ?? '0%',
+                left: positionPercentages?.startPercentage ?? '0%',
+            }}
+        />
     )
 }
 
 function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
     const { formattedDurationFor } = useValues(networkViewLogic)
-    return <div className="w-1/6 text-right">{formattedDurationFor(item)}</div>
+    return <div className="text-right">{formattedDurationFor(item)}</div>
 }
 
 function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
@@ -84,13 +103,18 @@ function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null 
 
     return (
         <div className="flex flex-row">
-            <div className="flex flex-col space-y-1 w-2/5 overflow-x-hidden ellipsis">
+            <div className="w-2/5 overflow-x-hidden ellipsis">
                 <SimpleURL name={item.name} entryType={item.entry_type} />
+            </div>
+            <div className="flex-1 grow relative">
+                <NetworkBar item={item} />
+            </div>
+            <div className="w-1/12">
                 <NetworkStatus item={item} />
             </div>
-
-            <NetworkBar item={item} />
-            <Duration item={item} />
+            <div className="w-1/12">
+                <Duration item={item} />
+            </div>
         </div>
     )
 }
@@ -154,12 +178,11 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
                 {/*<div className="pre">{JSON.stringify(sessionPlayerMetaData, null, 2)}</div>*/}
                 <WaterfallMeta />
                 <LemonDivider />
-                <div>
+                <div className="space-y-1">
                     {currentPage.map((cp, i) => (
                         <WaterfallRow key={`${i}-${cp.name}`} item={cp} />
                     ))}
                 </div>
-                <pre>{JSON.stringify(currentPage, null, 2)}</pre>
             </div>
         </BindLogic>
     )
