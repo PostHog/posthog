@@ -19,6 +19,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useEffect, useRef } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -391,7 +392,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                         />
                     </div>
                     <div className="SessionRecordingsPlaylist__player">
-                        {activeSessionRecordingId ? (
+                        {!activeSessionRecordingId ? (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        ) : props.currentTab === ReplayTabs.NetworkView ? (
+                            <NetworkView sessionRecordingId={activeSessionRecordingId} />
+                        ) : (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeSessionRecordingId}
@@ -410,15 +422,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                                         : undefined
                                 }
                             />
-                        ) : (
-                            <div className="mt-20">
-                                <EmptyMessage
-                                    title="No recording selected"
-                                    description="Please select a recording from the list on the left"
-                                    buttonText="Learn more about recordings"
-                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
-                                />
-                            </div>
                         )}
                     </div>
                 </div>

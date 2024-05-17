@@ -13,7 +13,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
-import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -190,7 +189,7 @@ function MainPanel(): JSX.Element {
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>
             ) : tab === ReplayTabs.NetworkView ? (
-                <NetworkView />
+                <SessionRecordingsPlaylist updateSearchParams currentTab={ReplayTabs.NetworkView} />
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
             ) : tab === ReplayTabs.Errors ? (

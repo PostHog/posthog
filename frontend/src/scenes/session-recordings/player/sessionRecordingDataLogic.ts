@@ -698,6 +698,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return !cache.realTimePollingTimeoutID && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
+
         snapshotsLoaded: [(s) => [s.snapshotSources], (snapshotSources): boolean => !!snapshotSources],
 
         fullyLoaded: [
@@ -774,6 +775,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 return deduplicateSnapshots(allSnapshots)
             },
         ],
+
         untransformedSnapshots: [
             (s) => [s.snapshotSources, s.snapshotsBySource],
             (sources, snapshotsBySource): RecordingSnapshot[] => {

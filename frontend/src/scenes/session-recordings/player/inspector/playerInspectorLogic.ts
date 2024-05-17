@@ -8,7 +8,10 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import {
+    InspectorListItemPerformance,
+    performanceEventDataLogic,
+} from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -47,7 +50,7 @@ export const IMAGE_WEB_EXTENSIONS = [
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<InspectorListItem> {}
 
-type InspectorListItemBase = {
+export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
@@ -63,11 +66,6 @@ export type InspectorListItemEvent = InspectorListItemBase & {
 export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogV2
-}
-
-export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.NETWORK
-    data: PerformanceEvent
 }
 
 export type InspectorListOfflineStatusChange = InspectorListItemBase & {
@@ -182,6 +180,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
+            performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
+            ['allPerformanceEvents'],
         ],
     })),
     actions(() => ({
@@ -390,6 +390,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return items
             },
         ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -434,19 +435,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 })
 
                 return logs
-            },
-        ],
-
-        allPerformanceEvents: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): PerformanceEvent[] => {
-                // performanceEvents used to come from the API,
-                // but we decided to instead store them in the recording data
-                // we gather more info than rrweb, so we mix the two back together here
-
-                return deduplicatePerformanceEvents(
-                    filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
-                )
             },
         ],
 
@@ -908,7 +896,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items],
             (playerTime, items): number => {
-                // Returnts the index of the event that the playback is closest to
+                // Returns the index of the event that the playback is closest to
                 if (!playerTime) {
                     return 0
                 }
@@ -970,32 +958,3 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         }
     }),
 ])
-
-function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
-    // the browser can provide network events that we're not interested in,
-    // like a navigation to "about:blank"
-    return events.filter((event) => {
-        return !(event.entry_type === 'navigation' && event.name && event.name.startsWith('about:'))
-    })
-}
-
-function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEvent[] {
-    // we capture performance entries in the `isInitial` requests
-    // which are those captured before we've wrapped fetch
-    // since we're trying hard to avoid missing requests we sometimes capture the same request twice
-    // once isInitial and once is the actual fetch
-    // the actual fetch will have more data, so we can discard the isInitial
-    const seen = new Set<string>()
-    return events
-        .reverse()
-        .filter((event) => {
-            const key = `${event.entry_type}-${event.name}-${event.timestamp}-${event.window_id}`
-            // we only want to drop is_initial events
-            if (seen.has(key) && event.is_initial) {
-                return false
-            }
-            seen.add(key)
-            return true
-        })
-        .reverse()
-}
