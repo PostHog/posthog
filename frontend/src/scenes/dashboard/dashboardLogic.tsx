@@ -25,7 +25,7 @@ import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'li
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, isAbortedRequest, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -1008,7 +1008,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             // cancel all insight requests for this query in one go
                             actions.abortQuery({ dashboardQueryId: dashboardQueryId, queryId: queryId, queryStartTime })
                         }
-                        cancelled = true
+                        if (isAbortedRequest(e)) {
+                            cancelled = true
+                        }
                     } else {
                         actions.setRefreshError(insight.short_id)
                     }
