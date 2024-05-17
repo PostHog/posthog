@@ -182,6 +182,7 @@ class ClickhouseQueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    active_cpu_time: int
     bytes_read: int
     estimated_rows_total: int
     rows_read: int
