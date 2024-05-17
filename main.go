@@ -254,10 +254,6 @@ func main() {
 		}
 	})
 
-	e.GET("/version", pgVersion)
-	e.GET("/token", getToken)
-	e.GET("/person", getPerson)
-
 	if !viper.GetBool("prod") {
 		e.Logger.Fatal(e.Start(":8080"))
 	} else {
