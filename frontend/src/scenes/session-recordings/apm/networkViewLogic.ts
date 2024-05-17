@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import {
     sessionRecordingDataLogic,
@@ -23,6 +23,19 @@ export const networkViewLogic = kea<networkViewLogicType>([
         ],
         actions: [sessionRecordingDataLogic(props), ['loadSnapshots', 'maybeLoadRecordingMeta']],
     })),
+    actions({
+        nextPage: () => true,
+        prevPage: () => true,
+    }),
+    reducers({
+        page: [
+            0,
+            {
+                nextPage: (state) => state + 1,
+                prevPage: (state) => Math.max(0, state - 1),
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.maybeLoadRecordingMeta()
         actions.loadSnapshots()
@@ -36,12 +49,9 @@ export const networkViewLogic = kea<networkViewLogicType>([
             (s) => [s.allPerformanceEvents],
             (allPerformanceEvents: PerformanceEvent[]) => {
                 // ignore events before the first navigation event
-                // then we take each navigation events URL as a key to an object
-                // the object value is an error of performance events
-                // including the navigation event and any other events between it and the next navigation event
-
-                const pages = {}
-                let lastNavigationURL: string | null = null
+                // then we create an array of performance events for each page
+                // and store them in an array
+                const pages: PerformanceEvent[][] = []
 
                 for (const perfEvent of allPerformanceEvents) {
                     const hasAnyNavigation = Object.keys(pages).length
@@ -50,17 +60,20 @@ export const networkViewLogic = kea<networkViewLogicType>([
                         continue
                     }
                     if (eventType === 'navigation') {
-                        if (!perfEvent.name) {
-                            continue
-                        }
-                        pages[perfEvent.name] = [perfEvent]
-                        lastNavigationURL = perfEvent.name
-                    } else if (lastNavigationURL) {
-                        pages[lastNavigationURL].push(perfEvent)
+                        pages.push([perfEvent])
+                    } else {
+                        pages[pages.length - 1].push(perfEvent)
                     }
                 }
 
                 return pages
+            },
+        ],
+        pageCount: [(s) => [s.pageViews], (pageViews) => pageViews.length],
+        currentPage: [
+            (s) => [s.pageViews, s.page],
+            (pageViews, page) => {
+                return pageViews[page] || []
             },
         ],
     }),
