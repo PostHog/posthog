@@ -31,8 +31,8 @@ type ConfigOption =
 interface PluginContent {
     title: string
     description: string
-    // some plugins make no sense e.g. geo location doesn't apply to session replay
-    denyList: ProductKey[]
+    // some plugins make no sense e.g. geolocation doesn't apply to session replay
+    productOnboardingDenyList: ProductKey[]
 }
 type PluginContentMapping = Record<string, PluginContent>
 const pluginContentMapping: PluginContentMapping = {
@@ -40,7 +40,7 @@ const pluginContentMapping: PluginContentMapping = {
         title: 'Capture location information',
         description:
             'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
-        denyList: [ProductKey.SESSION_REPLAY],
+        productOnboardingDenyList: [ProductKey.SESSION_REPLAY],
     },
 }
 
@@ -88,7 +88,7 @@ export const OnboardingProductConfiguration = ({
         ...defaultEnabledPlugins
             .filter((plugin) => {
                 const pluginContent = pluginContentMapping[plugin.name]
-                return !product || (pluginContent && !pluginContent?.denyList.includes(product))
+                return !product || (pluginContent && !pluginContent?.productOnboardingDenyList.includes(product))
             })
             .map((plugin) => {
                 const pluginContent = pluginContentMapping[plugin.name]
