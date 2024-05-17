@@ -506,11 +506,12 @@
          count(*) AS count
   FROM events AS e
   LEFT OUTER JOIN
-    (SELECT argMax(person_overrides.override_person_id, person_overrides.version) AS override_person_id,
-            person_overrides.old_person_id AS old_person_id
-     FROM person_overrides
-     WHERE equals(person_overrides.team_id, 2)
-     GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 2)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
   LEFT JOIN
     (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), groups._timestamp) AS properties___industry,
             groups.group_type_index AS index,
@@ -519,7 +520,7 @@
      WHERE and(equals(groups.team_id, 2), ifNull(equals(index, 0), 0))
      GROUP BY groups.group_type_index,
               groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id)))
+  WHERE and(equals(e.team_id, 2), in(e.event, tuple('buy', 'play movie', 'sign up')), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), notEmpty(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)))
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
