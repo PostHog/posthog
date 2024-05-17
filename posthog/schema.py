@@ -178,6 +178,17 @@ class ChartDisplayType(str, Enum):
     WorldMap = "WorldMap"
 
 
+class ClickhouseQueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_cpu_time: int
+    bytes_read: int
+    estimated_rows_total: int
+    rows_read: int
+    time_elapsed: int
+
+
 class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -752,6 +763,7 @@ class QueryStatus(BaseModel):
     expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
+    query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
