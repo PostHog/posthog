@@ -219,9 +219,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hog_ql_filtering: values.useHogQLFiltering,
                     }
 
-                    if (values.artificialLag) {
-                        params['date_to'] = values.artificialLag
-                    }
+                    // if (values.artificialLag) {
+                    //     params['date_to'] = values.artificialLag
+                    // }
 
                     if (values.orderBy === 'start_time') {
                         if (direction === 'older') {
