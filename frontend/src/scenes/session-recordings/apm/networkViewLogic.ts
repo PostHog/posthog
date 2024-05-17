@@ -5,7 +5,7 @@ import {
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { PerformanceEvent } from '~/types'
+import { PerformanceEvent, PersonType } from '~/types'
 
 import type { networkViewLogicType } from './networkViewLogicType'
 
@@ -41,6 +41,12 @@ export const networkViewLogic = kea<networkViewLogicType>([
         actions.loadSnapshots()
     }),
     selectors({
+        sessionPerson: [
+            (s) => [s.sessionPlayerData],
+            (playerData): PersonType | null => {
+                return playerData?.person ?? null
+            },
+        ],
         isLoading: [
             (s) => [s.snapshotsLoading, s.sessionPlayerMetaDataLoading],
             (snapshotsLoading, sessionPlayerMetaDataLoading) => snapshotsLoading || sessionPlayerMetaDataLoading,
