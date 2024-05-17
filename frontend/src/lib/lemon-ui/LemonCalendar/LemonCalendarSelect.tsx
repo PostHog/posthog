@@ -216,7 +216,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 <LemonCalendarSelect
                     {...calendarProps}
                     onChange={(value) => {
-                        props.onChange(value)
+                        props.onChange?.(value)
                         setUncontrolledVisible(false)
                     }}
                     onClose={() => {
