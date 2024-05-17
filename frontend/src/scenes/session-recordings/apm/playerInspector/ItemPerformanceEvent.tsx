@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
 
-import { SimpleKeyValueList } from './SimpleKeyValueList'
+import { SimpleKeyValueList } from '../../player/inspector/components/SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -437,43 +437,58 @@ export function HeadersDisplay({
     )
 }
 
-function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
-    let statusRow = null
-    let methodRow = null
+export function StatusTag({ item, label }: { item: PerformanceEvent; label?: boolean }): JSX.Element | null {
+    if (item.response_status === undefined) {
+        return null
+    }
 
     let fromDiskCache = false
     if (item.transfer_size === 0 && item.response_body && item.response_status && item.response_status < 400) {
         fromDiskCache = true
     }
 
-    if (item.response_status) {
-        const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
+    const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
 
-        let statusType: LemonTagType = 'success'
-        if (item.response_status >= 400 || item.response_status < 100) {
-            statusType = 'warning'
-        } else if (item.response_status >= 500) {
-            statusType = 'danger'
-        }
+    let statusType: LemonTagType = 'success'
+    if (item.response_status >= 400 || item.response_status < 100) {
+        statusType = 'warning'
+    } else if (item.response_status >= 500) {
+        statusType = 'danger'
+    }
 
-        statusRow = (
-            <div className="flex gap-4 items-center justify-between overflow-hidden">
-                <div className="font-semibold">Status code</div>
-                <div>
-                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                    {fromDiskCache && <span className="text-muted"> (from cache)</span>}
-                </div>
+    return (
+        <div className="flex gap-4 items-center justify-between overflow-hidden">
+            {label ? <div className="font-semibold">Status code</div> : null}
+            <div>
+                <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                {fromDiskCache && <span className="text-muted"> (from cache)</span>}
             </div>
-        )
+        </div>
+    )
+}
+
+export function MethodTag({ item, label }: { item: PerformanceEvent; label?: boolean }): JSX.Element | null {
+    if (item.method === undefined) {
+        return null
+    }
+    return (
+        <div className="flex gap-4 items-center justify-between overflow-hidden">
+            {label ? <div className="font-semibold">Request method</div> : null}
+            <div className="uppercase font-semibold">{item.method}</div>
+        </div>
+    )
+}
+
+function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    let statusRow = null
+    let methodRow = null
+
+    if (item.response_status) {
+        statusRow = <StatusTag item={item} />
     }
 
     if (item.method) {
-        methodRow = (
-            <div className="flex gap-4 items-center justify-between overflow-hidden">
-                <div className="font-semibold">Request method</div>
-                <div className="uppercase font-semibold">{item.method}</div>
-            </div>
-        )
+        methodRow = <MethodTag item={item} />
     }
 
     return methodRow || statusRow ? (

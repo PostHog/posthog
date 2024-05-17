@@ -247,7 +247,7 @@ function percentage(partDuration: number, totalDuration: number, min: number): n
     return Math.min(Math.max(min, (partDuration / totalDuration) * 100), 100)
 }
 
-function percentagesWithinEventRange({
+export function percentagesWithinEventRange({
     partStart,
     partEnd,
     rangeEnd,

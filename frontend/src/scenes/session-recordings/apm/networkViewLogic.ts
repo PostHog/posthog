@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
+import { percentagesWithinEventRange } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
@@ -80,6 +81,59 @@ export const networkViewLogic = kea<networkViewLogicType>([
             (s) => [s.pageViews, s.page],
             (pageViews, page) => {
                 return pageViews[page] || []
+            },
+        ],
+        navigationItem: [
+            (s) => [s.currentPage],
+            (currentPage) => {
+                if (currentPage.length) {
+                    return currentPage[0]
+                }
+                return null
+            },
+        ],
+        finalItem: [
+            (s) => [s.currentPage],
+            (currentPage) => {
+                if (currentPage.length) {
+                    return currentPage[currentPage.length - 1]
+                }
+                return null
+            },
+        ],
+        positionPercentagesFor: [
+            (s) => [s.navigationItem, s.finalItem],
+            (navigationItem, finalItem) => {
+                return (item: PerformanceEvent) => {
+                    if (!navigationItem || !finalItem) {
+                        return
+                    }
+
+                    const rangeStart = navigationItem.start_time
+                    const rangeEnd = finalItem.load_event_end ? finalItem.load_event_end : finalItem.response_end
+
+                    const itemStart = item.start_time
+                    const itemEnd = item.load_event_end ? item.load_event_end : item.response_end
+
+                    if (
+                        itemStart === undefined ||
+                        itemEnd === undefined ||
+                        rangeStart === undefined ||
+                        rangeEnd === undefined
+                    ) {
+                        return null
+                    }
+
+                    const percentages = percentagesWithinEventRange({
+                        rangeStart,
+                        rangeEnd,
+                        partStart: itemStart,
+                        partEnd: itemEnd,
+                    })
+                    const startPercentage = percentages.startPercentage
+                    const widthPercentage = percentages.widthPercentage
+                    return { startPercentage, widthPercentage }
+                }
             },
         ],
     }),

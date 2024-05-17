@@ -3,7 +3,7 @@ import {
     BodyDisplay,
     HeadersDisplay,
     ItemPerformanceEvent,
-} from 'scenes/session-recordings/player/inspector/components/ItemPerformanceEvent'
+} from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 
 import { mswDecorator } from '~/mocks/browser'
 
