@@ -125,9 +125,8 @@ function Header(): JSX.Element {
     )
 }
 
-function MainPanel(): JSX.Element {
+function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
 
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
@@ -140,7 +139,7 @@ function MainPanel(): JSX.Element {
     const mightBeRefusingRecordings = suggestions.length > 0 && authorizedUrls.length > 0
 
     return (
-        <div className="space-y-2">
+        <>
             <VersionCheckerBanner />
 
             {recordingsDisabled ? (
@@ -172,6 +171,16 @@ function MainPanel(): JSX.Element {
                     please check your config.
                 </LemonBanner>
             ) : null}
+        </>
+    )
+}
+
+function MainPanel(): JSX.Element {
+    const { tab } = useValues(sessionRecordingsLogic)
+
+    return (
+        <div className="space-y-2">
+            <Warnings />
 
             {!tab ? (
                 <Spinner />
