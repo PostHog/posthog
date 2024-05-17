@@ -74,6 +74,11 @@ function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | null {
     )
 }
 
+function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
+    const { formattedDurationFor } = useValues(networkViewLogic)
+    return <div className="w-1/6 text-right">{formattedDurationFor(item)}</div>
+}
+
 function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     // TODO _so_ similar to TimingBar
 
@@ -85,6 +90,7 @@ function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null 
             </div>
 
             <NetworkBar item={item} />
+            <Duration item={item} />
         </div>
     )
 }

@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
 import {
@@ -99,6 +100,24 @@ export const networkViewLogic = kea<networkViewLogicType>([
                     return currentPage[currentPage.length - 1]
                 }
                 return null
+            },
+        ],
+        formattedDurationFor: [
+            () => [],
+            () => {
+                return (item: PerformanceEvent) => {
+                    let formattedDuration: string | undefined
+                    const itemStart = item.start_time
+                    const itemEnd = item.load_event_end ? item.load_event_end : item.response_end
+                    if (itemStart !== undefined && itemEnd !== undefined) {
+                        const itemDuration = itemEnd - itemStart
+                        formattedDuration = humanFriendlyMilliseconds(itemDuration)
+                    } else {
+                        formattedDuration = ''
+                    }
+
+                    return formattedDuration
+                }
             },
         ],
         positionPercentagesFor: [
