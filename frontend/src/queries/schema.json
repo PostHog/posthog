@@ -1542,6 +1542,9 @@
         "ClickhouseQueryStatus": {
             "additionalProperties": false,
             "properties": {
+                "active_cpu_time": {
+                    "type": "integer"
+                },
                 "bytes_read": {
                     "type": "integer"
                 },
@@ -1555,7 +1558,7 @@
                     "type": "integer"
                 }
             },
-            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed"],
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
             "type": "object"
         },
         "CohortPropertyFilter": {
