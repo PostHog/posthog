@@ -44,6 +44,7 @@ export function ActionsLineGraph({
         showLegend,
         isHogQLInsight,
         querySource,
+        hasResults,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -70,6 +71,15 @@ export function ActionsLineGraph({
                 return labelElements
             },
         }
+    }
+
+    if (!hasResults) {
+        return (
+            <InsightEmptyState
+                heading="This insight hasn't been loaded"
+                detail="This insight is waiting to be loaded and doesn't have any data to show yet."
+            />
+        )
     }
 
     if (

@@ -339,6 +339,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
         /*
+         * Empty states
+         */
+        hasResults: [(s) => [s.insightData], (insightData) => !!insightData.result || !!insightData.results],
+
+        /*
          * Funnels
          */
         isFunnelWithEnoughSteps: [
