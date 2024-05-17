@@ -815,6 +815,13 @@ class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('referrers')
     }
+    public referralProgramReferrer(id: ReferralProgram['short_id'], user_id: ReferralIdentity['user_id']): ApiRequest {
+        // TODO: pyramid_scheme: remove token, this should be a non-public API endpoint instead
+        return this.addPathComponent('referrals')
+            .addPathComponent(id)
+            .addPathComponent('referrer')
+            .withQueryString(toParams({ user_id, token: 'phc_k5ObwQGInZNKhW3nQqwtlWecGVw0icGtdS2P2ojaz8L' }))
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2037,7 +2044,7 @@ const api = {
     },
 
     referralPrograms: {
-        async get(programId: ReferralProgram['id']): Promise<ReferralProgram> {
+        async get(programId: ReferralProgram['short_id']): Promise<ReferralProgram> {
             return await new ApiRequest().referralProgram(programId).get()
         },
         async create(data: ReferralProgram): Promise<ReferralProgram> {
@@ -2060,9 +2067,15 @@ const api = {
         async list(programId: ReferralProgram['short_id']): Promise<PaginatedResponse<ReferralIdentity>> {
             return await new ApiRequest().referralProgramReferrers(programId).get()
         },
+        async get(
+            programId: ReferralProgram['short_id'],
+            user_id: ReferralIdentity['user_id']
+        ): Promise<ReferralProgram> {
+            return await new ApiRequest().referralProgramReferrer(programId, user_id).get()
+        },
         async create(
             programId: ReferralProgram['short_id'],
-            data: Pick<ReferralIdentity, 'user_id' | 'code' | 'max_redemptions_count'>
+            data: Pick<ReferralIdentity, 'user_id' | 'code' | 'max_redemption_count'>
         ): Promise<ReferralIdentity> {
             return await new ApiRequest().referralProgramReferrers(programId).create({ data })
         },

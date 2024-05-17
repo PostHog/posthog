@@ -3939,7 +3939,7 @@ export type ReferralIdentity = {
     code: string
     created_at: string
     total_redemptions: number
-    max_redemptions_count?: number
+    max_redemption_count?: number
     total_points: number
 }
 

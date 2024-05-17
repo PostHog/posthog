@@ -111,7 +111,7 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
                     path: urls.referralPrograms(),
                 },
                 {
-                    key: [Scene.Referrals, referralProgram.id || 'new'],
+                    key: [Scene.Referrals, referralProgram.short_id || 'new'],
                     name: referralProgram.title,
                 },
             ],
@@ -121,14 +121,16 @@ export const referralProgramLogic = kea<referralProgramLogicType>([
         saveReferralProgramSuccess: ({ referralProgram }) => {
             lemonToast.success('Referral program saved')
             actions.loadReferrals()
-            referralProgram.id && router.actions.replace(urls.referralProgram(referralProgram.id))
+            referralProgram.short_id && router.actions.replace(urls.referralProgram(referralProgram.short_id))
             actions.editProgram(false)
         },
         deleteReferralProgram: async ({ referralProgramId }) => {
             try {
                 await api.referralPrograms.delete(referralProgramId)
                 lemonToast.info('Referral program deleted.')
-                actions.loadReferralsSuccess(values.referrals.filter((program) => program.id !== referralProgramId))
+                actions.loadReferralsSuccess(
+                    values.referrals.filter((program) => program.short_id !== referralProgramId)
+                )
                 router.actions.push(urls.referralPrograms())
             } catch (e) {
                 lemonToast.error(`Error deleting referral program: ${e}`)

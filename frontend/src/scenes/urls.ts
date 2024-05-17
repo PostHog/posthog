@@ -228,4 +228,5 @@ export const urls = {
     referralPrograms: (): string => `/referrals`,
     referralProgram: (shortId: string): string => `/referrals/${shortId}`,
     createReferralProgram: (): string => `/referrals/new`,
+    referrer: (programId: string, userId: string): string => `/referrals/${programId}/referrer/${userId}`,
 }

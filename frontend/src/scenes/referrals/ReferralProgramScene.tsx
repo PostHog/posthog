@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -171,21 +172,24 @@ export function ReferralProgramScene({ id }: { id?: string } = {}): JSX.Element 
                                 ) : (
                                     <div className="mb-2">
                                         <b>Redemptions</b>
-                                        <p className="mb-0">
-                                            <span className="text-lg font-bold">
+                                        <p className="mb-1 flex gap-x-1 items-baseline">
+                                            <span className="text-2xl font-bold">
                                                 {referralProgram.redeemers_count || 0}
                                             </span>
                                             {referralProgram.max_total_redemption_count && (
-                                                <span className="text-sm text-muted">
-                                                    /{referralProgram.max_total_redemption_count}
-                                                </span>
+                                                <>
+                                                    <span className="text-sm text-muted">/</span>
+                                                    <span className="text-sm text-muted">
+                                                        {referralProgram.max_total_redemption_count} available
+                                                    </span>
+                                                </>
                                             )}
                                         </p>
                                         {!referralProgram.max_redemption_count_per_referrer ||
                                             (referralProgram.max_redemption_count_per_referrer > 0 && (
                                                 <p className="italic text-muted text-xs">
-                                                    Limit {referralProgram.max_redemption_count_per_referrer} redemption
-                                                    per referrer.
+                                                    Limit {referralProgram.max_redemption_count_per_referrer}{' '}
+                                                    redemptions per referrer.
                                                 </p>
                                             ))}
                                     </div>
@@ -236,6 +240,9 @@ const ReferralProgramReferrersTable = ({ referralProgram }: { referralProgram: R
                             key: 'user_id',
                             dataIndex: 'user_id',
                             title: 'Referrer ID',
+                            render: (value) => (
+                                <LemonTableLink title={value} to={urls.referrer(referralProgram.short_id, value)} />
+                            ),
                         },
                         {
                             key: 'code',

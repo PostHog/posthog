@@ -6,7 +6,6 @@ import datetime as dt
 import gzip
 import hashlib
 import json
-from operator import itemgetter
 import os
 import re
 import secrets
@@ -14,16 +13,11 @@ import string
 import time
 import uuid
 import zlib
+from collections.abc import Generator, Mapping
 from enum import Enum
 from functools import lru_cache, wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Union,
-    cast,
-)
-from collections.abc import Generator, Mapping
+from operator import itemgetter
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -318,7 +312,7 @@ def render_template(
         context["js_posthog_ui_host"] = "'https://us.posthog.com'"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
+        api_token = "phc_k5ObwQGInZNKhW3nQqwtlWecGVw0icGtdS2P2ojaz8L"
 
         if api_token:
             context["js_posthog_api_key"] = f"'{api_token}'"

@@ -408,9 +408,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Referral programs',
     },
-    [Scene.Referral]: {
+    [Scene.ReferralProgram]: {
         projectBased: true,
         name: 'Referral program',
+    },
+    [Scene.Referrer]: {
+        projectBased: true,
+        name: 'Referrer',
     },
 }
 
@@ -598,5 +602,6 @@ export const routes: Record<string, Scene> = {
     [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
     [urls.heatmaps()]: Scene.Heatmaps,
     [urls.referralPrograms()]: Scene.Referrals,
-    [urls.referralProgram(':id')]: Scene.Referral,
+    [urls.referralProgram(':id')]: Scene.ReferralProgram,
+    [urls.referrer(':programId', ':userId')]: Scene.Referrer,
 }
