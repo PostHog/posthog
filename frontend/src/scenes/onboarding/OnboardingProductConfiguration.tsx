@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
+import { ProductKey } from '~/types'
+
 import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
@@ -29,6 +31,8 @@ type ConfigOption =
 interface PluginContent {
     title: string
     description: string
+    // some plugins make no sense e.g. geo location doesn't apply to session replay
+    denyList: ProductKey[]
 }
 type PluginContentMapping = Record<string, PluginContent>
 const pluginContentMapping: PluginContentMapping = {
@@ -36,15 +40,19 @@ const pluginContentMapping: PluginContentMapping = {
         title: 'Capture location information',
         description:
             'Enrich PostHog events and persons with IP location data. This is useful for understanding where your users are coming from. This setting can be found under the data pipelines apps.',
+        denyList: [ProductKey.SESSION_REPLAY],
     },
 }
 
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
+    product,
 }: {
     stepKey?: OnboardingStepKey
     options: (ProductConfigOption | undefined)[]
+    // which product is being configured
+    product?: ProductKey
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
     const { defaultEnabledPlugins } = useValues(pluginsLogic)
@@ -77,21 +85,26 @@ export const OnboardingProductConfiguration = ({
                 setConfigOptions(updatedConfigOptions)
             },
         })),
-        ...defaultEnabledPlugins.map((plugin) => {
-            const pluginContent = pluginContentMapping[plugin.name]
-            return {
-                title: pluginContent?.title || plugin.name,
-                description: pluginContent?.description || plugin.description,
-                type: 'plugin' as PluginType,
-                value: plugin.pluginConfig?.enabled || false,
-                onChange: (newValue: boolean) => {
-                    toggleEnabled({
-                        id: plugin.pluginConfig?.id,
-                        enabled: newValue,
-                    })
-                },
-            }
-        }),
+        ...defaultEnabledPlugins
+            .filter((plugin) => {
+                const pluginContent = pluginContentMapping[plugin.name]
+                return !product || (pluginContent && !pluginContent?.denyList.includes(product))
+            })
+            .map((plugin) => {
+                const pluginContent = pluginContentMapping[plugin.name]
+                return {
+                    title: pluginContent?.title || plugin.name,
+                    description: pluginContent?.description || plugin.description,
+                    type: 'plugin' as PluginType,
+                    value: plugin.pluginConfig?.enabled || false,
+                    onChange: (newValue: boolean) => {
+                        toggleEnabled({
+                            id: plugin.pluginConfig?.id,
+                            enabled: newValue,
+                        })
+                    },
+                } satisfies ConfigOption
+            }),
     ]
 
     return combinedList.length > 0 ? (
