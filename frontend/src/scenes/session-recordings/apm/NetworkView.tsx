@@ -4,9 +4,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { networkViewLogic } from './networkViewLogic'
 
 export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string }): JSX.Element {
-    const { isLoading, sessionPlayerMetaData, allPerformanceEvents } = useValues(
-        networkViewLogic({ sessionRecordingId })
-    )
+    const { isLoading, sessionPlayerMetaData, pageViews } = useValues(networkViewLogic({ sessionRecordingId }))
 
     if (isLoading) {
         return (
@@ -20,7 +18,7 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
             draw the rest of the owl
             <div className="pre">{sessionRecordingId}</div>
             <div className="pre">{JSON.stringify(sessionPlayerMetaData, null, 2)}</div>
-            <pre>{JSON.stringify(allPerformanceEvents, null, 2)}</pre>
+            <pre>{JSON.stringify(pageViews, null, 2)}</pre>
         </>
     )
 }

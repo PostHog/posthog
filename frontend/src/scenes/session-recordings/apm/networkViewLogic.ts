@@ -5,6 +5,8 @@ import {
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
+import { PerformanceEvent } from '~/types'
+
 import type { networkViewLogicType } from './networkViewLogicType'
 
 export interface NetworkViewLogicProps extends SessionRecordingDataLogicProps {}
@@ -29,6 +31,37 @@ export const networkViewLogic = kea<networkViewLogicType>([
         isLoading: [
             (s) => [s.snapshotsLoading, s.sessionPlayerMetaDataLoading],
             (snapshotsLoading, sessionPlayerMetaDataLoading) => snapshotsLoading || sessionPlayerMetaDataLoading,
+        ],
+        pageViews: [
+            (s) => [s.allPerformanceEvents],
+            (allPerformanceEvents: PerformanceEvent[]) => {
+                // ignore events before the first navigation event
+                // then we take each navigation events URL as a key to an object
+                // the object value is an error of performance events
+                // including the navigation event and any other events between it and the next navigation event
+
+                const pages = {}
+                let lastNavigationURL: string | null = null
+
+                for (const perfEvent of allPerformanceEvents) {
+                    const hasAnyNavigation = Object.keys(pages).length
+                    const eventType = perfEvent.entry_type
+                    if (!hasAnyNavigation && eventType !== 'navigation') {
+                        continue
+                    }
+                    if (eventType === 'navigation') {
+                        if (!perfEvent.name) {
+                            continue
+                        }
+                        pages[perfEvent.name] = [perfEvent]
+                        lastNavigationURL = perfEvent.name
+                    } else if (lastNavigationURL) {
+                        pages[lastNavigationURL].push(perfEvent)
+                    }
+                }
+
+                return pages
+            },
         ],
     }),
 ])
