@@ -913,7 +913,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshAllDashboardItems: async ({ tiles, action, initialLoad, dashboardQueryId = uuid() }, breakpoint) => {
             const dashboardId: number = props.id
 
-            const insights = values
+            const insightsToRefresh = values
                 .sortTilesByLayout(tiles || values.insightTiles || [])
                 .filter((t) => {
                     if (!initialLoad || !t.last_refresh) {
@@ -932,13 +932,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .filter((i): i is InsightModel => !!i)
 
             // Don't do anything if there's nothing to refresh
-            if (insights.length === 0) {
+            if (insightsToRefresh.length === 0) {
                 return
             }
 
             let cancelled = false
             actions.setRefreshStatuses(
-                insights.map((item) => item.short_id),
+                insightsToRefresh.map((item) => item.short_id),
                 false,
                 true
             )
@@ -960,7 +960,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
 
             // array of functions that reload each item
-            const fetchItemFunctions = insights.map((insight) => async () => {
+            const fetchItemFunctions = insightsToRefresh.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
                 // :TODO: in the future we should use dataNodeCollectionLogic.reloadAll()
                 const queryId = `${dashboardQueryId}::${uuid()}`
@@ -1015,7 +1015,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 refreshesFinished += 1
-                if (!cancelled && refreshesFinished === insights.length) {
+                if (!cancelled && refreshesFinished === insightsToRefresh.length) {
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
@@ -1023,7 +1023,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
-                        insights_fetched: insights.length,
+                        insights_fetched: insightsToRefresh.length,
                         insights_fetched_cached: 0,
                     }
                     void captureTimeToSeeData(values.currentTeamId, {
