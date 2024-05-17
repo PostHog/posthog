@@ -1665,9 +1665,9 @@ export function inStorybookTestRunner(): boolean {
 }
 
 export function shouldCancelQuery(error: any): boolean {
-    // We cancel queries "manually" when the request times out or is aborted since in these cases
+    // We cancel queries "manually" when the request is aborted since in these cases
     // the query will continue running in ClickHouse
-    return error.name === 'AbortError' || error.message?.name === 'AbortError' || error.status === 504
+    return error.name === 'AbortError' || error.message?.name === 'AbortError'
 }
 
 export function flattenObject(ob: Record<string, any>): Record<string, any> {
