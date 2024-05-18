@@ -1,5 +1,3 @@
-from django import template
-
 from posthog.models.experiment import Experiment
 from posthog.constants import (
     ExperimentFinishActionEmailValue,
@@ -11,11 +9,9 @@ from posthog.constants import (
 from posthog.email import EmailMessage
 from posthog.templatetags.posthog_filters import percentage
 
-register = template.Library()
 
-
-def _get_subject(experiment: Experiment, experiment_results):
-    significant = experiment_results["significant"]
+def _get_subject(experiment: Experiment, experiment_results: dict) -> str:
+    significant = experiment_results.get("significant")
 
     if significant:
         return f"Your experiment - {experiment.name} was a success 🎉."
@@ -23,8 +19,8 @@ def _get_subject(experiment: Experiment, experiment_results):
     return f"Your experiment - {experiment.name} finished, but... the results are not as expected 😔"
 
 
-def _get_significance_message(experiment_results):
-    significance_code = experiment_results["significance_code"]
+def _get_significance_message(experiment_results: dict) -> str:
+    significance_code = experiment_results.get("significance_code")
 
     if significance_code == ExperimentSignificanceCode.SIGNIFICANT:
         return "We collected enough data and can conclude that your testing has led to a significant improvement!"
@@ -44,8 +40,8 @@ def _get_significance_message(experiment_results):
     return ""
 
 
-def _get_next_steps(experiment, experiment_results):
-    significance_code = experiment_results["significance_code"]
+def _get_next_steps(experiment_results: dict) -> tuple[str, str]:
+    significance_code = experiment_results.get("significance_code")
 
     title = ""
     message = ""
@@ -97,32 +93,36 @@ def _get_next_steps(experiment, experiment_results):
     return title, message
 
 
-def _get_email_recepients(experiment, experiment_results):
-    significant = experiment_results["significant"]
-    finish_actions = experiment.finish_actions
+def _get_email_recepients(experiment: Experiment, experiment_results: dict) -> list[str]:
+    significant = experiment_results.get("significant")
+    finish_actions = experiment.finish_actions or []
 
-    email_action = next(filter(lambda x: x.get("action") == ExperimentFinishActionType.SEND_EMAIL, finish_actions))
+    email_action = list(filter(lambda x: x.get("action") == ExperimentFinishActionType.SEND_EMAIL, finish_actions))
 
-    value: ExperimentFinishActionEmailValue = email_action.get("value")
-    email_recepients = value.get(ExperimentFinishSendEmailTargetCriteria.ALL) or []
+    if not email_action:
+        return []
+
+    value: ExperimentFinishActionEmailValue = email_action[0].get("value", {})
+    email_recepients = value.get(ExperimentFinishSendEmailTargetCriteria.ALL, [])
 
     if significant:
-        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.SUCCESS) or [])
+        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.SUCCESS, []))
     else:
-        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.FAILURE) or [])
+        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.FAILURE, []))
 
     return email_recepients
 
 
-@register.filter
 def send_experiment_email(
     experiment: Experiment,
     results: dict,
 ) -> None:
-    experiment_results = results["result"]
-    filters = experiment_results["filters"]
+    experiment_results = results.get("result", {})
+    filters = experiment_results.get("filters", {})
 
-    next_steps_title, next_steps_message = _get_next_steps(experiment, experiment_results)
+    next_steps_title, next_steps_message = _get_next_steps(experiment_results)
+    probability = experiment_results.get("probability", {})
+    control_probability = probability.get("control", 0)
 
     message = EmailMessage(
         campaign_key=f"experiment_result_{experiment.pk}",
@@ -130,14 +130,14 @@ def send_experiment_email(
         template_name="experiment_result",
         template_context={
             "experiment": experiment,
-            "experiment_ran_from": filters.get("date_from"),
+            "is_success": experiment_results.get("significant"),
             "experiment_ran_to": filters.get("date_to"),
+            "experiment_ran_from": filters.get("date_from"),
             "significance_message": _get_significance_message(experiment_results),
-            "is_success": experiment_results["significant"],
             "next_steps_title": next_steps_title,
             "next_steps_message": next_steps_message,
-            "control_probability": percentage(experiment_results["probability"].get("control")),
-            "test_probability": percentage(1 - experiment_results["probability"].get("control")),
+            "control_probability": percentage(control_probability),
+            "test_probability": percentage(1 - control_probability),
         },
     )
 

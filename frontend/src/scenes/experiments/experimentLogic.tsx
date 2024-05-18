@@ -221,7 +221,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     return state
                 },
                 addOnFinishExperimentAction: (state) => {
-                    const existingActions = state.finish_actions || []
+                    const existingActions = state.finish_actions ?? []
                     const pendingActions = FINISH_EXPERIMENT_ACTIONS.filter((action) => {
                         return (
                             existingActions.findIndex((existingAction) => {

@@ -101,7 +101,7 @@ function ExperimentFinishEmailOverview({ finishAction }: { finishAction: Experim
     )
 }
 
-function ExperimentSendEmailToLemonInput({
+function EmailInput({
     onChange,
     value,
 }: {
@@ -140,7 +140,7 @@ function ExperimentFinishEmailActionType({ finishAction }: { finishAction: Exper
                 <LemonSelect options={FINISH_EXPERIMENT_ACTIONS} value={action} />
                 <span className="ml-2 mr-2">to </span>
                 <LemonField name="experiment-finish-email-to">
-                    <ExperimentSendEmailToLemonInput
+                    <EmailInput
                         onChange={(newValues: string[]) => {
                             updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.ALL, newValues)
                         }}
@@ -153,7 +153,7 @@ function ExperimentFinishEmailActionType({ finishAction }: { finishAction: Exper
             <div className="experiment-success mt-1">
                 <span>If the experiment is a success, send this to: </span>
                 <LemonField name="experiment-finish-email-success">
-                    <ExperimentSendEmailToLemonInput
+                    <EmailInput
                         onChange={(newValues: string[]) => {
                             updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.SUCCESS, newValues)
                         }}
@@ -164,7 +164,7 @@ function ExperimentFinishEmailActionType({ finishAction }: { finishAction: Exper
             <div className="experiment-failure mt-2">
                 <span>If the experiment is a failure, send this to: </span>
                 <LemonField name="experiment-finish-email-failure">
-                    <ExperimentSendEmailToLemonInput
+                    <EmailInput
                         onChange={(newValues: string[]) => {
                             updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.FAILURE, newValues)
                         }}

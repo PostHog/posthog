@@ -23,7 +23,7 @@ def send_experiment_finished_email_results(experiment, results) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.EMAIL.value)
-def schedule_results_email(pk) -> None:
+def schedule_experiment_results_email(pk) -> None:
     try:
         experiment: Experiment = Experiment.objects.get(pk=pk)
         results = calculate_experiment_results(experiment, True)

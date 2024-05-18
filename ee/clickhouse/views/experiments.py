@@ -10,7 +10,7 @@ from ee.clickhouse.queries.experiments.secondary_experiment_result import (
 )
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_results import calculate_experiment_results, experiment_results_cached
-from ee.tasks.experiments import schedule_results_email
+from ee.tasks.experiments import schedule_experiment_results_email
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -177,7 +177,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if has_end_date:
             for finish_action in finish_actions:
                 if finish_action.get("action") == ExperimentFinishActionType.SEND_EMAIL:
-                    schedule_results_email.delay(instance.pk)
+                    schedule_experiment_results_email.delay(instance.pk)
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True
