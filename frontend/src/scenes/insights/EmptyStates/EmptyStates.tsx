@@ -134,7 +134,7 @@ export function InsightLoadingStateWithLoadingBar({
                     {rowsRead > 0 && bytesRead > 0 && (
                         <>
                             {humanFriendlyNumber(rowsRead || 0, 0)}{' '}
-                            {estimatedRows && estimatedRows > rowsRead
+                            {estimatedRows && estimatedRows >= rowsRead
                                 ? `/ ${humanFriendlyNumber(estimatedRows)} `
                                 : null}{' '}
                             rows
