@@ -554,11 +554,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         activeSessionRecordingId: [
             (s) => [s.selectedRecordingId, s.recordings, (_, props) => props.autoPlay],
             (selectedRecordingId, recordings, autoPlay): SessionRecordingId | undefined => {
-                return selectedRecordingId
-                    ? recordings.find((rec) => rec.id === selectedRecordingId)?.id || selectedRecordingId
-                    : autoPlay
-                    ? recordings[0]?.id
-                    : undefined
+                return selectedRecordingId ? selectedRecordingId : autoPlay ? recordings[0]?.id : undefined
             },
         ],
 
