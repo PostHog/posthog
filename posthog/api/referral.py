@@ -1,17 +1,17 @@
-from django.http import JsonResponse
 import structlog
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import serializers, viewsets, mixins, permissions, exceptions
-from rest_framework.decorators import action
 from django.db.models import Count
+from django.http import JsonResponse
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.referrals import ReferralProgram, ReferralProgramReferrer
 from posthog.models.referrals.referral_program_redeemer import ReferralProgramRedeemer
-
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -100,7 +100,11 @@ class ReferralProgramRedeemerSerializer(serializers.ModelSerializer):
 
 class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = ReferralProgram.objects.annotate(Count("redeemers")).annotate(Count("referrers")).all()
+    queryset = (
+        ReferralProgram.objects.annotate(Count("redeemers", distinct=True))
+        .annotate(Count("referrers", distinct=True))
+        .all()
+    )
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     lookup_field = "short_id"
