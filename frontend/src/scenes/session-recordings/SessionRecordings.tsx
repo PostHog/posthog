@@ -201,6 +201,7 @@ function MainPanel(): JSX.Element {
 
 function PageTabs(): JSX.Element {
     const { tab, tabs } = useValues(sessionRecordingsLogic)
+
     return (
         <LemonTabs
             activeKey={tab}

@@ -213,6 +213,7 @@ export const FEATURE_FLAGS = {
     INSIGHT_LOADING_BAR: 'insight-loading-bar', // owner: @aspicer
     SESSION_REPLAY_ARTIFICIAL_LAG: 'artificial-lag-query-performance', // owner: #team-replay
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
+    SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

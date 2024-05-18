@@ -17,6 +17,8 @@ export const humanFriendlyTabName = (tab: ReplayTabs): string => {
             return 'Recent recordings'
         case ReplayTabs.Playlists:
             return 'Playlists'
+        case ReplayTabs.NetworkView:
+            return 'Network waterfall'
         default:
             return capitalizeFirstLetter(tab)
     }
@@ -52,7 +54,10 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             (s) => [s.featureFlags],
             (featureFlags) => {
                 const hasErrorClustering = !!featureFlags[FEATURE_FLAGS.REPLAY_ERROR_CLUSTERING]
-                return Object.values(ReplayTabs).filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                const hasNetworkView = !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_NETWORK_VIEW]
+                return Object.values(ReplayTabs)
+                    .filter((tab) => tab != ReplayTabs.Errors || hasErrorClustering)
+                    .filter((tab) => tab != ReplayTabs.NetworkView || hasNetworkView)
             },
         ],
         breadcrumbs: [
