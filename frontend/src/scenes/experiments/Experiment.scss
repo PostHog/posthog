@@ -76,6 +76,13 @@
         border-top: 1px solid var(--border);
     }
 
+    .on-experiment-end {
+        width: 100%;
+        padding-top: 1rem;
+        margin-top: 1rem;
+        border-top: 1px solid var(--border);
+    }
+
     .ant-input-number-disabled {
         color: black;
     }
@@ -187,4 +194,12 @@
     .InsightViz .LemonTable__cell--sticky::before {
         background: var(--bg-table);
     }
+}
+
+.experiment-finish-actions-preview {
+    border-top: 1px solid var(--border);
+}
+
+.email-target-label {
+    width: 15%;
 }

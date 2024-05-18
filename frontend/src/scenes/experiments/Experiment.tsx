@@ -842,7 +842,7 @@ export function Experiment(): JSX.Element {
                                             </div>
                                             <div>
                                                 {(experiment.finish_actions?.length ?? 0) > 0 && (
-                                                    <div className="card-secondary mt-4 mb-1">
+                                                    <div className="experiment-finish-actions-preview card-secondary pt-4 mt-4 mb-1 w-1/2">
                                                         Once the experiment is finished
                                                     </div>
                                                 )}

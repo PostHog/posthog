@@ -38,22 +38,18 @@ export function AddNewExperimentFinishAction(): JSX.Element {
     )
 }
 
-function ExperimentFinishEmailRenderer({
+function ExperimentFinishViewEmail({
     emailParticipants,
     label,
     tooltip,
 }: {
-    emailParticipants: string[] | undefined
+    emailParticipants: string[]
     label: string
     tooltip: string
 }): JSX.Element {
-    if (!emailParticipants || emailParticipants.length === 0) {
-        return <></>
-    }
-
     return (
         <div className="flex items-center mt-2">
-            <span className="mr-2 label-width">{label}</span>
+            <span className="mr-2 email-target-label">{label}</span>
             <LemonInputSelect
                 mode="multiple"
                 disabled
@@ -62,7 +58,6 @@ function ExperimentFinishEmailRenderer({
                     label: email,
                 }))}
                 value={emailParticipants}
-                // className="LemonInputSelect input-width"
             />
             <Tooltip title={tooltip}>
                 <IconInfo className="ml-1 text-muted text-xl" />
@@ -71,11 +66,7 @@ function ExperimentFinishEmailRenderer({
     )
 }
 
-function ExperimentFinishEmailOverviewRenderer({
-    finishAction,
-}: {
-    finishAction: ExperimentFinishAction
-}): JSX.Element {
+function ExperimentFinishEmailOverview({ finishAction }: { finishAction: ExperimentFinishAction }): JSX.Element {
     const values = finishAction.value as ExperimentFinishActionEmailValue | undefined
 
     const allEmailParticipants = values?.all ?? []
@@ -86,23 +77,23 @@ function ExperimentFinishEmailOverviewRenderer({
         <div key={finishAction.action} className="mt-2">
             We will send an email to:
             {allEmailParticipants.length > 0 && (
-                <ExperimentFinishEmailRenderer
+                <ExperimentFinishViewEmail
                     label="All these members:"
                     tooltip="All members will receive the email, regardless of the outcome"
                     emailParticipants={allEmailParticipants}
                 />
             )}
             {successEmailParticipants.length > 0 && (
-                <ExperimentFinishEmailRenderer
+                <ExperimentFinishViewEmail
                     label="If it was successful:"
                     tooltip="If the experiment results are statistically significant, and the experiment succeeded, these members will receive the email"
                     emailParticipants={successEmailParticipants}
                 />
             )}
             {failureEmailParticipants.length > 0 && (
-                <ExperimentFinishEmailRenderer
+                <ExperimentFinishViewEmail
                     label="If it failed:"
-                    tooltip="If the experiment results are NOT statistically significant, and the experiment failed, these members will receive the email"
+                    tooltip="If the experiment results are NOT statistically significant, or the experiment failed, these members will receive the email"
                     emailParticipants={failureEmailParticipants}
                 />
             )}
@@ -133,11 +124,7 @@ function ExperimentSendEmailToLemonInput({
     )
 }
 
-function ExperimentFinishEmailActionTypeRenderer({
-    finishAction,
-}: {
-    finishAction: ExperimentFinishAction
-}): JSX.Element {
+function ExperimentFinishEmailActionType({ finishAction }: { finishAction: ExperimentFinishAction }): JSX.Element {
     const { action } = finishAction
     const values = finishAction.value as ExperimentFinishActionEmailValue | undefined
 
@@ -196,7 +183,7 @@ export function ExperimentFinishActionTypeRenderer({
 }): JSX.Element {
     switch (finishAction.action) {
         case ExperimentFinishActionType.SEND_EMAIL:
-            return <ExperimentFinishEmailActionTypeRenderer finishAction={finishAction} />
+            return <ExperimentFinishEmailActionType finishAction={finishAction} />
         default:
             return <></>
     }
@@ -209,7 +196,7 @@ export function ExperimentFinishActionDisplayTypeRenderer({
 }): JSX.Element {
     switch (finishAction.action) {
         case ExperimentFinishActionType.SEND_EMAIL:
-            return <ExperimentFinishEmailOverviewRenderer finishAction={finishAction} />
+            return <ExperimentFinishEmailOverview finishAction={finishAction} />
         default:
             return <></>
     }

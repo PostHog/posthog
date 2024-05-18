@@ -417,7 +417,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             finish_actions: values.experiment.finish_actions
                                 ?.map((finishAction) => {
                                     if (finishAction.action === ExperimentFinishActionType.SEND_EMAIL) {
-                                        return sanitizeExperimentFinishEmailAction(finishAction)
+                                        return sanitizeEmptyTargettingCriteriaEmails(finishAction)
                                     }
 
                                     return finishAction
@@ -1462,7 +1462,7 @@ function percentageDistribution(variantCount: number): number[] {
     return percentages
 }
 
-function sanitizeExperimentFinishEmailAction(finishAction: ExperimentFinishAction): ExperimentFinishAction | null {
+function sanitizeEmptyTargettingCriteriaEmails(finishAction: ExperimentFinishAction): ExperimentFinishAction | null {
     const valuesWithoutEmptyRecords = Object.entries(finishAction.value ?? {}).reduce(
         (acc, [key, value]: [string, string[]]) => {
             if (value.length === 0) {
