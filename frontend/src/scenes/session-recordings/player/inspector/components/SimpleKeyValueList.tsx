@@ -7,7 +7,7 @@ export interface SimpleKeyValueListProps {
     item: Record<string, any>
     emptyMessage?: string | JSX.Element | null
     /**
-     * SimpleKeyValueList will render these keys first, in the order they are provided.
+     * SimpleKeyValueList will render these keys first.
      * All other keys are rendered in alphabetical order.
      */
     promotedKeys?: string[]
