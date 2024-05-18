@@ -10,7 +10,7 @@ import {
     ExperimentFinishAction,
     ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
-    ExperimentFinishSendEmailType,
+    ExperimentFinishSendEmailTargetCriteria,
 } from '~/types'
 
 import { FINISH_EXPERIMENT_ACTIONS } from './constants'
@@ -78,28 +78,32 @@ function ExperimentFinishEmailOverviewRenderer({
 }): JSX.Element {
     const values = finishAction.value as ExperimentFinishActionEmailValue | undefined
 
+    const allEmailParticipants = values?.all ?? []
+    const successEmailParticipants = values?.success ?? []
+    const failureEmailParticipants = values?.failure ?? []
+
     return (
         <div key={finishAction.action} className="mt-2">
             We will send an email to:
-            {values?.all && (
+            {allEmailParticipants.length > 0 && (
                 <ExperimentFinishEmailRenderer
                     label="All these members:"
                     tooltip="All members will receive the email, regardless of the outcome"
-                    emailParticipants={values.all}
+                    emailParticipants={allEmailParticipants}
                 />
             )}
-            {values?.success && (
+            {successEmailParticipants.length > 0 && (
                 <ExperimentFinishEmailRenderer
                     label="If it was successful:"
                     tooltip="If the experiment results are statistically significant, and the experiment succeeded, these members will receive the email"
-                    emailParticipants={values.success}
+                    emailParticipants={successEmailParticipants}
                 />
             )}
-            {values?.failure && (
+            {failureEmailParticipants.length > 0 && (
                 <ExperimentFinishEmailRenderer
                     label="If it failed:"
                     tooltip="If the experiment results are NOT statistically significant, and the experiment failed, these members will receive the email"
-                    emailParticipants={values.failure}
+                    emailParticipants={failureEmailParticipants}
                 />
             )}
         </div>
@@ -151,7 +155,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-to">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.ALL, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.ALL, newValues)
                         }}
                         value={values?.all}
                     />
@@ -164,7 +168,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-success">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.SUCCESS, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.SUCCESS, newValues)
                         }}
                         value={values?.success}
                     />
@@ -175,7 +179,7 @@ function ExperimentFinishEmailActionTypeRenderer({
                 <LemonField name="experiment-finish-email-failure">
                     <ExperimentSendEmailToLemonInput
                         onChange={(newValues: string[]) => {
-                            updateOnFinishActionEmail(ExperimentFinishSendEmailType.FAILURE, newValues)
+                            updateOnFinishActionEmail(ExperimentFinishSendEmailTargetCriteria.FAILURE, newValues)
                         }}
                         value={values?.failure}
                     />

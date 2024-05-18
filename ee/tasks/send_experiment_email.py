@@ -4,7 +4,7 @@ from posthog.models.experiment import Experiment
 from posthog.constants import (
     ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
-    ExperimentFinishSendEmailType,
+    ExperimentFinishSendEmailTargetCriteria,
     ExperimentSignificanceCode,
 )
 
@@ -105,12 +105,12 @@ def _get_email_recepients(experiment, experiment_results):
     email_action = next(filter(lambda x: x.get("action") == ExperimentFinishActionType.SEND_EMAIL, finish_actions))
 
     value: ExperimentFinishActionEmailValue = email_action.get("value")
-    email_recepients = value.get(ExperimentFinishSendEmailType.ALL) or []
+    email_recepients = value.get(ExperimentFinishSendEmailTargetCriteria.ALL) or []
 
     if significant:
-        email_recepients.extend(value.get(ExperimentFinishSendEmailType.SUCCESS) or [])
+        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.SUCCESS) or [])
     else:
-        email_recepients.extend(value.get(ExperimentFinishSendEmailType.FAILURE) or [])
+        email_recepients.extend(value.get(ExperimentFinishSendEmailTargetCriteria.FAILURE) or [])
 
     return email_recepients
 

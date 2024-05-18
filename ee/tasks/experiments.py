@@ -19,14 +19,14 @@ def send_experiment_finished_email_results(experiment, results) -> None:
     except ImportError:
         pass
     except Exception as e:
-        logger.error("Failed to send email results for experiment", error=e, exc_info=True)
+        logger.error("sending email results failed for experiment", error=e, experiment_id=experiment.pk, exc_info=True)
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=CeleryQueue.EMAIL.value)
 def schedule_results_email(pk) -> None:
     try:
         experiment: Experiment = Experiment.objects.get(pk=pk)
         results = calculate_experiment_results(experiment, True)
         send_experiment_finished_email_results(experiment, results)
     except Exception as e:
-        logger.error("Failed to schedule email results for experiment", error=e, exc_info=True)
+        logger.error("scheduling email results for experiment failed", error=e, experiment_id=pk, exc_info=True)

@@ -274,13 +274,13 @@ class ExperimentFinishActionType(str, Enum):
     SEND_EMAIL = "send_email"
 
 
-class ExperimentFinishSendEmailType(str, Enum):
+class ExperimentFinishSendEmailTargetCriteria(str, Enum):
     ALL = "all"
     SUCCESS = "success"
     FAILURE = "failure"
 
 
-ExperimentFinishActionEmailValue = dict[ExperimentFinishSendEmailType, list[str]]
+ExperimentFinishActionEmailValue = dict[ExperimentFinishSendEmailTargetCriteria, list[str]]
 
 
 class PropertyOperatorType(str, Enum):

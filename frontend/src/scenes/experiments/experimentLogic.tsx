@@ -37,7 +37,7 @@ import {
     ExperimentFinishAction,
     ExperimentFinishActionEmailValue,
     ExperimentFinishActionType,
-    ExperimentFinishSendEmailType,
+    ExperimentFinishSendEmailTargetCriteria,
     ExperimentResults,
     FilterType,
     FunnelExperimentVariant,
@@ -158,7 +158,10 @@ export const experimentLogic = kea<experimentLogicType>([
         addExperimentGroup: true,
         addOnFinishExperimentAction: true,
         removeOnFinishExperimentAction: (action: ExperimentFinishActionType) => ({ action }),
-        updateOnFinishActionEmail: (emailTargettingCriteria: ExperimentFinishSendEmailType, value: string[]) => ({
+        updateOnFinishActionEmail: (
+            emailTargettingCriteria: ExperimentFinishSendEmailTargetCriteria,
+            value: string[]
+        ) => ({
             emailTargettingCriteria,
             value,
         }),

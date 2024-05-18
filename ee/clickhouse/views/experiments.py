@@ -177,7 +177,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         if has_end_date:
             for finish_action in finish_actions:
                 if finish_action.get("action") == ExperimentFinishActionType.SEND_EMAIL:
-                    schedule_results_email(instance.pk)
+                    schedule_results_email.delay(instance.pk)
 
         if instance.is_draft and has_start_date:
             feature_flag.active = True

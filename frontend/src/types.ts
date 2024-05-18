@@ -2903,13 +2903,13 @@ export enum ExperimentFinishActionType {
     SEND_EMAIL = 'send_email',
 }
 
-export enum ExperimentFinishSendEmailType {
+export enum ExperimentFinishSendEmailTargetCriteria {
     ALL = 'all',
     SUCCESS = 'success',
     FAILURE = 'failure',
 }
 
-export type ExperimentFinishActionEmailValue = Record<ExperimentFinishSendEmailType, string[]>
+export type ExperimentFinishActionEmailValue = Record<ExperimentFinishSendEmailTargetCriteria, string[]>
 
 type ExperimentFinishActionValue = {
     [ExperimentFinishActionType.SEND_EMAIL]?: ExperimentFinishActionEmailValue

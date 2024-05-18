@@ -841,7 +841,7 @@ export function Experiment(): JSX.Element {
                                                 />
                                             </div>
                                             <div>
-                                                {experiment.finish_actions?.length && (
+                                                {(experiment.finish_actions?.length ?? 0) > 0 && (
                                                     <div className="card-secondary mt-4 mb-1">
                                                         Once the experiment is finished
                                                     </div>
