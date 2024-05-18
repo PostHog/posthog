@@ -37,7 +37,7 @@ export function ReferralProgramScene({ id }: { id?: string } = {}): JSX.Element 
     const isNewReferralProgram = id === 'new' || id === undefined
 
     if (referralProgramMissing) {
-        return <NotFound object="early access program" />
+        return <NotFound object="referral program" />
     }
 
     if (referralProgramLoading) {

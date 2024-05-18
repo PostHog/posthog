@@ -52,12 +52,25 @@ class ReferralProgramSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+class ReferralProgramRedeemerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReferralProgramRedeemer
+        fields = ["user_id", "referrer", "points_awarded", "created_at", "email"]
+        read_only_fields = [
+            "user_id",
+            "referrer",
+            "points_awarded",
+            "created_at",
+        ]
+
+
 class ReferralProgramReferrerSerializer(serializers.ModelSerializer):
     total_redemptions = serializers.SerializerMethodField()
+    redeemers = ReferralProgramRedeemerSerializer(many=True, read_only=True, source="redeemer")
 
     class Meta:
         model = ReferralProgramReferrer
-        fields = ["user_id", "code", "max_redemption_count", "total_redemptions", "created_at", "email"]
+        fields = ["user_id", "code", "max_redemption_count", "total_redemptions", "created_at", "email", "redeemers"]
         read_only_fields = ["code", "max_redemption_count", "created_at", "total_redemptions"]
 
     def get_total_redemptions(self, obj: ReferralProgramReferrer) -> int:
@@ -71,25 +84,6 @@ class ReferralProgramReferrerSerializer(serializers.ModelSerializer):
         validated_data["referral_program_id"] = rp.id
 
         return super().create(validated_data, *args, **kwargs)
-
-
-class ReferralProgramRedeemerSerializer(serializers.ModelSerializer):
-    referrer = ReferralProgramReferrerSerializer(read_only=True)
-
-    class Meta:
-        model = ReferralProgramRedeemer
-        fields = [
-            "user_id",
-            "referrer",
-            "points_awarded",
-            "created_at",
-        ]
-        read_only_fields = [
-            "user_id",
-            "referrer",
-            "points_awarded",
-            "created_at",
-        ]
 
 
 class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -107,7 +101,7 @@ class ReferralProgramViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewset
 
 class ReferralProgramReferrerViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = ReferralProgramReferrer.objects.annotate(Count("redeemers")).all()
+    queryset = ReferralProgramReferrer.objects.prefetch_related("redeemer").annotate(Count("redeemers")).all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["user_id", "code", "email"]
     lookup_field = "user_id"

@@ -3942,11 +3942,13 @@ export type ReferralIdentity = {
     max_redemption_count?: number
     total_points: number
     email?: string
+    redeemers: ReferralRedeemer[]
 }
 
 export type ReferralRedeemer = {
-    redeemer_id: string
+    user_id: string
     referrer: ReferralIdentity
     created_at: string
     points: number
+    email?: string
 }
