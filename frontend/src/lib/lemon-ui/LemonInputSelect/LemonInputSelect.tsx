@@ -231,7 +231,7 @@ export function LemonInputSelect({
                             <LemonSnack
                                 key={value}
                                 title={option?.label}
-                                onClose={() => _onActionItem(value)}
+                                onClose={disabled ? undefined : () => _onActionItem(value)}
                                 onClick={allowCustomValues ? () => _onActionItem(value) : undefined}
                             >
                                 {option?.labelComponent ?? option?.label}
