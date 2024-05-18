@@ -1,5 +1,5 @@
 import { InitiatorType } from 'posthog-js'
-import { calculatePerformanceParts } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+import { calculatePerformanceParts } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/player/inspector/performance-event-utils'
 
 import { PerformanceEvent } from '~/types'

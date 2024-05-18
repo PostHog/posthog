@@ -1,5 +1,4 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -7,29 +6,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
+import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
 import { networkViewLogic } from './networkViewLogic'
-
-const initiatorTypeToColor = {
-    navigation: getSeriesColor(13),
-    css: getSeriesColor(14),
-    script: getSeriesColor(15),
-    xmlhttprequest: getSeriesColor(16),
-    fetch: getSeriesColor(17),
-    beacon: getSeriesColor(18),
-    video: getSeriesColor(19),
-    audio: getSeriesColor(20),
-    track: getSeriesColor(21),
-    img: getSeriesColor(22),
-    image: getSeriesColor(23),
-    input: getSeriesColor(24),
-    a: getSeriesColor(25),
-    iframe: getSeriesColor(26),
-    frame: getSeriesColor(27),
-    other: getSeriesColor(28),
-}
 
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
     // TODO we should show hostname if it isn't the same as the navigation for the page(s) we're looking at
@@ -72,24 +53,6 @@ function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null
             <MethodTag item={item} label={false} />
             <StatusTag item={item} label={false} />
         </div>
-    )
-}
-
-function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | null {
-    const { positionPercentagesFor } = useValues(networkViewLogic)
-
-    const positionPercentages = positionPercentagesFor(item)
-
-    return (
-        <div
-            className="relative h-full"
-            /* eslint-disable-next-line react/forbid-dom-props */
-            style={{
-                backgroundColor: initiatorTypeToColor[item.initiator_type || 'other'] ?? 'red',
-                width: positionPercentages?.widthPercentage ?? '0%',
-                left: positionPercentages?.startPercentage ?? '0%',
-            }}
-        />
     )
 }
 

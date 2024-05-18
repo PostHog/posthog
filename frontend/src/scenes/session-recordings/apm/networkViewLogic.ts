@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
-import { percentagesWithinEventRange } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
