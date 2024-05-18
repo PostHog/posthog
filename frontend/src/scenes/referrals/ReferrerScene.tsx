@@ -20,16 +20,36 @@ export function ReferrerScene(): JSX.Element {
 
     return (
         <>
-            <h2>Program Referrals</h2>
             <div className="flex flex-col gap-y-8">
-                <div className="flex items-end gap-x-1">
-                    <h3 className="mb-0">{referrer.user_id}</h3>
-                    <p className="text-muted mb-0">
-                        on <Link to={urls.referralProgram(referralProgram.short_id)}>{referralProgram.title}</Link>
-                    </p>
+                <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex-1 min-w-[20rem]">
+                        <div className="mb-2">
+                            <b>Program</b>
+                            <div className="w-fit min-w-40 mt-2">
+                                <Link to={urls.referralProgram(referralProgram.short_id)}>{referralProgram.title}</Link>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div className="max-w-64">
-                    <CodeSnippet>{referrer.code}</CodeSnippet>
+                <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex-1 min-w-[20rem]">
+                        <div className="mb-2">
+                            <b>Referral code</b>
+                            <div className="w-fit min-w-40 mt-2">
+                                <CodeSnippet>{referrer.code}</CodeSnippet>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex-1 min-w-[20rem]">
+                        <div className="mb-2">
+                            <b>Referrer ID</b>
+                            <div className="w-fit min-w-40 mt-2">
+                                <CodeSnippet>{referrer.user_id}</CodeSnippet>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div className="flex gap-x-24">
                     <p>
@@ -46,7 +66,7 @@ export function ReferrerScene(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <RedeemersTable referralProgram={referralProgram} referrer={referrer} />
+            <RedeemersTable />
         </>
     )
 }

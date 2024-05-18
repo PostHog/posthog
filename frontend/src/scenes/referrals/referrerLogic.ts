@@ -114,8 +114,8 @@ export const referrerLogic = kea<referrerLogicType>([
                     path: urls.referralProgram(referralProgram.short_id),
                 },
                 {
-                    key: [Scene.Referrals, referrer.user_id || 'new'],
-                    name: referrer.user_id,
+                    key: [Scene.Referrals, (referrer.email ?? referrer.user_id) || 'new'],
+                    name: referrer.email ?? referrer.user_id,
                 },
             ],
         ],

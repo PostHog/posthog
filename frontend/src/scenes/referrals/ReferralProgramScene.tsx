@@ -160,6 +160,18 @@ export function ReferralProgramScene({ id }: { id?: string } = {}): JSX.Element 
                         </div>
                         <div className="flex flex-wrap gap-4 items-start">
                             <div className="flex-1 min-w-[20rem]">
+                                {!isEditingProgram && !isNewReferralProgram && (
+                                    <div className="mb-2">
+                                        <b>Referral program ID</b>
+                                        <div className="w-fit min-w-40 mt-2">
+                                            <CodeSnippet>{referralProgram.short_id}</CodeSnippet>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-4 items-start">
+                            <div className="flex-1 min-w-[20rem]">
                                 {isEditingProgram || isNewReferralProgram ? (
                                     <LemonField
                                         name="max_total_redemption_count"
@@ -239,9 +251,12 @@ const ReferralProgramReferrersTable = ({ referralProgram }: { referralProgram: R
                         {
                             key: 'user_id',
                             dataIndex: 'user_id',
-                            title: 'Referrer ID',
-                            render: (value) => (
-                                <LemonTableLink title={value} to={urls.referrer(referralProgram.short_id, value)} />
+                            title: 'Referrer',
+                            render: (value, data) => (
+                                <LemonTableLink
+                                    title={data.email ? data.email : value}
+                                    to={urls.referrer(referralProgram.short_id, value)}
+                                />
                             ),
                         },
                         {

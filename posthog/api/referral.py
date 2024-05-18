@@ -57,13 +57,7 @@ class ReferralProgramReferrerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReferralProgramReferrer
-        fields = [
-            "user_id",
-            "code",
-            "max_redemption_count",
-            "total_redemptions",
-            "created_at",
-        ]
+        fields = ["user_id", "code", "max_redemption_count", "total_redemptions", "created_at", "email"]
         read_only_fields = ["code", "max_redemption_count", "created_at", "total_redemptions"]
 
     def get_total_redemptions(self, obj: ReferralProgramReferrer) -> int:
@@ -115,7 +109,7 @@ class ReferralProgramReferrerViewset(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     scope_object = "INTERNAL"
     queryset = ReferralProgramReferrer.objects.annotate(Count("redeemers")).all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["user_id", "code"]
+    filterset_fields = ["user_id", "code", "email"]
     lookup_field = "user_id"
     serializer_class = ReferralProgramReferrerSerializer
     filter_rewrite_rules = {"referral_program_id": "referral_program__short_id", "team_id": "referral_program__team_id"}
