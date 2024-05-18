@@ -16,7 +16,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { ActionType, ChartDisplayType, InsightModel, IntervalType } from '~/types'
+import { ActionType, ChartDisplayType, Comparison, InsightModel, IntervalType } from '~/types'
 
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
@@ -52,6 +52,15 @@ export const getCompare = (query: InsightQueryNode): boolean | undefined => {
         return query.stickinessFilter?.compare
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.compare
+    }
+    return undefined
+}
+
+export const getComparison = (query: InsightQueryNode): Comparison | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.comparison
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.comparison
     }
     return undefined
 }

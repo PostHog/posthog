@@ -1945,7 +1945,7 @@ export interface Breakdown {
 }
 
 export interface Comparison {
-    period_start_date: string
+    relative_period_start: string | null
 }
 
 export interface FilterType {
@@ -2028,6 +2028,7 @@ export interface TrendsFilterType extends FilterType {
 
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
+    comparison?: Comparison
     /** @deprecated */
     shown_as?: ShownAsValue
     display?: ChartDisplayType

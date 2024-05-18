@@ -933,7 +933,7 @@ export function dateStringToComponents(date: string | null): {
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+export function dateStringToDayJs(date: string | null, truncateToStartOfDay: boolean = true): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
@@ -973,7 +973,10 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     } else if (clip === 'End') {
         return response.endOf(unit)
     }
-    return response.startOf('day')
+    if (truncateToStartOfDay) {
+        return response.startOf('day')
+    }
+    return response
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {

@@ -639,10 +639,6 @@ export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> ex
     modifiers?: HogQLQueryModifiers
 }
 
-interface Comparison {
-    period_start_date: string
-}
-
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
 export type TrendsFilterLegacy = Omit<
@@ -653,7 +649,7 @@ export type TrendsFilterLegacy = Omit<
 export type TrendsFilter = {
     smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
     compare?: TrendsFilterLegacy['compare']
-    comparison?: Comparison
+    comparison?: TrendsFilterLegacy['comparison']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
     showLegend?: TrendsFilterLegacy['show_legend']
@@ -838,6 +834,7 @@ export type StickinessFilterLegacy = Omit<
 
 export type StickinessFilter = {
     compare?: StickinessFilterLegacy['compare']
+    comparison?: StickinessFilterLegacy['comparison']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
