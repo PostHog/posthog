@@ -30,8 +30,8 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
                             {url.port.length ? `:${url.port}` : null}
                         </div>
                         <div>{url.pathname}</div>
-                        {url.search.length ? <div>?{url.search}</div> : null}
-                        {url.hash.length ? <div>#{url.hash}</div> : null}
+                        {url.search.length ? <div>{url.search}</div> : null}
+                        {url.hash.length ? <div>{url.hash}</div> : null}
                     </div>
                 }
             >
