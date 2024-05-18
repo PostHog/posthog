@@ -1,13 +1,16 @@
 import { LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
+import { uuid } from 'lib/utils'
 import { useState } from 'react'
+import { useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { getDefaultComparisonPeriodRelativeStartDate } from './compareFilterLogic'
 
 export function CompareFilter(): JSX.Element | null {
+    const key = useRef(uuid()).current
     const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const { compare, comparison, supportsCompare, dateRange, interval } = useValues(insightVizDataLogic(insightProps))
@@ -15,7 +18,7 @@ export function CompareFilter(): JSX.Element | null {
 
     const disabled: boolean = !canEditInsight || !supportsCompare
     const defaultRelativePeriod = getDefaultComparisonPeriodRelativeStartDate(dateRange, interval)
-    const [relativePeriodStart, setRelativePeriodStart] = useState(defaultRelativePeriod)
+    const [customRelativePeriodStart, setCustomRelativePeriodStart] = useState<string | null>(null)
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {
@@ -32,7 +35,7 @@ export function CompareFilter(): JSX.Element | null {
                         updateInsightFilter({
                             compare,
                             comparison: {
-                                relative_period_start: relativePeriodStart,
+                                relative_period_start: customRelativePeriodStart || defaultRelativePeriod,
                             },
                         })
                     }
@@ -43,11 +46,12 @@ export function CompareFilter(): JSX.Element | null {
                 className="ml-4"
             />
             <RollingDateRangeFilter
-                dateFrom={relativePeriodStart}
+                pageKey={key}
+                dateFrom={customRelativePeriodStart || defaultRelativePeriod}
                 dateRangeFilterLabel=""
                 selected={true}
                 onChange={(period) => {
-                    setRelativePeriodStart(period)
+                    setCustomRelativePeriodStart(period)
                     if (comparison) {
                         updateInsightFilter({
                             comparison: {
