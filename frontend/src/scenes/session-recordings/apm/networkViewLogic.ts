@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
@@ -15,6 +15,7 @@ export interface NetworkViewLogicProps extends SessionRecordingDataLogicProps {}
 
 export const networkViewLogic = kea<networkViewLogicType>([
     path(['scenes', 'session-recordings', 'apm', 'networkViewLogic']),
+    key((props) => `network-view-${props.sessionRecordingId}`),
     props({} as NetworkViewLogicProps),
     connect((props: NetworkViewLogicProps) => ({
         values: [
