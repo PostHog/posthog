@@ -40,27 +40,35 @@ export function CompareFilter(): JSX.Element | null {
                     }
                 }}
                 checked={!!compare}
-                label={<span className="font-normal">Compare to the period starting</span>}
+                label={
+                    <span className="font-normal">
+                        {compare ? 'Compare to the period starting' : 'Compare to past'}
+                    </span>
+                }
                 size="small"
                 className="ml-4"
             />
-            <RollingDateRangeFilter
-                dateFrom={comparisonRelativePeriodStart}
-                dateRangeFilterLabel=""
-                selected={true}
-                onChange={(period) => {
-                    setComparisonRelativePeriodStart(period)
-                    if (compare) {
-                        updateInsightFilter({
-                            comparison: {
-                                relative_period_start: period,
-                            },
-                        })
-                    }
-                }}
-                allowedDateOptions={['hours', 'days', 'weeks', 'months', 'years']}
-            />
-            <span className="font-normal">ago</span>
+            {!!compare && (
+                <>
+                    <RollingDateRangeFilter
+                        dateFrom={comparisonRelativePeriodStart}
+                        dateRangeFilterLabel=""
+                        selected={true}
+                        onChange={(period) => {
+                            setComparisonRelativePeriodStart(period)
+                            if (compare) {
+                                updateInsightFilter({
+                                    comparison: {
+                                        relative_period_start: period,
+                                    },
+                                })
+                            }
+                        }}
+                        allowedDateOptions={['hours', 'days', 'weeks', 'months', 'quarters', 'years']}
+                    />
+                    <span className="font-normal">ago</span>
+                </>
+            )}
         </>
     )
 }
