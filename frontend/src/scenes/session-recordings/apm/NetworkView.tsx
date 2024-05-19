@@ -5,6 +5,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import AssetProportions from 'scenes/session-recordings/apm/components/AssetProportions'
 import { PerformanceCardRow } from 'scenes/session-recordings/apm/components/PerformanceCard'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
@@ -81,9 +82,38 @@ function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null 
     )
 }
 
-function WaterfallMeta(): JSX.Element {
-    const { page, pageCount, currentPage, sessionPerson } = useValues(networkViewLogic)
+function Pager(): JSX.Element {
+    const { page, pageCount } = useValues(networkViewLogic)
     const { prevPage, nextPage } = useActions(networkViewLogic)
+
+    return (
+        <div className="w-full flex flex-row">
+            <LemonButton
+                onClick={() => prevPage()}
+                className="mr-2"
+                icon={<IconChevronLeft />}
+                disabledReason={page === 0 ? "You're on the first page" : null}
+                type="secondary"
+                noPadding={true}
+                size="xsmall"
+            />
+            <div className="flex-grow text-center">
+                viewing page {page + 1} of {pageCount} in this session
+            </div>
+            <LemonButton
+                onClick={() => nextPage()}
+                icon={<IconChevronRight />}
+                disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
+                type="secondary"
+                noPadding={true}
+                size="xsmall"
+            />
+        </div>
+    )
+}
+
+function WaterfallMeta(): JSX.Element {
+    const { currentPage, sessionPerson, sizeBreakdown } = useValues(networkViewLogic)
 
     return (
         <>
@@ -98,30 +128,10 @@ function WaterfallMeta(): JSX.Element {
                 </div>
             </div>
             <LemonDivider />
-            <div className="w-full flex flex-row">
-                <LemonButton
-                    onClick={() => prevPage()}
-                    className="mr-2"
-                    icon={<IconChevronLeft />}
-                    disabledReason={page === 0 ? "You're on the first page" : null}
-                    type="secondary"
-                    noPadding={true}
-                    size="xsmall"
-                />
-                <div className="flex-grow text-center">
-                    viewing page {page + 1} of {pageCount} in this session
-                </div>
-                <LemonButton
-                    onClick={() => nextPage()}
-                    icon={<IconChevronRight />}
-                    disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
-                    type="secondary"
-                    noPadding={true}
-                    size="xsmall"
-                />
-            </div>
+            <Pager />
             <LemonDivider />
-            <PerformanceCardRow item={currentPage[0]} />
+            <PerformanceCardRow item={currentPage[0]} title={<h3 className="mb-0">Page score</h3>} />
+            <AssetProportions data={sizeBreakdown} />
         </>
     )
 }

@@ -1,4 +1,6 @@
 import { eventWithTime } from '@rrweb/types'
+import { getSeriesColor } from 'lib/colors'
+import { humanizeBytes } from 'lib/utils'
 import { CapturedNetworkRequest } from 'posthog-js'
 
 import { PerformanceEvent } from '~/types'
@@ -124,6 +126,47 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     method: 'method',
 }
 
+export const initiatorTypeToColor = {
+    navigation: getSeriesColor(13),
+    css: getSeriesColor(14),
+    script: getSeriesColor(15),
+    xmlhttprequest: getSeriesColor(16),
+    fetch: getSeriesColor(17),
+    beacon: getSeriesColor(18),
+    video: getSeriesColor(19),
+    audio: getSeriesColor(20),
+    track: getSeriesColor(21),
+    img: getSeriesColor(22),
+    image: getSeriesColor(22),
+    input: getSeriesColor(23),
+    a: getSeriesColor(24),
+    iframe: getSeriesColor(25),
+    frame: getSeriesColor(26),
+    link: getSeriesColor(27),
+    other: getSeriesColor(28),
+}
+
+export const initiatorToAssetTypeMapping: Record<string, string> = {
+    css: 'CSS',
+    script: 'JS',
+    fetch: 'Fetch',
+    img: 'Image',
+    link: 'Link',
+    xmlhttprequest: 'XHR',
+    navigation: 'HTML',
+}
+
+// these map to colors in initiatorTypeToColor but with opacity
+export const assetTypeToColor = {
+    CSS: getSeriesColor(14, null, true),
+    JS: getSeriesColor(15, null, true),
+    Fetch: getSeriesColor(17, null, true),
+    Image: getSeriesColor(22, null, true),
+    Link: getSeriesColor(27, null, true),
+    XHR: getSeriesColor(16, null, true),
+    HTML: getSeriesColor(13, null, true),
+}
+
 export function mapRRWebNetworkRequest(
     capturedRequest: CapturedNetworkRequest,
     windowId: string,
@@ -224,4 +267,40 @@ export function matchNetworkEvents(snapshotsByWindowId: Record<string, eventWith
     })
 
     return events.length ? events : rrwebEvents
+}
+
+export function itemSizeInfo(item: PerformanceEvent): {
+    formattedBytes: string
+    compressionPercentage: number | null
+    formattedDecodedBodySize: string | null
+    formattedEncodedBodySize: string | null
+    formattedCompressionPercentage: string | null
+    isFromLocalCache: boolean
+    bytes: number | null
+    decodedBodySize: number | null
+    encodedBodySize: number | null
+} {
+    const bytes = item.encoded_body_size || item.decoded_body_size || item.transfer_size || 0
+    const formattedBytes = humanizeBytes(bytes)
+    const decodedBodySize = item.decoded_body_size ?? null
+    const formattedDecodedBodySize = decodedBodySize ? humanizeBytes(decodedBodySize) : null
+    const encodedBodySize = item.encoded_body_size ?? null
+    const formattedEncodedBodySize = encodedBodySize ? humanizeBytes(encodedBodySize) : null
+    const compressionPercentage =
+        item.decoded_body_size && item.encoded_body_size
+            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
+            : null
+    const formattedCompressionPercentage = compressionPercentage ? `${compressionPercentage.toFixed(1)}%` : null
+    const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0
+    return {
+        bytes,
+        formattedBytes,
+        compressionPercentage,
+        decodedBodySize,
+        formattedDecodedBodySize,
+        encodedBodySize,
+        formattedEncodedBodySize,
+        formattedCompressionPercentage,
+        isFromLocalCache,
+    }
 }

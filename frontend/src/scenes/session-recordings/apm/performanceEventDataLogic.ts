@@ -1,5 +1,9 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { matchNetworkEvents } from 'scenes/session-recordings/player/inspector/performance-event-utils'
+import {
+    initiatorToAssetTypeMapping,
+    itemSizeInfo,
+    matchNetworkEvents,
+} from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
@@ -76,8 +80,36 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
                 )
             },
         ],
+        sizeBreakdown: [
+            (s) => [s.allPerformanceEvents],
+            (allPerformanceEvents) => {
+                const breakdown: Record<string, AssetSizeInfo> = {}
+                allPerformanceEvents.forEach((event) => {
+                    const label = initiatorToAssetTypeMapping[event.initiator_type || 'unknown'] || 'unknown'
+                    breakdown[label] = breakdown[label] || {
+                        bytes: 0,
+                        decodedBodySize: 0,
+                        encodedBodySize: 0,
+                        count: 0,
+                    }
+                    const sizeInfo = itemSizeInfo(event)
+                    breakdown[label] = {
+                        bytes: breakdown[label].bytes + (sizeInfo.bytes ?? 0),
+                        decodedBodySize: breakdown[label].decodedBodySize + (sizeInfo.decodedBodySize ?? 0),
+                        encodedBodySize: breakdown[label].encodedBodySize + (sizeInfo.encodedBodySize ?? 0),
+                    }
+                })
+                return breakdown
+            },
+        ],
     })),
 ])
+
+export interface AssetSizeInfo {
+    bytes: number
+    decodedBodySize: number
+    encodedBodySize: number
+}
 
 function filterUnwanted(events: PerformanceEvent[]): PerformanceEvent[] {
     // the browser can provide network events that we're not interested in,

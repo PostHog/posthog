@@ -22,7 +22,7 @@ export const networkViewLogic = kea<networkViewLogicType>([
             sessionRecordingDataLogic(props),
             ['sessionPlayerData', 'sessionPlayerMetaData', 'snapshotsLoading', 'sessionPlayerMetaDataLoading'],
             performanceEventDataLogic({ key: props.sessionRecordingId, sessionRecordingId: props.sessionRecordingId }),
-            ['allPerformanceEvents'],
+            ['allPerformanceEvents', 'sizeBreakdown'],
         ],
         actions: [sessionRecordingDataLogic(props), ['loadSnapshots', 'maybeLoadRecordingMeta']],
     })),

@@ -1,29 +1,10 @@
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { networkViewLogic } from 'scenes/session-recordings/apm/networkViewLogic'
+import { initiatorTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'
 import { TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
 
 import { PerformanceEvent } from '~/types'
-
-const initiatorTypeToColor = {
-    navigation: getSeriesColor(13),
-    css: getSeriesColor(14),
-    script: getSeriesColor(15),
-    xmlhttprequest: getSeriesColor(16),
-    fetch: getSeriesColor(17),
-    beacon: getSeriesColor(18),
-    video: getSeriesColor(19),
-    audio: getSeriesColor(20),
-    track: getSeriesColor(21),
-    img: getSeriesColor(22),
-    image: getSeriesColor(23),
-    input: getSeriesColor(24),
-    a: getSeriesColor(25),
-    iframe: getSeriesColor(26),
-    frame: getSeriesColor(27),
-    other: getSeriesColor(28),
-}
 
 /**
  * When displaying a waterfall view

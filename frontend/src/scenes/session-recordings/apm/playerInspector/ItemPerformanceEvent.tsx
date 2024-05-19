@@ -3,8 +3,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
+import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { useState } from 'react'
+import { itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
 import { PerformanceEventLabel } from 'scenes/session-recordings/player/inspector/components/PerformanceEventLabel'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
@@ -78,33 +79,6 @@ function renderTimeBenchmark(milliseconds: number): JSX.Element {
             {humanFriendlyMilliseconds(milliseconds)}
         </span>
     )
-}
-
-function itemSizeInfo(item: PerformanceEvent): {
-    bytes: string
-    compressionPercentage: number | null
-    decodedBodySize: string | null
-    encodedBodySize: string | null
-    formattedCompressionPercentage: string | null
-    isFromLocalCache: boolean
-} {
-    const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || item.transfer_size || 0)
-    const decodedBodySize = item.decoded_body_size ? humanizeBytes(item.decoded_body_size) : null
-    const encodedBodySize = item.encoded_body_size ? humanizeBytes(item.encoded_body_size) : null
-    const compressionPercentage =
-        item.decoded_body_size && item.encoded_body_size
-            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
-            : null
-    const formattedCompressionPercentage = compressionPercentage ? `${compressionPercentage.toFixed(1)}%` : null
-    const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0
-    return {
-        bytes,
-        compressionPercentage,
-        decodedBodySize,
-        encodedBodySize,
-        formattedCompressionPercentage,
-        isFromLocalCache,
-    }
 }
 
 function emptyPayloadMessage(
@@ -231,7 +205,7 @@ export function ItemPerformanceEvent({
                                 </span>
                             ) : null}
                             {renderTimeBenchmark(duration)}
-                            <span className={clsx('font-semibold')}>{sizeInfo.bytes}</span>
+                            <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
                         </div>
                     )}
                 </div>
@@ -244,10 +218,10 @@ export function ItemPerformanceEvent({
                         <p>
                             Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b>{' '}
                             and took <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                            {sizeInfo.decodedBodySize ? (
+                            {sizeInfo.formattedDecodedBodySize ? (
                                 <>
                                     {' '}
-                                    to load <b>{sizeInfo.decodedBodySize}</b> of data
+                                    to load <b>{sizeInfo.formattedDecodedBodySize}</b> of data
                                 </>
                             ) : null}
                             {sizeInfo.isFromLocalCache ? (
@@ -256,9 +230,9 @@ export function ItemPerformanceEvent({
                                     <span className="text-muted">(from local cache)</span>
                                 </>
                             ) : null}
-                            {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
+                            {sizeInfo.formattedCompressionPercentage && sizeInfo.formattedEncodedBodySize ? (
                                 <>
-                                    , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
+                                    , compressed to <b>{sizeInfo.formattedEncodedBodySize}</b> saving{' '}
                                     <b>{sizeInfo.formattedCompressionPercentage}</b>
                                 </>
                             ) : null}
