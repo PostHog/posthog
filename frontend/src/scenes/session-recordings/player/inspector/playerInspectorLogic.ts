@@ -998,7 +998,12 @@ function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEve
     for (const event of performanceEvents) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
-        } else if (event.entry_type === 'paint' && event.name === 'first-contentful-paint' && lastNavigationEvent) {
+        } else if (
+            event.entry_type === 'paint' &&
+            event.name === 'first-contentful-paint' &&
+            lastNavigationEvent &&
+            lastNavigationEvent.first_contentful_paint === undefined
+        ) {
             lastNavigationEvent.first_contentful_paint = event.start_time
         }
     }
