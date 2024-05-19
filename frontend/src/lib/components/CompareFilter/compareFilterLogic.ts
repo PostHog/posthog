@@ -15,17 +15,16 @@ export const getDefaultComparisonPeriodRelativeStartDate = (
     }
     const truncateToStartOfDay = false
     const dateFrom = dateStringToDayJs(dateRange.date_from, truncateToStartOfDay)
-    let dateTo
+    let dateTo = dayjs()
     if (dateRange.date_to) {
         dateTo = dateStringToDayJs(dateRange.date_to, truncateToStartOfDay)
-    } else {
-        dateTo = dayjs()
     }
     if (!dateFrom || !dateTo) {
         return DEFAULT_RELATIVE_START_DATE
     }
+
     // We want to compare insights with hour intervals to the same hours
-    // of the preceding interval
+    // of the preceding interval (e.g. 9am today to 9am yesterday)
     if (interval == 'hour') {
         interval = 'day'
     }
