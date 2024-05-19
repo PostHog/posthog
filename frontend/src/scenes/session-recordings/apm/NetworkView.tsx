@@ -5,6 +5,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PerformanceCardRow } from 'scenes/session-recordings/apm/components/PerformanceCard'
 import { MethodTag, StatusTag } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
@@ -62,8 +63,6 @@ function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
 }
 
 function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
-    // TODO _so_ similar to TimingBar
-
     return (
         <div className="flex flex-row">
             <div className="w-2/5 overflow-x-hidden ellipsis">
@@ -119,6 +118,8 @@ function WaterfallMeta(): JSX.Element {
                     size="xsmall"
                 />
             </div>
+            <LemonDivider />
+            <PerformanceCardRow item={currentPage[0]} />
         </>
     )
 }
