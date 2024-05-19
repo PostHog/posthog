@@ -18,7 +18,9 @@ export function CompareFilter(): JSX.Element | null {
 
     const disabled: boolean = !canEditInsight || !supportsCompare
     const defaultRelativePeriod = getDefaultComparisonPeriodRelativeStartDate(dateRange, interval)
-    const [customRelativePeriodStart, setCustomRelativePeriodStart] = useState<string | null>(null)
+    const [comparisonRelativePeriodStart, setComparisonRelativePeriodStart] = useState(
+        comparison?.relative_period_start || defaultRelativePeriod
+    )
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {
@@ -35,7 +37,7 @@ export function CompareFilter(): JSX.Element | null {
                         updateInsightFilter({
                             compare,
                             comparison: {
-                                relative_period_start: customRelativePeriodStart || defaultRelativePeriod,
+                                relative_period_start: comparisonRelativePeriodStart,
                             },
                         })
                     }
@@ -47,12 +49,12 @@ export function CompareFilter(): JSX.Element | null {
             />
             <RollingDateRangeFilter
                 pageKey={key}
-                dateFrom={customRelativePeriodStart || defaultRelativePeriod}
+                dateFrom={comparisonRelativePeriodStart}
                 dateRangeFilterLabel=""
                 selected={true}
                 onChange={(period) => {
-                    setCustomRelativePeriodStart(period)
-                    if (comparison) {
+                    setComparisonRelativePeriodStart(period)
+                    if (compare) {
                         updateInsightFilter({
                             comparison: {
                                 relative_period_start: period,
