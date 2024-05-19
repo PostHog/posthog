@@ -89,7 +89,9 @@ function WaterfallMeta(): JSX.Element {
         <>
             <div>
                 <div className="flex flex-row flex-wrap items-center justify-between">
-                    <h2 className="m-0">{currentPage[0].name}</h2>
+                    {/*we shouldn't need to check for currentPage[0] with the elvis operator here,
+                    but React is so eager to just call functions willy-nilly*/}
+                    <h2 className="m-0">{currentPage[0]?.name}</h2>
                     <div>
                         <PersonDisplay person={sessionPerson} withIcon={true} noEllipsis={true} />
                     </div>

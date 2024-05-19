@@ -483,21 +483,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
                 for (const event of performanceEventsArr) {
+                    // TODO should we be defaulting to 200 here :shrug:
                     const responseStatus = event.response_status || 200
-
-                    // NOTE: Navigation events are missing the first contentful paint info
-                    // so, we find the relevant first contentful paint event and add it to the navigation event
-                    if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
-                        const firstContentfulPaint = performanceEventsArr.find(
-                            (x) =>
-                                x.pageview_id === event.pageview_id &&
-                                x.entry_type === 'paint' &&
-                                x.name === 'first-contentful-paint'
-                        )
-                        if (firstContentfulPaint) {
-                            event.first_contentful_paint = firstContentfulPaint.start_time
-                        }
-                    }
 
                     if (event.entry_type === 'paint') {
                         // We don't include paint events as they are covered in the navigation events

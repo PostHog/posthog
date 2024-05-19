@@ -20,6 +20,24 @@ export interface PerformanceEventDataLogicProps extends SessionRecordingDataLogi
     key?: string
 }
 
+/**
+ * If we have paint events we should add them to the appropriate navigation event
+ * this makes it easier to draw performance cards for navigation events
+ */
+function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEvent[] {
+    // KLUDGE: this assumes that the input is sorted by timestamp and relies on the identity of the events to mutate them
+    let lastNavigationEvent: PerformanceEvent | null = null
+    for (const event of performanceEvents) {
+        if (event.entry_type === 'navigation') {
+            lastNavigationEvent = event
+        } else if (event.entry_type === 'paint' && event.name === 'first-contentful-paint' && lastNavigationEvent) {
+            lastNavigationEvent.first_contentful_paint = event.start_time
+        }
+    }
+
+    return performanceEvents
+}
+
 export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     path(['scenes', 'session-recordings', 'apm', 'performanceEventDataLogic']),
     props({} as PerformanceEventDataLogicProps),
@@ -51,9 +69,11 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
                 // but we decided to instead store them in the recording data
                 // we gather more info than rrweb, so we mix the two back together here
 
-                return deduplicatePerformanceEvents(
-                    filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
-                ).sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+                return matchPaintEvents(
+                    deduplicatePerformanceEvents(
+                        filterUnwanted(matchNetworkEvents(sessionPlayerData.snapshotsByWindowId))
+                    ).sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
+                )
             },
         ],
     })),
