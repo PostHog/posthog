@@ -1,5 +1,7 @@
 from django.test import TestCase
 
+from dateutil.parser import parse
+
 from posthog.templatetags.posthog_filters import compact_number, humanize_time_diff, percentage
 
 
@@ -29,4 +31,5 @@ class TestTemplateTags(TestCase):
         }
 
         for inputs, expected_output in test_cases.items():
-            self.assertEqual(humanize_time_diff(*inputs), expected_output)
+            date_from, date_to = parse(inputs[0]), parse(inputs[1])
+            self.assertEqual(humanize_time_diff(date_from, date_to), expected_output)
