@@ -118,7 +118,7 @@ export function InsightLoadingStateWithLoadingBar({
         return () => clearInterval(interval)
     }, [insightPollResponse])
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
-    const estimatedRows = insightPollResponse?.status?.query_progress.estimated_rows_total
+    const estimatedRows = insightPollResponse?.status?.query_progress?.estimated_rows_total
 
     const cpuUtilization =
         (insightPollResponse?.status?.query_progress?.active_cpu_time || 0) /
