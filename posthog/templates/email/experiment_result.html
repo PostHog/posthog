@@ -4,8 +4,6 @@
 
 {% block section %}
 
-<div class="preheader">{% block preheader %}{% endblock %}</div>
-
 <h2>{{ experiment.name }}</h2>
 <p>
     {% if experiment.description %} 
@@ -45,12 +43,9 @@
     </a>
 </div>
 
+<div class="mt">
+    <h2>What's next?</h2>
 {% if is_success %}
-<div>
-    <p>
-        Congratulations! Your experiment was a success! Here are a few next steps
-        you can consider:
-    </p>
     <ul>
         <li>
             Roll out the winning variant of your experiment by setting the feature
@@ -68,13 +63,9 @@
         </li>
         <li>Archive the experiment.</li>
     </ul>
-</div>
 {% else %} <!-- else is_success -->
-<div class="mt">
-    <h2>What's next?</h2>
     <b class="mt"> {{ next_steps_title }} </b>
     <p> {{ next_steps_message }} </p>
-</div>
 {% endif %} <!-- end is_success-->
 
 {% endblock %} <!-- end section -->

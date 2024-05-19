@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from posthog.models.experiment import Experiment
 from posthog.constants import (
     ExperimentFinishActionEmailValue,
@@ -118,7 +120,6 @@ def send_experiment_email(
     results: dict,
 ) -> None:
     experiment_results = results.get("result", {})
-    filters = experiment_results.get("filters", {})
 
     next_steps_title, next_steps_message = _get_next_steps(experiment_results)
     probability = experiment_results.get("probability", {})
@@ -131,8 +132,8 @@ def send_experiment_email(
         template_context={
             "experiment": experiment,
             "is_success": experiment_results.get("significant"),
-            "experiment_ran_to": filters.get("date_to"),
-            "experiment_ran_from": filters.get("date_from"),
+            "experiment_ran_to": experiment.end_date or datetime.now(timezone.utc),
+            "experiment_ran_from": experiment.start_date,
             "significance_message": _get_significance_message(experiment_results),
             "next_steps_title": next_steps_title,
             "next_steps_message": next_steps_message,

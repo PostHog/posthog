@@ -5,7 +5,6 @@ from django import template
 from posthog.utils import compact_number
 from dateutil.relativedelta import relativedelta
 from django.template.defaultfilters import pluralize
-from dateutil.parser import parse
 
 register = template.Library()
 
@@ -35,13 +34,13 @@ def humanize_time_diff(date_from, date_to):
     Returns a humanized string representing time difference
     between the given timestamps
 
-    The output rounds up to days, hours, minutes, or seconds.
+    The output trims out time diff to years, months, days, or hours
     1 month 20 days returns '1 month'
     4 days 5 hours returns '4 days'
     0 days 4 hours 3 minutes returns '4 hours', etc...
     """
 
-    time_diff = relativedelta(parse(date_to), parse(date_from))
+    time_diff = relativedelta(date_to, date_from)
 
     years = time_diff.years
     months = time_diff.months
