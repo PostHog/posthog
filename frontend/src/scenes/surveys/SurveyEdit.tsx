@@ -654,7 +654,7 @@ export default function SurveyEdit(): JSX.Element {
                                             return (
                                                 <LemonRadio
                                                     onChange={(newValue) => {
-                                                        if (newValue === 'inactive_seconds') {
+                                                        if (newValue === 'once') {
                                                             onChange(newValue)
                                                             setShowSurveyRepeatSchedule(false)
                                                         } else {
@@ -664,12 +664,12 @@ export default function SurveyEdit(): JSX.Element {
                                                     }}
                                                     options={[
                                                         {
-                                                            value: 'console_error_count',
+                                                            value: 'once',
                                                             label: 'Once',
                                                             'data-attr': 'survey-iteration-frequency-days',
                                                         },
                                                         {
-                                                            value: 'inactive_seconds',
+                                                            value: 'recurring',
                                                             label: 'Repeat on a Schedule',
                                                             'data-attr': 'survey-iteration-frequency-days',
                                                         },
