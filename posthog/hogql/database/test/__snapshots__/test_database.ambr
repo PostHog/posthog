@@ -573,6 +573,40 @@
               "schema_valid": true
           },
           {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "sessions",
+              "fields": [
+                  "id",
+                  "session_id",
+                  "team_id",
+                  "distinct_id",
+                  "$start_timestamp",
+                  "$end_timestamp",
+                  "$urls",
+                  "$entry_current_url",
+                  "$entry_pathname",
+                  "$exit_current_url",
+                  "$exit_pathname",
+                  "$entry_utm_source",
+                  "$entry_utm_campaign",
+                  "$entry_utm_medium",
+                  "$entry_utm_term",
+                  "$entry_utm_content",
+                  "$entry_referring_domain",
+                  "$entry_gclid",
+                  "$entry_gad_source",
+                  "$event_count_map",
+                  "$pageview_count",
+                  "$autocapture_count",
+                  "$channel_type",
+                  "$session_duration",
+                  "duration",
+                  "$is_bounce"
+              ],
+              "schema_valid": true
+          },
+          {
               "key": "start_time",
               "type": "datetime",
               "schema_valid": true
@@ -1403,6 +1437,40 @@
               "chain": [
                   "pdi",
                   "person_id"
+              ],
+              "schema_valid": true
+          },
+          {
+              "key": "session",
+              "type": "lazy_table",
+              "table": "sessions",
+              "fields": [
+                  "id",
+                  "session_id",
+                  "team_id",
+                  "distinct_id",
+                  "$start_timestamp",
+                  "$end_timestamp",
+                  "$urls",
+                  "$entry_current_url",
+                  "$entry_pathname",
+                  "$exit_current_url",
+                  "$exit_pathname",
+                  "$entry_utm_source",
+                  "$entry_utm_campaign",
+                  "$entry_utm_medium",
+                  "$entry_utm_term",
+                  "$entry_utm_content",
+                  "$entry_referring_domain",
+                  "$entry_gclid",
+                  "$entry_gad_source",
+                  "$event_count_map",
+                  "$pageview_count",
+                  "$autocapture_count",
+                  "$channel_type",
+                  "$session_duration",
+                  "duration",
+                  "$is_bounce"
               ],
               "schema_valid": true
           },

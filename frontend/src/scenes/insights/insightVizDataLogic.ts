@@ -9,6 +9,7 @@ import {
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
 } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
@@ -79,11 +80,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            ['isHogQLInsight', 'query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
             dataWarehouseSceneLogic,
             ['externalTablesMap'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             insightLogic,

@@ -395,6 +395,7 @@ ORDER BY "context.columns.visitors" DESC,
             get_property_type(p) == "session" for p in self.query.properties + self._test_account_filters
         ) or self.query.breakdownBy in {
             WebStatsBreakdown.InitialChannelType,
+            WebStatsBreakdown.InitialReferringDomain,
             WebStatsBreakdown.InitialUTMSource,
             WebStatsBreakdown.InitialUTMCampaign,
             WebStatsBreakdown.InitialUTMMedium,

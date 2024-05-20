@@ -120,18 +120,6 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
 }
 
 export const standardAccessories: { [key: string]: AccessoryInfo } = {
-    xmas_hat: {
-        img: 'xmas-hat',
-        group: 'headwear',
-    },
-    xmas_antlers: {
-        img: 'xmas-antlers',
-        group: 'headwear',
-    },
-    xmas_scarf: {
-        img: 'xmas-scarf',
-        group: 'other',
-    },
     beret: {
         img: 'beret',
         group: 'headwear',
@@ -184,5 +172,17 @@ export const standardAccessories: { [key: string]: AccessoryInfo } = {
     tophat: {
         img: 'tophat',
         group: 'headwear',
+    },
+    xmas_hat: {
+        img: 'xmas-hat',
+        group: 'headwear',
+    },
+    xmas_antlers: {
+        img: 'xmas-antlers',
+        group: 'headwear',
+    },
+    xmas_scarf: {
+        img: 'xmas-scarf',
+        group: 'other',
     },
 }
