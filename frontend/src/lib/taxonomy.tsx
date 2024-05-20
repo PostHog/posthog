@@ -821,6 +821,10 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Survey Iteration Number',
             description: 'The iteration number for the survey.',
         },
+        $survey_iteration_start_date: {
+            label: 'Survey Iteration Start Date',
+            description: 'The start date for the current iteration of the survey.',
+        },
         $device: {
             label: 'Device',
             description: 'The mobile device that was used.',
