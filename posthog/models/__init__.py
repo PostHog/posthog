@@ -12,6 +12,7 @@ from ..session_recordings.models.session_recording_playlist_item import (
     SessionRecordingPlaylistItem,
 )
 from ..warehouse.models import DataWarehouseTable
+from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .action import Action
 from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
@@ -34,7 +35,6 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
-from .scheduled_change import ScheduledChange
 from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -46,7 +46,7 @@ from .integration import Integration
 from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationInvite, OrganizationMembership
-    from .organization_domain import OrganizationDomain
+from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .plugin import (
@@ -60,6 +60,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .scheduled_change import ScheduledChange
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
@@ -68,8 +69,6 @@ from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_scene_personalisation import UserScenePersonalisation
-
-from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 
 __all__ = [
     "Action",

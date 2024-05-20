@@ -554,13 +554,18 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+export interface ProductFeature {
+    key: string
+    name: string
+}
+
 /** Raw Organization row from database. */
 export interface RawOrganization {
     id: string
     name: string
     created_at: string
     updated_at: string
-    available_product_features: string[]
+    available_product_features: ProductFeature[]
 }
 
 /** Usable Team model. */
