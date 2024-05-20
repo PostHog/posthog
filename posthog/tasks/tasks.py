@@ -547,6 +547,13 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
+def validate_proxy_domains() -> None:
+    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
+
+    validate_proxy_domains()
+
+
+@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 

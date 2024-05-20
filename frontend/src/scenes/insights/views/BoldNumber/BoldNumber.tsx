@@ -109,6 +109,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                       query: {
                                           kind: NodeKind.InsightActorsQuery,
                                           source: querySource!,
+                                          includeRecordings: true,
                                       },
                                       additionalSelect: {
                                           value_at_data_point: 'event_count',
@@ -226,7 +227,11 @@ export function HogQLBoldNumber(): JSX.Element {
     const { response, responseLoading } = useValues(dataVisualizationLogic)
 
     const displayValue =
-        ((!response || responseLoading) && 'loading...') || response?.[0]?.[0] || response?.results?.[0]?.[0] || 'Error'
+        ((!response || responseLoading) && 'Loading...') ||
+        response?.[0]?.[0] ||
+        response?.results?.[0]?.[0] ||
+        response?.result?.[0]?.[0] ||
+        'Error'
 
     return (
         <div className="BoldNumber LemonTable HogQL">
