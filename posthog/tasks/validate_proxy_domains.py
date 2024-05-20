@@ -4,8 +4,6 @@ import json
 from posthog.models import ProxyRecord
 from django.conf import settings
 
-EXPECTED_CNAME = settings.PROXY_TARGET_CNAME
-
 
 def validate_proxy_domains() -> None:
     records = ProxyRecord.objects.filter(status=ProxyRecord.Status.WAITING)
@@ -15,7 +13,7 @@ def validate_proxy_domains() -> None:
             cnames = dns.resolver.query(domain, "CNAME")
             value = cnames[0].target.canonicalize().to_text()
 
-            if value == EXPECTED_CNAME:
+            if value == record.target_cname:
                 record.status = ProxyRecord.Status.ISSUING
                 response = requests.post(
                     f"{settings.PROXY_PROVISIONER_URL}create", data=json.dumps({"domain": record.domain})
