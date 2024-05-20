@@ -9,7 +9,7 @@ from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.tasks.tasks import sync_all_organization_available_features
+from posthog.tasks.tasks import sync_all_organization_available_product_features
 
 
 class TestOrganizationEnterpriseAPI(APILicensedTest):
@@ -268,7 +268,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
-            sync_all_organization_available_features()  # This is normally ran every hour
+            sync_all_organization_available_product_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
         License.PLANS = current_plans

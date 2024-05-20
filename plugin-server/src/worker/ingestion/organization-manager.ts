@@ -12,13 +12,13 @@ export class OrganizationManager {
     postgres: PostgresRouter
     teamManager: TeamManager
     organizationCache: OrganizationCache<RawOrganization | null>
-    availableFeaturesCache: Map<TeamId, [Array<string>, number]>
+    availableProductFeaturesCache: Map<TeamId, [Array<string>, number]>
 
     constructor(postgres: PostgresRouter, teamManager: TeamManager) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationCache = new Map()
-        this.availableFeaturesCache = new Map()
+        this.availableProductFeaturesCache = new Map()
     }
 
     public async fetchOrganization(organizationId: RawOrganization['id']): Promise<RawOrganization | null> {
@@ -39,7 +39,7 @@ export class OrganizationManager {
     }
 
     public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
-        const cachedAvailableFeatures = getByAge(this.availableFeaturesCache, teamId, ONE_DAY)
+        const cachedAvailableFeatures = getByAge(this.availableProductFeaturesCache, teamId, ONE_DAY)
 
         if (cachedAvailableFeatures !== undefined) {
             return cachedAvailableFeatures.includes(feature)
@@ -53,13 +53,13 @@ export class OrganizationManager {
 
         const organization = await this.fetchOrganization(_team.organization_id)
         const availableFeatures = organization?.available_product_features || []
-        this.availableFeaturesCache.set(teamId, [availableFeatures, Date.now()])
+        this.availableProductFeaturesCache.set(teamId, [availableFeatures, Date.now()])
 
         return availableFeatures.includes(feature)
     }
 
-    public resetAvailableFeatureCache(organizationId: string) {
-        this.availableFeaturesCache = new Map()
+    public resetAvailableProductFeaturesCache(organizationId: string) {
+        this.availableProductFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
     }
 }

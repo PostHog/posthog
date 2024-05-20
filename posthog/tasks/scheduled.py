@@ -7,6 +7,7 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.celery import app
+from posthog.cloud_utils import is_cloud
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -39,12 +40,12 @@ from posthog.tasks.tasks import (
     schedule_all_subscriptions,
     schedule_cache_updates_task,
     send_org_usage_reports,
-    sync_all_organization_available_features,
+    stop_surveys_reached_target,
+    sync_all_organization_available_product_features,
     sync_insight_cache_states_task,
     update_event_partitions,
     update_quota_limiting,
     verify_persons_data_in_sync,
-    stop_surveys_reached_target,
 )
 from posthog.utils import get_crontab
 
@@ -130,8 +131,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
 
-    # Sync all Organization.available_features every hour, only for billing v1 orgs
-    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_features.s())
+    # Sync all Organization.available_product_features every hour, only for billing v1 orgs
+    sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
     if sync_insight_cache_states_schedule:
