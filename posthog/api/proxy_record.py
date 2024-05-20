@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from django.conf import settings
 from rest_framework import serializers, status
@@ -64,11 +65,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             target_cname=record.target_cname,
         )
         workflow_id = f"proxy-create-{inputs.proxy_record_id}"
-        await temporal.start_workflow(
-            "create-proxy",
-            inputs,
-            id=workflow_id,
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        asyncio.run(
+            temporal.start_workflow(
+                "create-proxy",
+                inputs,
+                id=workflow_id,
+                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            )
         )
 
         return Response(
