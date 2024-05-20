@@ -11,7 +11,7 @@ from posthog.models import ProxyRecord
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
 
-from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, ProxyProvisionerServiceStub
+from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, ProxyProvisionerServiceStub  # type: ignore
 
 
 class NonRetriableException(Exception):
