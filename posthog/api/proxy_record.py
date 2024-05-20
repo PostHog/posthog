@@ -74,10 +74,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             )
         )
 
-        return Response(
-            {"success": True},
-            status=status.HTTP_200_OK,
-        )
+        serializer = self.get_serializer(record)
+        return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
         record = self.organization.proxy_records.get(id=pk)
