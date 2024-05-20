@@ -48,6 +48,16 @@ class OrganizationUsageInfo(TypedDict):
     period: Optional[list[str]]
 
 
+class ProductFeature(TypedDict):
+    key: str
+    name: str
+    description: str
+    unit: Optional[str]
+    limit: Optional[int]
+    note: Optional[str]
+    is_plan_default: bool
+
+
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         return create_with_slug(super().create, *args, **kwargs)
@@ -176,11 +186,11 @@ class Organization(UUIDModel):
                 return (license.plan, "ee")
         return (None, None)
 
-    def update_available_product_features(self) -> list[Union[AvailableFeature, str]]:
+    def update_available_product_features(self) -> list[ProductFeature]:
         """Updates field `available_product_features`. Does not `save()`."""
         if is_cloud() or self.usage:
             # Since billing V2 we just use the field which is updated when the billing service is called
-            return self.available_product_features
+            return self.available_product_features  # type: ignore
 
         try:
             from ee.models.license import License
@@ -205,7 +215,7 @@ class Organization(UUIDModel):
         return self.available_product_features
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features]
+        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
         return feature in available_product_feature_keys
 
     @property

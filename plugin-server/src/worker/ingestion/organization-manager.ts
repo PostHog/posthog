@@ -60,7 +60,7 @@ export class OrganizationManager {
         return availableProductFeaturesKeys.includes(feature)
     }
 
-    public resetAvailableFeatureCache(organizationId: string) {
+    public resetAvailableProductFeaturesCache(organizationId: string) {
         this.availableProductFeaturesCache = new Map()
         this.organizationCache.delete(organizationId)
     }

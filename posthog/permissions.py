@@ -228,8 +228,9 @@ class PremiumFeaturePermission(BasePermission):
             return True
 
         if view.premium_feature not in [
-            feature["key"] for feature in request.user.organization.available_product_features
-        ]:  # type: ignore
+            feature["key"]
+            for feature in request.user.organization.available_product_features  # type: ignore
+        ]:
             raise EnterpriseFeatureException()
 
         return True

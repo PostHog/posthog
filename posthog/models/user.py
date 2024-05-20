@@ -231,7 +231,9 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            available_product_feature_keys = [feature["key"] for feature in organization.available_product_features]
+            available_product_feature_keys = [
+                feature["key"] for feature in organization.available_product_features or []
+            ]
             if (
                 AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
                 or level >= OrganizationMembership.Level.ADMIN
