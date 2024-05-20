@@ -271,6 +271,17 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 )}
+                <tr>
+                    <td />
+                    {upgradeButtons}
+                </tr>
+                {includeAddons && (
+                    <tr>
+                        <th colSpan={1} className="PlanTable__th__section rounded text-left">
+                            <h3 className="mt-6 mb-6">Available addons:</h3>
+                        </th>
+                    </tr>
+                )}
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
@@ -320,10 +331,6 @@ export const PlanComparison = ({
                             </tr>
                         ) : null
                     })}
-                <tr>
-                    <td />
-                    {upgradeButtons}
-                </tr>
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
                         <h3 className="mt-6 mb-2">Product Features:</h3>
