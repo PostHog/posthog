@@ -1,7 +1,5 @@
 import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
-import { AvailableFeature } from '~/types'
-
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -28,7 +26,9 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
+import { Proxy } from './project/Proxy'
 import {
+    NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
@@ -165,6 +165,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
+            },
+            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
@@ -173,12 +178,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
-                features: [
-                    AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-                ],
             },
             {
                 id: 'replay-ai-config',
@@ -316,6 +315,19 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-rbac',
                 title: 'Role-based access',
                 component: <PermissionsGrid />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-proxy',
+        title: 'Proxy',
+        flag: 'PROXY_AS_A_SERVICE',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
             },
         ],
     },

@@ -26,9 +26,10 @@ export function IntervalFilter({ disabled }: IntervalFilterProps): JSX.Element {
                 onIntervalChange={(value) => {
                     updateQuerySource({ interval: value } as Partial<InsightQueryNode>)
                 }}
-                options={Object.entries(enabledIntervals).map(([value, { label, disabledReason }]) => ({
+                options={Object.entries(enabledIntervals).map(([value, { label, disabledReason, hidden }]) => ({
                     value: value as IntervalType,
                     label,
+                    hidden,
                     disabledReason,
                 }))}
             />

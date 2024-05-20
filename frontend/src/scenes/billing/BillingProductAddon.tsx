@@ -15,7 +15,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingError } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -131,6 +131,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         currentAndUpgradePlans?.upgradePlan?.plan_key
                                     }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                     disableClientSideRouting
+                                    disabledReason={billingError && billingError.message}
                                     loading={billingProductLoading === addon.type}
                                     onClick={() => {
                                         setBillingProductLoading(addon.type)

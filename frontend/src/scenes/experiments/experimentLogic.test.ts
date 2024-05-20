@@ -88,7 +88,7 @@ describe('experimentLogic', () => {
     describe('selector values', () => {
         it('given an mde, calculates correct sample size', async () => {
             await expectLogic(logic).toMatchValues({
-                minimumDetectableChange: 1,
+                minimumDetectableEffect: 1,
             })
 
             expect(logic.values.minimumSampleSizePerVariant(20)).toEqual(25600)

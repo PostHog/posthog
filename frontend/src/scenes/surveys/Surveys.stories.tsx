@@ -8,6 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     FeatureFlagBasicType,
+    MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
     Survey,
@@ -31,6 +32,44 @@ const MOCK_BASIC_SURVEY: Survey = {
         email: 'test2@posthog.com',
     },
     questions: [{ question: 'question 1?', type: SurveyQuestionType.Open }],
+    conditions: null,
+    linked_flag: null,
+    linked_flag_id: null,
+    targeting_flag: null,
+    targeting_flag_filters: undefined,
+    appearance: { backgroundColor: 'white', submitButtonColor: '#2C2C2C' },
+    start_date: null,
+    end_date: null,
+    archived: false,
+    responses_limit: null,
+}
+
+const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
+    id: '998FE805-F9EF-4F25-A5D1-B9549C4E2143',
+    name: 'survey with multiple options',
+    description: 'survey with multiple options description',
+    type: SurveyType.Popover,
+    created_at: '2023-04-27T10:04:37.977401Z',
+    created_by: {
+        id: 1,
+        uuid: '01863799-062b-0000-8a61-b2842d5f8642',
+        distinct_id: 'Sopz9Z4NMIfXGlJe6W1XF98GOqhHNui5J5eRe0tBGTE',
+        first_name: 'Employee 427',
+        email: 'test2@posthog.com',
+    },
+    questions: [
+        {
+            type: SurveyQuestionType.MultipleChoice,
+            question: "We're sorry to see you go. What's your reason for unsubscribing?",
+            choices: [
+                'I no longer need the product',
+                'I found a better product',
+                'I found the product too difficult to use',
+                'Other',
+            ],
+            shuffleOptions: true,
+        },
+    ],
     conditions: null,
     linked_flag: null,
     linked_flag_id: null,
@@ -154,9 +193,12 @@ const meta: Meta = {
                 '/api/projects/:team_id/surveys/': toPaginatedResponse([
                     MOCK_BASIC_SURVEY,
                     MOCK_SURVEY_WITH_RELEASE_CONS,
+                    MOCK_SURVEY_WITH_MULTIPLE_OPTIONS,
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                '/api/projects/:team_id/surveys/998FE805-F9EF-4F25-A5D1-B9549C4E2143/':
+                    MOCK_SURVEY_WITH_MULTIPLE_OPTIONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
                 [`/api/projects/:team_id/feature_flags/${
                     (MOCK_SURVEY_WITH_RELEASE_CONS.linked_flag as FeatureFlagBasicType).id
@@ -202,6 +244,27 @@ export const NewSurveyCustomisationSection: StoryFn = () => {
         router.actions.push(urls.survey('new'))
         surveyLogic({ id: 'new' }).mount()
         surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
+    }, [])
+    return <App />
+}
+
+export const NewMultiQuestionSurveySection: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.survey('new'))
+        surveyLogic({ id: 'new' }).mount()
+        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+            {
+                type: SurveyQuestionType.MultipleChoice,
+                question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                choices: [
+                    'I no longer need the product',
+                    'I found a better product',
+                    'I found the product too difficult to use',
+                    'Other',
+                ],
+            } as MultipleSurveyQuestion,
+        ])
     }, [])
     return <App />
 }

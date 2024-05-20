@@ -266,6 +266,23 @@ def get_query_runner(
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
+def get_query_runner_or_none(
+    query: dict[str, Any] | RunnableQueryNode | BaseModel,
+    team: Team,
+    timings: Optional[HogQLTimings] = None,
+    limit_context: Optional[LimitContext] = None,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> Optional["QueryRunner"]:
+    try:
+        return get_query_runner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
+        )
+    except ValueError as e:
+        if "Can't get a runner for an unknown" in str(e):
+            return None
+        raise e
+
+
 Q = TypeVar("Q", bound=RunnableQueryNode)
 # R (for Response) should have a structure similar to QueryResponse
 # Due to the way schema.py is generated, we don't have a good inheritance story here
@@ -316,9 +333,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return isinstance(data, self.query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
-        return (
-            hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
-            or (isinstance(data, dict) and "is_cached" in data)
+        return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
+            isinstance(data, dict) and "is_cached" in data
         )
 
     @abstractmethod
@@ -432,19 +448,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _refresh_frequency(self):
         raise NotImplementedError()
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> Q:
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        """Irreversably update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
-            raise NotImplementedError(
-                f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
+            capture_exception(
+                NotImplementedError(
+                    f"{self.query.__class__.__name__} does not support dashboard filters out of the box"
+                )
             )
+            return
 
         # The default logic below applies to all insights and a lot of other queries
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        query_update: dict[str, Any] = {}
         if dashboard_filter.properties:
             if self.query.properties:
                 try:
-                    query_update["properties"] = PropertyGroupFilter(
+                    self.query.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND,
                         values=[
                             PropertyGroupFilterValue(type=FilterLogicalOperator.AND, values=self.query.properties)
@@ -460,18 +479,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     capture_exception()
                     logger.exception("Failed to apply dashboard property filters")
             else:
-                query_update["properties"] = dashboard_filter.properties
+                self.query.properties = dashboard_filter.properties
         if dashboard_filter.date_from or dashboard_filter.date_to:
-            date_range_update = {}
-            if dashboard_filter.date_from:
-                date_range_update["date_from"] = dashboard_filter.date_from
-            if dashboard_filter.date_to:
-                date_range_update["date_to"] = dashboard_filter.date_to
-            if self.query.dateRange:
-                query_update["dateRange"] = self.query.dateRange.model_copy(update=date_range_update)
-            else:
-                query_update["dateRange"] = DateRange(**date_range_update)
-        return cast(Q, self.query.model_copy(update=query_update))  # Shallow copy!
+            if self.query.dateRange is None:
+                self.query.dateRange = DateRange()
+            self.query.dateRange.date_from = dashboard_filter.date_from
+            self.query.dateRange.date_to = dashboard_filter.date_to
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

@@ -44,6 +44,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
     get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
@@ -428,6 +429,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
+            TimeSensitiveActionPermission,
             *self.permission_classes,
         ]
 

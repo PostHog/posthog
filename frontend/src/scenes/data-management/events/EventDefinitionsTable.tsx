@@ -34,7 +34,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
-    const { hasDashboardCollaboration } = useValues(organizationLogic)
+    const { hasTagging } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -67,7 +67,7 @@ export function EventDefinitionsTable(): JSX.Element {
             },
             sorter: true,
         },
-        ...(hasDashboardCollaboration
+        ...(hasTagging
             ? [
                   {
                       title: 'Tags',
