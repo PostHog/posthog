@@ -98,7 +98,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         },
     )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
-        query_status = get_query_status(team_id=self.team.pk, query_id=pk)
+        query_status = get_query_status(
+            team_id=self.team.pk, query_id=pk, show_progress=request.query_params.get("showProgress", False)
+        )
 
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:

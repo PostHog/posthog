@@ -1,7 +1,8 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { connect, kea, path } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
+import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { userLogic } from 'scenes/userLogic'
 
 import type { changePasswordLogicType } from './changePasswordLogicType'
@@ -24,11 +25,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     (!values.user || values.user.has_password) && !current_password
                         ? 'Please enter your current password'
                         : undefined,
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
             }),
             submit: async ({ password, current_password }, breakpoint) => {
                 await breakpoint(150)
@@ -46,4 +43,12 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
             },
         },
     })),
+    selectors({
+        validatedPassword: [
+            (s) => [s.changePassword],
+            ({ password }): ValidatedPasswordResult => {
+                return validatePassword(password)
+            },
+        ],
+    }),
 ])

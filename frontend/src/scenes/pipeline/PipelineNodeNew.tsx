@@ -1,10 +1,10 @@
+import { IconPlusSmall } from '@posthog/icons'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -166,38 +166,26 @@ function NodeOptionsTable({
                 loading={loading}
                 columns={[
                     {
-                        title: 'Name',
-                        sticky: true,
-                        render: function RenderName(_, target) {
-                            return (
-                                <LemonTableLink
-                                    to={target.url}
-                                    target={target.backend == PipelineBackend.Plugin ? '_blank' : undefined}
-                                    title={
-                                        <>
-                                            <Tooltip
-                                                title={`Click to view ${
-                                                    target.backend == PipelineBackend.Plugin
-                                                        ? 'source code'
-                                                        : 'documentation'
-                                                }`}
-                                            >
-                                                <span>{target.name}</span>
-                                            </Tooltip>
-                                        </>
-                                    }
-                                    description={target.description}
-                                />
-                            )
-                        },
-                    },
-                    {
                         title: 'App',
+                        width: 0,
                         render: function RenderAppInfo(_, target) {
                             if (target.backend === PipelineBackend.Plugin) {
                                 return <RenderApp plugin={target.plugin} />
                             }
                             return <RenderBatchExportIcon type={target.id} />
+                        },
+                    },
+                    {
+                        title: 'Name',
+                        sticky: true,
+                        render: function RenderName(_, target) {
+                            return (
+                                <LemonTableLink
+                                    to={urls.pipelineNodeNew(stage, target.id)}
+                                    title={target.name}
+                                    description={target.description}
+                                />
+                            )
                         },
                     },
                     {
@@ -209,6 +197,7 @@ function NodeOptionsTable({
                                 <LemonButton
                                     type="primary"
                                     data-attr={`new-${stage}-${target.id}`}
+                                    icon={<IconPlusSmall />}
                                     to={urls.pipelineNodeNew(stage, target.id)}
                                 >
                                     Create

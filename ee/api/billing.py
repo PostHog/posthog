@@ -161,7 +161,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             if len(e.args) > 2:
                 detail_object = e.args[2]
-                if isinstance(detail_object, dict):
+                if not isinstance(detail_object, dict):
                     raise e
                 return Response(
                     {

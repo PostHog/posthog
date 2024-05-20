@@ -97,11 +97,7 @@ export const loginLogic = kea<loginLogicType>([
             defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
-                    : undefined,
+                password: !password ? 'Please enter your password to continue' : undefined,
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()

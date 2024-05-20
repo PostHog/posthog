@@ -38,8 +38,8 @@ export function FrontendApps(): JSX.Element {
                         size="small"
                         loading={loading}
                         columns={[
-                            nameColumn() as LemonTableColumn<SiteApp, any>,
                             appColumn() as LemonTableColumn<SiteApp, any>,
+                            nameColumn() as LemonTableColumn<SiteApp, any>,
                             updatedAtColumn() as LemonTableColumn<SiteApp, any>,
                             statusColumn() as LemonTableColumn<SiteApp, any>,
                             {

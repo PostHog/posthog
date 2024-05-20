@@ -164,12 +164,16 @@ class TestTeam(BaseTest):
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.person_id_override_properties_on_events
                 )
-                mock_feature_enabled.assert_not_called()
+                for args_list in mock_feature_enabled.call_args_list:
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
+                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.disabled)
-                mock_feature_enabled.assert_not_called()
+                for args_list in mock_feature_enabled.call_args_list:
+                    # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
+                    assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):
         # Can be removed once environments are fully rolled out

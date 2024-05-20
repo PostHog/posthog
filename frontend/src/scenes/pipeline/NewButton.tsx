@@ -1,3 +1,4 @@
+import { IconPlusSmall } from '@posthog/icons'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
@@ -16,7 +17,12 @@ export function NewButton({ stage }: NewButtonProps): JSX.Element {
         return <></>
     }
     return (
-        <LemonButton data-attr={`new-${stage}`} to={urls.pipelineNodeNew(stage)} type="primary">
+        <LemonButton
+            data-attr={`new-${stage}`}
+            to={urls.pipelineNodeNew(stage)}
+            type="primary"
+            icon={<IconPlusSmall />}
+        >
             New {stage}
         </LemonButton>
     )
