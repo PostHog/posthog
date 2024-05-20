@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
+from collections.abc import Callable
 from collections.abc import Generator
 from unittest.mock import patch
 
@@ -26,7 +27,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
 
-from posthog import rate_limit
+from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
@@ -84,7 +85,7 @@ from posthog.settings.utils import get_from_env, str_to_bool
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
-freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])  # type: ignore
+freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 
 persons_cache_tests: list[dict[str, Any]] = []
@@ -209,11 +210,11 @@ class PostHogTestCase(SimpleTestCase):
     CLASS_DATA_LEVEL_SETUP = True
 
     # Test data definition stubs
-    organization: Organization = None  # type: ignore
-    project: Project = None  # type: ignore
-    team: Team = None  # type: ignore
-    user: User = None  # type: ignore
-    organization_membership: OrganizationMembership = None  # type: ignore
+    organization: Organization = None
+    project: Project = None
+    team: Team = None
+    user: User = None
+    organization_membership: OrganizationMembership = None
 
     def _create_user(self, email: str, password: Optional[str] = None, first_name: str = "", **kwargs) -> User:
         return User.objects.create_and_join(self.organization, email, password, first_name, **kwargs)
@@ -244,6 +245,8 @@ class PostHogTestCase(SimpleTestCase):
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
+        # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
+        redis.get_client().flushdb()
         global persons_ordering_int
         persons_ordering_int = 0
         super().tearDown()
@@ -301,12 +304,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_test_increase_b,
             self.MEMORY_INCREASE_PER_PARSE_LIMIT_B,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse",
         )
-        self.assertLessEqual(  # type: ignore
+        self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
             f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
@@ -457,7 +460,7 @@ def also_test_with_materialized_columns(
                 materialize(
                     "events",
                     prop,
-                    table_column=f"group{group_type_index}_properties",  # type: ignore
+                    table_column=f"group{group_type_index}_properties",
                 )
 
             try:
@@ -471,7 +474,7 @@ def also_test_with_materialized_columns(
                     self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
-        frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+        frame_locals: Any = inspect.currentframe().f_back.f_locals
         frame_locals[f"{fn.__name__}_materialized"] = fn_with_materialized
 
         return fn
@@ -512,6 +515,22 @@ class QueryMatchingTest:
         query = re.sub(
             r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
             r"equals(\1\2, 2)",
+            query,
+        )
+
+        # replace survey uuids
+        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+        query = re.sub(
+            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+            query,
+        )
+
+        # replace session uuids
+        # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
+        query = re.sub(
+            r"in\(s\.session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+            r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
             query,
         )
 
@@ -558,6 +577,14 @@ class QueryMatchingTest:
             r"AND person_id = '00000000-0000-0000-0000-000000000000'",
             query,
             flags=re.IGNORECASE,
+        )
+
+        # HogQL person id in session recording queries
+        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+        query = re.sub(
+            r"ifNull\(equals\(([^.]+\.)?person_id, '[0-9a-f-]{36}'\), \d+\)",
+            r"ifNull(equals(\1person_id, '00000000-0000-0000-0000-000000000000'), 0)",
+            query,
         )
 
         query = re.sub(
@@ -627,6 +654,7 @@ def snapshot_postgres_queries_context(
     replace_all_numbers: bool = True,
     using: str = "default",
     capture_all_queries: bool = False,
+    custom_query_matcher: Optional[Callable] = None,
 ):
     """
     Captures and snapshots select queries from test using `syrupy` library.
@@ -659,9 +687,18 @@ def snapshot_postgres_queries_context(
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if capture_all_queries:
+        if custom_query_matcher:
+            if query and custom_query_matcher(query):
+                testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+        elif capture_all_queries:
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
-        elif query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        elif (
+            query
+            and "SELECT" in query
+            and "django_session" not in query
+            and not re.match(r"^\s*INSERT", query)
+            and 'FROM "posthog_instancesetting"' not in query
+        ):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -691,7 +728,7 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name  # type: ignore
+        return apps.get_containing_app_config(type(self).__module__).name
 
     migrate_from: str
     migrate_to: str
@@ -708,7 +745,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
-        executor.migrate(migrate_from)  # type: ignore
+        executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
 
@@ -719,7 +756,7 @@ class BaseTestMigrations(QueryMatchingTest):
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
-            executor.migrate(migrate_to)  # type: ignore
+            executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
 
@@ -1044,7 +1081,7 @@ def also_test_with_different_timezones(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
@@ -1057,7 +1094,7 @@ def also_test_with_person_on_events_v2(fn):
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
-    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals: Any = inspect.currentframe().f_back.f_locals
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn

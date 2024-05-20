@@ -2,7 +2,6 @@ from typing import Any
 
 from django.conf import settings
 from rest_framework import exceptions, filters, serializers, viewsets
-from rest_framework.exceptions import NotAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -12,7 +11,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.metadata import is_valid_view
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.models import User
 from posthog.warehouse.models import DataWarehouseSavedQuery
 
 
@@ -106,16 +104,5 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     search_fields = ["name"]
     ordering = "-created_at"
 
-    def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-            raise NotAuthenticated()
-
-        if self.action == "list":
-            return (
-                self.queryset.filter(team_id=self.team_id)
-                .exclude(deleted=True)
-                .prefetch_related("created_by")
-                .order_by(self.ordering)
-            )
-
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+    def safely_get_queryset(self, queryset):
+        return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)

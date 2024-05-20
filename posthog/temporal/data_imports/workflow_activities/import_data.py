@@ -18,7 +18,6 @@ from posthog.warehouse.models import (
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 import asyncio
-from django.conf import settings
 from django.utils import timezone
 
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema, aget_schema_by_id
@@ -116,7 +115,7 @@ async def import_data_activity(inputs: ImportDataActivityInputs) -> tuple[TSchem
             user=user,
             password=password,
             database=database,
-            sslmode="prefer" if settings.TEST or settings.DEBUG else "require",
+            sslmode="prefer",
             schema=pg_schema,
             table_names=endpoints,
         )

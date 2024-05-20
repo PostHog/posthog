@@ -286,11 +286,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
 class ClickhouseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = ExperimentSerializer
-    queryset = Experiment.objects.all()
+    queryset = Experiment.objects.prefetch_related("feature_flag", "created_by").all()
     ordering = "-created_at"
-
-    def get_queryset(self):
-        return super().get_queryset().prefetch_related("feature_flag", "created_by")
 
     # ******************************************
     # /projects/:id/experiments/:experiment_id/results

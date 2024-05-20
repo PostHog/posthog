@@ -1,8 +1,8 @@
-import hashlib
 import json
 import re
 import structlog
 import time
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from dateutil import parser
 from django.conf import settings
@@ -19,7 +19,6 @@ from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional
-from collections.abc import Iterator
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -61,6 +60,12 @@ LOG_RATE_LIMITER = Limiter(
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_RECORDING_DEDICATED_KAFKA_EVENTS)
+
+# TODO we should eventually be able to remove the code path this is counting
+LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER = Counter(
+    "capture_legacy_snapshot_events_received_total",
+    "Legacy snapshot events received by capture, we should receive zero of these.",
+)
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -155,6 +160,7 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
 
     match event_name:
         case "$snapshot":
+            LEGACY_SNAPSHOT_EVENTS_RECEIVED_COUNTER.inc()
             return KAFKA_SESSION_RECORDING_EVENTS
         case "$snapshot_items":
             if overflowing:
@@ -404,6 +410,14 @@ def get_event(request):
         else:
             events = [data]
 
+        if not all(data):  # Check that all items are truthy (not null, not empty dict)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
+                ),
+            )
+
         try:
             events = drop_performance_events(events)
         except Exception as e:
@@ -625,11 +639,7 @@ def capture_internal(
     ):
         kafka_partition_key = None
     else:
-        if settings.CAPTURE_SKIP_KEY_HASHING:
-            kafka_partition_key = candidate_partition_key
-        else:
-            # TODO: remove after progressive rollout of the option
-            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+        kafka_partition_key = candidate_partition_key
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
 

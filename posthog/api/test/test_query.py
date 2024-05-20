@@ -14,9 +14,9 @@ from posthog.schema import (
     EventsQuery,
     HogQLPropertyFilter,
     HogQLQuery,
-    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
+    CachedHogQLQueryResponse,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -351,7 +351,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    @patch("sqlparse.format", return_value="SELECT 1&&&")  # Erroneously constructed SQL
+    @patch(
+        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
+    )  # Erroneously constructed SQL
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
@@ -554,11 +556,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            query.response = HogQLQueryResponse.model_validate(api_response)
+            response = CachedHogQLQueryResponse.model_validate(api_response)
 
-            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(response.results and len(response.results), 4)
             self.assertEqual(
-                query.response.results,
+                response.results,
                 [
                     ["sign up", "2", "test_val1"],
                     ["sign out", "2", "test_val2"],
@@ -782,12 +784,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             query = HogQLQuery(query="select * from event_view")
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()})
-            query.response = HogQLQueryResponse.model_validate(api_response.json())
+            response = CachedHogQLQueryResponse.model_validate(api_response.json())
 
             self.assertEqual(api_response.status_code, 200)
-            self.assertEqual(query.response.results and len(query.response.results), 4)
+            self.assertEqual(response.results and len(response.results), 4)
             self.assertEqual(
-                query.response.results,
+                response.results,
                 [
                     ["sign up", "2", "test_val1"],
                     ["sign out", "2", "test_val2"],
@@ -841,6 +843,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "start_time": "2020-01-10T12:14:00Z",
                     "task_id": mock.ANY,
                     "team_id": mock.ANY,
+                    "query_progress": None,
                 },
             )
 
@@ -867,6 +870,44 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response.get("results", [])[0][0], 20)
+
+    def test_dashboard_filters_applied(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        with freeze_time("2020-01-07 12:00:00"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        with freeze_time("2020-01-10 15:00:00"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 19:00:00"):
+            response_without_dashboard_filters = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": "select count() from events where {filters}",
+                },
+            )
+            response_with_dashboard_filters = process_query(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": "select count() from events where {filters}",
+                },
+                dashboard_filters_json={"date_from": "2020-01-09", "date_to": "2020-01-11"},
+            )
+
+        self.assertEqual(response_without_dashboard_filters.get("results", []), [(2,)])
+        self.assertEqual(response_with_dashboard_filters.get("results", []), [(1,)])
 
 
 class TestQueryRetrieve(APIBaseTest):
@@ -963,4 +1004,4 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 204)
-        self.redis_client_mock.delete.assert_called_once()
+        self.assertEqual(self.redis_client_mock.delete.call_count, 2)

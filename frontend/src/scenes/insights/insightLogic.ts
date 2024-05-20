@@ -52,7 +52,7 @@ import {
 import { teamLogic } from '../teamLogic'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
-import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
+import { extractObjectDiffKeys, getInsightId } from './utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
@@ -145,7 +145,8 @@ export const insightLogic = kea<insightLogicType>([
                     values.currentTeam?.test_account_filters_default_checked || false
                 ),
             {
-                loadInsight: async ({ shortId }) => {
+                loadInsight: async ({ shortId }, breakpoint) => {
+                    await breakpoint(100)
                     const response = await api.insights.loadInsight(shortId)
                     if (response?.results?.[0]) {
                         return response.results[0]
@@ -710,19 +711,7 @@ export const insightLogic = kea<insightLogicType>([
                 return
             }
 
-            const insight = findInsightFromMountedLogic(
-                props.dashboardItemId as string | InsightShortId,
-                props.dashboardId
-            )
-            if (insight) {
-                actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
-                if (insight?.result) {
-                    actions.reportInsightViewed(insight, insight.filters || {})
-                }
-                return
-            }
-
-            if (!props.doNotLoad) {
+            if (!props.doNotLoad && !props.cachedInsight) {
                 actions.loadInsight(props.dashboardItemId as InsightShortId)
             }
         },

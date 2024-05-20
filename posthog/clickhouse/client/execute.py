@@ -107,14 +107,14 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as err:
-            err = wrap_query_error(err)
+        except Exception as e:
+            err = wrap_query_error(e)
             statsd.incr(
                 "clickhouse_sync_execution_failure",
                 tags={"failed": True, "reason": type(err).__name__},
             )
 
-            raise err
+            raise err from e
         finally:
             execution_time = perf_counter() - start_time
 
@@ -202,7 +202,11 @@ def _prepare_query(
         rendered_sql = substitute_params(query, args)
         prepared_args = None
 
-    formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    if "--" in rendered_sql or "/*" in rendered_sql:
+        # This can take a very long time with e.g. large funnel queries
+        formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
+    else:
+        formatted_sql = rendered_sql
     annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 
     if app_settings.SHELL_PLUS_PRINT_SQL:

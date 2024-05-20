@@ -4,6 +4,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+// FIXME: Importing a .test.ts file causes all tests within it to be ran again as part of THIS file
 import { boxToString, dashboardResult, insightOnDashboard, tileFromInsight } from 'scenes/dashboard/dashboardLogic.test'
 
 import { useMocks } from '~/mocks/jest'
@@ -131,20 +132,20 @@ describe('dashboardLogic query cancellation', () => {
             setTimeout(() => {
                 // this change of filters will dispatch cancellation on the first query
                 // will run while the -180d query is still running
-                logic.actions.setDates('-90d', null)
+                logic.actions.setFilters({ date_from: '-90d' })
             }, 200)
             // dispatches an artificially slow data request
             // takes 3000 milliseconds to return
-            logic.actions.setDates('-180d', null)
+            logic.actions.setFilters({ date_from: '-180d' })
 
             await expectLogic(logic)
                 .toDispatchActions([
-                    'setDates',
+                    'setFilters',
                     'updateFilters',
                     'abortAnyRunningQuery',
                     'refreshAllDashboardItems',
                     'abortAnyRunningQuery',
-                    'setDates',
+                    'setFilters',
                     'updateFilters',
                     'abortAnyRunningQuery',
                     'abortQuery',

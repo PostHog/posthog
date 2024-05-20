@@ -442,11 +442,11 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
             },
-            cachedResults: { some: 'results' },
+            cachedResults: { result: [1, 2, 3] },
         })
         logic.mount()
         expect(query).toHaveBeenCalledTimes(0)
 
-        await expectLogic(logic).toMatchValues({ response: { some: 'results' } })
+        await expectLogic(logic).toMatchValues({ response: { result: [1, 2, 3] } })
     })
 })

@@ -7,7 +7,7 @@ from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError
+from django.db import DatabaseError, IntegrityError, DataError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
@@ -623,7 +623,7 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
-            group_key = self.groups.get(group_type_name)  # type: ignore
+            group_key = self.groups.get(group_type_name)
             return group_key
 
     # This function takes a identifier and a feature flag key and returns a float between 0 and 1.
@@ -822,7 +822,7 @@ def get_all_feature_flags(
                     """
                     cursor.execute(
                         query,
-                        {"team_id": team_id, "distinct_ids": distinct_ids},  # type: ignore
+                        {"team_id": team_id, "distinct_ids": distinct_ids},
                     )
                     flags_with_no_overrides = [row[0] for row in cursor.fetchall()]
                     should_write_hash_key_override = len(flags_with_no_overrides) > 0
@@ -953,7 +953,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
                     query,
                     {
                         "team_id": team_id,
-                        "distinct_ids": distinct_ids,  # type: ignore
+                        "distinct_ids": distinct_ids,
                         "hash_key_override": hash_key_override,
                     },
                 )
@@ -981,7 +981,9 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     if reason == "unknown":
         capture_exception(err)
 
-    if isinstance(err, DatabaseError) and set_healthcheck:
+    # DataErrors are generally not because the db is down, but because of bad data.
+    # We don't want to set the healthcheck down for bad data.
+    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
         postgres_healthcheck.set_connection(False)
 
 
@@ -1061,3 +1063,46 @@ def check_pure_is_not_operator_condition(condition: dict) -> bool:
     if properties and all(prop.get("operator") in ("is_not_set", "is_not") for prop in properties):
         return True
     return False
+
+
+def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int) -> bool:
+    # TRICKY: There are some cases where the regex is valid re2 syntax, but postgresql doesn't like it.
+    # This function tries to validate such cases. See `test_cant_create_flag_with_data_that_fails_to_query` for an example.
+    # It however doesn't catch all cases, like when the property doesn't exist on any person, which shortcircuits regex evaluation
+    # so it's not a guarantee that the query will work.
+
+    # This is a very rough simulation of the actual query that will be run.
+    # Only reason we do it this way is to catch any DB level errors that will bork at runtime
+    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # We also randomly query for 20 people sans distinct id to make sure the query is valid.
+
+    # TODO: Once we move to no DB level evaluation, can get rid of this.
+
+    group_type_index = feature_flag.aggregation_group_type_index
+
+    base_query: QuerySet = (
+        Person.objects.filter(team_id=team_id)
+        if group_type_index is None
+        else Group.objects.filter(team_id=team_id, group_type_index=group_type_index)
+    )
+    query_fields = []
+
+    for index, condition in enumerate(feature_flag.conditions):
+        key = f"flag_0_condition_{index}"
+        property_list = Filter(data=condition).property_groups.flat
+        expr = properties_to_Q(
+            team_id,
+            property_list,
+        )
+        base_query = base_query.annotate(
+            **{
+                key: ExpressionWrapper(
+                    expr if expr else RawSQL("true", []),
+                    output_field=BooleanField(),
+                ),
+            }
+        )
+        query_fields.append(key)
+
+    values = base_query.values(*query_fields)[:10]
+    return len(values) > 0

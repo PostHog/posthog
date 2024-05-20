@@ -109,12 +109,11 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                                 // Node already exists, we just add a comment
                                 theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
                                 return
-                            } else {
-                                theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                                    timestamp: time,
-                                    sessionRecordingId,
-                                })
                             }
+                            theNotebookLogic.actions.insertReplayCommentByTimestamp({
+                                timestamp: time,
+                                sessionRecordingId,
+                            })
 
                             closeSessionPlayer()
                             personsModalLogic.findMounted()?.actions.closeModal()

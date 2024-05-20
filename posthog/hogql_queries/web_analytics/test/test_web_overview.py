@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 from parameterized import parameterized
@@ -7,6 +7,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_legacy import LegacyWebOverviewQueryRunner
 from posthog.schema import WebOverviewQuery, DateRange
 from posthog.test.base import (
     APIBaseTest,
@@ -55,7 +56,12 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compare=compare,
             useSessionsTable=use_sessions_table,
         )
-        runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
+        if use_sessions_table:
+            runner: Union[WebOverviewQueryRunner, LegacyWebOverviewQueryRunner] = WebOverviewQueryRunner(
+                team=self.team, query=query, limit_context=limit_context
+            )
+        else:
+            runner = LegacyWebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
     @parameterized.expand([(True,), (False,)])

@@ -29,7 +29,7 @@ export function FunnelLineGraph({
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const {
-        hogQLInsightsFunnelsFlagEnabled,
+        isHogQLInsight,
         indexedSteps,
         aggregationTargetLabel,
         incompletenessOffsetFromEnd,
@@ -89,7 +89,7 @@ export function FunnelLineGraph({
                                   aggregationTargetLabel.plural
                               )} converted on ${dayjs(label).format('MMMM Do YYYY')}`
 
-                              if (hogQLInsightsFunnelsFlagEnabled) {
+                              if (isHogQLInsight) {
                                   const query: FunnelsActorsQuery = {
                                       kind: NodeKind.FunnelsActorsQuery,
                                       source: querySource,

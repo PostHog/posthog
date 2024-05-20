@@ -19,14 +19,13 @@ import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, CohortType, ProductKey } from '~/types'
+import { CohortType, ProductKey } from '~/types'
 
 import { cohortsModel } from '../../models/cohortsModel'
 
 export function Cohorts(): JSX.Element {
     const { cohorts, cohortsSearch, cohortsLoading } = useValues(cohortsModel)
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
     const { user } = useValues(userLogic)
@@ -49,9 +48,7 @@ export function Cohorts(): JSX.Element {
                         <LemonTableLink
                             to={combineUrl(urls.cohort(id), searchParams).url}
                             title={name ? <>{name}</> : 'Untitled'}
-                            description={
-                                hasAvailableFeature(AvailableFeature.TEAM_COLLABORATION) ? description : undefined
-                            }
+                            description={description}
                         />
                     </>
                 )

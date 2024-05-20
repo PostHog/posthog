@@ -1,21 +1,25 @@
 import datetime
-import json
+
+import orjson as json
+import math
 from functools import partial
 from typing import Optional
 import uuid
 
+import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from rest_framework.exceptions import NotFound
 from django.db import transaction
 
 from posthog import celery, redis
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
-from posthog.schema import QueryStatus
+from posthog.schema import QueryStatus, ClickhouseQueryStatus
 from posthog.tasks.tasks import process_query_task
 
 logger = structlog.get_logger(__name__)
@@ -45,9 +49,17 @@ class QueryStatusManager:
     def results_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
 
+    @property
+    def clickhouse_query_status_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
     def store_query_status(self, query_status: QueryStatus):
-        value = SafeJSONRenderer().render(query_status.model_dump())
+        value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
         self.redis_client.set(self.results_key, value, ex=self.STATUS_TTL_SECONDS)
+
+    def store_clickhouse_query_status(self, query_statuses):
+        value = json.dumps(query_statuses)
+        self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
     def _get_results(self):
         try:
@@ -57,20 +69,86 @@ class QueryStatusManager:
 
         return byte_results
 
+    def _get_clickhouse_query_status(self):
+        try:
+            byte_results = self.redis_client.get(self.clickhouse_query_status_key)
+        except Exception:
+            # Don't fail because of progress checking
+            return {}
+
+        return json.loads(byte_results) if byte_results is not None else {}
+
     def has_results(self):
         return self._get_results() is not None
 
-    def get_query_status(self) -> QueryStatus:
+    def get_query_status(self, show_progress=False) -> QueryStatus:
         byte_results = self._get_results()
 
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        return QueryStatus(**json.loads(byte_results))
+        query_status = QueryStatus(**json.loads(byte_results))
+
+        if show_progress and not query_status.complete:
+            CLICKHOUSE_SQL = """
+            SELECT
+                query_id,
+                initial_query_id,
+                read_rows,
+                read_bytes,
+                total_rows_approx,
+                elapsed,
+                ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
+            FROM clusterAllReplicas(posthog, system.processes)
+            WHERE query_id like %(query_id)s
+            """
+
+            clickhouse_query_progress_dict = self._get_clickhouse_query_status()
+            try:
+                results, types = sync_execute(
+                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+                )
+
+                noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
+
+                new_clickhouse_query_progress = {
+                    result[0]: {
+                        "bytes_read": noNaNInt(result[3]),
+                        "rows_read": noNaNInt(result[2]),
+                        "estimated_rows_total": noNaNInt(result[4]),
+                        "time_elapsed": noNaNInt(result[5]),
+                        "active_cpu_time": noNaNInt(result[6]),
+                    }
+                    for result in results
+                }
+                clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
+                self.store_clickhouse_query_status(clickhouse_query_progress_dict)
+
+                query_progress = {
+                    "bytes_read": 0,
+                    "rows_read": 0,
+                    "estimated_rows_total": 0,
+                    "time_elapsed": 0,
+                    "active_cpu_time": 0,
+                }
+                for single_query_progress in clickhouse_query_progress_dict.values():
+                    query_progress["bytes_read"] += single_query_progress["bytes_read"]
+                    query_progress["rows_read"] += single_query_progress["rows_read"]
+                    query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
+                    query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
+                    query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
+                query_status.query_progress = ClickhouseQueryStatus(**query_progress)
+
+            except Exception as e:
+                logger.error("Clickhouse Status Check Failed", e)
+                pass
+
+        return query_status
 
     def delete_query_status(self):
         logger.info("Deleting redis query key %s", self.results_key)
         self.redis_client.delete(self.results_key)
+        self.redis_client.delete(self.clickhouse_query_status_key)
 
 
 def execute_process_query(
@@ -85,8 +163,13 @@ def execute_process_query(
 
     from posthog.api.services.query import process_query, ExecutionMode
     from posthog.models import Team
+    from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
+    user = User.objects.get(pk=user_id)
+
+    sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
+    sentry_sdk.set_tag("team_id", team_id)
 
     query_status = manager.get_query_status()
 
@@ -194,12 +277,12 @@ def enqueue_process_query_task(
     return query_status
 
 
-def get_query_status(team_id, query_id) -> QueryStatus:
+def get_query_status(team_id, query_id, show_progress=False) -> QueryStatus:
     """
     Abstracts away the manager for any caller and returns a QueryStatus object
     """
     manager = QueryStatusManager(query_id, team_id)
-    return manager.get_query_status()
+    return manager.get_query_status(show_progress=show_progress)
 
 
 def cancel_query(team_id, query_id):

@@ -129,13 +129,19 @@ describe('Experiments', () => {
         cy.get('[data-attr="launch-experiment"]').first().click()
 
         cy.get('[data-attr="move-experiment-start-date"]').first().click()
-        cy.get('[data-attr="experiment-start-date-picker"]').clear().type('2020-01-01 00:00:00')
-        cy.get('.ant-picker-dropdown').contains('Ok').first().click()
-        cy.get('[data-attr="experiment-start-date"]').contains('years ago').should('be.visible')
+        cy.get('[data-attr="experiment-start-date-picker"]').should('exist')
+        cy.get('[data-attr="lemon-calendar-month-previous"]').first().click()
+        cy.get('[data-attr="lemon-calendar-day"]').first().click()
+        cy.get('[data-attr="lemon-calendar-select-apply"]').first().click()
+        cy.get('[data-attr="experiment-start-date"]')
+            .contains(/months? ago/)
+            .should('be.visible')
 
         cy.reload()
 
         // Check that the start date persists
-        cy.get('[data-attr="experiment-start-date"]').contains('years ago').should('be.visible')
+        cy.get('[data-attr="experiment-start-date"]')
+            .contains(/months? ago/)
+            .should('be.visible')
     })
 })

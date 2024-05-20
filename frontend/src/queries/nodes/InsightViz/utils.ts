@@ -89,11 +89,13 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLegend
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showLegend
     }
     return undefined
 }
 
-export const getShowValueOnSeries = (query: InsightQueryNode): boolean | undefined => {
+export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showValuesOnSeries
     } else if (isStickinessQuery(query)) {
