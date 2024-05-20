@@ -253,7 +253,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ERRORED,
+                    status=ProxyRecord.Status.ERRORING,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=60),
                 retry_policy=temporalio.common.RetryPolicy(
