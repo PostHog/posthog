@@ -9,7 +9,7 @@ import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React from 'react'
+import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
@@ -55,10 +55,13 @@ export function PlanIcon({
     )
 }
 
-const getProductTiers = (
-    plan: BillingV2PlanType,
+const PricingTiers = ({
+    plan,
+    product,
+}: {
+    plan: BillingV2PlanType
     product: BillingProductV2Type | BillingProductV2AddonType
-): JSX.Element => {
+}): JSX.Element => {
     const { width, ref: tiersRef } = useResizeObserver()
     const tiers = plan?.tiers
 
@@ -262,7 +265,9 @@ export const PlanComparison = ({
                             <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
                         </th>
                         {plans?.map((plan) => (
-                            <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
+                            <td key={`${plan.plan_key}-tiers-td`}>
+                                <PricingTiers plan={plan} product={product} />
+                            </td>
                         ))}
                     </tr>
                 )}
@@ -299,14 +304,16 @@ export const PlanComparison = ({
                                             </td>
                                         ) : (
                                             <td key={`${addon.type}-tiers-td`}>
-                                                {getProductTiers(addon.plans?.[0], addon)}
+                                                <AddonPlanTiers plan={addon.plans?.[0]} addon={addon} />
                                             </td>
                                         )
                                     ) : plan.free_allocation && !plan.tiers ? (
-                                        <td key={`${addon.name}-free-tiers-td`}>{getProductTiers(plan, product)}</td>
+                                        <td key={`${addon.name}-free-tiers-td`}>
+                                            <PricingTiers plan={plan} product={product} />
+                                        </td>
                                     ) : (
                                         <td key={`${addon.type}-tiers-td`}>
-                                            {getProductTiers(addon.plans?.[i], addon)}
+                                            <AddonPlanTiers plan={addon.plans?.[i]} addon={addon} />
                                         </td>
                                     )
                                 })}
@@ -481,5 +488,40 @@ export const PlanComparisonModal = ({
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+const AddonPlanTiers = ({
+    plan,
+    addon,
+}: {
+    plan: BillingV2PlanType
+    addon: BillingProductV2AddonType
+}): JSX.Element => {
+    const [showTiers, setShowTiers] = useState(false)
+
+    return showTiers ? (
+        <>
+            <PricingTiers plan={plan} product={addon} />
+            <p className="mb-0">
+                <Link onClick={() => setShowTiers(false)} className="text-xs">
+                    Hide volume discounts
+                </Link>
+            </p>
+        </>
+    ) : (
+        <>
+            <p className="mb-1">
+                <b>
+                    First {convertLargeNumberToWords(plan?.tiers?.[0].up_to || 0, null)} {addon.unit}s free
+                </b>
+                , then just ${plan?.tiers?.[1].unit_amount_usd}.
+            </p>
+            <p className="mb-0">
+                <Link onClick={() => setShowTiers(true)} className="text-xs">
+                    Show volume discounts
+                </Link>
+            </p>
+        </>
     )
 }
