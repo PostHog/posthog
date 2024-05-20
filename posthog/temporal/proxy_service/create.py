@@ -3,6 +3,8 @@ import datetime as dt
 import grpc.aio
 import dns.resolver
 import uuid
+from django.conf import settings
+
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -50,7 +52,7 @@ class WaitForCertificateInputs:
 
 
 async def get_grpc_client():
-    channel = grpc.aio.insecure_channel("localhost:8000")
+    channel = grpc.aio.insecure_channel(settings.PROXY_PROVISIONER_ADDR)
     await channel.channel_ready()
     return ProxyProvisionerServiceStub(channel)
 
