@@ -153,7 +153,7 @@ def generate_random_token_project() -> str:
 
 
 def generate_random_token_personal() -> str:
-    return "phx_" + generate_random_token()  # "x" standing for nothing in particular
+    return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
 
 
 def int_to_base(number: int, base: int) -> str:
