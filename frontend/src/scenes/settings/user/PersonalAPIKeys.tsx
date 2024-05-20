@@ -340,6 +340,12 @@ function PersonalAPIKeysTable(): JSX.Element {
                     },
                 },
                 {
+                    title: 'Key',
+                    dataIndex: 'mask_value',
+                    key: 'mask_value',
+                    render: (_, key) => key.mask_value,
+                },
+                {
                     title: 'Scopes',
                     key: 'scopes',
                     dataIndex: 'scopes',
