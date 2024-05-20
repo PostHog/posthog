@@ -27,6 +27,8 @@ class BackfillQuery:
     end_date: datetime
     use_offline_workload: bool
     team_id: Optional[int]
+    use_str_uuid: bool
+    table_name: str
 
     def execute(
         self,
@@ -45,6 +47,7 @@ class BackfillQuery:
         )
 
         current_url_property = source_column("$current_url")
+        referrer_property = source_column("$referrer")
         referring_domain_property = source_column("$referring_domain")
         utm_source_property = source_column("utm_source")
         utm_campaign_property = source_column("utm_campaign")
@@ -64,21 +67,33 @@ class BackfillQuery:
         mc_cid_property = source_column("mc_cid")
         igshid_property = source_column("igshid")
         ttclid_property = source_column("ttclid")
+        browser_property = source_column("$browser")
+        device_type_property = source_column("$device_type")
+        os_property = source_column("$os")
+        geoip_country_code_property = source_column("$geoip_country_code")
+        geoip_subdivision_1_code_property = source_column("$geoip_subdivision_1_code")
+        geoip_subdivision_1_name_property = source_column("$geoip_subdivision_1_name")
+        geoip_city_name_property = source_column("$geoip_city_name")
 
         def select_query(select_date: Optional[datetime] = None, team_id = None) -> str:
             if select_date:
-                where = f"toStartOfDay(timestamp) = '{select_date.strftime('%Y-%m-%d')}'"
+                date_where = f"toStartOfDay(timestamp) = '{select_date.strftime('%Y-%m-%d')}'"
             else:
-                where = "true"
+                date_where = "true"
 
             if team_id is not None:
                 team_where = f"team_id = {team_id}"
             else:
                 team_where = "true"
 
+            if self.use_str_uuid:
+                session_id = "`$session_id` as session_id"
+            else:
+                session_id = "toUInt128(toUUID(`$session_id`)) as session_id_v7"
+
             return f"""
 SELECT
-    `$session_id` as session_id,
+    {session_id},
     team_id,
 
     distinct_id,
@@ -90,32 +105,46 @@ SELECT
     initializeAggregation('argMinState', {current_url_property}, timestamp) as entry_url,
     initializeAggregation('argMaxState', {current_url_property}, timestamp) as exit_url,
 
-    initializeAggregation('argMinState', {referring_domain_property}, timestamp) as initial_referring_domain,
-    initializeAggregation('argMinState', {utm_source_property}, timestamp) as initial_utm_source,
-    initializeAggregation('argMinState', {utm_campaign_property}, timestamp) as initial_utm_campaign,
-    initializeAggregation('argMinState', {utm_medium_property}, timestamp) as initial_utm_medium,
-    initializeAggregation('argMinState', {utm_term_property}, timestamp) as initial_utm_term,
-    initializeAggregation('argMinState', {utm_content_property}, timestamp) as initial_utm_content,
-    initializeAggregation('argMinState', {gclid_property}, timestamp) as initial_gclid,
-    initializeAggregation('argMinState', {gad_source_property}, timestamp) as initial_gad_source,
-    initializeAggregation('argMinState', {gclsrc_property}, timestamp) as initial_gclsrc,
-    initializeAggregation('argMinState', {dclid_property}, timestamp) as initial_dclid,
-    initializeAggregation('argMinState', {gbraid_property}, timestamp) as initial_gbraid,
-    initializeAggregation('argMinState', {wbraid_property}, timestamp) as initial_wbraid,
-    initializeAggregation('argMinState', {fbclid_property}, timestamp) as initial_fbclid,
-    initializeAggregation('argMinState', {msclkid_property}, timestamp) as initial_msclkid,
-    initializeAggregation('argMinState', {twclid_property}, timestamp) as initial_twclid,
-    initializeAggregation('argMinState', {li_fat_id_property}, timestamp) as initial_li_fat_id,
-    initializeAggregation('argMinState', {mc_cid_property}, timestamp) as initial_mc_cid,
-    initializeAggregation('argMinState', {igshid_property}, timestamp) as initial_igshid,
-    initializeAggregation('argMinState', {ttclid_property}, timestamp) as initial_ttclid,
+    initializeAggregation('argMinState', {referrer_property}, timestamp) as referrer,
+    initializeAggregation('argMinState', {referring_domain_property}, timestamp) as referring_domain,
+    initializeAggregation('argMinState', {utm_source_property}, timestamp) as utm_source,
+    initializeAggregation('argMinState', {utm_campaign_property}, timestamp) as utm_campaign,
+    initializeAggregation('argMinState', {utm_medium_property}, timestamp) as utm_medium,
+    initializeAggregation('argMinState', {utm_term_property}, timestamp) as utm_term,
+    initializeAggregation('argMinState', {utm_content_property}, timestamp) as utm_content,
+    initializeAggregation('argMinState', {gclid_property}, timestamp) as gclid,
+    initializeAggregation('argMinState', {gad_source_property}, timestamp) as gad_source,
+    initializeAggregation('argMinState', {gclsrc_property}, timestamp) as gclsrc,
+    initializeAggregation('argMinState', {dclid_property}, timestamp) as dclid,
+    initializeAggregation('argMinState', {gbraid_property}, timestamp) as gbraid,
+    initializeAggregation('argMinState', {wbraid_property}, timestamp) as wbraid,
+    initializeAggregation('argMinState', {fbclid_property}, timestamp) as fbclid,
+    initializeAggregation('argMinState', {msclkid_property}, timestamp) as msclkid,
+    initializeAggregation('argMinState', {twclid_property}, timestamp) as twclid,
+    initializeAggregation('argMinState', {li_fat_id_property}, timestamp) as li_fat_id,
+    initializeAggregation('argMinState', {mc_cid_property}, timestamp) as mc_cid,
+    initializeAggregation('argMinState', {igshid_property}, timestamp) as igshid,
+    initializeAggregation('argMinState', {ttclid_property}, timestamp) as ttclid,
+    
+    initializeAggregation('argMinState', {browser_property}, timestamp) as browser,
+    initializeAggregation('argMinState', {device_type_property}, timestamp) as device_type,
+    initializeAggregation('argMinState', {os_property}, timestamp) as os,
+    initializeAggregation('argMinState', {geoip_country_code_property}, timestamp) as geoip_country_code,
+    initializeAggregation('argMinState', {geoip_subdivision_1_code_property}, timestamp) as geoip_subdivision_1_code,
+    initializeAggregation('argMinState', {geoip_subdivision_1_name_property}, timestamp) as geoip_subdivision_1_name,
+    initializeAggregation('argMinState', {geoip_city_name_property}, timestamp) as geoip_city_name,
 
     CAST(([event], [1]), 'Map(String, UInt64)') as event_count_map,
     if(event='$pageview', 1, NULL) as pageview_count,
     if(event='$autocapture', 1, NULL) as autocapture_count
 
 FROM events
-WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where} AND {team_where}
+WHERE and(
+    accurateCastOrNull(events.`$session_id`, 'UUID') IS NOT NULL, -- is uuid
+    substring(toString(accurateCastOrNull(events.`$session_id`, 'UUID')), 15, 1) = '7', -- is uuidv7
+    {date_where},
+    {team_where}
+)
         """
 
         # print the count of entries in the main sessions table
@@ -131,10 +160,10 @@ WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND {where} AND {team_wh
             logger.info(f"The first select query would be:\n{select_query(self.start_date)}")
             return
 
-        for i in range(num_days):
+        for i in reversed(range(num_days)):
             date = self.start_date + timedelta(days=i)
             logging.info("Writing the sessions for day %s", date.strftime("%Y-%m-%d"))
-            insert_query = f"""INSERT INTO writable_sessions {select_query(select_date=date)} SETTINGS max_execution_time=3600"""
+            insert_query = f"""INSERT INTO {self.table_name} {select_query(select_date=date)} SETTINGS max_execution_time=3600"""
             sync_execute(
                 query=insert_query,
                 workload=Workload.OFFLINE if self.use_offline_workload else Workload.DEFAULT,
@@ -170,6 +199,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--team-id", type=int, help="Team id (will do all teams if not set)"
         )
+        parser.add_argument(
+            "--table-name", type=int, help="Table name (default is raw_sessions)", default="raw_sessions"
+        )
+        parser.add_argument(
+            "--use-str-uuid", action="store_true", help="Use string session id rather than uuidv7"
+        )
 
     def handle(
         self,
@@ -180,6 +215,8 @@ class Command(BaseCommand):
         use_offline_workload: bool,
         print_counts: bool,
         team_id: Optional[int],
+            table_name: str,
+            use_str_uuid: bool,
         **options,
     ):
         logger.setLevel(logging.INFO)
