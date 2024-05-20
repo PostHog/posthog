@@ -36,7 +36,8 @@ def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[i
 
 
 def mask_key_value(value: str) -> str:
-    return f"{value[:3]}...{value[-4:]}"
+    """Turn 'phx_123456abcd' into 'phx_...abcd'."""
+    return f"{value[:4]}...{value[-4:]}"
 
 
 class PersonalAPIKey(models.Model):
