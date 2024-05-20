@@ -157,7 +157,7 @@ class SessionRecordingListFromFilters:
                 )
             )
 
-        if self._filter.entities:
+        if self._filter.entities or self._has_poe_query():
             events_sub_query = EventsSubQuery(self._team, self._filter, self.ttl_days).get_query()
             exprs.append(
                 ast.CompareOperation(
@@ -177,7 +177,8 @@ class SessionRecordingListFromFilters:
                 groups_to_use = PropertyGroup(
                     type=PropertyOperatorType.AND, values=[g for g in groups_to_use.flat if g.type != "person"]
                 )
-            exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
+            if (len(groups_to_use.flat)) > 0:
+                exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
 
         if self._filter.person_uuid:
             exprs.append(
@@ -248,6 +249,13 @@ class SessionRecordingListFromFilters:
             )
 
         return ast.And(exprs=exprs) if exprs else Constant(value=True)
+
+    def _has_poe_query(self) -> bool:
+        has_person_property_filters = len([g for g in self._filter.property_groups.flat if g.type == "person"]) > 0
+        in_supported_poe_mode = (
+            self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events
+        )
+        return in_supported_poe_mode and has_person_property_filters
 
 
 class EventsSubQuery:
