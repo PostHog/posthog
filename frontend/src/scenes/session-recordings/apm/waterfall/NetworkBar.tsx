@@ -17,9 +17,9 @@ export function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | 
     const positionPercentages = positionPercentagesFor(item)
 
     return (
-        <Tooltip title={<TimeLineView performanceEvent={item} />}>
+        <Tooltip delayMs={0} title={<TimeLineView performanceEvent={item} />}>
             <div
-                className="relative h-5"
+                className="relative h-5 cursor-pointer"
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     backgroundColor: initiatorTypeToColor[item.initiator_type || 'other'] ?? 'red',
