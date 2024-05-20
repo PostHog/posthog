@@ -173,8 +173,6 @@ CLICKHOUSE_TABLES = [
     "sharded_session_replay_events",
     "log_entries",
 ]
-if not is_cloud():
-    CLICKHOUSE_TABLES.append("session_recording_events")
 
 
 @shared_task(ignore_result=True)
@@ -546,6 +544,13 @@ def process_scheduled_changes() -> None:
     from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
     process_scheduled_changes()
+
+
+@shared_task(ignore_result=True)
+def validate_proxy_domains() -> None:
+    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
+
+    validate_proxy_domains()
 
 
 @shared_task(ignore_result=True)

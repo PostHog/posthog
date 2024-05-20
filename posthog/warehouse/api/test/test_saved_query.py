@@ -16,7 +16,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
         self.assertEqual(saved_query["name"], "event_view")
-        self.assertEqual(saved_query["columns"], [{"key": "event", "type": "string"}])
+        self.assertEqual(saved_query["columns"], [{"key": "event", "type": "string", "schema_valid": True}])
 
     def test_create_name_overlap_error(self):
         response = self.client.post(
@@ -70,7 +70,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(saved_query_1_response.status_code, 200, saved_query_1_response.content)
         view_1 = saved_query_1_response.json()
         self.assertEqual(view_1["name"], "event_view")
-        self.assertEqual(view_1["columns"], [{"key": "distinct_id", "type": "string"}])
+        self.assertEqual(view_1["columns"], [{"key": "distinct_id", "type": "string", "schema_valid": True}])
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(

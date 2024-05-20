@@ -42,7 +42,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -404,6 +404,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
                                                 loading={billingProductLoading === product.type}
+                                                disabledReason={billingError && billingError.message}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
                                                     setBillingProductLoading(product.type)

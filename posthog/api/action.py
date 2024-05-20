@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import Count, Prefetch
+from django.db.models import Count
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -13,7 +13,7 @@ from posthog.auth import (
 )
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action, ActionStep
+from posthog.models import Action
 from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
 
 from .forbid_destroy_model import ForbidDestroyModel
@@ -90,28 +90,9 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
         return attrs
 
-    def _sync_steps(self, action: Action, steps: list[dict[str, Any]]) -> None:
-        # And then also save the old model for backwards compatibility
-
-        if action.pk:
-            existing_steps = list(action.action_steps.all())
-
-        # Creating
-        for step in steps:
-            ActionStep.objects.create(
-                action=action,
-                **step,
-            )
-
-        for existing_step in existing_steps:
-            existing_step.delete()
-
     def create(self, validated_data: Any) -> Any:
         validated_data["created_by"] = self.context["request"].user
         instance = super().create(validated_data)
-
-        if "steps" in validated_data:
-            self._sync_steps(instance, validated_data["steps"])
 
         report_user_action(
             validated_data["created_by"],
@@ -123,9 +104,6 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
     def update(self, instance: Any, validated_data: dict[str, Any]) -> Any:
         instance = super().update(instance, validated_data)
-
-        if "steps" in validated_data:
-            self._sync_steps(instance, validated_data["steps"])
 
         report_user_action(
             self.context["request"].user,
@@ -156,7 +134,6 @@ class ActionViewSet(
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
-        queryset = queryset.prefetch_related(Prefetch("action_steps", queryset=ActionStep.objects.order_by("id")))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

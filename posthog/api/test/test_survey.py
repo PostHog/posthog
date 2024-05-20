@@ -1009,6 +1009,70 @@ class TestSurvey(APIBaseTest):
         assert self.team.surveys_opt_in is False
 
 
+class TestMultipleChoiceQuestions(APIBaseTest):
+    def test_create_survey_has_open_choice(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "multiple_choice",
+                        "choices": ["Tutorials", "Customer case studies", "Product announcements", "Other"],
+                        "question": "What can we do to improve our product?",
+                        "buttonText": "Submit",
+                        "description": "",
+                        "hasOpenChoice": True,
+                    }
+                ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["questions"][0]["hasOpenChoice"] is True
+
+    def test_create_survey_with_shuffle_options(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "multiple_choice",
+                        "choices": ["Tutorials", "Customer case studies", "Product announcements", "Other"],
+                        "question": "What can we do to improve our product?",
+                        "buttonText": "Submit",
+                        "description": "",
+                        "hasOpenChoice": True,
+                        "shuffleOptions": True,
+                    }
+                ],
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert Survey.objects.filter(id=response_data["id"]).exists()
+        assert response_data["name"] == "Notebooks beta release survey"
+        assert response_data["questions"][0]["hasOpenChoice"] is True
+        assert response_data["questions"][0]["shuffleOptions"] is True
+
+
 class TestSurveyQuestionValidation(APIBaseTest):
     def test_create_basic_survey_question_validation(self):
         response = self.client.post(
@@ -1025,13 +1089,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     },
                     {
                         "type": "link",
-                        "link": "bazinga.com",
+                        "link": "https://bazinga.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
                 "appearance": {
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>We'll use it to make notebooks better.<script>alert(0)</script>",
+                    "shuffleQuestions": True,
                 },
             },
             format="json",
@@ -1046,13 +1111,14 @@ class TestSurveyQuestionValidation(APIBaseTest):
             {"type": "open", "question": "What up?", "description": "check?"},
             {
                 "type": "link",
-                "link": "bazinga.com",
+                "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
             },
         ]
         assert response_data["appearance"] == {
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
+            "shuffleQuestions": True,
         }
         assert response_data["created_by"]["id"] == self.user.id
 
@@ -1080,7 +1146,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                     },
                     {
                         "type": "link",
-                        "link": "bazinga.com",
+                        "link": "https://bazinga.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
@@ -1100,7 +1166,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             {"type": "open", "question": "What up?", "description": "check?"},
             {
                 "type": "link",
-                "link": "bazinga.com",
+                "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
             },
         ]
@@ -1108,6 +1174,143 @@ class TestSurveyQuestionValidation(APIBaseTest):
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
         }
         assert response_data["created_by"]["id"] == self.user.id
+
+    def test_create_validate_link_url_scheme(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "link": "javascript:alert(1)",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == invalid_url
+
+    def test_create_validate_link_url_location(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "link": "https://",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == invalid_url
+
+    def test_create_validate_link_url_scheme_https(self):
+        basic_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "link": "javascript:alert(1)",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+            },
+            format="json",
+        )
+        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == invalid_url
+
+    def test_create_validate_link_url_scheme_mailto(self):
+        basic_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "link": "mailto:phani@posthog.com",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+            },
+            format="json",
+        )
+        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == invalid_url
+
+    def test_update_validate_link_url_location(self):
+        basic_survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey without targeting",
+                "type": "popover",
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{basic_survey['id']}/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "link",
+                        "link": "https://",
+                        "question": "<b>What</b> do you think of the new notebooks feature?",
+                    },
+                ],
+            },
+            format="json",
+        )
+        invalid_url = "Link must be a URL to resource with one of these schemes [https, mailto]"
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == invalid_url
 
     def test_cleaning_empty_questions(self):
         response = self.client.post(
