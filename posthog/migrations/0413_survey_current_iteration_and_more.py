@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0411_eventproperty_indexes"),
+        ("posthog", "0412_proxyrecord"),
     ]
 
     operations = [
