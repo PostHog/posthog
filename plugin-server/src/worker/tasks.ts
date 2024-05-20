@@ -87,7 +87,7 @@ export const workerTasks: Record<string, TaskRunner> = {
         await hub.kafkaProducer.flush()
     },
     resetAvailableProductFeaturesCache: (hub, args: { organization_id: string }) => {
-        hub.organizationManager.resetAvailableProductFeatureCache(args.organization_id)
+        hub.organizationManager.resetAvailableProductFeaturesCache(args.organization_id)
     },
     populatePluginCapabilities: async (hub, args: { plugin_id: string }) => {
         await populatePluginCapabilities(hub, Number(args.plugin_id))
