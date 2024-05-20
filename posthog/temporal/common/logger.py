@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 import ssl
 
 import aiokafka
@@ -11,7 +12,6 @@ from django.conf import settings
 from structlog.processors import EventRenamer
 from structlog.typing import FilteringBoundLogger
 
-from posthog.models.utils import UUIDT
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 
@@ -30,7 +30,7 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
 
 
 async def bind_temporal_org_worker_logger(
-    organization_id: UUIDT, destination: str | None = None
+    organization_id: uuid.UUID, destination: str | None = None
 ) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers scoped by organization instead of team."""
     if not structlog.is_configured():

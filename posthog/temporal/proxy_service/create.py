@@ -1,17 +1,17 @@
-import dataclass
+from dataclasses import dataclass
 import datetime as dt
 import grpc.aio
 import dns.resolver
+import uuid
 
 from temporalio import activity, workflow
 import temporalio.common
 
 from posthog.models import ProxyRecord
-from posthog.models.utils import UUIDT
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_org_worker_logger
 
-from proto import CreateRequest, StatusRequest, ProxyProvisionerServiceStub
+from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, ProxyProvisionerServiceStub
 
 
 class NonRetriableException(Exception):
@@ -22,30 +22,30 @@ class NonRetriableException(Exception):
 class CreateHostedProxyInputs:
     """Inputs for the CreateHostedProxy Workflow and Activity."""
 
-    organization_id: UUIDT
-    proxy_record_id: UUIDT
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
 
 
 @dataclass
-class UpdateProxyRecordInput:
-    organization_id: UUIDT
-    proxy_record_id: UUIDT
+class UpdateProxyRecordInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     status: ProxyRecord.Status
 
 
 @dataclass
-class WaitForDNSRecordsInput:
-    organization_id: UUIDT
+class WaitForDNSRecordsInputs:
+    organization_id: uuid.UUID
     domain: str
     target_cname: str
 
 
 @dataclass
-class WaitForCertificateInput:
-    organization_id: UUIDT
-    proxy_record_id: str
+class WaitForCertificateInputs:
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
     domain: str
 
 
@@ -56,24 +56,24 @@ async def get_grpc_client():
 
 
 @activity.defn
-async def update_proxy_record(inputs: UpdateProxyRecordInput):
+async def update_proxy_record(inputs: UpdateProxyRecordInputs):
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
         "Updating proxy record %s state to %s",
-        inputs.uuid,
+        inputs.proxy_record_id,
         inputs.status,
     )
 
-    pr = ProxyRecord.objects.get(id=inputs.uuid)
+    pr = ProxyRecord.objects.get(id=inputs.proxy_record_id)
     pr.status = inputs.status
     pr.save()
 
 
 @activity.defn
-async def wait_for_dns_records(inputs: WaitForDNSRecordsInput):
+async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
@@ -124,7 +124,7 @@ async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
 
 
 @activity.defn
-async def wait_for_certificate(inputs: WaitForCertificateInput):
+async def wait_for_certificate(inputs: WaitForCertificateInputs):
     """Activity that calls the proxy provisioner to create the resources for
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
@@ -169,7 +169,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
         # Timeout after 7 days - users will need to delete and recreate after this time.
         await temporalio.workflow.execute_activity(
             wait_for_dns_records,
-            WaitForDNSRecordsInput(
+            WaitForDNSRecordsInputs(
                 organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
             ),
             start_to_close_timeout=dt.timedelta(days=7),
@@ -185,8 +185,10 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
         # We've found the correct DNS record - update record to the ISSUING state
         await temporalio.workflow.execute_activity(
             update_proxy_record,
-            UpdateProxyRecordInput(
-                organization_id=inputs.organization_id, uuid=inputs.uuid, status=ProxyRecord.Status.ISSUING
+            UpdateProxyRecordInputs(
+                organization_id=inputs.organization_id,
+                proxy_record_id=inputs.proxy_record_id,
+                status=ProxyRecord.Status.ISSUING,
             ),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
@@ -209,7 +211,11 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
         # Waits for the certificate to be provisioned and for the proxy to be live
         await temporalio.workflow.execute_activity(
             wait_for_certificate,
-            inputs,
+            WaitForCertificateInputs(
+                organization_id=inputs.organization_id,
+                proxy_record_id=inputs.proxy_record_id,
+                domain=inputs.domain,
+            ),
             start_to_close_timeout=dt.timedelta(minutes=25),
             retry_policy=temporalio.common.RetryPolicy(
                 backoff_coefficient=1.1,
@@ -223,8 +229,10 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
         # Everything's created and ready to go, update to VALID
         await temporalio.workflow.execute_activity(
             update_proxy_record,
-            UpdateProxyRecordInput(
-                organization_id=inputs.organization_id, uuid=inputs.uuid, status=ProxyRecord.Status.VALID
+            UpdateProxyRecordInputs(
+                organization_id=inputs.organization_id,
+                proxy_record_id=inputs.proxy_record_id,
+                status=ProxyRecord.Status.VALID,
             ),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
