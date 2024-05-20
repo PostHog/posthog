@@ -666,7 +666,6 @@ posthog/api/search.py:0: error: Argument "extra_fields" to "class_queryset" has 
 posthog/api/search.py:0: error: "type[Model]" has no attribute "objects"  [attr-defined]
 posthog/api/search.py:0: error: Argument 1 to "reduce" has incompatible type "Callable[[SearchVector, SearchVector], CombinedExpression]"; expected "Callable[[SearchVector, SearchVector], SearchVector]"  [arg-type]
 posthog/api/search.py:0: error: Incompatible return value type (got "CombinedExpression", expected "SearchVector")  [return-value]
-posthog/api/query.py:0: error: Argument "user_id" to "enqueue_process_query_task" has incompatible type "int | AutoField[Combinable | int | str | None, int] | Any"; expected "int"  [arg-type]
 posthog/api/property_definition.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
 posthog/api/property_definition.py:0: error: Item "ForeignObjectRel" of "Field[Any, Any] | ForeignObjectRel | GenericForeignKey" has no attribute "cached_col"  [union-attr]
