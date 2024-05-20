@@ -993,9 +993,9 @@ function deduplicatePerformanceEvents(events: PerformanceEvent[]): PerformanceEv
  * this makes it easier to draw performance cards for navigation events
  */
 function matchPaintEvents(performanceEvents: PerformanceEvent[]): PerformanceEvent[] {
-    // KLUDGE: this assumes that the input is sorted by timestamp and relies on the identity of the events to mutate them
+    // KLUDGE: this relies on the identity of the events to mutate them, because that's cheaper than copying the potentially large list
     let lastNavigationEvent: PerformanceEvent | null = null
-    for (const event of performanceEvents) {
+    for (const event of performanceEvents.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
         } else if (
