@@ -19,7 +19,7 @@ export function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | 
     return (
         <Tooltip title={<TimeLineView performanceEvent={item} />}>
             <div
-                className="relative h-full"
+                className="relative h-5"
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     backgroundColor: initiatorTypeToColor[item.initiator_type || 'other'] ?? 'red',

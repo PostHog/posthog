@@ -1,3 +1,6 @@
+import './NetworkView.scss'
+
+import { LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -37,7 +40,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
                     </div>
                 }
             >
-                <span>
+                <span className="whitespace-nowrap">
                     {entryType === 'navigation' ? url.hostname : null}
                     {url.pathname}
                     {url.hash.length || url.search.length ? '...' : null}
@@ -61,25 +64,6 @@ function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null
 function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
     const { formattedDurationFor } = useValues(networkViewLogic)
     return <div className="text-right">{formattedDurationFor(item)}</div>
-}
-
-function WaterfallRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
-    return (
-        <div className="flex flex-row">
-            <div className="w-2/5 overflow-x-hidden ellipsis">
-                <SimpleURL name={item.name} entryType={item.entry_type} />
-            </div>
-            <div className="flex-1 grow relative">
-                <NetworkBar item={item} />
-            </div>
-            <div className="w-1/12">
-                <NetworkStatus item={item} />
-            </div>
-            <div className="w-1/12">
-                <Duration item={item} />
-            </div>
-        </div>
-    )
 }
 
 function Pager(): JSX.Element {
@@ -150,14 +134,50 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="px-4 py-2">
+            <div className="NetworkView px-4 py-2">
                 {/*<div className="pre">{JSON.stringify(sessionPlayerMetaData, null, 2)}</div>*/}
                 <WaterfallMeta />
                 <LemonDivider />
                 <div className="space-y-1">
-                    {currentPage.map((cp, i) => (
-                        <WaterfallRow key={`${i}-${cp.name}`} item={cp} />
-                    ))}
+                    <LemonTable
+                        className="NetworkView__table"
+                        size="small"
+                        dataSource={currentPage}
+                        columns={[
+                            {
+                                title: 'URL',
+                                key: 'url',
+                                dataIndex: 'name',
+                                width: 250,
+                                render: function RenderUrl(_, item) {
+                                    return <SimpleURL name={item.name} entryType={item.entry_type} />
+                                },
+                            },
+                            {
+                                title: 'Timings',
+                                key: 'timings',
+                                render: function RenderUrl(_, item) {
+                                    return <NetworkBar item={item} />
+                                },
+                            },
+                            {
+                                title: 'Status',
+                                key: 'status',
+                                width: 128,
+                                render: function RenderUrl(_, item) {
+                                    return <NetworkStatus item={item} />
+                                },
+                            },
+                            {
+                                title: 'Duration',
+                                key: 'duration',
+                                width: 86,
+                                render: function RenderUrl(_, item) {
+                                    return <Duration item={item} />
+                                },
+                            },
+                        ]}
+                    />
                 </div>
             </div>
         </BindLogic>
