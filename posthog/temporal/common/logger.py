@@ -29,7 +29,9 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
     return logger.new(team_id=team_id, destination=destination, **temporal_context)
 
 
-async def bind_temporal_org_worker_logger(organization_id: UUIDT, destination: str | None = None) -> FilteringBoundLogger:
+async def bind_temporal_org_worker_logger(
+    organization_id: UUIDT, destination: str | None = None
+) -> FilteringBoundLogger:
     """Return a bound logger for Temporal Workers scoped by organization instead of team."""
     if not structlog.is_configured():
         configure_logger()
