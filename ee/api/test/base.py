@@ -1,6 +1,5 @@
 import datetime
 from typing import Optional, cast
-
 from zoneinfo import ZoneInfo
 
 from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
@@ -39,7 +38,7 @@ class LicensedTestMixin:
             )
             if hasattr(cls, "organization") and cls.organization:
                 cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-                cls.organization.update_available_features()
+                cls.organization.update_available_product_features()
                 cls.organization.save()
 
 
