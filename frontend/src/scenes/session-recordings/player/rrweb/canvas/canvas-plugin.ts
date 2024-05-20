@@ -90,14 +90,13 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                 if (img) {
                     target.toBlob((blob) => {
                         if (blob) {
-                            const url = URL.createObjectURL(blob)
-
-                            // no longer need to read the blob so it's revoked
-                            img.onload = () => URL.revokeObjectURL(url)
-
-                            img.src = url
                             img.style.width = 'initial'
                             img.style.height = 'initial'
+
+                            const url = URL.createObjectURL(blob)
+                            // no longer need to read the blob so it's revoked
+                            img.onload = () => URL.revokeObjectURL(url)
+                            img.src = url
                         }
                     })
                 }
