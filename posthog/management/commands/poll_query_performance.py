@@ -29,7 +29,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         while True:
-            s = time.time()
+            start = time.time()
 
             try:
                 redis_client = redis.get_client()
@@ -71,7 +71,7 @@ class Command(BaseCommand):
                 logger.error("Clickhouse Status Check Failed", e)
                 pass
 
-            e = time.time()
-            elapsed = e - s
+            end = time.time()
+            elapsed = end - start
             if elapsed < 1:
                 time.sleep(1 - elapsed)
