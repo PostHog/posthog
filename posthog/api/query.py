@@ -4,6 +4,7 @@ import uuid
 
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
+from pydantic import BaseModel
 from posthog.hogql_queries.query_runner import ExecutionMode
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -84,6 +85,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 if data.refresh
                 else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
             )
+            if isinstance(result, BaseModel):
+                result = result.model_dump()
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
