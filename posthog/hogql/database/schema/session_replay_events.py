@@ -11,6 +11,8 @@ from posthog.hogql.database.models import (
     DatabaseField,
     LazyTable,
     FieldOrTable,
+    VirtualTable,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
@@ -137,6 +139,21 @@ def join_with_console_logs_log_entries_table(
 
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
+
+class SessionReplayEventsPersonSubTable(VirtualTable):
+    fields: dict[str, FieldOrTable] = {
+        "id": StringDatabaseField(name="person_id"),
+        "created_at": DateTimeDatabaseField(name="person_created_at"),
+        "properties": StringJSONDatabaseField(name="person_properties"),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "session_replay_events"
+
+    def to_printed_hogql(self):
+        return "raw_session_replay_events"
+
+
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -166,13 +183,13 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
         join_table=PersonDistinctIdsTable(),
         join_function=join_with_person_distinct_ids_table,
     ),
+    "person": FieldTraverser(chain=["pdi", "person"]),
+    "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "console_logs": LazyJoin(
         from_field=["session_id"],
         join_table=ReplayConsoleLogsLogEntriesTable(),
         join_function=join_with_console_logs_log_entries_table,
     ),
-    "person": FieldTraverser(chain=["pdi", "person"]),
-    "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "session": LazyJoin(
         from_field=["session_id"],
         join_table=SessionsTable(),

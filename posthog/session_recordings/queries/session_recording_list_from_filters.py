@@ -9,9 +9,10 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import QueryTiming
+from posthog.models.property import PropertyGroup
+from posthog.schema import QueryTiming, PersonsOnEventsMode
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 
 
 class SessionRecordingQueryResult(NamedTuple):
@@ -87,6 +88,7 @@ class SessionRecordingListFromFilters:
         self._paginator = HogQLHasMorePaginator(
             limit=filter.limit or self.SESSION_RECORDINGS_DEFAULT_LIMIT, offset=filter.offset or 0
         )
+        self._person_on_events_mode = (self._team.modifiers or {}).get("personsOnEventsMode", False)
 
     @property
     def ttl_days(self):
@@ -168,7 +170,14 @@ class SessionRecordingListFromFilters:
         if self._filter.property_groups:
             # TRICKY: for person properties the scope of replay is equivalent to scope event, the session_replay_events schema mirrors events for person joining
             # TODO: need to check multiple property types from replay queries
-            exprs.append(property_to_expr(self._filter.property_groups, team=self._team, scope="replay"))
+
+            groups_to_use = self._filter.property_groups
+            if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+                # if we are in person on events mode we do not include person properties here
+                groups_to_use = PropertyGroup(
+                    type=PropertyOperatorType.AND, values=[g for g in groups_to_use.flat if g.type != "person"]
+                )
+            exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
 
         if self._filter.person_uuid:
             exprs.append(
@@ -250,6 +259,7 @@ class EventsSubQuery:
         self._team = team
         self._filter = filter
         self._ttl_days = ttl_days
+        self._person_on_events_mode = (self._team.modifiers or {}).get("personsOnEventsMode", False)
 
     @cached_property
     def _event_predicates(self):
@@ -301,6 +311,16 @@ class EventsSubQuery:
                 right=ast.Call(name="now", args=[]),
             ),
         ]
+
+        # TODO: if we're in person on events mode then we also want to add the person property predicates here
+        groups_to_use = self._filter.property_groups
+        if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
+            # if we are in person on events mode we do not include person properties here
+            groups_to_use = PropertyGroup(
+                type=PropertyOperatorType.AND, values=[g for g in groups_to_use.flat if g.type == "person"]
+            )
+
+        exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
