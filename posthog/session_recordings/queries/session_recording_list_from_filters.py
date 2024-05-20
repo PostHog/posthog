@@ -319,7 +319,7 @@ class EventsSubQuery:
                 type=PropertyOperatorType.AND, values=[g for g in groups_to_use.flat if g.type == "person"]
             )
 
-        exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
+            exprs.append(property_to_expr(groups_to_use, team=self._team, scope="replay"))
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
