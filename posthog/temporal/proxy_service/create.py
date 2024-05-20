@@ -166,81 +166,98 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
     async def run(self, inputs: CreateHostedProxyInputs) -> None:
         """Workflow implementation to create a Hosted Reverse Proxy."""
 
-        # Wait for DNS record to be created.
-        # This will fail and retry infinitely until the expected resolution is found.
-        # Timeout after 7 days - users will need to delete and recreate after this time.
-        await temporalio.workflow.execute_activity(
-            wait_for_dns_records,
-            WaitForDNSRecordsInputs(
-                organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
-            ),
-            schedule_to_close_timeout=dt.timedelta(days=7),
-            start_to_close_timeout=dt.timedelta(seconds=2),
-            retry_policy=temporalio.common.RetryPolicy(
-                backoff_coefficient=1.1,
-                initial_interval=dt.timedelta(seconds=3),
-                maximum_interval=dt.timedelta(seconds=3600),
-                maximum_attempts=0,
-                non_retryable_error_types=["NonRetriableException"],
-            ),
-        )
+        try:
+            # Wait for DNS record to be created.
+            # This will fail and retry infinitely until the expected resolution is found.
+            # Timeout after 7 days - users will need to delete and recreate after this time.
+            await temporalio.workflow.execute_activity(
+                wait_for_dns_records,
+                WaitForDNSRecordsInputs(
+                    organization_id=inputs.organization_id, domain=inputs.domain, target_cname=inputs.target_cname
+                ),
+                schedule_to_close_timeout=dt.timedelta(days=7),
+                start_to_close_timeout=dt.timedelta(seconds=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    backoff_coefficient=1.1,
+                    initial_interval=dt.timedelta(seconds=3),
+                    maximum_interval=dt.timedelta(seconds=3600),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NonRetriableException"],
+                ),
+            )
 
-        # We've found the correct DNS record - update record to the ISSUING state
-        await temporalio.workflow.execute_activity(
-            update_proxy_record,
-            UpdateProxyRecordInputs(
-                organization_id=inputs.organization_id,
-                proxy_record_id=inputs.proxy_record_id,
-                status=ProxyRecord.Status.ISSUING,
-            ),
-            start_to_close_timeout=dt.timedelta(seconds=10),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=2,
-            ),
-        )
+            # We've found the correct DNS record - update record to the ISSUING state
+            await temporalio.workflow.execute_activity(
+                update_proxy_record,
+                UpdateProxyRecordInputs(
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    status=ProxyRecord.Status.ISSUING,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=10),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=2,
+                ),
+            )
 
-        # Call proxy provisioner to create the HTTProxy and Certificate resources
-        await temporalio.workflow.execute_activity(
-            create_hosted_proxy,
-            inputs,
-            schedule_to_close_timeout=dt.timedelta(minutes=5),
-            start_to_close_timeout=dt.timedelta(minutes=1),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_attempts=5,
-                non_retryable_error_types=["NonRetriableException"],
-            ),
-        )
+            # Call proxy provisioner to create the HTTProxy and Certificate resources
+            await temporalio.workflow.execute_activity(
+                create_hosted_proxy,
+                inputs,
+                schedule_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_attempts=5,
+                    non_retryable_error_types=["NonRetriableException"],
+                ),
+            )
 
-        # Waits for the certificate to be provisioned and for the proxy to be live
-        await temporalio.workflow.execute_activity(
-            wait_for_certificate,
-            WaitForCertificateInputs(
-                organization_id=inputs.organization_id,
-                proxy_record_id=inputs.proxy_record_id,
-                domain=inputs.domain,
-            ),
-            schedule_to_close_timeout=dt.timedelta(minutes=15),
-            start_to_close_timeout=dt.timedelta(seconds=5),
-            retry_policy=temporalio.common.RetryPolicy(
-                backoff_coefficient=1.1,
-                initial_interval=dt.timedelta(seconds=1),
-                maximum_interval=dt.timedelta(seconds=10),
-                maximum_attempts=0,
-                non_retryable_error_types=["NonRetriableException"],
-            ),
-        )
+            # Waits for the certificate to be provisioned and for the proxy to be live
+            await temporalio.workflow.execute_activity(
+                wait_for_certificate,
+                WaitForCertificateInputs(
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    domain=inputs.domain,
+                ),
+                schedule_to_close_timeout=dt.timedelta(minutes=15),
+                start_to_close_timeout=dt.timedelta(seconds=5),
+                retry_policy=temporalio.common.RetryPolicy(
+                    backoff_coefficient=1.1,
+                    initial_interval=dt.timedelta(seconds=1),
+                    maximum_interval=dt.timedelta(seconds=10),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NonRetriableException"],
+                ),
+            )
 
-        # Everything's created and ready to go, update to VALID
-        await temporalio.workflow.execute_activity(
-            update_proxy_record,
-            UpdateProxyRecordInputs(
-                organization_id=inputs.organization_id,
-                proxy_record_id=inputs.proxy_record_id,
-                status=ProxyRecord.Status.VALID,
-            ),
-            start_to_close_timeout=dt.timedelta(seconds=10),
-            retry_policy=temporalio.common.RetryPolicy(
-                maximum_attempts=2,
-            ),
-        )
+            # Everything's created and ready to go, update to VALID
+            await temporalio.workflow.execute_activity(
+                update_proxy_record,
+                UpdateProxyRecordInputs(
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    status=ProxyRecord.Status.VALID,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=10),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=2,
+                ),
+            )
+
+        except Exception:
+            # Something went wrong - set the record to error state
+            await temporalio.workflow.execute_activity(
+                update_proxy_record,
+                UpdateProxyRecordInputs(
+                    organization_id=inputs.organization_id,
+                    proxy_record_id=inputs.proxy_record_id,
+                    status=ProxyRecord.Status.ERRORED,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=60),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=10,
+                ),
+            )
+            raise
