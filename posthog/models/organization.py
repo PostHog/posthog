@@ -176,34 +176,37 @@ class Organization(UUIDModel):
                 return (license.plan, "ee")
         return (None, None)
 
-    def update_available_features(self) -> list[Union[AvailableFeature, str]]:
-        """Updates field `available_features`. Does not `save()`."""
+    def update_available_product_features(self) -> list[Union[AvailableFeature, str]]:
+        """Updates field `available_product_features`. Does not `save()`."""
         if is_cloud() or self.usage:
-            # Since billing V2 we just use the available features which are updated when the billing service is called
-            return self.available_features
+            # Since billing V2 we just use the field which is updated when the billing service is called
+            return self.available_product_features
 
         try:
             from ee.models.license import License
         except ImportError:
-            self.available_features = []
+            self.available_product_features = []
             return []
 
-        self.available_features = []
+        self.available_product_features = []
 
         # Self hosted legacy license so we just sync the license features
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            self.available_features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+            features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+            self.available_product_features = [{"key": feature, "name": feature} for feature in features]
         else:
             # Otherwise, try to find a valid license on this instance
             license = License.objects.first_valid()
             if license:
-                self.available_features = License.PLANS.get(license.plan, [])
+                features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+                self.available_product_features = [{"key": feature, "name": feature} for feature in features]
 
-        return self.available_features
+        return self.available_product_features
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        return feature in self.available_features
+        available_product_feature_keys = [feature["key"] for feature in self.available_product_features]
+        return feature in available_product_feature_keys
 
     @property
     def active_invites(self) -> QuerySet:
@@ -220,7 +223,7 @@ class Organization(UUIDModel):
 @receiver(models.signals.pre_save, sender=Organization)
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
-        instance.update_available_features()
+        instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
@@ -228,13 +231,13 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 @receiver(models.signals.post_save, sender=Organization)
 def ensure_available_features_sync(sender, instance: Organization, **kwargs):
     updated_fields = kwargs.get("update_fields") or []
-    if "available_features" in updated_fields:
+    if "available_product_features" in updated_fields:
         logger.info(
-            "Notifying plugin-server to reset available features cache.",
+            "Notifying plugin-server to reset available product features cache.",
             {"organization_id": instance.id},
         )
         get_client().publish(
-            "reset-available-features-cache",
+            "reset-available-product-features-cache",
             json.dumps({"organization_id": str(instance.id)}),
         )
 

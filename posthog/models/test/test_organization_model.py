@@ -72,12 +72,12 @@ class TestOrganization(BaseTest):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
 
             new_org.available_features = ["test1", "test2"]
-            new_org.update_available_features()
+            new_org.update_available_product_features()
             assert new_org.available_features == []
 
             new_org.available_features = ["test1", "test2"]
             new_org.usage = {"events": {"usage": 1000, "limit": None}}
-            new_org.update_available_features()
+            new_org.update_available_product_features()
             assert new_org.available_features == ["test1", "test2"]
 
 
