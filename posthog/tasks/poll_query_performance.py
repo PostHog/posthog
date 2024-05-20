@@ -1,11 +1,12 @@
 import math
-from typing import Optional
+import re
 
 import structlog
 from celery import shared_task
 
+from posthog import redis
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 
 
 logger = structlog.get_logger(__name__)
@@ -13,6 +14,8 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(ignore_result=True, max_retries=1)
 def poll_query_performance() -> None:
+    redis_client = redis.get_client()
+
     CLICKHOUSE_SQL = """
     SELECT
         initial_query_id,
@@ -30,7 +33,7 @@ def poll_query_performance() -> None:
 
         noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 
-        new_clickhouse_query_progress = {
+        all_query_progresses = {
             result[0]: {
                 "bytes_read": noNaNInt(result[2]),
                 "rows_read": noNaNInt(result[1]),
@@ -40,26 +43,24 @@ def poll_query_performance() -> None:
             }
             for result in results
         }
-        for initial_query_id, new_clickhouse_query_progress in new_clickhouse_query_progress.items():
+        for initial_query_id, new_clickhouse_query_progress in all_query_progresses.items():
+            # extract uuid from initial_query_id
+            m = re.search("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", initial_query_id, re.I)
+            if m is None:
+                continue
+            query_id = m.group(0)
+            keys = redis_client.keys(f"{QueryStatusManager.KEY_PREFIX_ASYNC_RESULTS}:{query_id}:*")
+            if len(keys) == 0:
+                continue
+            team_id = keys[0].split(":")[2]
+            manager = QueryStatusManager(query_id, team_id)
 
-
-        clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
-        self.store_clickhouse_query_status(clickhouse_query_progress_dict)
-
-        query_progress = {
-            "bytes_read": 0,
-            "rows_read": 0,
-            "estimated_rows_total": 0,
-            "time_elapsed": 0,
-            "active_cpu_time": 0,
-        }
-        for single_query_progress in clickhouse_query_progress_dict.values():
-            query_progress["bytes_read"] += single_query_progress["bytes_read"]
-            query_progress["rows_read"] += single_query_progress["rows_read"]
-            query_progress["estimated_rows_total"] += single_query_progress["estimated_rows_total"]
-            query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
-            query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
-        query_status.query_progress = ClickhouseQueryStatus(**query_progress)
+            if len(keys) == 1:
+                clickhouse_query_progress_dict = new_clickhouse_query_progress
+            else:
+                clickhouse_query_progress_dict = manager._get_clickhouse_query_status()
+                clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
+            manager.store_clickhouse_query_status(clickhouse_query_progress_dict)
 
     except Exception as e:
         logger.error("Clickhouse Status Check Failed", e)

@@ -1,7 +1,6 @@
 import datetime
 
 import orjson as json
-import math
 from functools import partial
 from typing import Optional
 import uuid
@@ -13,7 +12,6 @@ from rest_framework.exceptions import NotFound
 from django.db import transaction
 
 from posthog import celery, redis
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -90,40 +88,8 @@ class QueryStatusManager:
         query_status = QueryStatus(**json.loads(byte_results))
 
         if show_progress and not query_status.complete:
-            CLICKHOUSE_SQL = """
-            SELECT
-                query_id,
-                initial_query_id,
-                read_rows,
-                read_bytes,
-                total_rows_approx,
-                elapsed,
-                ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
-            FROM clusterAllReplicas(posthog, system.processes)
-            WHERE query_id like %(query_id)s
-            """
-
-            clickhouse_query_progress_dict = self._get_clickhouse_query_status()
             try:
-                results, types = sync_execute(
-                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
-                )
-
-                noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
-
-                new_clickhouse_query_progress = {
-                    result[0]: {
-                        "bytes_read": noNaNInt(result[3]),
-                        "rows_read": noNaNInt(result[2]),
-                        "estimated_rows_total": noNaNInt(result[4]),
-                        "time_elapsed": noNaNInt(result[5]),
-                        "active_cpu_time": noNaNInt(result[6]),
-                    }
-                    for result in results
-                }
-                clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
-                self.store_clickhouse_query_status(clickhouse_query_progress_dict)
-
+                clickhouse_query_progress_dict = self._get_clickhouse_query_status()
                 query_progress = {
                     "bytes_read": 0,
                     "rows_read": 0,
@@ -138,7 +104,6 @@ class QueryStatusManager:
                     query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
                     query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
                 query_status.query_progress = ClickhouseQueryStatus(**query_progress)
-
             except Exception as e:
                 logger.error("Clickhouse Status Check Failed", e)
                 pass
