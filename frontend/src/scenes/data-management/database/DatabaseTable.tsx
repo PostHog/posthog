@@ -1,9 +1,16 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { useCallback } from 'react'
+import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/external/dataWarehouseSceneLogic'
 import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
-import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DatabaseSerializedFieldType } from '~/queries/schema'
@@ -32,13 +39,63 @@ const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ va
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
 }
+const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName: string }): JSX.Element => {
+    const { currentTeamId } = useValues(teamLogic)
+    const { toggleEditJoinModal } = useActions(viewLinkLogic)
+    const { joins, joinsLoading } = useValues(dataWarehouseJoinsLogic)
+    const { loadJoins } = useActions(dataWarehouseJoinsLogic)
+    const { loadDataWarehouse, loadDatabase } = useActions(dataWarehouseSceneLogic)
+
+    const join = joins.find((n) => n.source_table_name === tableName && n.field_name === fieldName)
+
+    const overlay = useCallback(
+        () =>
+            joinsLoading || !join ? (
+                <Spinner />
+            ) : (
+                <>
+                    <LemonButton fullWidth onClick={() => void toggleEditJoinModal(join)}>
+                        Edit
+                    </LemonButton>
+                    <LemonButton
+                        status="danger"
+                        fullWidth
+                        onClick={() => {
+                            void deleteWithUndo({
+                                endpoint: `projects/${currentTeamId}/warehouse_view_link`,
+                                object: {
+                                    id: join.id,
+                                    name: `${join.field_name} on ${join.source_table_name}`,
+                                },
+                                callback: () => {
+                                    loadDataWarehouse()
+                                    loadDatabase()
+                                    loadJoins()
+                                },
+                            })
+                        }}
+                    >
+                        Delete
+                    </LemonButton>
+                </>
+            ),
+        [joinsLoading, join]
+    )
+
+    return <More overlay={overlay()} />
+}
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
+    const { externalTables, allTablesLoading } = useValues(dataWarehouseSceneLogic)
+    const { deleteViewLink } = useActions(viewLinkLogic)
+
     const dataSource = tables.find(({ name }) => name === table)?.columns ?? []
 
     return (
         <LemonTable
             dataSource={dataSource}
+            loading={allTablesLoading}
+            disableTableWhileLoading={false}
             columns={[
                 {
                     title: 'Column',
@@ -134,16 +191,32 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     },
                 },
                 {
-                    title: 'Actions',
-                    key: 'actions',
+                    width: 0,
                     dataIndex: 'type',
                     render: function RenderActions(_, data) {
                         if (data.type === 'view') {
                             return (
-                                <div className="flex flex-row justify-between">
-                                    <ViewLinkDeleteButton table={table} column={data.key} />
-                                </div>
+                                <More
+                                    overlay={
+                                        <LemonButton
+                                            status="danger"
+                                            fullWidth
+                                            onClick={() => deleteViewLink(table, data.key)}
+                                        >
+                                            Remove view association
+                                        </LemonButton>
+                                    }
+                                />
                             )
+                        }
+
+                        if (data.type === 'lazy_table' && data.table) {
+                            const isJoiningTableExternalTable = !!externalTables.find((n) => n.name === data.table)
+                            const isSourceExternalTable = !!externalTables.find((n) => n.name === table)
+
+                            if (isJoiningTableExternalTable || isSourceExternalTable) {
+                                return <JoinsMoreMenu tableName={table} fieldName={data.key} />
+                            }
                         }
 
                         return null
