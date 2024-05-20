@@ -153,6 +153,9 @@ def generate_random_token_project() -> str:
 
 
 def generate_random_token_personal() -> str:
+    # We want 32 bytes of entropy (https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use).
+    # Note that we store the last 4 characters of a personal API key in plain text in the database, so that users
+    # can recognize their keys in the UI. This means we need 3 bytes of extra entropy. Ultimately, we want 35 bytes.
     return "phx_" + generate_random_token(35)  # "x" standing for nothing in particular
 
 
