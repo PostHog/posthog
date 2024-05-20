@@ -1,11 +1,15 @@
 import hashlib
 from django.conf import settings
-from rest_framework import serializers
+from rest_framework import serializers, status
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.proxy_service import CreateHostedProxyInputs
+
 from rest_framework.response import Response
 
 
@@ -45,14 +49,32 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         domain = request.data.get("domain")
         queryset = self.organization.proxy_records.order_by("-created_at")
-        queryset.create(
+        record = queryset.create(
             organization_id=self.organization.id,
             created_by=request.user,
             domain=domain,
             target_cname=generate_target_cname(self.organization.id, domain),
         )
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+
+        temporal = sync_connect()
+        inputs = CreateHostedProxyInputs(
+            organization_id=record.organization_id,
+            proxy_record_id=record.id,
+            domain=record.domain,
+            target_cname=record.target_cname,
+        )
+        workflow_id = f"proxy-create-{inputs.proxy_record_id}"
+        await temporal.start_workflow(
+            "create-proxy",
+            inputs,
+            id=workflow_id,
+            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        )
+
+        return Response(
+            {"success": True},
+            status=status.HTTP_200_OK,
+        )
 
     def destroy(self, request, *args, pk=None, **kwargs):
         record = self.organization.proxy_records.get(id=pk)
@@ -63,5 +85,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.status = ProxyRecord.Status.DELETING
             record.save()
 
-        serializer = self.get_serializer(record)
-        return Response(serializer.data)
+        return Response(
+            {"success": True},
+            status=status.HTTP_200_OK,
+        )
