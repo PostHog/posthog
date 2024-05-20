@@ -137,6 +137,7 @@ jobs:
 
             - name: Install pnpm
               if: needs.changes.outputs.plugin-server == 'true'
+              uses: pnpm/action-setup@v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.plugin-server == 'true'
