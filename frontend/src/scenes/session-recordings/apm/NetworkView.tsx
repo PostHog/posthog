@@ -54,7 +54,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
 
 function NetworkStatus({ item }: { item: PerformanceEvent }): JSX.Element | null {
     return (
-        <div className="flex flex-row justify-between">
+        <div className="flex flex-row justify-around">
             <MethodTag item={item} label={false} />
             <StatusTag item={item} label={false} />
         </div>
