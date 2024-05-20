@@ -312,10 +312,9 @@ class EventsSubQuery:
             ),
         ]
 
-        # TODO: if we're in person on events mode then we also want to add the person property predicates here
         groups_to_use = self._filter.property_groups
         if self._person_on_events_mode == PersonsOnEventsMode.person_id_override_properties_on_events:
-            # if we are in person on events mode we do not include person properties here
+            # if we're in person on events mode then we also want to add the person property predicates here
             groups_to_use = PropertyGroup(
                 type=PropertyOperatorType.AND, values=[g for g in groups_to_use.flat if g.type == "person"]
             )
