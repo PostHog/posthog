@@ -11,7 +11,9 @@ from django.conf import settings
 from structlog.processors import EventRenamer
 from structlog.typing import FilteringBoundLogger
 
+from posthog.models.utils import UUIDT
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+
 
 BACKGROUND_LOGGER_TASKS = set()
 
@@ -25,6 +27,17 @@ async def bind_temporal_worker_logger(team_id: int, destination: str | None = No
     temporal_context = get_temporal_context()
 
     return logger.new(team_id=team_id, destination=destination, **temporal_context)
+
+
+async def bind_temporal_org_worker_logger(organization_id: UUIDT, destination: str | None = None) -> FilteringBoundLogger:
+    """Return a bound logger for Temporal Workers scoped by organization instead of team."""
+    if not structlog.is_configured():
+        configure_logger()
+
+    logger = structlog.get_logger()
+    temporal_context = get_temporal_context()
+
+    return logger.new(organization_id=organization_id, destination=destination, **temporal_context)
 
 
 def configure_logger(
