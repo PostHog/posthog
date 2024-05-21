@@ -98,6 +98,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "last_name": self.user.last_name,
             "email": self.user.email,
             "is_email_verified": None,
+            "hedgehog_config": None,
         }
         alt_user_basic_serialized = {
             "id": alt_user.id,
@@ -107,6 +108,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "last_name": alt_user.last_name,
             "email": alt_user.email,
             "is_email_verified": None,
+            "hedgehog_config": None,
         }
 
         # Newly created insight should have created_at being the current time, and same last_modified_at

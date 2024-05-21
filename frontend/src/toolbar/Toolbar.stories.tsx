@@ -79,6 +79,7 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
             '/api/element/stats/': listHeatmapStatsAPIResponse,
             '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
             '/api/projects/@current/actions/': listActionsAPIResponse,
+            '/api/users/@me/hedgehog_config/': {},
         },
     })
 
