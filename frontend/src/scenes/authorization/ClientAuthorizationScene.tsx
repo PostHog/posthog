@@ -1,0 +1,68 @@
+import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { clientAuthorizationSceneLogic } from './clientAuthorizationSceneLogic'
+
+export const scene: SceneExport = {
+    component: ClientAuthorizationScene,
+    logic: clientAuthorizationSceneLogic,
+}
+
+export function ClientAuthorizationScene(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const { authentication, domain, authenticationLoading } = useValues(clientAuthorizationSceneLogic)
+    const { confirmAndRedirect } = useActions(clientAuthorizationSceneLogic)
+
+    if (authenticationLoading) {
+        return <SpinnerOverlay />
+    }
+
+    return (
+        <div className="h-full flex items-center justify-center">
+            <div className="border rounded bg-accent-3000 p-4 max-w-120">
+                {authentication ? (
+                    <>
+                        <h2>Authorize {authentication.name} </h2>
+                        <p>
+                            Do you want to give the {authentication.name} access to your PostHog data
+                            {domain ? (
+                                <>
+                                    {' '}
+                                    on <b>{domain}</b>
+                                </>
+                            ) : null}
+                            ?
+                        </p>
+                        <p>
+                            The client will have access to all the data in the project <b>{currentTeam?.name}</b>. If
+                            you are in any doubt or did not start an authorization flow from a trusted client then do
+                            not authorize and contact PostHog Support
+                        </p>
+
+                        <div className="flex justify-end gap-2">
+                            <LemonButton type="secondary" to={urls.projectHomepage()}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => confirmAndRedirect()}
+                                loading={authenticationLoading}
+                            >
+                                Authorize
+                            </LemonButton>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <h2>Something went wrong!</h2>
+
+                        <p>Please restart the authentication flow from your client.</p>
+                    </>
+                )}
+            </div>
+        </div>
+    )
+}

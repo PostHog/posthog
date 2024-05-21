@@ -13,7 +13,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
-    cli,
+    client_auth,
     comments,
     dead_letter_queue,
     early_access_feature,
@@ -306,7 +306,7 @@ projects_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
-router.register(r"login/cli", cli.CliAuthenticationViewset, "cli_authentication")
+router.register(r"authentication", client_auth.ClientAuthenticationViewset, "client_authentication")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
