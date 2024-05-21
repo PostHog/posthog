@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Any, Optional, cast
 
+from hogvm.python.stl import STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.errors import NotImplementedError
@@ -184,9 +185,8 @@ class BytecodeBuilder(Visitor):
             for arg in reversed(node.args):
                 args.extend(self.visit(arg))
             return [*args, Operation.OR, len(node.args)]
-        # TODO: do we want this check? gives better errors earlier
-        # if node.name not in self.supported_functions and node.name not in self.functions:
-        #     raise NotImplementedError(f"HogQL function `{node.name}` is not supported")
+        if node.name not in STL and node.name not in self.functions:
+            raise NotImplementedError(f"HogQL function `{node.name}` is not implemented")
         if node.name in self.functions and len(node.args) != len(self.functions[node.name].params):
             raise NotImplementedError(
                 f"Function `{node.name}` expects {len(self.functions[node.name].params)} arguments, got {len(node.args)}"

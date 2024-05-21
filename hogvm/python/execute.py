@@ -1,10 +1,10 @@
 import re
 from typing import Any, Optional
 from collections.abc import Callable
-from hogvm.python.stl import execute_stl_function
 import time
 
 from hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER
+from hogvm.python.stl import STL
 from hogvm.python.vm_utils import HogVMException
 from posthog.models import Team
 from dataclasses import dataclass
@@ -181,7 +181,7 @@ def execute_bytecode(
                             stack.append(functions[name](*args))
                             continue
 
-                        stack.append(execute_stl_function(name, args, team=team, stdout=stdout))
+                        stack.append(STL[name](name, args, team, stdout, timeout))
                 case _:
                     raise HogVMException(f"Unexpected node while running bytecode: {symbol}")
 
