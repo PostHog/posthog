@@ -114,7 +114,8 @@ function WaterfallMeta(): JSX.Element {
             <LemonDivider />
             <Pager />
             <LemonDivider />
-            <PerformanceCardRow item={currentPage[0]} title={<h3 className="mb-0">Page score</h3>} />
+            <h3 className="mb-0">Page score</h3>
+            <PerformanceCardRow item={currentPage[0]} />
             <AssetProportions data={sizeBreakdown} />
         </>
     )

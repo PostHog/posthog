@@ -113,24 +113,15 @@ function PerformanceCard({
     )
 }
 
-export function PerformanceCardRow({
-    item,
-    title,
-}: {
-    item: PerformanceEvent
-    title: JSX.Element | null
-}): JSX.Element {
+export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.Element {
     return (
-        <div className="flex flex-col space-y-2">
-            {title}
-            <div className="flex items-center p-2">
-                {performanceSummaryCards.map(({ label, description, key }, index) => (
-                    <Fragment key={key}>
-                        {index !== 0 && <LemonDivider vertical dashed />}
-                        <PerformanceCard label={label} description={description} value={item[key]} benchmarkKey={key} />
-                    </Fragment>
-                ))}
-            </div>
+        <div className="flex items-center p-2">
+            {performanceSummaryCards.map(({ label, description, key }, index) => (
+                <Fragment key={key}>
+                    {index !== 0 && <LemonDivider vertical dashed />}
+                    <PerformanceCard label={label} description={description} value={item[key]} benchmarkKey={key} />
+                </Fragment>
+            ))}
         </div>
     )
 }
