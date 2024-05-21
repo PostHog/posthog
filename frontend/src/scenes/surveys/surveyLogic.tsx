@@ -62,6 +62,19 @@ export interface SurveyRatingResults {
     }
 }
 
+type SurveyNPSResult = {
+    Promoters: number
+    Detractors: number
+    Passives: number
+}
+
+export interface SurveyRecurringNPSResults {
+    [key: number]: {
+        data: number[]
+        total: number
+    }
+}
+
 export interface SurveySingleChoiceResults {
     [key: number]: {
         labels: string[]
@@ -301,6 +314,90 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 return { ...values.surveyRatingResults, [questionIndex]: { total, data } }
+            },
+        },
+        surveyRecurringNPSResults: {
+            loadSurveyRecurringNPSResults: async ({
+                questionIndex,
+            }: {
+                questionIndex: number
+            }): Promise<SurveyRecurringNPSResults> => {
+                const { survey } = values
+
+                const question = values.survey.questions[questionIndex]
+                if (question.type !== SurveyQuestionType.Rating) {
+                    throw new Error(`Survey question type must be ${SurveyQuestionType.Rating}`)
+                }
+
+                const startDate = dayjs((survey as Survey).created_at).format('YYYY-MM-DD')
+                const endDate = survey.end_date
+                    ? dayjs(survey.end_date).add(1, 'day').format('YYYY-MM-DD')
+                    : dayjs().add(1, 'day').format('YYYY-MM-DD')
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT
+                            JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
+                            JSONExtractString(properties, '${getResponseField(questionIndex)}') AS survey_response,
+                            COUNT(survey_response)
+                        FROM events
+                        WHERE event = 'survey sent'
+                            AND properties.$survey_id = '${props.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                        GROUP BY survey_response, survey_iteration
+                    `,
+                }
+
+                const responseJSON = await api.query(query)
+                const { results } = responseJSON
+                let total = 100
+                const data = new Array(survey.iteration_count).fill(0)
+
+                const iterations = new Map<string, SurveyNPSResult>()
+
+                results?.forEach(([iteration, response, count]) => {
+                    let promoters = 0
+                    let passives = 0
+                    let detractors = 0
+
+                    if (parseInt(response) >= 9) {
+                        // a Promoter is someone who gives a survey response of 9 or 10
+                        promoters += parseInt(count)
+                    } else if (parseInt(response) > 6) {
+                        // a Passive is someone who gives a survey response of 7 or 8
+                        passives += parseInt(count)
+                    } else {
+                        // a Detractor is someone who gives a survey response of 0 - 6
+                        detractors += parseInt(count)
+                    }
+
+                    if (iterations.has(iteration)) {
+                        const currentValue = iterations.get(iteration)
+                        currentValue.Detractors += detractors
+                        currentValue.Promoters += promoters
+                        currentValue.Passives += passives
+                    } else {
+                        iterations.set(iteration, {
+                            Detractors: detractors,
+                            Passives: passives,
+                            Promoters: promoters,
+                        })
+                    }
+                })
+
+                iterations.forEach((value: SurveyNPSResult, key: string) => {
+                    // NPS score is calculated with this formula
+                    // (Promoters / (Promoters + Passives + Detractors) * 100) - (Detractors / (Promoters + Passives + Detractors)* 100)
+                    const totalResponses = value.Promoters + value.Passives + value.Detractors
+                    const npsScore =
+                        (value.Promoters / totalResponses) * 100 - (value.Detractors / totalResponses) * 100
+                    data[parseInt(key)] = npsScore
+                    total += 100
+                })
+
+                return { ...values.surveyRecurringNPSResults, [questionIndex]: { total, data } }
             },
         },
         surveySingleChoiceResults: {
@@ -568,6 +665,17 @@ export const surveyLogic = kea<surveyLogicType>([
             {},
             {
                 loadSurveyRatingResultsSuccess: (state, { payload }) => {
+                    if (!payload || !payload.hasOwnProperty('questionIndex')) {
+                        return { ...state }
+                    }
+                    return { ...state, [payload.questionIndex]: true }
+                },
+            },
+        ],
+        surveyRecurringNPSResultsReady: [
+            {},
+            {
+                loadSurveyRecurringNPSResultsSuccess: (state, { payload }) => {
                     if (!payload || !payload.hasOwnProperty('questionIndex')) {
                         return { ...state }
                     }

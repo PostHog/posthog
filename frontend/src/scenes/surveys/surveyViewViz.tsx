@@ -1,6 +1,7 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useState } from 'react'
@@ -18,6 +19,7 @@ import {
     SurveyMultipleChoiceResults,
     SurveyOpenTextResults,
     SurveyRatingResults,
+    SurveyRecurringNPSResults,
     SurveySingleChoiceResults,
     SurveyUserStats,
 } from './surveyLogic'
@@ -170,37 +172,19 @@ export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iterationStartDate,
     iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
     surveyRatingResultsReady: QuestionResultsReady
-    iterationStartDate?: string
-    iteration?: number
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
-    // let iterationEndDate = undefined
-    // // if (iterationStartDate != undefined) {
-    // iterationEndDate = useMemo((iterationStartDate, iterationFrequencyDays)=> {
-    //     if (iterationStartDate) {
-    //         console.log(`iterationStartDate is `, iterationStartDate)
-    //         iterationEndDate = new Date(iterationStartDate)
-    //         iterationEndDate = new Date(iterationEndDate.getDate() + iterationFrequencyDays)
-    //         console.log(` Date(iterationEndDate.getDate() + iterationFrequencyDays) is `,Date(iterationEndDate.getDate() + iterationFrequencyDays))
-    //     }
-    // }, [iterationStartDate, iterationFrequencyDays])
-
-    // }
-    // console.log(`iterationStartDate `, iterationStartDate, `iterationEndDate `, iterationEndDate)
-
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-
     useEffect(() => {
         loadSurveyRatingResults({ questionIndex, iteration })
     }, [questionIndex])
@@ -216,16 +200,7 @@ export function RatingQuestionBarChart({
                     <div className="font-semibold text-muted-alt">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
-                    <div className="text-xl font-bold mb-2">
-                        {question.question} Starting{' '}
-                        {iterationStartDate &&
-                            new Date(iterationStartDate).toLocaleDateString('default', {
-                                weekday: 'long',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric',
-                            })}{' '}
-                    </div>
+                    <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
                             <BindLogic logic={insightLogic} props={insightProps}>
@@ -259,6 +234,84 @@ export function RatingQuestionBarChart({
                                             ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
                                             : ['1', '2', '3', '4', '5']
                                     }
+                                />
+                            </BindLogic>
+                        </div>
+                    </div>
+                    <div className="flex flex-row justify-between mt-1">
+                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
+                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function NPSSurveyResultsBarChart({
+    questionIndex,
+    surveyRecurringNPSResults,
+    surveyRecurringNPSResultsReady,
+    iteration,
+}: {
+    questionIndex: number
+    surveyRecurringNPSResults: SurveyRecurringNPSResults
+    surveyRecurringNPSResultsReady: QuestionResultsReady
+    iteration?: number
+}): JSX.Element {
+    const { loadSurveyRecurringNPSResults } = useActions(surveyLogic)
+    const { survey } = useValues(surveyLogic)
+    const barColor = '#1d4aff'
+    const question = survey.questions[questionIndex]
+    if (question.type !== SurveyQuestionType.Rating) {
+        throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
+    }
+
+    useEffect(() => {
+        loadSurveyRecurringNPSResults({ questionIndex, iteration })
+    }, [questionIndex])
+
+    return (
+        <div className="mb-4">
+            {!surveyRecurringNPSResultsReady[questionIndex] ? (
+                <LemonTable dataSource={[]} columns={[]} loading={true} />
+            ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
+                <></>
+            ) : (
+                <div className="mb-8">
+                    <div className="font-semibold text-muted-alt">{`${
+                        question.scale === 10 ? '0 - 10' : '1 - 5'
+                    } rating`}</div>
+                    <div className="text-xl font-bold mb-2">NPS Scores over time for "{question.question}"</div>
+                    <div className=" h-50 border rounded pt-8">
+                        <div className="relative h-full w-full">
+                            <BindLogic logic={insightLogic} props={insightProps}>
+                                <LineGraph
+                                    inSurveyView={true}
+                                    hideYAxis={true}
+                                    showValuesOnSeries={true}
+                                    labelGroupType={1}
+                                    data-attr="survey-rating"
+                                    type={GraphType.Bar}
+                                    hideAnnotations={true}
+                                    formula="-"
+                                    tooltip={{
+                                        showHeader: false,
+                                        hideColorCol: true,
+                                    }}
+                                    datasets={[
+                                        {
+                                            id: 1,
+                                            label: 'Number of responses',
+                                            barPercentage: 0.8,
+                                            minBarLength: 2,
+                                            data: surveyRecurringNPSResults[questionIndex].data,
+                                            backgroundColor: barColor,
+                                            borderColor: barColor,
+                                            hoverBackgroundColor: barColor,
+                                        },
+                                    ]}
+                                    labels={survey.iteration_start_dates.map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
                                 />
                             </BindLogic>
                         </div>
