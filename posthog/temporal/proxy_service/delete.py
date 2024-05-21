@@ -47,8 +47,12 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
         inputs.proxy_record_id,
     )
 
-    pr = await sync_to_async(ProxyRecord.objects.get)(id=inputs.proxy_record_id)
-    await sync_to_async(pr.delete())
+    @sync_to_async
+    def delete_record(proxy_record_id):
+        pr = ProxyRecord.objects.get(id=proxy_record_id)
+        pr.delete()
+
+    await delete_record(inputs.proxy_record_id)
 
 
 @activity.defn
