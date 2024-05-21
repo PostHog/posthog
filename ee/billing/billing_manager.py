@@ -226,9 +226,9 @@ class BillingManager:
     def update_billing_admin_emails(self, organization: Organization) -> None:
         try:
             admin_emails = list(
-                organization.members.filter(level_gte=OrganizationMembership.Level.ADMIN).values_list(
-                    "user__email", flat=True
-                )
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("email", flat=True)
             )
             self.update_billing(organization, {"org_admin_emails": admin_emails})
         except Exception as e:
