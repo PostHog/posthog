@@ -175,10 +175,11 @@ def redis_values_view(request: HttpRequest):
     if query == "":
         query = None
 
+    keys_per_page = 50
+    cursor = int(request.GET.get("c", 0))
+
     redis_client = get_client()
-    # TODO: Results are missing pagination.
-    # Depends on the amount of keys; hoping that for starters there won't be enough to justify pagination.
-    _, key_list = redis_client.scan(cursor=0, match=query)
+    next_cursor, key_list = redis_client.scan(cursor=cursor, count=keys_per_page, match=query)
 
     partial_get_redis_key = partial(get_redis_key_type_value_tuple, redis_client=redis_client)
     redis_keys = {
@@ -187,7 +188,14 @@ def redis_values_view(request: HttpRequest):
 
     context = {
         **admin_site.each_context(request),  # type: ignore
-        **{"redis_keys": redis_keys, "query": query or "", "title": "Select Redis key to mutate"},
+        **{
+            "redis_keys": redis_keys,
+            "query": query or "",
+            "title": "Select Redis key to mutate",
+            "cursor": cursor,
+            "next_cursor": next_cursor,
+            "keys_per_page": keys_per_page,
+        },
     }
 
     return render(request, template_name="redis/values.html", context=context, status=200)

@@ -4,15 +4,15 @@
 {% block extrastyle %}
 {{ block.super }}
 <link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
-<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
 {{ media.css }}
 {% endblock %}
 
 {% if not is_popup %}
 {% block breadcrumbs %}
 <div class="breadcrumbs">
-<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
-&rsaquo; Redis values
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; Redis values
 </div>
 {% endblock %}
 {% endif %}
@@ -39,9 +39,15 @@
                 <table id="results_list">
                     <thead>
                         <tr>
-                            <th scope="col"><div class="text"><span>{% trans "Key" %}</span></div></th>
-                            <th scope="col"><div class="text"><span>{% trans "Type" %}</span></div></th>
-                            <th scope="col"><div class="text"><span>{% trans "Value" %}</span></div></th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Key" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Type" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Value" %}</span></div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -56,9 +62,15 @@
                     </tbody>
                 </table>
                 {% endif %}
-                <!-- Pagination is not yet supported but using class="paginator" for styling -->
                 <p class="paginator">
-                    {{ redis_keys|length }} {% if redis_keys|length == 1 %}Redis key{% else %}Redis keys{% endif %}
+                    <a href="?c=0">Start</a>
+
+                    <span class="this-page">{{ cursor }}</span>
+
+                    {% if next_cursor != 0 %}
+                    <a href="?c={{ next_cursor }}">Next</a>
+                    {% endif %}
+                    {{ redis_keys|length }} {% if redis_keys|length == 1 %}Redis key{% else %}Redis keys{%endif %}
                 </p>
             </div>
         </div>
