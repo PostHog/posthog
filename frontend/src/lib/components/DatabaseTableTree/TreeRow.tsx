@@ -71,7 +71,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
     }, [collapsed])
 
     return (
-        <li>
+        <li className="overflow-hidden">
             <div className={clsx('TreeRow', isColumnType ? '' : 'font-bold')} onClick={_onClick}>
                 <span className="mr-2">{collapsed ? <IconChevronRight /> : <IconChevronDown />}</span>
                 {name}
