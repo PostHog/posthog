@@ -5,7 +5,7 @@ from rest_framework import serializers, status
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
@@ -70,7 +70,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 "create-proxy",
                 inputs,
                 id=workflow_id,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
             )
         )
 
@@ -96,7 +96,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     "delete-proxy",
                     inputs,
                     id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
             record.save()
