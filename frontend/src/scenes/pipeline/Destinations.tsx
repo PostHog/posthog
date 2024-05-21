@@ -153,7 +153,8 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canEnableNewDestinations } = useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (

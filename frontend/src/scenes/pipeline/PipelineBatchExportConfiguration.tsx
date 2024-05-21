@@ -45,9 +45,9 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     >
                         <LemonInput type="text" />
                     </LemonField>
-                    <LemonField name="enabled" info="Start continuously exporting from now">
+                    <LemonField name="paused" info="Start in a paused state or continuously exporting from now">
                         {({ value, onChange }) => (
-                            <LemonCheckbox label="Enabled" onChange={() => onChange(!value)} checked={value} />
+                            <LemonCheckbox label="Paused" onChange={() => onChange(!value)} checked={value} />
                         )}
                     </LemonField>
                     <BatchExportConfigurationFields
