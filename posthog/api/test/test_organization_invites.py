@@ -90,6 +90,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "first_name": self.user.first_name,
                     "last_name": self.user.last_name,
                     "is_email_verified": self.user.is_email_verified,
+                    "hedgehog_config": None,
                 },
                 "is_expired": False,
                 "emailing_attempt_made": True,
