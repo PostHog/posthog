@@ -19,7 +19,10 @@ export const load = async () => {
   if (browser) {
     posthog.init(
       '${currentTeam?.api_token}',
-      { api_host: "${apiHostOrigin()}" }
+      { 
+        api_host: "${apiHostOrigin()}",
+        person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
+      }
     )
   }
   return

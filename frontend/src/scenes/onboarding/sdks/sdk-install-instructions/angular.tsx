@@ -29,6 +29,7 @@ posthog.init(
   process.env.POSTHOG_KEY,
   {
     api_host:process.env.POSTHOG_HOST
+    person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
   }
 )
 

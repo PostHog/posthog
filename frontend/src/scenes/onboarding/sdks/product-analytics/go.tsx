@@ -1,6 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallGoInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function GoCaptureSnippet(): JSX.Element {
     return (
@@ -16,6 +17,7 @@ export function ProductAnalyticsGoInstructions(): JSX.Element {
             <SDKInstallGoInstructions />
             <h3>Send an Event</h3>
             <GoCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }

@@ -19,7 +19,12 @@ export function JSSetupSnippet(): JSX.Element {
             {[
                 "import posthog from 'posthog-js'",
                 '',
-                `posthog.init('${currentTeam?.api_token}', { api_host: '${apiHostOrigin()}' })`,
+                `posthog.init('${currentTeam?.api_token}',`,
+                `    {`,
+                `        api_host: '${apiHostOrigin()}'`,
+                `        person_profiles: 'identified_only' // or 'always' to create profiles for anonymous users as well`,
+                `    }`,
+                `)`,
             ].join('\n')}
         </CodeSnippet>
     )

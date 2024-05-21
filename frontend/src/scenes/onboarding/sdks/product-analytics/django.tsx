@@ -1,6 +1,7 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SDKInstallDjangoInstructions } from '../sdk-install-instructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function DjangoCaptureSnippet(): JSX.Element {
     return (
@@ -16,6 +17,7 @@ export function ProductAnalyticsDjangoInstructions(): JSX.Element {
             <SDKInstallDjangoInstructions />
             <h3>Send an Event</h3>
             <DjangoCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
         </>
     )
 }
