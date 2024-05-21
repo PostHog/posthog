@@ -64,7 +64,7 @@ describe('OrganizationManager()', () => {
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_organization
-                 SET available_features = array ['some_feature']`,
+                 SET available_product_features = array ['{"key": "some_feature", "name": "some_feature"}'::jsonb]`,
                 undefined,
                 ''
             )
