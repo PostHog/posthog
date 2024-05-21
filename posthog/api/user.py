@@ -39,6 +39,7 @@ from posthog.api.utils import PublicIPOnlyHttpAdapter, raise_if_user_provided_ur
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
+    TemporaryTokenAuthentication,
     authenticate_secondarily,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -117,6 +118,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
+            "hedgehog_config",
         ]
 
         read_only_fields = [
@@ -462,6 +464,21 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        throttle_classes=[],
+        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+    )
+    def hedgehog_config(self, request, **kwargs):
+        instance = self.get_object()
+        if request.method == "GET":
+            return Response(instance.hedgehog_config)
+        else:
+            instance.hedgehog_config = request.data
+            instance.save()
+            return Response(instance.hedgehog_config)
 
 
 @authenticate_secondarily

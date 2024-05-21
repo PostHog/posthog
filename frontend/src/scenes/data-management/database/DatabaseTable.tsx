@@ -87,7 +87,6 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
     const { externalTables, allTablesLoading } = useValues(dataWarehouseSceneLogic)
-    const { deleteViewLink } = useActions(viewLinkLogic)
 
     const dataSource = tables.find(({ name }) => name === table)?.columns ?? []
 
@@ -195,19 +194,7 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     dataIndex: 'type',
                     render: function RenderActions(_, data) {
                         if (data.type === 'view') {
-                            return (
-                                <More
-                                    overlay={
-                                        <LemonButton
-                                            status="danger"
-                                            fullWidth
-                                            onClick={() => deleteViewLink(table, data.key)}
-                                        >
-                                            Remove view association
-                                        </LemonButton>
-                                    }
-                                />
-                            )
+                            return <JoinsMoreMenu tableName={table} fieldName={data.key} />
                         }
 
                         if (data.type === 'lazy_table' && data.table) {
