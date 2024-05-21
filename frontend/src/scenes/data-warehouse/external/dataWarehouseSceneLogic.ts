@@ -14,7 +14,6 @@ import {
     DatabaseTableListRow,
     DataWarehouseExternalTableType,
     DataWarehouseRowType,
-    DataWarehouseSceneTab,
     DataWarehouseTableType,
 } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -41,12 +40,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 'updateDataWarehouseSavedQuerySuccess',
             ],
             databaseTableListLogic,
-            ['loadDataWarehouse', 'deleteDataWarehouseTable', 'loadDataWarehouseSuccess', 'loadDataWarehouseFailure'],
+            [
+                'loadDataWarehouse',
+                'deleteDataWarehouseTable',
+                'loadDataWarehouseSuccess',
+                'loadDataWarehouseFailure',
+                'loadDatabase',
+                'loadDatabaseSuccess',
+            ],
         ],
     })),
     actions(({ values }) => ({
         selectRow: (row: DataWarehouseTableType | null) => ({ row }),
-        setSceneTab: (tab: DataWarehouseSceneTab) => ({ tab }),
         setIsEditingSavedQuery: (isEditingSavedQuery: boolean) => ({ isEditingSavedQuery }),
         toggleEditSchemaMode: (inEditSchemaMode?: boolean) => ({ inEditSchemaMode }),
         updateSelectedSchema: (columnKey: string, columnType: DatabaseSerializedFieldType) => ({
@@ -95,6 +100,25 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         type: DataWarehouseRowType.ExternalTable,
                     } as DataWarehouseTableType
                 },
+                loadDatabaseSuccess: (state, { database }) => {
+                    if (!database || !state) {
+                        return state
+                    }
+
+                    const columns = database[state.name]
+
+                    if (columns) {
+                        return {
+                            id: state.name,
+                            name: state.name,
+                            columns: columns,
+                            payload: { name: state.name, columns },
+                            type: DataWarehouseRowType.PostHogTable,
+                        }
+                    }
+
+                    return state
+                },
                 cancelEditSchema: (state, { dataWarehouse }) => {
                     if (!state || !dataWarehouse) {
                         return state
@@ -128,12 +152,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                     return newState
                 },
                 toggleEditSchemaMode: () => ({}),
-            },
-        ],
-        activeSceneTab: [
-            DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
-            {
-                setSceneTab: (_state, { tab }) => tab,
             },
         ],
         isEditingSavedQuery: [
@@ -249,6 +267,12 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.externalTables, s.posthogTables, s.savedQueriesFormatted],
             (externalTables, posthogTables, savedQueriesFormatted): DataWarehouseTableType[] => {
                 return [...externalTables, ...posthogTables, ...savedQueriesFormatted]
+            },
+        ],
+        allTablesLoading: [
+            (s) => [s.databaseLoading, s.dataWarehouseLoading],
+            (databaseLoading, dataWarehouseLoading): boolean => {
+                return databaseLoading || dataWarehouseLoading
             },
         ],
         externalTablesBySourceType: [

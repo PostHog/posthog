@@ -21,7 +21,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             funnelDataLogic(props),
-            ['querySource', 'hogQLInsightsFunnelsFlagEnabled'],
+            ['querySource', 'isHogQLInsight'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
         ],
@@ -46,7 +46,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                     await breakpoint(100)
 
                     try {
-                        if (values.hogQLInsightsFunnelsFlagEnabled) {
+                        if (values.isHogQLInsight) {
                             const actorsQuery: FunnelsActorsQuery = {
                                 kind: NodeKind.FunnelsActorsQuery,
                                 source: values.querySource!,
@@ -90,7 +90,7 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
             {} as Record<string, FunnelCorrelation[]>,
             {
                 loadEventWithPropertyCorrelations: async (eventName: string) => {
-                    if (values.hogQLInsightsFunnelsFlagEnabled) {
+                    if (values.isHogQLInsight) {
                         const actorsQuery: FunnelsActorsQuery = {
                             kind: NodeKind.FunnelsActorsQuery,
                             source: values.querySource!,

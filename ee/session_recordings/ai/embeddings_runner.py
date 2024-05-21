@@ -3,7 +3,7 @@ import tiktoken
 import datetime
 import pytz
 
-from typing import Any
+from typing import Any, Optional
 
 from abc import ABC, abstractmethod
 from prometheus_client import Histogram, Counter
@@ -23,9 +23,18 @@ from ee.session_recordings.ai.utils import (
     only_pageview_urls,
 )
 
-# tiktoken.encoding_for_model(model_name) specifies encoder
-# model_name = "text-embedding-3-small" for this usecase
-encoding = tiktoken.get_encoding("cl100k_base")
+_encoding: Optional[tiktoken.Encoding] = None
+
+
+def get_encoding() -> tiktoken.Encoding:
+    global _encoding
+    if not _encoding:
+        # NOTE: This does an API request so we want to ensure we load it lazily and not at startup
+        # tiktoken.encoding_for_model(model_name) specifies encoder
+        # model_name = "text-embedding-3-small" for this usecase
+        _encoding = tiktoken.get_encoding("cl100k_base")
+    return _encoding
+
 
 MAX_TOKENS_FOR_MODEL = 8191
 
@@ -194,7 +203,7 @@ class SessionEmbeddingsRunner(ABC):
 
     def _num_tokens_for_input(self, string: str) -> int:
         """Returns the number of tokens in a text string."""
-        return len(encoding.encode(string))
+        return len(get_encoding().encode(string))
 
     def _flush_embeddings_to_clickhouse(self, embeddings: list[dict[str, Any]], source_type: str) -> None:
         try:

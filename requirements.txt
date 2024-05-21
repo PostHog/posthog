@@ -264,6 +264,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -503,7 +505,7 @@ referencing==0.31.1
     #   jsonschema-specifications
 regex==2023.12.25
     # via tiktoken
-requests==2.31.0
+requests==2.32.0
     # via
     #   -r requirements.in
     #   dlt
