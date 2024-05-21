@@ -312,14 +312,17 @@ function TypeSwitcher({
                     {
                         value: '$pageview',
                         label: 'Pageview',
+                        'data-attr': 'action-type-pageview',
                     },
                     {
                         value: '$autocapture',
                         label: 'Autocapture',
+                        'data-attr': 'action-type-autocapture',
                     },
                     {
                         value: 'event',
                         label: 'Other events',
+                        'data-attr': 'action-type-other',
                     },
                 ]}
                 fullWidth
