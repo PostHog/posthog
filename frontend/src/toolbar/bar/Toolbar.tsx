@@ -56,7 +56,7 @@ function MoreMenu(): JSX.Element {
                     hedgehogMode
                         ? {
                               icon: <IconFlare />,
-                              label: 'Hedgehog accessories',
+                              label: 'Hedgehog options',
                               onClick: () => {
                                   setVisibleMenu('hedgehog')
                               },

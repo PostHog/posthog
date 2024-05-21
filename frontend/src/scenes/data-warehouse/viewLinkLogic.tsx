@@ -139,7 +139,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -156,7 +157,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }

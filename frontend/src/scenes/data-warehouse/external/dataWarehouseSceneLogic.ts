@@ -96,12 +96,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 toggleEditSchemaMode: () => ({}),
             },
         ],
-        activeSceneTab: [
-            DataWarehouseSceneTab.Tables as DataWarehouseSceneTab,
-            {
-                setSceneTab: (_state, { tab }) => tab,
-            },
-        ],
         isEditingSavedQuery: [
             false,
             {
