@@ -95,7 +95,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                             }
                             toast.warn(
                                 <>
-                                    The maximum amount of {dateOptionPlurals[period || 'Day']} is <strong>31</strong>
+                                    The maximum number of {dateOptionPlurals[period || 'Day']} is <strong>31</strong>
                                 </>
                             )
                         }
