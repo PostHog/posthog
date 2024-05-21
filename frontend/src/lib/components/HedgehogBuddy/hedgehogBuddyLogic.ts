@@ -142,6 +142,16 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             await breakpoint(1000)
             actions.updateRemoteConfig(values.hedgehogConfig)
         },
+
+        updateRemoteConfigSuccess: ({ remoteConfig }) => {
+            const theUserLogic = userLogic.findMounted()
+
+            if (theUserLogic) {
+                userLogic
+                    .findMounted()
+                    ?.actions.loadUserSuccess({ ...theUserLogic.values.user, hedgehog_config: remoteConfig } as any)
+            }
+        },
     })),
 
     afterMount(({ actions }) => {

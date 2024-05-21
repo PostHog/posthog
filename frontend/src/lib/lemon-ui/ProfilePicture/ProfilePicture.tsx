@@ -62,25 +62,29 @@ export function ProfilePicture({
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
             return `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
         }
-    }, [email])
+    }, [email, hedgehogProfile])
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)}>
-            {gravatarLoaded !== true && (
-                <>
-                    {type === 'bot' ? (
-                        <IconRobot className="p-0.5" />
-                    ) : !hedgehogProfile ? (
-                        <Lettermark
-                            name={combinedNameAndEmail}
-                            index={index}
-                            rounded
-                            color={type === 'system' ? LettermarkColor.Gray : undefined}
-                        />
-                    ) : (
-                        <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
-                    )}
-                </>
+            {hedgehogProfile ? (
+                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+            ) : (
+                gravatarLoaded !== true && (
+                    <>
+                        {type === 'bot' ? (
+                            <IconRobot className="p-0.5" />
+                        ) : !hedgehogProfile ? (
+                            <Lettermark
+                                name={combinedNameAndEmail}
+                                index={index}
+                                rounded
+                                color={type === 'system' ? LettermarkColor.Gray : undefined}
+                            />
+                        ) : (
+                            <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+                        )}
+                    </>
+                )
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
