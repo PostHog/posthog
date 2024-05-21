@@ -29,12 +29,12 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         code = request.GET.get("code")
 
         if not code:
-            raise exceptions.ValidationError({"code": "Missing"})
+            raise exceptions.ValidationError({"code": "Missing code"})
 
         verification = cache.get(f"cli-authentication/flows/{code}")
 
         if not verification:
-            raise exceptions.ValidationError({"code": "Invalid or timed out"})
+            raise exceptions.ValidationError({"code": "Code invalid or expired"})
 
         return JsonResponse({"code": code, "verification": verification})
 
@@ -48,7 +48,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         known_verification = cache.get(f"cli-authentication/flows/{code}")
 
         if not known_verification:
-            raise exceptions.ValidationError({"code": "Code not found or timed out"})
+            raise exceptions.ValidationError({"code": "Code invalid or expired"})
 
         if known_verification != given_verification:
             raise exceptions.ValidationError({"code": "Something went wrong. Please restart the flow"})

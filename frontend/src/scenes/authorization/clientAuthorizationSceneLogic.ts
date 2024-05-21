@@ -40,6 +40,10 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     const clientId = router.values.searchParams['client_id']
                     const returnUrl = router.values.searchParams['return_url']
 
+                    if (!clientId) {
+                        throw new Error('Missing client_id')
+                    }
+
                     // TODO: Validate returnUrl is in list of approved if toolbar
                     const res = await api.get<AuthenticationFlowResponse>(
                         '/api/authentication?' +
