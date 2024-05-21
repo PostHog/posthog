@@ -1,13 +1,14 @@
 import './HedgehogBuddy.scss'
 
+import { ProfilePicture } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
-import { MutableRefObject, useEffect, useRef, useState } from 'react'
+import { ForwardedRef, useEffect, useRef, useState } from 'react'
+import React from 'react'
 
-import { HedgehogConfig } from '~/types'
+import { HedgehogConfig, OrganizationMemberType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
@@ -33,6 +34,14 @@ const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
+
+export type HedgehogBuddyProps = {
+    onActorLoaded?: (actor: HedgehogActor) => void
+    onClose?: () => void
+    onClick?: () => void
+    onPositionChange?: (actor: HedgehogActor) => void
+    hedgehogConfig?: HedgehogConfig
+}
 
 export class HedgehogActor {
     animations = standardAnimations
@@ -118,7 +127,7 @@ export class HedgehogActor {
         }
 
         const keyUpListener = (e: KeyboardEvent): void => {
-            if (shouldIgnoreInput(e)) {
+            if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
                 return
             }
 
@@ -311,7 +320,7 @@ export class HedgehogActor {
         return groundBoundingRect
     }
 
-    render({ onClick }: { onClick: () => void }): JSX.Element {
+    render({ onClick, ref }: { onClick: () => void; ref: ForwardedRef<HTMLDivElement> }): JSX.Element {
         const accessoryPosition = this.animation.accessoryPositions?.[this.animationFrame]
         const preloadContent =
             Object.values(this.animations)
@@ -326,6 +335,7 @@ export class HedgehogActor {
 
         return (
             <div
+                ref={ref}
                 className="HedgehogBuddy"
                 data-content={preloadContent}
                 onMouseDown={(e) => {
@@ -401,49 +411,26 @@ export class HedgehogActor {
     }
 }
 
-export function HedgehogBuddy({
-    actorRef: _actorRef,
-    onClose,
-    onClick: _onClick,
-    onPositionChange,
-}: {
-    actorRef?: MutableRefObject<HedgehogActor | undefined>
-    onClose: () => void
-    onClick?: () => void
-    onPositionChange?: (actor: HedgehogActor) => void
-}): JSX.Element {
+export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig },
+    ref
+): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
-        if (_actorRef) {
-            _actorRef.current = actorRef.current
-        }
+        onActorLoaded?.(actorRef.current)
     }
 
     const actor = actorRef.current
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { addAccessory } = useActions(hedgehogBuddyLogic)
-
-    useEffect(() => {
-        return actor.setupKeyboardListeners()
-    }, [])
-
     const [_, setTimerLoop] = useState(0)
-    const [popoverVisible, setPopoverVisible] = useState(false)
 
     useEffect(() => {
-        actor.hedgehogConfig = hedgehogConfig
-        actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
-    }, [hedgehogConfig])
-
-    // NOTE: Temporary - turns on christmas clothes for the holidays
-    useEffect(() => {
-        if (hedgehogConfig.accessories.length === 0 && dayjs().month() === 11) {
-            addAccessory('xmas_hat')
-            addAccessory('xmas_scarf')
+        if (hedgehogConfig) {
+            actor.hedgehogConfig = hedgehogConfig
+            actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
         }
-    }, [])
+    }, [hedgehogConfig])
 
     useEffect(() => {
         let timer: any = null
@@ -475,12 +462,35 @@ export function HedgehogBuddy({
     }, [actor.x, actor.y])
 
     const onClick = (): void => {
-        !actor.isDragging && (_onClick ? _onClick() : setPopoverVisible(!popoverVisible))
+        !actor.isDragging && _onClick?.()
+    }
+
+    return actor.render({ onClick, ref })
+})
+
+export function MyHedgehogBuddy({
+    onActorLoaded,
+    onClose,
+    onClick: _onClick,
+    onPositionChange,
+}: HedgehogBuddyProps): JSX.Element {
+    const [actor, setActor] = useState<HedgehogActor | null>(null)
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+
+    useEffect(() => {
+        return actor?.setupKeyboardListeners()
+    }, [actor])
+
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+        _onClick?.()
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        actor.setAnimation('wave')
-        setTimeout(() => onClose(), (actor.animations.wave.frames * 1000) / FPS)
+        actor?.setAnimation('wave')
+        setTimeout(() => onClose?.(), (actor!.animations.wave.frames * 1000) / FPS)
     }
 
     return (
@@ -508,7 +518,66 @@ export function HedgehogBuddy({
                 </div>
             }
         >
-            {actor.render({ onClick })}
+            <HedgehogBuddy
+                onActorLoaded={(actor) => {
+                    setActor(actor)
+                    onActorLoaded?.(actor)
+                }}
+                onClick={onClick}
+                onPositionChange={onPositionChange}
+                hedgehogConfig={hedgehogConfig}
+            />
+        </Popover>
+    )
+}
+
+export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const [popoverVisible, setPopoverVisible] = useState(false)
+
+    const memberHedgehogConfig: HedgehogConfig = {
+        ...hedgehogConfig,
+        ...member.user.hedgehog_config,
+        controls_enabled: false,
+    }
+
+    const onClick = (): void => {
+        setPopoverVisible(!popoverVisible)
+    }
+    return (
+        <Popover
+            onClickOutside={() => setPopoverVisible(false)}
+            visible={popoverVisible}
+            placement="top"
+            fallbackPlacements={['bottom', 'left', 'right']}
+            overflowHidden
+            overlay={
+                <div className="min-w-50 max-w-140">
+                    <div className="p-3">
+                        <ProfilePicture user={member.user} size="xl" showName />
+                    </div>
+
+                    <div className="flex items-end gap-2 border-t p-3">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() =>
+                                patchHedgehogConfig({
+                                    party_mode_enabled: false,
+                                })
+                            }
+                        >
+                            Turn off party mode
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => setPopoverVisible(false)}>
+                            Carry on!
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <HedgehogBuddy onClick={onClick} hedgehogConfig={memberHedgehogConfig} />
         </Popover>
     )
 }

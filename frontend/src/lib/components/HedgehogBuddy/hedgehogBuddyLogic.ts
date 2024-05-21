@@ -1,8 +1,11 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogColorOptions, HedgehogConfig } from '~/types'
 
 import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
@@ -28,6 +31,8 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         removeAccessory: (accessory: string) => ({ accessory }),
         patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         clearLocalConfig: true,
+        loadRemoteConfig: true,
+        updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
     }),
 
     reducers(() => ({
@@ -43,12 +48,45 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         ],
     })),
 
+    loaders(({ values, actions }) => ({
+        remoteConfig: [
+            null as Partial<HedgehogConfig> | null,
+            {
+                loadRemoteConfig: async () => {
+                    const endpoint = '/api/users/@me/hedgehog_config'
+                    if (toolbarConfigLogic?.findMounted()?.values.temporaryToken) {
+                        return await (await toolbarFetch(endpoint, 'GET')).json()
+                    }
+                    return await api.get<Partial<HedgehogConfig>>(endpoint)
+                },
+
+                updateRemoteConfig: async ({ config }) => {
+                    const endpoint = '/api/users/@me/hedgehog_config'
+                    const localConfig = values.localConfig
+                    let newConfig: Partial<HedgehogConfig>
+
+                    if (toolbarConfigLogic?.findMounted()?.values.temporaryToken) {
+                        newConfig = await (await toolbarFetch(endpoint, 'PATCH', config)).json()
+                    } else {
+                        newConfig = await api.update(endpoint, config)
+                    }
+
+                    if (localConfig === values.localConfig) {
+                        actions.clearLocalConfig()
+                    }
+
+                    return newConfig ?? null
+                },
+            },
+        ],
+    })),
+
     selectors({
         partialHedgehogConfig: [
-            (s) => [s.localConfig, userLogic.selectors.user],
-            (localConfig, user): Partial<HedgehogConfig> => {
+            (s) => [s.localConfig, s.remoteConfig],
+            (localConfig, remoteConfig): Partial<HedgehogConfig> => {
                 return {
-                    ...(user?.hedgehog_config ?? {}),
+                    ...(remoteConfig ?? {}),
                     ...(localConfig ?? {}),
                 }
             },
@@ -65,6 +103,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                     walking_enabled: true,
                     interactions_enabled: true,
                     controls_enabled: true,
+                    party_mode_enabled: false,
                     ...partialHedgehogConfig,
                 }
             },
@@ -101,25 +140,18 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
 
         patchHedgehogConfig: async (_, breakpoint) => {
             await breakpoint(1000)
-
-            await new Promise<void>((res) => {
-                // TODO: Fix the rate limiting of this...
-                userLogic.findMounted()?.actions.updateUser(
-                    {
-                        // We use the partialHedgehogConfig here to avoid including defaults
-                        hedgehog_config: values.partialHedgehogConfig,
-                    },
-                    res
-                )
-            })
-
-            await breakpoint(100)
-
-            actions.clearLocalConfig()
+            actions.updateRemoteConfig(values.hedgehogConfig)
         },
     })),
 
     afterMount(({ actions }) => {
+        const loadedUser = userLogic.findMounted()?.values.user
+        if (loadedUser) {
+            actions.loadRemoteConfigSuccess(loadedUser.hedgehog_config ?? {})
+        } else {
+            actions.loadRemoteConfig()
+        }
+
         posthog.getEarlyAccessFeatures((features) => {
             const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
             if (relatedEAF) {
