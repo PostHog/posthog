@@ -79,6 +79,7 @@ export type SettingId =
     | 'theme'
     | 'replay-ai-config'
     | 'heatmaps'
+    | 'hedgehog-mode'
 
 export type Setting = {
     id: SettingId
