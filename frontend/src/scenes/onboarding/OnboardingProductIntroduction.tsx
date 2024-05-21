@@ -49,7 +49,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
     const { isFirstProductOnboarding } = useValues(onboardingLogic)
     const { hasSnippetEvents } = useValues(sdksLogic)
     const cta: Partial<Record<ProductKey, string>> = {
-        [ProductKey.SESSION_REPLAY]: 'Start recording my website',
+        [ProductKey.SESSION_REPLAY]: 'Start recording my website or mobile app',
         [ProductKey.FEATURE_FLAGS]: 'Create a feature flag or experiment',
         [ProductKey.SURVEYS]: 'Create a survey',
     }
