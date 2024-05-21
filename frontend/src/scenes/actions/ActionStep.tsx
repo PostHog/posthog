@@ -300,7 +300,7 @@ function TypeSwitcher({
     }
 
     return (
-        <div className="type-switcher">
+        <div data-attr="action-type-switcher">
             <LemonSegmentedButton
                 onChange={handleChange}
                 value={
