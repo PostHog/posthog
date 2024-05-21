@@ -7,6 +7,7 @@ import uuid
 
 from temporalio import activity, workflow
 import temporalio.common
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import ProxyRecord
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -63,7 +64,9 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
         if value == inputs.target_cname:
             return
-    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        else:
+            raise ApplicationError("target CNAME doesn't match", non_retryable=False)
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, ApplicationError):
         # retriable
         raise
     except Exception as e:
@@ -82,7 +85,7 @@ async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
         inputs.domain,
     )
 
-    client = get_grpc_client()
+    client = await get_grpc_client()
 
     try:
         await client.Create(
@@ -108,7 +111,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
         inputs.domain,
     )
 
-    client = get_grpc_client()
+    client = await get_grpc_client()
 
     try:
         response = await client.Status(
@@ -169,7 +172,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ISSUING,
+                    status=ProxyRecord.Status.ISSUING.value,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -215,7 +218,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.VALID,
+                    status=ProxyRecord.Status.VALID.value,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 retry_policy=temporalio.common.RetryPolicy(
@@ -230,7 +233,7 @@ class CreateHostedProxyWorkflow(PostHogWorkflow):
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ERRORING,
+                    status=ProxyRecord.Status.ERRORING.value,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=60),
                 retry_policy=temporalio.common.RetryPolicy(

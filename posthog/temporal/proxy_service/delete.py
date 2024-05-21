@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from dataclasses import dataclass
 import datetime as dt
 import grpc.aio
@@ -46,8 +47,8 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
         inputs.proxy_record_id,
     )
 
-    pr = ProxyRecord.objects.get(id=inputs.proxy_record_id)
-    pr.delete()
+    pr = await sync_to_async(ProxyRecord.objects.get)(id=inputs.proxy_record_id)
+    await sync_to_async(pr.delete())
 
 
 @activity.defn
@@ -122,7 +123,7 @@ class DeleteHostedProxyWorkflow(PostHogWorkflow):
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
-                    status=ProxyRecord.Status.ERRORING,
+                    status=ProxyRecord.Status.ERRORING.value,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=60),
                 retry_policy=temporalio.common.RetryPolicy(

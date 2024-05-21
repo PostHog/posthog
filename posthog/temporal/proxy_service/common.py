@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from dataclasses import dataclass
 import grpc.aio
 import uuid
@@ -25,7 +26,7 @@ class NonRetriableException(Exception):
 class UpdateProxyRecordInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
-    status: ProxyRecord.Status
+    status: str
 
 
 @activity.defn
@@ -40,6 +41,10 @@ async def update_proxy_record(inputs: UpdateProxyRecordInputs):
         inputs.status,
     )
 
-    pr = ProxyRecord.objects.get(id=inputs.proxy_record_id)
-    pr.status = inputs.status
-    pr.save()
+    @sync_to_async
+    def update_record(proxy_record_id):
+        pr = ProxyRecord.objects.get(id=proxy_record_id)
+        pr.status = inputs.status
+        pr.save()
+
+    await update_record(inputs.proxy_record_id)
