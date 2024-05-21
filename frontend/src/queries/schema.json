@@ -55,9 +55,16 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
-                    "description": "Currently only person filters supported, see `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/PersonPropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -82,9 +89,16 @@
                     "type": "array"
                 },
                 "properties": {
-                    "description": "Currently only person filters supported, see `filter_conditions()` in actor_strategies.py.",
+                    "description": "Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/PersonPropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
