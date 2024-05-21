@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 import datetime as dt
 import grpc.aio
+import json
 import uuid
-
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -77,6 +77,12 @@ async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
 @workflow.defn(name="delete-proxy")
 class DeleteHostedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to delete a Hosted Reverse Proxy."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> DeleteHostedProxyInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return DeleteHostedProxyInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteHostedProxyInputs) -> None:

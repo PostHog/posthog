@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 import datetime as dt
-import grpc.aio
 import dns.resolver
+import grpc.aio
+import json
 import uuid
-
 
 from temporalio import activity, workflow
 import temporalio.common
@@ -132,6 +132,12 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 @workflow.defn(name="create-proxy")
 class CreateHostedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Hosted Reverse Proxy."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> CreateHostedProxyInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return CreateHostedProxyInputs(**loaded)
 
     @temporalio.workflow.run
     async def run(self, inputs: CreateHostedProxyInputs) -> None:
