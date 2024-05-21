@@ -292,8 +292,9 @@ export function NPSSurveyResultsBarChart({
                                     showValuesOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
-                                    type={GraphType.Bar}
+                                    type={GraphType.Line}
                                     hideAnnotations={true}
+                                    compare={true}
                                     formula="-"
                                     tooltip={{
                                         showHeader: false,
@@ -302,7 +303,7 @@ export function NPSSurveyResultsBarChart({
                                     datasets={[
                                         {
                                             id: 1,
-                                            label: 'Number of responses',
+                                            label: 'NPS Score over time',
                                             barPercentage: 0.8,
                                             minBarLength: 2,
                                             data: surveyRecurringNPSResults[questionIndex].data,

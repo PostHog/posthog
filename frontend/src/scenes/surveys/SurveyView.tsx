@@ -16,15 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import {
-    ChartDisplayType,
-    InsightType,
-    PropertyFilterType,
-    PropertyOperator,
-    Survey,
-    SurveyQuestionType,
-    SurveyType,
-} from '~/types'
+import { InsightType, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SURVEY_EVENT_NAME } from './constants'
 import { SurveyReleaseSummary } from './Survey'
@@ -327,43 +319,25 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 {question.scale === 10 && (
                                     <>
                                         <div className="text-4xl font-bold">{surveyNPSScore}</div>
-                                        <div className="font-semibold text-muted-alt mb-2">Overall NPS Score</div>
-                                        {/* TODO: rework this to show nps scores over time */}
+                                        <div className="font-semibold text-muted-alt mb-2">Latest NPS Score</div>
                                         <SurveyNPSResults survey={survey as Survey} />
                                     </>
                                 )}
-                                <ol>
-                                    {survey.iteration_count != undefined &&
-                                        survey.iteration_start_dates != undefined &&
-                                        survey.iteration_start_dates.length == survey.iteration_count &&
-                                        survey.iteration_count > 0 &&
-                                        [...Array(survey.current_iteration)].map((e, idx) => (
-                                            // @ts-expect-error
-                                            <li key={`li-survey-q-${i}-${e}-${idx}`}>
-                                                <RatingQuestionBarChart
-                                                    key={`survey-q-${i}-${e}-${idx}`}
-                                                    surveyRatingResults={surveyRatingResults}
-                                                    surveyRatingResultsReady={surveyRatingResultsReady}
-                                                    iterationStartDate={survey.iteration_start_dates[idx]}
-                                                    iterationStartDates={survey.iteration_start_dates}
-                                                    iteration={idx + 1}
-                                                    questionIndex={i}
-                                                />
-                                            </li>
-                                        ))}
-                                </ol>
-                                <NPSSurveyResultsBarChart
-                                    key={`nps-survey-results-q-${i}`}
-                                    surveyRecurringNPSResults={surveyRecurringNPSResults}
-                                    surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
-                                    iterationStartDates={survey.iteration_start_dates}
+
+                                <RatingQuestionBarChart
+                                    key={`survey-q-${i}`}
+                                    surveyRatingResults={surveyRatingResults}
+                                    surveyRatingResultsReady={surveyRatingResultsReady}
                                     questionIndex={i}
+                                    iteration={survey.current_iteration}
                                 />
-                                {survey.iteration_count == 0 && (
-                                    <RatingQuestionBarChart
-                                        key={`survey-q-${i}`}
-                                        surveyRatingResults={surveyRatingResults}
-                                        surveyRatingResultsReady={surveyRatingResultsReady}
+
+                                {survey.iteration_count > 0 && (
+                                    <NPSSurveyResultsBarChart
+                                        key={`nps-survey-results-q-${i}`}
+                                        surveyRecurringNPSResults={surveyRecurringNPSResults}
+                                        surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
+                                        iterationStartDates={survey.iteration_start_dates}
                                         questionIndex={i}
                                     />
                                 )}
@@ -437,7 +411,6 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
-                        interval: 'week',
                         dateRange: {
                             date_from: dayjs(survey.created_at).format('YYYY-MM-DD'),
                             date_to: survey.end_date
@@ -449,7 +422,6 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                 event: SURVEY_EVENT_NAME,
                                 kind: NodeKind.EventsNode,
                                 custom_name: 'Promoters',
-                                limit: 100,
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
@@ -457,25 +429,12 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         operator: PropertyOperator.Exact,
                                         value: [9, 10],
                                     },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_id',
-                                        operator: PropertyOperator.Exact,
-                                        value: survey.id,
-                                    },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_iteration',
-                                        operator: PropertyOperator.Exact,
-                                        value: [1, 2],
-                                    },
                                 ],
                             },
                             {
                                 event: SURVEY_EVENT_NAME,
                                 kind: NodeKind.EventsNode,
                                 custom_name: 'Passives',
-                                limit: 100,
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
@@ -483,43 +442,18 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                         operator: PropertyOperator.Exact,
                                         value: [7, 8],
                                     },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_id',
-                                        operator: PropertyOperator.Exact,
-                                        value: survey.id,
-                                    },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_iteration',
-                                        operator: PropertyOperator.Exact,
-                                        value: [1, 2],
-                                    },
                                 ],
                             },
                             {
                                 event: SURVEY_EVENT_NAME,
                                 kind: NodeKind.EventsNode,
                                 custom_name: 'Detractors',
-                                limit: 100,
                                 properties: [
                                     {
                                         type: PropertyFilterType.Event,
                                         key: '$survey_response',
                                         operator: PropertyOperator.Exact,
                                         value: [0, 1, 2, 3, 4, 5, 6],
-                                    },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_id',
-                                        operator: PropertyOperator.Exact,
-                                        value: survey.id,
-                                    },
-                                    {
-                                        type: PropertyFilterType.Event,
-                                        key: '$survey_iteration',
-                                        operator: PropertyOperator.Exact,
-                                        value: [1, 2],
                                     },
                                 ],
                             },
@@ -531,15 +465,15 @@ function SurveyNPSResults({ survey }: { survey: Survey }): JSX.Element {
                                 operator: PropertyOperator.Exact,
                                 value: survey.id,
                             },
+                            {
+                                type: PropertyFilterType.Event,
+                                key: '$survey_iteration',
+                                operator: PropertyOperator.Exact,
+                                value: survey.current_iteration,
+                            },
                         ],
                         trendsFilter: {
-                            smoothing_intervals: 12,
                             formula: '(A / (A+B+C) * 100) - (C / (A+B+C)* 100)',
-                            display: ChartDisplayType.ActionsBar,
-                        },
-                        breakdownFilter: {
-                            breakdown: '$survey_iteration',
-                            breakdown_type: 'event',
                         },
                     },
                 }}

@@ -68,13 +68,6 @@ type SurveyNPSResult = {
     Passives: number
 }
 
-export interface SurveyRecurringNPSResults {
-    [key: number]: {
-        data: number[]
-        total: number
-    }
-}
-
 export interface SurveySingleChoiceResults {
     [key: number]: {
         labels: string[]
