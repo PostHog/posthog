@@ -762,7 +762,7 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
-    query_async: Optional[bool] = True
+    query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None

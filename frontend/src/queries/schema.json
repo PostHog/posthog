@@ -6495,7 +6495,9 @@
                     "type": "string"
                 },
                 "query_async": {
+                    "const": true,
                     "default": true,
+                    "description": "ONLY async queries use QueryStatus.",
                     "type": "boolean"
                 },
                 "query_progress": {
