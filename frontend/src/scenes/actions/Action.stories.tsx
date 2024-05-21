@@ -61,7 +61,6 @@ const MOCK_ACTION: ActionType = {
     deleted: false,
     is_calculating: false,
     last_calculated_at: '2024-05-21T12:57:50.894221Z',
-    team_id: 1,
 }
 
 const meta: Meta = {
