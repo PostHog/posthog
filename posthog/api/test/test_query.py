@@ -843,6 +843,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "start_time": "2020-01-10T12:14:00Z",
                     "task_id": mock.ANY,
                     "team_id": mock.ANY,
+                    "query_progress": None,
                 },
             )
 
@@ -1003,4 +1004,4 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 204)
-        self.redis_client_mock.delete.assert_called_once()
+        self.assertEqual(self.redis_client_mock.delete.call_count, 2)

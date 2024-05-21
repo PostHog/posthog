@@ -1,6 +1,6 @@
 import './ViewLinkModal.scss'
 
-import { IconCollapse, IconExpand, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -252,25 +252,6 @@ const HogQLDropdown = ({
                 </LemonButton>
             </LemonDropdown>
         </div>
-    )
-}
-
-interface ViewLinkDeleteButtonProps {
-    table: string
-    column: string
-}
-
-export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProps): JSX.Element {
-    const { deleteViewLink } = useActions(viewLinkLogic)
-
-    return (
-        <LemonButton
-            icon={<IconTrash />}
-            onClick={() => deleteViewLink(table, column)}
-            tooltip="Remove view association"
-            tooltipPlacement="bottom-start"
-            size="small"
-        />
     )
 }
 

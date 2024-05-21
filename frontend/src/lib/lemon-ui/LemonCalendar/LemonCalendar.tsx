@@ -66,7 +66,9 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
         >
             {range(0, months).map((month) => {
                 const startOfMonth = leftmostMonth.add(month, 'month').startOf('month')
-                const endOfMonth = startOfMonth.endOf('month')
+                // need to add a day because of https://github.com/iamkun/dayjs/issues/2007
+                // calling endOf('month') on startOfMonth goes to the end of the previous month
+                const endOfMonth = startOfMonth.add(1, 'day').endOf('month')
                 const firstDay = startOfMonth.subtract((startOfMonth.day() - weekStartDay + 7) % 7, 'days')
                 const lastDay = endOfMonth.add((((weekStartDay + 6) % 7) - endOfMonth.day() + 7) % 7, 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1

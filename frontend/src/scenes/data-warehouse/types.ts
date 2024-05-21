@@ -56,8 +56,3 @@ export type DataWarehouseTableType =
     | DataWarehousePostHogTableType
     | DataWarehouseExternalTableType
     | DataWarehouseViewType
-
-export enum DataWarehouseSceneTab {
-    Tables = 'tables',
-    Joins = 'joins',
-}
