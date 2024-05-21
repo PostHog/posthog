@@ -13,7 +13,6 @@ import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { languages } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import { urls } from 'scenes/urls'
 import useResizeObserver from 'use-resize-observer'
 
 import { query } from '~/queries/query'
@@ -206,17 +205,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                                             HogQL
                                         </Link>
-                                        , our wrapper around ClickHouse SQL. Explore the{' '}
-                                        <Link
-                                            to={
-                                                featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
-                                                    ? urls.dataWarehouse()
-                                                    : urls.database()
-                                            }
-                                        >
-                                            database schema
-                                        </Link>{' '}
-                                        available to you.
+                                        , our wrapper around ClickHouse SQL
                                     </div>
                                 ),
                                 placement: 'right-start',
