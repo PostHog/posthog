@@ -1116,21 +1116,21 @@ def _create_insight(
 def create_person_id_override_by_distinct_id(
     distinct_id_from: str, distinct_id_to: str, team_id: int, version: int = 0
 ):
+    # XXX: No guarantees that data has been written to ``person_distinct_id2``
+    # in tests, so just assume that the data in ``events`` is up-to-date.
     person_ids_result = sync_execute(
         f"""
-        SELECT distinct_id, person_id
+        SELECT DISTINCT person_id
         FROM events
-        WHERE team_id = {team_id} AND distinct_id IN ('{distinct_id_from}', '{distinct_id_to}')
-        GROUP BY distinct_id, person_id
-        ORDER BY if(distinct_id = '{distinct_id_from}', -1, 0)
-    """
+        WHERE team_id = {team_id} AND distinct_id = '{distinct_id_to}'
+        """
     )
 
-    person_id_from, person_id_to = (row[1] for row in person_ids_result)
+    [person_id_to] = person_ids_result[0]
 
     sync_execute(
         f"""
-        INSERT INTO person_overrides (team_id, old_person_id, override_person_id, version)
-        VALUES ({team_id}, '{person_id_from}', '{person_id_to}', {version})
+        INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version)
+        VALUES ({team_id}, '{distinct_id_from}', '{person_id_to}', {version})
     """
     )
