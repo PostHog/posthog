@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -22,6 +22,7 @@ export const organizationLogic = kea<organizationLogicType>([
         deleteOrganizationSuccess: true,
         deleteOrganizationFailure: true,
     }),
+    connect([userLogic]),
     reducers({
         organizationBeingDeleted: [
             null as OrganizationType | null,
@@ -65,8 +66,8 @@ export const organizationLogic = kea<organizationLogicType>([
     })),
     selectors({
         hasTagging: [
-            (s) => [s.currentOrganization],
-            (currentOrganization) => currentOrganization?.available_features?.includes(AvailableFeature.TAGGING),
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],

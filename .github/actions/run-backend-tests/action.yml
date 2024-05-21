@@ -70,9 +70,7 @@ runs:
               sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
         - name: Install pnpm
-          uses: pnpm/action-setup@v2
-          with:
-              version: 8.x.x
+          uses: pnpm/action-setup@v4
 
         - name: Set up Node.js
           uses: actions/setup-node@v3
