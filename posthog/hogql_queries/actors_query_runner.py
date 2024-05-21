@@ -162,7 +162,8 @@ class ActorsQueryRunner(QueryRunner):
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
                         right=ast.Field(chain=[source_alias, *source_id_chain]),
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             ),
         )
