@@ -12,9 +12,36 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
         addAccessory: (accessory: AccessoryInfo) => ({ accessory }),
         removeAccessory: (accessory: AccessoryInfo) => ({ accessory }),
+        setFreeMovement: (enabled: boolean) => ({ enabled }),
+        setInteractWithElements: (enabled: boolean) => ({ enabled }),
+        setKeyboardControlsEnabled: (enabled: boolean) => ({ enabled }),
     }),
 
     reducers(() => ({
+        freeMovement: [
+            true,
+            { persist: true },
+            {
+                setFreeMovement: (_, { enabled }) => enabled,
+            },
+        ],
+
+        interactWithElements: [
+            true,
+            { persist: true },
+            {
+                setInteractWithElements: (_, { enabled }) => enabled,
+            },
+        ],
+
+        keyboardControlsEnabled: [
+            true,
+            { persist: true },
+            {
+                setKeyboardControlsEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+
         accessories: [
             [] as AccessoryInfo[],
             { persist: true },

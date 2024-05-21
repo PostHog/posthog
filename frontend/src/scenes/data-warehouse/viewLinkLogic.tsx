@@ -33,7 +33,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             databaseTableListLogic,
             ['filteredTables', 'dataWarehouse'],
         ],
-        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
+        actions: [
+            databaseTableListLogic,
+            ['loadDatabase', 'loadDataWarehouse'],
+            dataWarehouseJoinsLogic,
+            ['loadJoins'],
+        ],
     }),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
@@ -146,7 +151,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
+                        actions.loadDataWarehouse()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -163,7 +170,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
                         actions.toggleJoinTableModal()
                         actions.loadJoins()
-                        // actions.loadDatabase()
+
+                        actions.loadDatabase()
+                        actions.loadDataWarehouse()
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }

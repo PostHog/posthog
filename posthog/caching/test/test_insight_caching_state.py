@@ -235,23 +235,24 @@ def create_tile(
         # cacheable types of query
         pytest.param(
             create_insight,
-            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {"query": {"kind": "EventsQuery", "select": []}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
             id="insight with EventsQuery query viewed recently",
         ),
         pytest.param(
             create_insight,
-            {"query": {"kind": "HogQLQuery"}, "viewed_at_delta": timedelta(days=1)},
+            {"query": {"kind": "HogQLQuery", "query": ""}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
             id="insight with HogQLQuery query viewed recently",
         ),
+        # other types of query aren't cacheable
         pytest.param(
             create_insight,
             {
                 "query": {"kind": "TimeToSeeDataSessionsQuery"},
                 "viewed_at_delta": timedelta(days=1),
             },
-            TargetCacheAge.MID_PRIORITY,
+            TargetCacheAge.NO_CACHING,
             id="insight with TimeToSeeDataSessionsQuery query viewed recently",
         ),
         pytest.param(
@@ -260,10 +261,9 @@ def create_tile(
                 "query": {"kind": "TimeToSeeDataQuery"},
                 "viewed_at_delta": timedelta(days=1),
             },
-            TargetCacheAge.MID_PRIORITY,
+            TargetCacheAge.NO_CACHING,
             id="insight with TimeToSeeDataQuery query viewed recently",
         ),
-        # other types of query aren't cacheable
         pytest.param(
             create_insight,
             {"query": {"kind": "something else"}, "viewed_at_delta": timedelta(days=1)},
@@ -274,7 +274,7 @@ def create_tile(
         pytest.param(
             create_insight,
             {
-                "query": {"kind": "something else", "source": {"kind": "EventsQuery"}},
+                "query": {"kind": "something else", "source": {"kind": "EventsQuery", "select": []}},
                 "viewed_at_delta": timedelta(days=1),
             },
             TargetCacheAge.MID_PRIORITY,
@@ -282,7 +282,7 @@ def create_tile(
         ),
         pytest.param(
             create_tile,
-            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=20)},
+            {"query": {"kind": "EventsQuery", "select": []}, "viewed_at_delta": timedelta(days=20)},
             TargetCacheAge.LOW_PRIORITY,
             id="tile with query viewed ages ago",
         ),
