@@ -187,7 +187,15 @@ export function PipelinePluginConfiguration({
                     </div>
 
                     <div className="border bg-bg-light rounded p-3 flex-2 min-w-100">
-                        <>{fields}</>
+                        <>
+                            {fields.length ? (
+                                fields
+                            ) : (
+                                <span className="italic text-muted-alt">
+                                    This app does not have specific configuration options
+                                </span>
+                            )}
+                        </>
                     </div>
                 </div>
 
