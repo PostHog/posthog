@@ -6,6 +6,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,7 +29,13 @@ export const scene: SceneExport = {
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
-    const showSurveyForm = id === 'new' || isEditingSurvey
+    const { editingSurvey } = useActions(surveyLogic)
+
+    useEffect(() => {
+        if (id === 'new') {
+            editingSurvey(true)
+        }
+    }, [id, editingSurvey])
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -40,7 +47,7 @@ export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <BindLogic logic={surveyLogic} props={{ id }}>
-                    {showSurveyForm ? <SurveyForm id={id} /> : <SurveyView id={id} />}
+                    {isEditingSurvey ? <SurveyForm id={id} /> : <SurveyView id={id} />}
                 </BindLogic>
             )}
         </div>
