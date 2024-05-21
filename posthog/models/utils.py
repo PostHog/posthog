@@ -3,9 +3,8 @@ import string
 import uuid
 from collections import defaultdict, namedtuple
 from contextlib import contextmanager
-from random import Random, choice
 from time import time
-from typing import Any, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Optional, TypeVar
 from collections.abc import Callable, Iterator
 
 from django.db import IntegrityError, connections, models, transaction
@@ -15,6 +14,9 @@ from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
 from posthog.constants import MAX_SLUG_LENGTH
+
+if TYPE_CHECKING:
+    from random import Random
 
 T = TypeVar("T")
 
@@ -48,7 +50,7 @@ class UUIDT(uuid.UUID):
         unix_time_ms: Optional[int] = None,
         uuid_str: Optional[str] = None,
         *,
-        seeded_random: Optional[Random] = None,
+        seeded_random: Optional["Random"] = None,
     ) -> None:
         if uuid_str and self.is_valid_uuid(uuid_str):
             super().__init__(uuid_str)
@@ -185,7 +187,7 @@ class LowercaseSlugField(models.SlugField):
 
 def generate_random_short_suffix():
     """Return a 4 letter suffix made up random ASCII letters, useful for disambiguation of duplicates."""
-    return "".join(choice(string.ascii_letters) for _ in range(4))
+    return "".join(secrets.choice(string.ascii_letters) for _ in range(4))
 
 
 def create_with_slug(create_func: Callable[..., T], default_slug: str = "", *args, **kwargs) -> T:
