@@ -9,7 +9,7 @@ from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.proxy_service import CreateHostedProxyInputs
+from posthog.temporal.proxy_service import CreateHostedProxyInputs, DeleteHostedProxyInputs
 
 from rest_framework.response import Response
 
@@ -84,6 +84,21 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             record.delete()
         elif record:
             record.status = ProxyRecord.Status.DELETING
+            temporal = sync_connect()
+            inputs = DeleteHostedProxyInputs(
+                organization_id=record.organization_id,
+                proxy_record_id=record.id,
+                domain=record.domain,
+            )
+            workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
+            asyncio.run(
+                temporal.start_workflow(
+                    "delete-proxy",
+                    inputs,
+                    id=workflow_id,
+                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                )
+            )
             record.save()
 
         return Response(

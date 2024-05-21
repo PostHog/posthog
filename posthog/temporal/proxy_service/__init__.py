@@ -1,1 +1,2 @@
 from posthog.temporal.proxy_service.create import CreateHostedProxyInputs
+from posthog.temporal.proxy_service.delete import DeleteHostedProxyInputs
