@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from structlog import get_logger
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -15,8 +16,6 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
-
-from structlog import get_logger
 
 logger = get_logger(__name__)
 
