@@ -65,7 +65,6 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                     walking_enabled: true,
                     interactions_enabled: true,
                     controls_enabled: true,
-                    party_mode_enabled: false,
                     ...partialHedgehogConfig,
                 }
             },

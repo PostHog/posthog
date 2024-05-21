@@ -293,7 +293,6 @@ export interface HedgehogConfig extends MinimalHedgehogConfig {
     walking_enabled: boolean
     interactions_enabled: boolean
     controls_enabled: boolean
-    party_mode_enabled: boolean
 }
 
 export interface NotificationSettings {
