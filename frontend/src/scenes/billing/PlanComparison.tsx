@@ -278,7 +278,7 @@ export const PlanComparison = ({
                 {includeAddons && (
                     <tr>
                         <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                            <h3 className="mt-6 mb-6">Available addons:</h3>
+                            <h3 className="mt-6 mb-6">Available add-ons:</h3>
                         </th>
                     </tr>
                 )}
@@ -288,7 +288,9 @@ export const PlanComparison = ({
                             <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">
                                     <p className="ml-0">
-                                        <span className="font-bold">{addon.name}</span>
+                                        <Tooltip title={addon.description}>
+                                            <span className="font-bold cursor-default">{addon.name}</span>
+                                        </Tooltip>
                                         <Tooltip
                                             title={
                                                 addon.inclusion_only
@@ -300,7 +302,7 @@ export const PlanComparison = ({
                                                 type={addon.inclusion_only ? 'option' : 'primary'}
                                                 className="ml-2"
                                             >
-                                                {addon.inclusion_only ? 'config' : 'addon'}
+                                                {addon.inclusion_only ? 'config' : 'add-on'}
                                             </LemonTag>
                                         </Tooltip>
                                     </p>
