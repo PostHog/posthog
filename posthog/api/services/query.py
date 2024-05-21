@@ -22,6 +22,7 @@ from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySeria
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.schema import (
     HogQuery,
+    DashboardFilter,
     HogQLAutocomplete,
     HogQLMetadata,
     QuerySchemaRoot,
@@ -38,14 +39,17 @@ def process_query(
     team: Team,
     query_json: dict,
     *,
+    dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
+    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     return process_query_model(
         team,
         model.root,
+        dashboard_filters=dashboard_filters,
         limit_context=limit_context,
         execution_mode=execution_mode,
     )
@@ -55,6 +59,7 @@ def process_query_model(
     team: Team,
     query: BaseModel,  # mypy has problems with unions and isinstance
     *,
+    dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
 ) -> dict:
@@ -122,6 +127,8 @@ def process_query_model(
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
+        if dashboard_filters:
+            query_runner.apply_dashboard_filters(dashboard_filters)
         result = query_runner.run(execution_mode=execution_mode)
 
     if isinstance(result, BaseModel):

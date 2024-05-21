@@ -19,7 +19,7 @@ import {
 import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
 
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode, QueryStatus } from './schema'
 import {
     isActorsQuery,
     isDataTableNode,
@@ -108,11 +108,14 @@ async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
-    queryId?: string
+    queryId?: string,
+    setPollResponse?: (response: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     const isAsyncQuery =
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
+
+    const showProgress = !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.INSIGHT_LOADING_BAR]
 
     const response = await api.query(queryNode, methodOptions, queryId, refresh, isAsyncQuery)
 
@@ -127,10 +130,13 @@ async function executeQuery<N extends DataNode>(
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
 
-        const statusResponse = await api.queryStatus.get(response.id)
+        const statusResponse = await api.queryStatus.get(response.id, showProgress)
 
         if (statusResponse.complete || statusResponse.error) {
             return statusResponse.results
+        }
+        if (setPollResponse) {
+            setPollResponse(statusResponse)
         }
     }
     throw new Error('Query timed out')
@@ -142,7 +148,8 @@ export async function query<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean,
     queryId?: string,
-    legacyUrl?: string
+    legacyUrl?: string,
+    setPollResponse?: (status: QueryStatus) => void
 ): Promise<NonNullable<N['response']>> {
     if (isTimeToSeeDataSessionsNode(queryNode)) {
         return query(queryNode.source)
@@ -365,13 +372,13 @@ export async function query<N extends DataNode>(
                             : {}),
                     })
                 } else {
-                    response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+                    response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
                 }
             } else {
                 response = await fetchLegacyInsights()
             }
         } else {
-            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId, setPollResponse)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

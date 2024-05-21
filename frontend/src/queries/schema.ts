@@ -941,6 +941,14 @@ export interface CacheMissResponse {
     cache_key: string | null
 }
 
+export type ClickhouseQueryStatus = {
+    bytes_read: integer
+    rows_read: integer
+    estimated_rows_total: integer
+    time_elapsed: integer
+    active_cpu_time: integer
+}
+
 export type QueryStatus = {
     id: string
     /**  @default true */
@@ -960,6 +968,7 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
+    query_progress?: ClickhouseQueryStatus
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -1375,6 +1384,7 @@ export interface BreakdownFilter {
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
+// TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`
 export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
