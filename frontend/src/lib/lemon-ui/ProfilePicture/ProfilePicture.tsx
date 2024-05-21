@@ -8,13 +8,17 @@ import md5 from 'md5'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { UserBasicType } from '~/types'
+import { MinimalHedgehogConfig, UserBasicType } from '~/types'
 
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 
 export interface ProfilePictureProps {
-    user?: Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name' | 'hedgehog_config'> | null
+    user?:
+        | (Pick<Partial<UserBasicType>, 'first_name' | 'email' | 'last_name'> & {
+              hedgehog_config?: Partial<MinimalHedgehogConfig>
+          })
+        | null
     name?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
