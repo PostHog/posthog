@@ -48,6 +48,10 @@ class QueryStatusManager:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.query_id}:{self.team_id}"
 
     @property
+    def old_results_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
+
+    @property
     def clickhouse_query_status_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.query_id}:{self.team_id}:status"
 
@@ -59,11 +63,25 @@ class QueryStatusManager:
         value = json.dumps(query_statuses)
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
-    def _get_results(self):
+    def _old_get_results(self):
         try:
             byte_results = self.redis_client.get(self.results_key)
         except Exception as e:
             raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
+
+        return byte_results
+
+    # It is safe to remove this code about 10 minutes after this deploy goes out and revert to the method above
+    def _get_results(self):
+        try:
+            byte_results = self.redis_client.get(self.results_key)
+            if byte_results is None:
+                raise Exception()
+        except Exception:
+            try:
+                byte_results = self.redis_client.get(self.old_results_key)
+            except Exception as e:
+                raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
 
         return byte_results
 
