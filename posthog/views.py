@@ -187,7 +187,7 @@ def redis_values_view(request: HttpRequest):
     }
 
     context = {
-        **admin_site.each_context(request),  # type: ignore
+        **admin_site.each_context(request),
         **{
             "redis_keys": redis_keys,
             "query": query or "",
