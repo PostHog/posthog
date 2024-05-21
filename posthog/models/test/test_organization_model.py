@@ -71,14 +71,17 @@ class TestOrganization(BaseTest):
         with self.is_cloud(False):
             new_org, _, _ = Organization.objects.bootstrap(self.user)
 
-            new_org.available_features = ["test1", "test2"]
+            new_org.available_product_features = [{"key": "test1", "name": "test1"}, {"key": "test2", "name": "test2"}]
             new_org.update_available_product_features()
-            assert new_org.available_features == []
+            assert new_org.available_product_features == []
 
-            new_org.available_features = ["test1", "test2"]
+            new_org.available_product_features = [{"key": "test1", "name": "test1"}, {"key": "test2", "name": "test2"}]
             new_org.usage = {"events": {"usage": 1000, "limit": None}}
             new_org.update_available_product_features()
-            assert new_org.available_features == ["test1", "test2"]
+            assert new_org.available_product_features == [
+                {"key": "test1", "name": "test1"},
+                {"key": "test2", "name": "test2"},
+            ]
 
 
 class TestOrganizationMembership(BaseTest):

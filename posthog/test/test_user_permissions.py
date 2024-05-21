@@ -22,8 +22,11 @@ class WithPermissionsBase:
 class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            }
         ]
         self.organization.save()
 
@@ -119,7 +122,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
         self.organization.save()
         self.dashboard = Dashboard.objects.create(team=self.team)
 
@@ -142,7 +147,7 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_dashboard_effective_restriction_level_when_feature_not_available(self):
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
@@ -236,7 +241,9 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
 class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
         self.organization.save()
 
         self.dashboard1 = Dashboard.objects.create(
@@ -274,7 +281,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_effective_restriction_level_with_no_permissioning(self):
-        self.organization.available_features = []
+        self.organization.available_product_features = []
         self.organization.save()
 
         assert (
@@ -305,9 +312,9 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_dashboard_efficiency(self):
-        self.organization.available_features = [
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.ADVANCED_PERMISSIONS,
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROJECT_BASED_PERMISSIONING, "key": AvailableFeature.PROJECT_BASED_PERMISSIONING},
+            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
         self.organization.save()
 
@@ -346,7 +353,12 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
             membership.level = OrganizationMembership.Level.ADMIN  # type: ignore
             membership.save()  # type: ignore
 
-            organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
+            organization.available_product_features = [
+                {
+                    "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                    "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                }
+            ]
             organization.save()
 
             models.append((organization, membership, team))
