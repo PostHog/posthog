@@ -288,7 +288,7 @@ export function NPSSurveyResultsBarChart({
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <LineGraph
                                     inSurveyView={true}
-                                    hideYAxis={true}
+                                    hideYAxis={false}
                                     showValuesOnSeries={true}
                                     labelGroupType={1}
                                     data-attr="survey-rating"
