@@ -110,7 +110,7 @@ services:
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
             - caddy-data:/data
-            - caddy-config:/config            
+            - caddy-config:/config
         depends_on:
             - web
     objectstorage:
