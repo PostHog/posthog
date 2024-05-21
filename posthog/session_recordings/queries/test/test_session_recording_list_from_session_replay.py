@@ -12,6 +12,7 @@ from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.session_recordings.sql.session_replay_event_sql import (
     TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
@@ -2575,6 +2576,94 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
+        self.create_event(
+            "user2",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "2",
+                "$window_id": "1",
+                "is_internal_user": True,
+            },
+        )
+
+        # there are 2 pageviews
+        (session_recordings, _) = self._filter_recordings_by(
+            {
+                # pageview that matches the hogql test_accounts filter
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                    }
+                ],
+                "filter_test_accounts": False,
+            }
+        )
+        self.assertEqual(len(session_recordings), 2)
+
+        (session_recordings, _) = self._filter_recordings_by(
+            {
+                # only 1 pageview that matches the test_accounts filter
+                "filter_test_accounts": True,
+            }
+        )
+        self.assertEqual(len(session_recordings), 1)
+
+    @also_test_with_materialized_columns(person_properties=["email"])
+    @freeze_time("2021-01-21T20:00:00.000Z")
+    @snapshot_clickhouse_queries
+    def test_top_level_person_property_test_account_filter_with_poe_mode(self) -> None:
+        """
+        a duplicate of test_top_level_person_property_test_account_filter but with poe_mode=True
+        """
+        self.team.test_account_filters = [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]
+
+        modifiers = HogQLQueryModifiers()
+        modifiers.personsOnEventsMode = PersonsOnEventsMode.person_id_no_override_properties_on_events
+        self.team.modifiers = modifiers.model_dump()
+
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={"email": "not-the-other-one"},
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+
+        self.create_event(
+            "user",
+            self.an_hour_ago,
+            properties={
+                "$session_id": "1",
+                "$window_id": "1",
+                "is_internal_user": False,
+            },
+        )
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
+            team_id=self.team.id,
+        )
+
+        produce_replay_summary(
+            distinct_id="user2",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+
         self.create_event(
             "user2",
             self.an_hour_ago,
