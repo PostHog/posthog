@@ -1,4 +1,5 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -10,7 +11,6 @@ import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, Pipeline
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import type { pipelineBatchExportConfigurationLogicType } from './pipelineBatchExportConfigurationLogicType'
-import { checkPermissions } from './utils'
 
 export interface PipelineBatchExportConfigurationLogicProps {
     service: BatchExportService['type'] | null
@@ -45,6 +45,9 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         return `NEW:${service}`
     }),
     path((id) => ['scenes', 'pipeline', 'pipelineBatchExportConfigurationLogic', id]),
+    connect(() => ({
+        values: [pipelineDestinationsLogic, ['canEnableNewDestinations']],
+    })),
     actions({
         setSavedConfiguration: (configuration: Record<string, any>) => ({ configuration }),
     }),
@@ -60,11 +63,10 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                 },
                 updateBatchExportConfig: async (formdata) => {
                     if (
-                        !checkPermissions(
-                            PipelineStage.Destination,
-                            !props.id || (!!values.batchExportConfig?.paused && formdata.paused !== true)
-                        )
+                        (!values.batchExportConfig || (values.batchExportConfig.paused && formdata.paused !== true)) &&
+                        !values.canEnableNewDestinations
                     ) {
+                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return null
                     }
                     const { name, destination, interval, paused, created_at, start_at, end_at, ...config } = formdata
@@ -134,7 +136,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         requiredFields: [
             (s) => [s.service],
             (service): string[] => {
-                const generalRequiredFields = ['interval', 'name', 'paused']
+                const generalRequiredFields = ['interval', 'name']
                 if (service === 'Postgres') {
                     return [
                         ...generalRequiredFields,

@@ -58,6 +58,7 @@ export function PluginField({
                     onChange?.(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
+                disabled={disabled}
             >
                 Reset secret {fieldConfig.type === 'attachment' ? 'attachment' : 'field'}
             </LemonButton>
