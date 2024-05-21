@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
@@ -94,8 +95,32 @@ export function PipelinePluginConfiguration({
         </React.Fragment>
     ))
 
+    const buttons = (
+        <>
+            <LemonButton
+                type="secondary"
+                htmlType="reset"
+                onClick={() => resetConfiguration(savedConfiguration || {})}
+                disabledReason={
+                    isConfigurationSubmitting ? 'Saving in progress…' : !configurationChanged ? 'No changes' : undefined
+                }
+            >
+                Clear changes
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                htmlType="submit"
+                onClick={submitConfiguration}
+                loading={isConfigurationSubmitting}
+            >
+                {isNew ? 'Create' : 'Save'}
+            </LemonButton>
+        </>
+    )
+
     return (
         <div className="space-y-3">
+            <PageHeader buttons={buttons} />
             <Form
                 logic={pipelinePluginConfigurationLogic}
                 props={logicProps}
@@ -166,30 +191,7 @@ export function PipelinePluginConfiguration({
                     </div>
                 </div>
 
-                <div className="flex gap-2">
-                    <LemonButton
-                        type="secondary"
-                        htmlType="reset"
-                        onClick={() => resetConfiguration(savedConfiguration || {})}
-                        disabledReason={
-                            isConfigurationSubmitting
-                                ? 'Saving in progress…'
-                                : !configurationChanged
-                                ? 'No changes'
-                                : undefined
-                        }
-                    >
-                        Clear changes
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        onClick={submitConfiguration}
-                        loading={isConfigurationSubmitting}
-                    >
-                        {isNew ? 'Create' : 'Save'}
-                    </LemonButton>
-                </div>
+                <div className="flex gap-2 justify-end">{buttons}</div>
             </Form>
         </div>
     )
