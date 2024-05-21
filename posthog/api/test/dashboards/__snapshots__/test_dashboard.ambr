@@ -24,6 +24,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -156,6 +157,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -365,6 +367,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -514,6 +517,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -539,6 +543,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -906,6 +911,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -931,6 +937,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -1509,6 +1516,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -1929,6 +1937,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -2172,6 +2181,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -3175,6 +3185,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -3356,6 +3367,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -3381,6 +3393,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -3963,6 +3976,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -4172,6 +4186,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -4226,6 +4241,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -4352,6 +4368,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -4377,6 +4394,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -4712,6 +4730,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -4737,6 +4756,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -7283,6 +7303,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -7308,6 +7329,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -7719,6 +7741,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -10506,6 +10529,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -11282,6 +11306,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12113,6 +12138,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12356,6 +12382,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12747,6 +12774,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -12896,6 +12924,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -12921,6 +12950,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13072,6 +13102,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -13097,6 +13128,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13188,6 +13220,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -13369,6 +13402,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -13394,6 +13428,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13453,6 +13488,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -13844,6 +13880,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T6."id",
          T6."password",
@@ -13869,6 +13906,7 @@
          T6."partial_notification_settings",
          T6."anonymize_data",
          T6."toolbar_mode",
+         T6."hedgehog_config",
          T6."events_column_config",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13928,6 +13966,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -14171,6 +14210,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")

@@ -26,6 +26,7 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
+import { Proxy } from './project/Proxy'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -39,6 +40,7 @@ import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -319,6 +321,19 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-proxy',
+        title: 'Proxy',
+        flag: 'PROXY_AS_A_SERVICE',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -384,6 +399,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+            },
+            {
+                id: 'hedgehog-mode',
+                title: 'Hedgehog mode',
+                component: <HedgehogModeSettings />,
             },
         ],
     },

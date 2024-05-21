@@ -153,6 +153,7 @@ class TrendsQueryRunner(QueryRunner):
         series_index: int,
         breakdown_value: Optional[str | int] = None,
         compare_value: Optional[Compare] = None,
+        include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("trends_to_actors_query"):
             query_builder = TrendsActorsQueryBuilder(
@@ -166,6 +167,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_index=series_index,
                 breakdown_value=breakdown_value,
                 compare_value=compare_value,
+                include_recordings=include_recordings,
             )
 
             query = query_builder.build_actors_query()

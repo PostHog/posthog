@@ -1,9 +1,13 @@
+from datetime import timedelta
+
+from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
@@ -14,6 +18,111 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+
+@freeze_time("2021-01-01T13:46:23")
+class TestFilterSessionReplaysBySessions(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+        sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
+
+        # 1-hour session replay
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_one_hour",
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": "session_with_one_hour"},
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={"$current_url": "https://example.com", "$session_id": "session_with_one_hour"},
+            timestamp=now() + timedelta(hours=1),
+        )
+
+        # 1-hour session replay
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id="session_with_different_session_and_replay_duration",
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://different.com",
+                "$session_id": "session_with_different_session_and_replay_duration",
+            },
+        )
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://different.com",
+                "$session_id": "session_with_different_session_and_replay_duration",
+            },
+            # timestamp is two hours in the future
+            timestamp=now() + timedelta(hours=2),
+        )
+
+        produce_replay_summary(
+            team_id=self.team.pk, distinct_id="d1", session_id="session_with_no_events", log_messages=None
+        )
+
+    @snapshot_clickhouse_queries
+    def test_select_by_duration_without_session_filter(self):
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select distinct session_id
+                from raw_session_replay_events
+                group by session_id
+                having dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) = 3600
+                order by session_id asc""",
+                placeholders={"event_name": ast.Constant(value="$pageview")},
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_different_session_and_replay_duration",),
+            ("session_with_no_events",),
+            ("session_with_one_hour",),
+        ]
+
+    @snapshot_clickhouse_queries
+    def test_select_by_duration_with_session_duration_filter(self):
+        response = execute_hogql_query(
+            parse_select(
+                """
+                select distinct session_id
+                from raw_session_replay_events
+                where session.duration > 3600
+                group by session_id
+                having dateDiff('second', min(min_first_timestamp), max(max_last_timestamp)) = 3600
+                order by session_id asc""",
+                placeholders={"event_name": ast.Constant(value="$pageview")},
+            ),
+            self.team,
+        )
+
+        assert response.results == [
+            ("session_with_different_session_and_replay_duration",),
+        ]
 
 
 @freeze_time("2021-01-01T13:46:23")
