@@ -8,7 +8,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 
 
-def concat(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def concat(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     def _to_concat_arg(arg) -> str:
         if arg is None:
             return ""
@@ -21,11 +21,11 @@ def concat(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], 
     return "".join([_to_concat_arg(arg) for arg in args])
 
 
-def match(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def match(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return bool(re.search(re.compile(args[1]), args[0]))
 
 
-def toString(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def toString(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     if args[0] is True:
         return "true"
     elif args[0] is False:
@@ -36,66 +36,68 @@ def toString(name: str, args: list[Any], team: Team, stdout: Optional[list[str]]
         return str(args[0])
 
 
-def toInt(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def toInt(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     try:
         return int(args[0]) if name == "toInt" else float(args[0])
     except ValueError:
         return None
 
 
-def ifNull(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def ifNull(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     if args[0] is not None:
         return args[0]
     else:
         return args[1]
 
 
-def length(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def length(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return len(args[0])
 
 
-def empty(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def empty(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return not bool(args[0])
 
 
-def notEmpty(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def notEmpty(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return bool(args[0])
 
 
-def lower(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def lower(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return args[0].lower()
 
 
-def upper(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def upper(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return args[0].upper()
 
 
-def reverse(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def reverse(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     return args[0][::-1]
 
 
-def httpGet(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def httpGet(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     response = requests.get(args[0], timeout=timeout)
     return response.text
 
 
-def sleep(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def sleep(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     time.sleep(args[0])
     return None
 
 
-def print(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def print(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int):
     if stdout is not None:
         stdout.append(f"{(' '.join(map(str, args)))}\n")
     return
 
 
-def run(name: str, args: list[Any], team: Team, stdout: Optional[list[str]], timeout: int):
+def run(name: str, args: list[Any], team: Optional[Team], stdout: Optional[list[str]], timeout: int) -> list[Any]:
+    if team is None:
+        return []
     response = execute_hogql_query(query=args[0], team=team)
     return response.results
 
 
-STL: dict[str, Callable[[str, list[Any], Team, list[str] | None, int], Any]] = {
+STL: dict[str, Callable[[str, list[Any], Team | None, list[str] | None, int], Any]] = {
     "concat": concat,
     "match": match,
     "toString": toString,

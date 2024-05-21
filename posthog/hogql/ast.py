@@ -582,7 +582,7 @@ class Array(Expr):
 
 @dataclass(kw_only=True)
 class Dict(Expr):
-    items: list[Expr, Expr]
+    items: list[tuple[Expr, Expr]]
 
 
 @dataclass(kw_only=True)

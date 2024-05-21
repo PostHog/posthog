@@ -47,7 +47,7 @@ def execute_bytecode(
         declared_functions: dict[str, tuple[int, int]] = {}
         ip = -1
         ops = 0
-        stdout = []
+        stdout: list[str] = []
 
         def next_token():
             nonlocal ip

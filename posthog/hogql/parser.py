@@ -248,7 +248,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
             elif isinstance(query, ast.Placeholder):
-                flattened_queries.append(query)
+                flattened_queries.append(query)  # type: ignore
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:

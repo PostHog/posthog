@@ -91,7 +91,7 @@ def process_query_model(
                     return {"results": "Hog queries not enabled for this organization."}
 
             try:
-                program = parse_program(query.code)
+                program = parse_program(query.code or "")
                 bytecode = create_bytecode(program)
                 bytecode_result = execute_bytecode(bytecode, team=team)
                 result = HogQueryResponse(
