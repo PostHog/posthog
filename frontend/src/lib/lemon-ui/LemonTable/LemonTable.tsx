@@ -304,11 +304,11 @@ export function LemonTable<T extends Record<string, any>>({
                                                 }
                                             >
                                                 <div
-                                                    className="LemonTable__header-content"
+                                                    className="LemonTable__header-content w-full"
                                                     /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    <div className="flex items-center">
+                                                    <div className="flex items-center w-full">
                                                         {column.tooltip ? (
                                                             <Tooltip title={column.tooltip}>
                                                                 <div className="flex items-center">
