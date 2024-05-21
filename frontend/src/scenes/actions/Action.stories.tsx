@@ -10,21 +10,58 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { ActionType } from '~/types'
 
 const MOCK_ACTION: ActionType = {
-    created_at: '',
     id: 1,
-    name: 'My action',
-    created_by: MOCK_DEFAULT_BASIC_USER,
+    name: 'Test Action',
+    description: '',
+    tags: [],
+    post_to_slack: false,
+    slack_message_format: '',
     steps: [
         {
             event: '$pageview',
-            tag_name: 'button',
-            selector: '.signup-button',
-            url: 'https://posthog.com/signup',
-            href: 'https://posthog.com/signup',
-            text: 'Sign up',
+            selector: null,
+            text: null,
+            text_matching: null,
+            href: null,
+            href_matching: 'contains',
+            url: 'posthog.com/pricing',
+            url_matching: 'contains',
+        },
+        {
+            event: '$autocapture',
+            selector: null,
+            text: 'this text',
+            text_matching: null,
+            href: null,
+            href_matching: 'contains',
+            url: null,
+            url_matching: 'contains',
+        },
+        {
+            event: '$identify',
+            properties: [
+                {
+                    key: '$browser',
+                    value: ['Chrome'],
+                    operator: 'exact',
+                    type: 'person',
+                },
+            ] as any,
+            selector: null,
+            text: null,
+            text_matching: null,
+            href: null,
+            href_matching: 'contains',
+            url: null,
             url_matching: 'contains',
         },
     ],
+    created_at: '2024-05-21T12:57:50.907581Z',
+    created_by: MOCK_DEFAULT_BASIC_USER,
+    deleted: false,
+    is_calculating: false,
+    last_calculated_at: '2024-05-21T12:57:50.894221Z',
+    team_id: 1,
 }
 
 const meta: Meta = {
@@ -56,9 +93,4 @@ export const Action: StoryFn = () => {
         router.actions.push(urls.action(MOCK_ACTION.id))
     }, [])
     return <App />
-}
-Action.parameters = {
-    testOptions: {
-        waitForSelector: '.card-secondary',
-    },
 }
