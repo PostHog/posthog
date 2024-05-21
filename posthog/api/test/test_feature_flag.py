@@ -11,20 +11,20 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
+
 from posthog import redis
 from posthog.api.cohort import get_cohort_actors_for_feature_flag
-
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.dashboard import Dashboard
+from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.models.feature_flag import (
+    FeatureFlagDashboards,
     get_all_feature_flags,
     get_feature_flags_for_team_in_cache,
-    FeatureFlagDashboards,
 )
-from posthog.models.early_access_feature import EarlyAccessFeature
-from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
@@ -35,12 +35,12 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
     snapshot_postgres_queries_context,
-    FuzzyInt,
 )
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -3733,7 +3733,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_can_edit(self):
         self.assertEqual(
-            (AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features),
+            (
+                AvailableFeature.ROLE_BASED_ACCESS
+                in [feature["key"] for feature in self.organization.available_product_features]
+            ),
             False,
         )
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)

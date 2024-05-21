@@ -38,7 +38,6 @@ class LicensedTestMixin:
             )
             if hasattr(cls, "organization") and cls.organization:
                 cls.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-                cls.organization.update_available_product_features()
                 cls.organization.save()
 
 

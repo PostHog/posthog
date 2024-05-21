@@ -130,7 +130,7 @@ class BillingManager:
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
-            response: dict[str, Any] = {}
+            response: dict[str, Any] = {"available_product_features": []}
 
             response["license"] = {"plan": self.license.plan}
 
@@ -196,6 +196,7 @@ class BillingManager:
         else:
             products = self.get_default_products(organization)
             response = {
+                "available_product_features": [],
                 "products": products["products"],
             }
 

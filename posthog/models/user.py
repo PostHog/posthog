@@ -181,28 +181,29 @@ class User(AbstractUser, UUIDClassicModel):
         org_available_product_features = Organization.objects.filter(members=self).values_list(
             "available_product_features", flat=True
         )
-        org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features[0]]
-        if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
-            try:
-                from ee.models import ExplicitTeamMembership
-            except ImportError:
-                pass
-            else:
-                available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                    Q(parent_membership__user=self)
-                ).values_list("team_id", flat=True)
-                organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                    user=self, level__gte=OrganizationMembership.Level.ADMIN
-                ).values_list("organization_id", flat=True)
-                # If project access control IS applicable, make sure
-                # - project doesn't have access control OR
-                # - the user has explicit access OR
-                # - the user is Admin or owner
-                teams = teams.filter(
-                    Q(access_control=False)
-                    | Q(pk__in=available_private_project_ids)
-                    | Q(organization__pk__in=organizations_where_user_is_admin)
-                )
+        if org_available_product_features[0]:
+            org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features[0]]
+            if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
+                try:
+                    from ee.models import ExplicitTeamMembership
+                except ImportError:
+                    pass
+                else:
+                    available_private_project_ids = ExplicitTeamMembership.objects.filter(
+                        Q(parent_membership__user=self)
+                    ).values_list("team_id", flat=True)
+                    organizations_where_user_is_admin = OrganizationMembership.objects.filter(
+                        user=self, level__gte=OrganizationMembership.Level.ADMIN
+                    ).values_list("organization_id", flat=True)
+                    # If project access control IS applicable, make sure
+                    # - project doesn't have access control OR
+                    # - the user has explicit access OR
+                    # - the user is Admin or owner
+                    teams = teams.filter(
+                        Q(access_control=False)
+                        | Q(pk__in=available_private_project_ids)
+                        | Q(organization__pk__in=organizations_where_user_is_admin)
+                    )
 
         return teams.order_by("access_control", "id")
 

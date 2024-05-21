@@ -52,7 +52,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
-        available_features=[],
+        available_product_features=[],
     )
     data.update(kwargs)
     return data
@@ -260,7 +260,6 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
         assert res.json() == {
-            "available_features": [],
             "products": create_default_products_response()["products"],
         }
 
@@ -345,7 +344,6 @@ class TestBillingAPI(APILicensedTest):
             "has_active_subscription": True,
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
-            "available_features": [],
             "deactivated": False,
             "products": [
                 {
@@ -467,7 +465,7 @@ class TestBillingAPI(APILicensedTest):
             "license": {"plan": "cloud"},
             "custom_limits_usd": {},
             "has_active_subscription": False,
-            "available_features": [],
+            "available_product_features": [],
             "products": [
                 {
                     "name": "Product OS",

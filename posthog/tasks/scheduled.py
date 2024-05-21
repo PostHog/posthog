@@ -7,7 +7,6 @@ from celery.schedules import crontab
 from django.conf import settings
 
 from posthog.celery import app
-from posthog.cloud_utils import is_cloud
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
