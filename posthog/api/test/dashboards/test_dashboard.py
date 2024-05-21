@@ -9,7 +9,6 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.api.test.fixtures.available_product_features import AVAILABLE_PRODUCT_FEATURES
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
@@ -57,20 +56,18 @@ valid_template: dict = {
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-        self.organization.available_product_features = AVAILABLE_PRODUCT_FEATURES
-        self.organization.available_product_features.extend(
-            [
-                {
-                    "key": AvailableFeature.TAGGING,
-                    "name": AvailableFeature.TAGGING,
-                },
-                {
-                    "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                    "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                },
-                {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-            ]
-        )
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.TAGGING,
+                "name": AvailableFeature.TAGGING,
+            },
+            {
+                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            },
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+
         self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
@@ -274,6 +271,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_listing_dashboards_is_not_nplus1(self) -> None:
         self.client.logout()
 
+        self.organization.available_product_features = []
         self.organization.save()
         self.team.access_control = True
         self.team.save()
