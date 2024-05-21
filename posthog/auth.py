@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from oauth2_provider.contrib.rest_framework import OAuth2Authentication
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
@@ -60,6 +61,11 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     def authenticate_header(self, request):
         return "Session"
+
+
+class OAuthAuthentication(OAuth2Authentication):
+    # Subclassed as we may do other things here...
+    pass
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):

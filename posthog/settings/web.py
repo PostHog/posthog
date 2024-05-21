@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     "django.contrib.staticfiles",
     "posthog.apps.PostHogConfig",
+    "oauth2_provider",
     "rest_framework",
     "loginas",
     "corsheaders",

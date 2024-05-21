@@ -121,6 +121,7 @@ cryptography==37.0.2
     # via
     #   -r requirements.in
     #   django-fernet-encrypted-fields
+    #   jwcrypto
     #   pyopenssl
     #   snowflake-connector-python
     #   social-auth-core
@@ -149,6 +150,7 @@ django==4.2.11
     #   django-fernet-encrypted-fields
     #   django-filter
     #   django-formtools
+    #   django-oauth-toolkit
     #   django-otp
     #   django-phonenumber-field
     #   django-picklefield
@@ -179,6 +181,8 @@ django-ipware==3.0.2
     #   django-axes
     #   django-structlog
 django-loginas==0.3.11
+    # via -r requirements.in
+django-oauth-toolkit==2.3.0
     # via -r requirements.in
 django-otp==1.1.4
     # via django-two-factor-auth
@@ -264,8 +268,6 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
-greenlet==3.0.3
-    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -318,6 +320,8 @@ jsonschema==4.20.0
     # via drf-spectacular
 jsonschema-specifications==2023.12.1
     # via jsonschema
+jwcrypto==1.5.6
+    # via django-oauth-toolkit
 kafka-python==2.0.2
     # via
     #   -r requirements.in
@@ -364,6 +368,7 @@ numpy==1.23.3
     #   scipy
 oauthlib==3.1.0
     # via
+    #   django-oauth-toolkit
     #   requests-oauthlib
     #   social-auth-core
 openai==1.10.0
@@ -508,6 +513,7 @@ regex==2023.12.25
 requests==2.32.0
     # via
     #   -r requirements.in
+    #   django-oauth-toolkit
     #   dlt
     #   geoip2
     #   google-api-core
@@ -634,6 +640,7 @@ typing-extensions==4.7.1
     #   asgiref
     #   black
     #   dlt
+    #   jwcrypto
     #   openai
     #   psycopg
     #   pydantic

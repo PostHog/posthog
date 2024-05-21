@@ -175,6 +175,7 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
+    path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),

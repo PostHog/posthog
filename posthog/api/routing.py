@@ -11,6 +11,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 from posthog.api.utils import get_token
 from posthog.auth import (
     JwtAuthentication,
+    OAuthAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
@@ -120,6 +121,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         authentication_classes.extend(
             [
                 JwtAuthentication,
+                OAuthAuthentication,
                 PersonalAPIKeyAuthentication,
                 SessionAuthentication,
             ]
