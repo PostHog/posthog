@@ -11,6 +11,24 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { TableData } from './TableData'
 
 export const DataWarehouseTables = (): JSX.Element => {
+    return (
+        <>
+            <div className="grid md:grid-cols-3">
+                <div className="sm:col-span-3 md:col-span-1 max-h-160">
+                    <DatabaseTableTreeWithItems />
+                </div>
+                <TableData />
+            </div>
+            <ViewLinkModal />
+        </>
+    )
+}
+
+interface DatabaseTableTreeProps {
+    inline?: boolean
+}
+
+export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
     const {
         externalTablesBySourceType,
         dataWarehouseLoading,
@@ -24,6 +42,61 @@ export const DataWarehouseTables = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const treeItems = (): TreeItem[] => {
+        if (inline) {
+            const items: TreeItem[] = [
+                {
+                    name: 'External',
+                    items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                        name: source_type,
+                        items: externalTablesBySourceType[source_type].map((table) => ({
+                            name: table.name,
+                            items: table.columns.map((column) => ({
+                                name: column.key,
+                                type: column.type,
+                                icon: <IconDatabase />,
+                            })),
+                        })),
+                    })),
+                    emptyLabel: (
+                        <span className="text-muted">
+                            No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
+                        </span>
+                    ),
+                    isLoading: dataWarehouseLoading,
+                },
+                {
+                    name: 'PostHog',
+                    items: posthogTables.map((table) => ({
+                        name: table.name,
+                        items: table.columns.map((column) => ({
+                            name: column.key,
+                            type: column.type,
+                            icon: <IconDatabase />,
+                        })),
+                    })),
+                    isLoading: databaseLoading,
+                },
+            ]
+
+            if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
+                items.push({
+                    name: 'Views',
+                    items: savedQueriesFormatted.map((table) => ({
+                        name: table.name,
+                        items: table.columns.map((column) => ({
+                            name: column.key,
+                            type: column.type,
+                            icon: <IconDatabase />,
+                        })),
+                    })),
+                    emptyLabel: <span className="text-muted">No views found</span>,
+                    isLoading: dataWarehouseSavedQueriesLoading,
+                })
+            }
+
+            return items
+        }
+
         const items: TreeItem[] = [
             {
                 name: 'External',
@@ -66,15 +139,5 @@ export const DataWarehouseTables = (): JSX.Element => {
         return items
     }
 
-    return (
-        <>
-            <div className="grid md:grid-cols-3">
-                <div className="sm:col-span-3 md:col-span-1 max-h-160">
-                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
-                </div>
-                <TableData />
-            </div>
-            <ViewLinkModal />
-        </>
-    )
+    return <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
 }

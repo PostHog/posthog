@@ -87,6 +87,7 @@ def get_postgres_schemas(host: str, port: str, database: str, user: str, passwor
         user=user,
         password=password,
         sslmode="prefer",
+        connect_timeout=5,
         sslrootcert="/tmp/no.txt",
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",

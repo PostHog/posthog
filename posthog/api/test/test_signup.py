@@ -70,6 +70,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -220,6 +221,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog2@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -398,6 +400,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog75@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -903,6 +906,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+99@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -1112,6 +1116,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+159@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": None,
+                "hedgehog_config": None,
             },
         )
 
@@ -1188,6 +1193,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+189@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": None,
+                "hedgehog_config": None,
             },  # note the unchanged attributes
         )
 
