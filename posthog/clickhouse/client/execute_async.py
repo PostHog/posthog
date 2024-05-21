@@ -278,10 +278,12 @@ def enqueue_process_query_task(
             execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
         )
         if not isinstance(cached_response, CacheMissResponse):
+            if isinstance(cached_response, BaseModel):
+                cached_response = cached_response.model_dump()
             # We got a response with results, rather than a `CacheMissResponse`
             query_status.complete = True
             query_status.error = False
-            query_status.results = cached_response.model_dump()
+            query_status.results = cached_response
             query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
             query_status.expiration_time = query_status.end_time + datetime.timedelta(
                 seconds=manager.STATUS_TTL_SECONDS

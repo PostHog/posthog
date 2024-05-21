@@ -32,22 +32,22 @@ class TestExecuteProcessQuery(TestCase):
         self.manager = QueryStatusManager(self.query_id, self.team.id)
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
-    @patch("posthog.api.services.query.process_query")
-    def test_execute_process_query(self, mock_process_query, mock_redis_client):
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query(self, mock_process_query_dict, mock_redis_client):
         mock_redis = MagicMock()
         mock_redis.get.return_value = json.dumps(
             {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
         ).encode()
         mock_redis_client.return_value = mock_redis
 
-        mock_process_query.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
+        mock_process_query_dict.return_value = [float("inf"), float("-inf"), float("nan"), 1.0, "👍"]
 
         execute_process_query(
             self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context, self.refresh_requested
         )
 
         mock_redis_client.assert_called_once()
-        mock_process_query.assert_called_once()
+        mock_process_query_dict.assert_called_once()
 
         # Assert that Redis set method was called with the correct arguments
         mock_redis.set.assert_called_once()

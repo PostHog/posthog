@@ -10,6 +10,7 @@ from posthog.hogql.query import LimitContext
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventPropertyFilter,
     EventsQuery,
     HogQLPropertyFilter,
@@ -611,7 +612,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "query": f"select event from events where distinct_id='{random_uuid}'",
                 },
             )
-            self.assertEqual(len(response.results), 10)
+        assert isinstance(response, CachedHogQLQueryResponse)
+        self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -636,7 +638,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
                 limit_context=LimitContext.EXPORT,  # This is the only difference
             )
-            self.assertEqual(len(response.results), 15)
+        assert isinstance(response, CachedHogQLQueryResponse)
+        self.assertEqual(len(response.results), 15)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -662,6 +665,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
+        assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
@@ -689,6 +693,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 limit_context=LimitContext.EXPORT,
             )
 
+        assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 15)
 
     def test_property_definition_annotation_does_not_break_things(self):
@@ -712,6 +717,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ],
                 },
             )
+        assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(response.columns, ["event"])
 
     def test_invalid_query_kind(self):
@@ -869,6 +875,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
+        assert isinstance(response, CachedHogQLQueryResponse)
         self.assertEqual(response.results[0][0], 20)
 
     def test_dashboard_filters_applied(self):
@@ -906,7 +913,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 dashboard_filters_json={"date_from": "2020-01-09", "date_to": "2020-01-11"},
             )
 
+        assert isinstance(response_without_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_without_dashboard_filters.results, [(2,)])
+        assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
 
