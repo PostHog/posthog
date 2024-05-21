@@ -265,6 +265,7 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
 
     def update_billing_distinct_ids(self, organization: Organization) -> None:
