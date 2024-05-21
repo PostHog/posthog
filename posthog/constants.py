@@ -308,6 +308,6 @@ class FlagRequestType(str, Enum):
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
-GENERAL_PURPOSE_TASK_QUEUE = "general-purpose"
+GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
