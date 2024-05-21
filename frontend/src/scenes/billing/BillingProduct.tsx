@@ -298,6 +298,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
+                                    // TODO: enhanced_persons: remove this filter
                                     .filter((addon) => !addon.inclusion_only)
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
