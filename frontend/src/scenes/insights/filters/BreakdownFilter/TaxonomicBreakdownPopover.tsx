@@ -31,6 +31,7 @@ export const TaxonomicBreakdownPopover = ({ open, setOpen, children }: Taxonomic
         ...(includeSessions ? [TaxonomicFilterGroupType.SessionProperties] : []),
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.DataWarehouseProperties,
+        TaxonomicFilterGroupType.DataWarehousePersonProperties,
     ]
 
     return (
