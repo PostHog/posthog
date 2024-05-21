@@ -158,11 +158,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand(
         [
-            ["http://example.com", 1],
             ["http://example.com*", 6],
             ["http://example.com/products*", 5],
             ["http://example.com/products/1*", 2],
             ["http://example.com/products/*/reviews/*", 2],
+            ["http://example.com/products/*/parts/*", 2],
+            ["http://example.com/products/1*/parts/*", 1],
         ],
         name_func=lambda f, n, p: f"{f.__name__}_{p.args[0]}",
     )
@@ -204,30 +205,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"date_from": "2023-03-08", "url_pattern": "http://example.com", "type": "rageclick"}
         )
 
-        # should match only the homepage
         self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com/", "type": "rageclick"}, 1
-        )
-
-        # should match all 6
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com*", "type": "rageclick"}, 6
-        )
-
-        # should match 5 events across both products
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com/products*", "type": "rageclick"}, 5
-        )
-
-        # should match all events for one product
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com/products/1*", "type": "rageclick"}, 2
-        )
-
-        # should match all reviews - i.e. proves we can have more than one wildcard
-        self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": "http://example.com/products/*/reviews/*", "type": "rageclick"},
-            2,
+            {"date_from": "2023-03-08", "url_pattern": pattern, "type": "rageclick"},
+            expected_matches,
         )
 
     @snapshot_clickhouse_queries
