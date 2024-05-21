@@ -22,7 +22,6 @@ export interface ErrorInterface {
 export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
-    email_opt_in: boolean
     role_at_organization?: string
 }
 
@@ -80,7 +79,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     })),
     forms(({ actions, values }) => ({
         signup: {
-            defaults: { email_opt_in: true, role_at_organization: '' } as AcceptInvitePayloadInterface,
+            defaults: { role_at_organization: '' } as AcceptInvitePayloadInterface,
             errors: ({ password, first_name }) => ({
                 password: !password
                     ? 'Please enter your password to continue'

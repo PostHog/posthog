@@ -120,7 +120,6 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    email_opt_in: true,
     notification_settings: { plugin_disabled: false },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
