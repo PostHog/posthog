@@ -14,8 +14,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
@@ -23,10 +26,6 @@ export function Proxy(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
-
-    if (!isCloudOrDev) {
-        return <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
-    }
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -88,23 +87,29 @@ export function Proxy(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-2">
-            <LemonTable
-                loading={proxyRecords.length === 0 && proxyRecordsLoading}
-                columns={columns}
-                dataSource={proxyRecords}
-                expandable={{
-                    expandedRowRender: (record) => <ExpandedRow record={record} />,
-                }}
-            />
-            {formState === 'collapsed' ? (
-                <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                    Add domain
-                </LemonButton>
+        <PayGateMini feature={AvailableFeature.HOSTED_REVERSE_PROXY}>
+            {isCloudOrDev ? (
+                <div className="space-y-2">
+                    <LemonTable
+                        loading={proxyRecords.length === 0 && proxyRecordsLoading}
+                        columns={columns}
+                        dataSource={proxyRecords}
+                        expandable={{
+                            expandedRowRender: (record) => <ExpandedRow record={record} />,
+                        }}
+                    />
+                    {formState === 'collapsed' ? (
+                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
+                            Add domain
+                        </LemonButton>
+                    ) : (
+                        <CreateRecordForm />
+                    )}
+                </div>
             ) : (
-                <CreateRecordForm />
+                <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
             )}
-        </div>
+        </PayGateMini>
     )
 }
 
