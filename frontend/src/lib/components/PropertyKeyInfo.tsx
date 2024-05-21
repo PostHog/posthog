@@ -40,15 +40,13 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
 
     const innerContent = (
         <span
-            className={clsx('PropertyKeyInfo flex w-full', className)}
+            className={clsx('PropertyKeyInfo', className)}
             aria-label={valueDisplayText}
             title={ellipsis && disablePopover ? valueDisplayText : undefined}
             ref={ref}
         >
             {!disableIcon && !!data && <span className="PropertyKeyInfo__logo" />}
-            <span
-                className={clsx('PropertyKeyInfo__text w-0 flex-auto', ellipsis && 'PropertyKeyInfo__text--ellipsis')}
-            >
+            <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>
         </span>
