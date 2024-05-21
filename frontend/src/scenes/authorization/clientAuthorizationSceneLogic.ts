@@ -1,4 +1,4 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -21,6 +21,15 @@ export type AuthenticationFlowResponse = {
 
 export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicType>([
     path(['scenes', 'authorization', 'clientAuthorizationSceneLogic']),
+
+    reducers({
+        completed: [
+            false,
+            {
+                confirmAndRedirectSuccess: () => true,
+            },
+        ],
+    }),
 
     loaders(({ values }) => ({
         authentication: [

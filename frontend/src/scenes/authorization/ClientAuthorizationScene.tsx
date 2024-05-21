@@ -13,17 +13,27 @@ export const scene: SceneExport = {
 
 export function ClientAuthorizationScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { authentication, domain, authenticationLoading } = useValues(clientAuthorizationSceneLogic)
+    const { authentication, domain, authenticationLoading, completed } = useValues(clientAuthorizationSceneLogic)
     const { confirmAndRedirect } = useActions(clientAuthorizationSceneLogic)
 
-    if (authenticationLoading) {
+    if (!authentication && authenticationLoading) {
         return <SpinnerOverlay />
     }
 
     return (
         <div className="h-full flex items-center justify-center">
-            <div className="border rounded bg-accent-3000 p-4 max-w-120">
-                {authentication ? (
+            <div className="border rounded bg-accent-3000 p-4 w-120">
+                {completed ? (
+                    <>
+                        <h2>Authorization completed!</h2>
+
+                        {authentication?.return_url ? (
+                            <p>You will shortly be redirected back to the application...</p>
+                        ) : (
+                            <p>You can now close this window</p>
+                        )}
+                    </>
+                ) : authentication ? (
                     <>
                         <h2>Authorize {authentication.name} </h2>
                         <p>
