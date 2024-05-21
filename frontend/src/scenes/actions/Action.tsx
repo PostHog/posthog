@@ -44,7 +44,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     return (
         <>
-            <ActionEdit id={id} action={action} />
+            <ActionEdit id={id} action={action ?? undefined} />
             {id && (
                 <>
                     <ActionPlugins />
