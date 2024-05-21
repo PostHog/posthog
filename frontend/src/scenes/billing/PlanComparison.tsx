@@ -275,7 +275,7 @@ export const PlanComparison = ({
                     <td />
                     {upgradeButtons}
                 </tr>
-                {includeAddons && (
+                {includeAddons && product.addons.length > 0 && (
                     <tr>
                         <th colSpan={1} className="PlanTable__th__section rounded text-left">
                             <h3 className="mt-6 mb-6">Available add-ons:</h3>
