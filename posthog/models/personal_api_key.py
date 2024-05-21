@@ -45,7 +45,7 @@ class PersonalAPIKey(models.Model):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label: models.CharField = models.CharField(max_length=40)
     value: models.CharField = models.CharField(unique=True, max_length=50, editable=False, null=True, blank=True)
-    mask_value: models.CharField = models.CharField(max_length=50, editable=False, null=True)
+    mask_value: models.CharField = models.CharField(max_length=11, editable=False, null=True)
     secure_value: models.CharField = models.CharField(
         unique=True,
         max_length=300,
