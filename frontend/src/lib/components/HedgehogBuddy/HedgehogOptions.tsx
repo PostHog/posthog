@@ -89,7 +89,7 @@ function HedgehogAccessories(): JSX.Element {
 
     const onClick = (accessory: string): void => {
         // If it is in the list - remove it
-        // If it isn't in the list, remove al accessories of the same group and add the new one
+        // If it isn't in the list, remove all accessories of the same group and add the new one
 
         if (accessories.includes(accessory)) {
             patchHedgehogConfig({
