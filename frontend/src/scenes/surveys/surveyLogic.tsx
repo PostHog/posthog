@@ -759,6 +759,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 urlMatchType: values.urlMatchTypeValidationError,
             }),
             submit: (surveyPayload) => {
+                // when the survey is being submitted, we should turn off editing mode
+                actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(surveyPayload)
                 } else {
@@ -788,11 +790,16 @@ export const surveyLogic = kea<surveyLogicType>([
             return [urls.survey(values.survey.id), router.values.searchParams, hashParams]
         },
     })),
-    beforeUnload(({ values }) => ({
+    beforeUnload(({ values, actions }) => ({
         enabled: (newLocation) => {
             return values.isEditingSurvey && newLocation?.pathname !== router.values.location.pathname
         },
-        message: 'Your survey has unsaved changes. Are you sure you want to leave?',
+        message:
+            'You have unsaved changes to your survey. If you leave this page, your changes will not be saved. Are you sure you want to proceed?',
+        onConfirm: () => {
+            // Turn off editing mode once the user has decided to leave. Useful for when the user clicks the back button.
+            actions.editingSurvey(false)
+        },
     })),
     afterMount(({ props, actions }) => {
         if (props.id !== 'new') {

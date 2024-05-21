@@ -58,6 +58,19 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, isEditingSurvey, targetingFlagFilters } = useValues(surveyLogic)
     const { loadSurvey, editingSurvey } = useActions(surveyLogic)
 
+    const handleCancelClick = (): void => {
+        if (isEditingSurvey) {
+            editingSurvey(false)
+            if (id === 'new') {
+                router.actions.push(urls.surveys())
+            } else {
+                loadSurvey()
+            }
+        } else {
+            router.actions.push(urls.surveys())
+        }
+    }
+
     return (
         <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
             <PageHeader
@@ -67,14 +80,7 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                             data-attr="cancel-survey"
                             type="secondary"
                             loading={surveyLoading}
-                            onClick={() => {
-                                if (isEditingSurvey) {
-                                    editingSurvey(false)
-                                    loadSurvey()
-                                } else {
-                                    router.actions.push(urls.surveys())
-                                }
-                            }}
+                            onClick={handleCancelClick}
                         >
                             Cancel
                         </LemonButton>
