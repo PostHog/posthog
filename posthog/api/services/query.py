@@ -95,7 +95,7 @@ def process_query_model(
                 bytecode = create_bytecode(program)
                 bytecode_result = execute_bytecode(bytecode, team=team)
                 result = HogQueryResponse(
-                    results=f"{bytecode_result.stdout}\n{bytecode_result.result}", bytecode=bytecode
+                    results=bytecode_result.result, bytecode=bytecode, stdout="".join(bytecode_result.stdout)
                 )
             except Exception as e:
                 result = HogQueryResponse(results=f"ERROR: {str(e)}")

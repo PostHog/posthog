@@ -509,6 +509,7 @@ class HogQueryResponse(BaseModel):
     )
     bytecode: Optional[list] = None
     results: Any
+    stdout: Optional[str] = None
 
 
 class Compare(str, Enum):
@@ -748,6 +749,7 @@ class QueryResponseAlternative6(BaseModel):
     )
     bytecode: Optional[list] = None
     results: Any
+    stdout: Optional[str] = None
 
 
 class QueryResponseAlternative8(BaseModel):

@@ -4053,7 +4053,10 @@
                     "items": {},
                     "type": "array"
                 },
-                "results": {}
+                "results": {},
+                "stdout": {
+                    "type": "string"
+                }
             },
             "required": ["results"],
             "type": "object"
@@ -5584,7 +5587,10 @@
                             "items": {},
                             "type": "array"
                         },
-                        "results": {}
+                        "results": {},
+                        "stdout": {
+                            "type": "string"
+                        }
                     },
                     "required": ["results"],
                     "type": "object"

@@ -147,7 +147,7 @@ def execute_bytecode(
                         stack = stack[0:stack_start]
                         stack.append(response)
                     else:
-                        return BytecodeResult(stack.pop(), stdout="".join(stdout))
+                        return BytecodeResult(result=stack.pop(), stdout=stdout)
                 case Operation.GET_LOCAL:
                     stack_start = 0 if not call_stack else call_stack[-1][1]
                     stack.append(stack[next_token() + stack_start])
@@ -188,6 +188,6 @@ def execute_bytecode(
         if len(stack) > 1:
             raise HogVMException("Invalid bytecode. More than one value left on stack")
 
-        return BytecodeResult(result=stack.pop(), stdout="".join(stdout))
+        return BytecodeResult(result=stack.pop(), stdout=stdout)
     except IndexError:
         raise HogVMException("Unexpected end of bytecode")

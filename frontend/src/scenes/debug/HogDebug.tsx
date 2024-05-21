@@ -104,7 +104,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
     const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
     const response = _response as HogQueryResponse | null
-    const [tab, setTab] = useState('results' as 'results' | 'bytecode')
+    const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'stdout')
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -132,6 +132,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                             <LemonTabs
                                 tabs={[
                                     { label: 'Results', key: 'results' },
+                                    { label: 'Stdout', key: 'stdout' },
                                     { label: 'Bytecode', key: 'bytecode' },
                                 ]}
                                 activeKey={tab}
@@ -149,6 +150,15 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 }
                                 height={500}
                                 path={`debug/${queryKey}/hog-bytecode.json`}
+                                options={{ wordWrap: 'on' }}
+                            />
+                        ) : tab === 'stdout' ? (
+                            <CodeEditor
+                                className="border"
+                                language="text"
+                                value={String(response?.stdout ?? 'No bytecode returned with response')}
+                                height={500}
+                                path={`debug/${queryKey}/hog-stdout.txt`}
                                 options={{ wordWrap: 'on' }}
                             />
                         ) : (
