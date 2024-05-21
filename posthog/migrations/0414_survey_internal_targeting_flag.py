@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0411_eventproperty_indexes"),
+        ("posthog", "0413_user_hedgehog_config"),
     ]
 
     operations = [
