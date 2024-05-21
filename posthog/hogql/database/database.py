@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldTraverser,
+    SavedQuery,
     StringDatabaseField,
     DatabaseField,
     IntegerDatabaseField,
@@ -64,7 +65,9 @@ from posthog.schema import (
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
+    HogQLQuery,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
@@ -125,6 +128,7 @@ class Database(BaseModel):
     ]
 
     _warehouse_table_names: list[str] = []
+    _view_table_names: list[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -160,10 +164,18 @@ class Database(BaseModel):
     def get_warehouse_tables(self) -> list[str]:
         return self._warehouse_table_names
 
+    def get_views(self) -> list[str]:
+        return self._view_table_names
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
             self._warehouse_table_names.append(f_name)
+
+    def add_views(self, **field_definitions: Any):
+        for f_name, f_def in field_definitions.items():
+            setattr(self, f_name, f_def)
+            self._view_table_names.append(f_name)
 
 
 def _use_person_properties_from_events(database: Database) -> None:
@@ -247,20 +259,22 @@ def create_hogql_database(
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    tables: dict[str, Table] = {}
+    warehouse_tables: dict[str, Table] = {}
+    views: dict[str, Table] = {}
+
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition(modifiers)
+        warehouse_tables[table.name] = table.hogql_definition(modifiers)
 
     if modifiers.dataWarehouseEventsModifiers:
         for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
             # TODO: add all field mappings
-            if "id" not in tables[warehouse_modifier.table_name].fields.keys():
-                tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+            if "id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
+                warehouse_tables[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                     name="id",
                     expr=parse_expr(warehouse_modifier.id_field),
                 )
 
-            if "timestamp" not in tables[warehouse_modifier.table_name].fields.keys():
+            if "timestamp" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
                 table_model = DataWarehouseTable.objects.filter(
                     team_id=team.pk, name=warehouse_modifier.table_name
                 ).latest("created_at")
@@ -268,33 +282,35 @@ def create_hogql_database(
 
                 # If field type is none or datetime, we can use the field directly
                 if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                         name="timestamp",
                         expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
                     )
                 else:
-                    tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                    warehouse_tables[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                         name="timestamp",
                         expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
                     )
 
             # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-            if "distinct_id" not in tables[warehouse_modifier.table_name].fields.keys():
-                tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+            if "distinct_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
+                warehouse_tables[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
                     name="distinct_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
-            if "person_id" not in tables[warehouse_modifier.table_name].fields.keys():
-                tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+            if "person_id" not in warehouse_tables[warehouse_modifier.table_name].fields.keys():
+                warehouse_tables[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
                     name="person_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
-    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[saved_query.name] = saved_query.hogql_definition()
+    database.add_warehouse_tables(**warehouse_tables)
 
-    database.add_warehouse_tables(**tables)
+    for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
+        views[saved_query.name] = saved_query.hogql_definition()
+
+    database.add_views(**views)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
         # Skip if either table is not present. This can happen if the table was deleted after the join was created.
@@ -377,12 +393,14 @@ class SerializedField(BaseModel):
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable
+DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable
 
 
 def serialize_database(
     context: HogQLContext,
 ) -> dict[str, DatabaseSchemaTable]:
+    from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
     tables: dict[str, DatabaseSchemaTable] = {}
 
     if context.database is None:
@@ -479,7 +497,24 @@ def serialize_database(
             source=source,
         )
 
-    # TODO(tom): Add in views here (note: views get added with "data warehouse tables" at the moment, see L295)
+    # Views
+    views = context.database.get_views()
+    all_views = list(DataWarehouseSavedQuery.objects.filter(team_id=context.team_id).exclude(deleted=True))
+    for view_name in views:
+        view: SavedQuery | None = getattr(context.database, view_name, None)
+        if view is None:
+            continue
+
+        fields = serialize_fields(view.fields, context)
+        fields_dict = {field.name: field for field in fields}
+
+        saved_query: list[DataWarehouseSavedQuery] = list(
+            filter(lambda saved_query: saved_query.name == view_name, all_views)
+        )
+        if len(saved_query) != 0:
+            tables[view_name] = DatabaseSchemaViewTable(
+                fields=fields_dict, id=str(saved_query[0].pk), name=view.name, query=HogQLQuery(query=view.query)
+            )
 
     return tables
 
