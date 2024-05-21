@@ -48,7 +48,7 @@ function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayj
 
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
-    onChange: (date: dayjs.Dayjs) => void
+    onChange?: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
     showTime?: boolean
@@ -177,7 +177,7 @@ export function LemonCalendarSelect({
                 <LemonButton
                     type="primary"
                     disabled={!selectValue}
-                    onClick={() => selectValue && onChange(selectValue)}
+                    onClick={() => selectValue && onChange && onChange(selectValue)}
                     data-attr="lemon-calendar-select-apply"
                 >
                     Apply
@@ -188,7 +188,7 @@ export function LemonCalendarSelect({
 }
 
 export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
-    onChange: (date: dayjs.Dayjs | null) => void
+    onChange?: (date: dayjs.Dayjs | null) => void
     onClickOutside?: () => void
     buttonProps?: Omit<LemonButtonWithSideActionProps, 'sideAction'> & { sideAction?: SideAction }
     placeholder?: string
@@ -216,7 +216,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 <LemonCalendarSelect
                     {...calendarProps}
                     onChange={(value) => {
-                        props.onChange(value)
+                        props.onChange?.(value)
                         setUncontrolledVisible(false)
                     }}
                     onClose={() => {
@@ -234,7 +234,7 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                     showClear
                         ? {
                               icon: <IconX />,
-                              onClick: () => props.onChange(null),
+                              onClick: () => props.onChange?.(null),
                           }
                         : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable
                 }
