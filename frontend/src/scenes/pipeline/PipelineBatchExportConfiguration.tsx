@@ -1,8 +1,8 @@
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -38,22 +38,33 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     formKey="configuration"
                     className="space-y-3"
                 >
-                    <LemonField
-                        name="name"
-                        label="Name"
-                        info="Customising the name can be useful if multiple instances of the same type are used."
-                    >
-                        <LemonInput type="text" />
-                    </LemonField>
-                    <LemonField name="paused" info="Start in a paused state or continuously exporting from now">
-                        {({ value, onChange }) => (
-                            <LemonCheckbox label="Paused" onChange={() => onChange(!value)} checked={value} />
-                        )}
-                    </LemonField>
-                    <BatchExportConfigurationFields
-                        isNew={isNew}
-                        formValues={configuration as BatchExportConfigurationForm}
-                    />
+                    <div className="flex items-start gap-2 flex-wrap">
+                        <div className="border bg-bg-light p-3 rounded space-y-2 flex-1 min-w-100">
+                            <LemonField
+                                name="name"
+                                label="Name"
+                                info="Customising the name can be useful if multiple instances of the same type are used."
+                            >
+                                <LemonInput type="text" />
+                            </LemonField>
+                            <LemonField name="paused" info="Start in a paused state or continuously exporting from now">
+                                {({ value, onChange }) => (
+                                    <LemonSwitch
+                                        label="Paused"
+                                        onChange={() => onChange(!value)}
+                                        checked={value}
+                                        bordered
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
+                        <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
+                            <BatchExportConfigurationFields
+                                isNew={isNew}
+                                formValues={configuration as BatchExportConfigurationForm}
+                            />
+                        </div>
+                    </div>
                     <div className="flex gap-2">
                         <LemonButton
                             type="secondary"

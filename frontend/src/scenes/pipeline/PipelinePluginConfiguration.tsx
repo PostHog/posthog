@@ -127,7 +127,7 @@ export function PipelinePluginConfiguration({
                 formKey="configuration"
                 className="space-y-3"
             >
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex flex-col gap-4 flex-1 min-w-100">
                         <div className="border bg-bg-light rounded p-3 space-y-2">
                             <div className="flex flex-row gap-2 min-h-16 items-center">
