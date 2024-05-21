@@ -22,7 +22,7 @@ import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
-export function Proxy(): JSX.Element {
+export function HostedReverseProxy(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)

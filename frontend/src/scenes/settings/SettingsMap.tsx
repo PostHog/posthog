@@ -12,6 +12,7 @@ import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './project/HeatmapsSettings'
+import { HostedReverseProxy } from './project/HostedReverseProxy'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
@@ -26,7 +27,6 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
-import { Proxy } from './project/Proxy'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -322,13 +322,12 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-proxy',
-        title: 'Proxy',
-        flag: 'PROXY_AS_A_SERVICE',
+        title: 'Hosted reverse proxy',
         settings: [
             {
                 id: 'organization-proxy',
                 title: 'Proxy',
-                component: <Proxy />,
+                component: <HostedReverseProxy />,
             },
         ],
     },
