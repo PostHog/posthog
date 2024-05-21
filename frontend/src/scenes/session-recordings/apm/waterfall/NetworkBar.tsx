@@ -22,7 +22,7 @@ export function NetworkBar({ item }: { item: PerformanceEvent }): JSX.Element | 
                 className="relative h-5 cursor-pointer"
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
-                    backgroundColor: initiatorTypeToColor[item.initiator_type || 'other'] ?? 'red',
+                    backgroundColor: initiatorTypeToColor(item.initiator_type || 'other'),
                     width: positionPercentages?.widthPercentage ?? '0%',
                     left: positionPercentages?.startPercentage ?? '0%',
                 }}

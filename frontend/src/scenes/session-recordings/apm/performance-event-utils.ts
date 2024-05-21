@@ -126,27 +126,48 @@ export const RRWebPerformanceEventReverseMapping: Record<string, keyof Performan
     method: 'method',
 }
 
-export const initiatorTypeToColor = {
-    navigation: getSeriesColor(13),
-    css: getSeriesColor(14),
-    script: getSeriesColor(15),
-    xmlhttprequest: getSeriesColor(16),
-    fetch: getSeriesColor(17),
-    beacon: getSeriesColor(18),
-    video: getSeriesColor(19),
-    audio: getSeriesColor(20),
-    track: getSeriesColor(21),
-    img: getSeriesColor(22),
-    image: getSeriesColor(22),
-    input: getSeriesColor(23),
-    a: getSeriesColor(24),
-    iframe: getSeriesColor(25),
-    frame: getSeriesColor(26),
-    link: getSeriesColor(27),
-    other: getSeriesColor(28),
+export function initiatorTypeToColor(type: NonNullable<PerformanceEvent['initiator_type']>): string {
+    switch (type) {
+        case 'navigation':
+            return getSeriesColor(13)
+        case 'css':
+            return getSeriesColor(14)
+        case 'script':
+            return getSeriesColor(15)
+        case 'xmlhttprequest':
+            return getSeriesColor(16)
+        case 'fetch':
+            return getSeriesColor(17)
+        case 'beacon':
+            return getSeriesColor(18)
+        case 'video':
+            return getSeriesColor(19)
+        case 'audio':
+            return getSeriesColor(20)
+        case 'track':
+            return getSeriesColor(21)
+        case 'img':
+            return getSeriesColor(22)
+        case 'image':
+            return getSeriesColor(22)
+        case 'input':
+            return getSeriesColor(23)
+        case 'a':
+            return getSeriesColor(24)
+        case 'iframe':
+            return getSeriesColor(25)
+        case 'frame':
+            return getSeriesColor(26)
+        case 'link':
+            return getSeriesColor(27)
+        case 'other':
+            return getSeriesColor(28)
+    }
 }
 
-export const initiatorToAssetTypeMapping: Record<string, string> = {
+type AssetType = 'CSS' | 'JS' | 'Fetch' | 'Image' | 'Link' | 'XHR' | 'HTML'
+
+export const initiatorToAssetTypeMapping: Record<string, AssetType> = {
     css: 'CSS',
     script: 'JS',
     fetch: 'Fetch',
@@ -157,14 +178,23 @@ export const initiatorToAssetTypeMapping: Record<string, string> = {
 }
 
 // these map to colors in initiatorTypeToColor but with opacity
-export const assetTypeToColor = {
-    CSS: getSeriesColor(14, null, true),
-    JS: getSeriesColor(15, null, true),
-    Fetch: getSeriesColor(17, null, true),
-    Image: getSeriesColor(22, null, true),
-    Link: getSeriesColor(27, null, true),
-    XHR: getSeriesColor(16, null, true),
-    HTML: getSeriesColor(13, null, true),
+export function assetTypeToColor(type: AssetType): string {
+    switch (type) {
+        case 'CSS':
+            return getSeriesColor(14, null, true)
+        case 'JS':
+            return getSeriesColor(15, null, true)
+        case 'Fetch':
+            return getSeriesColor(17, null, true)
+        case 'Image':
+            return getSeriesColor(22, null, true)
+        case 'Link':
+            return getSeriesColor(27, null, true)
+        case 'XHR':
+            return getSeriesColor(16, null, true)
+        case 'HTML':
+            return getSeriesColor(13, null, true)
+    }
 }
 
 export function mapRRWebNetworkRequest(

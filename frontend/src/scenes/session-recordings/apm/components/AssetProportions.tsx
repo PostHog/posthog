@@ -4,6 +4,8 @@ import { humanizeBytes } from 'lib/utils'
 import { assetTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'
 import { AssetSizeInfo } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 
+import { AssetType } from '~/types'
+
 interface AssetProportionsProps {
     data: Record<string, AssetSizeInfo>
 }
@@ -41,7 +43,7 @@ const Asset = ({
         return null
     }
     const proportion = (bytes / totalBytes) * 100
-    const bgColor = assetTypeToColor[label]
+    const bgColor = assetTypeToColor(label as AssetType)
 
     const content = (
         <div className="flex flex-col items-center justify-center text-xs">
