@@ -333,9 +333,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return isinstance(data, self.query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
-        return (
-            hasattr(data, "is_cached")  # Duck typing for backwards compatibility with `CachedQueryResponse`
-            or (isinstance(data, dict) and "is_cached" in data)
+        return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
+            isinstance(data, dict) and "is_cached" in data
         )
 
     @abstractmethod

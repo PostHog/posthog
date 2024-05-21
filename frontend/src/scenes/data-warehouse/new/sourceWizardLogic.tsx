@@ -148,7 +148,7 @@ export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     },
 }
 
-export type ManualLinkProvider = 'aws' | 'google-cloud'
+export type ManualLinkProvider = 'aws' | 'google-cloud' | 'cloudflare-r2'
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceWizardLogic']),
