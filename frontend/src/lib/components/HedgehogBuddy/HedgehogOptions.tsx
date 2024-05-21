@@ -23,11 +23,6 @@ export function HedgehogOptions(): JSX.Element {
                         <br />
                         You can move me around by clicking and dragging or control me with WASD / arrow keys.
                     </p>
-
-                    <p>
-                        Customize me to your hearts content below. All the options only affect your own Hedgehog Mode
-                        and can be changed whenever you like.
-                    </p>
                 </div>
             </div>
 
@@ -76,7 +71,7 @@ export function HedgehogOptions(): JSX.Element {
                                 party_mode_enabled: val,
                             })
                         }
-                        tooltip="If enabled then all of your organization members will appear as hedgehogs as well!"
+                        tooltip="If enabled then all of your organization members will appear in your browser as hedgehogs as well!"
                     />
                 </div>
                 <HedgehogColor />
