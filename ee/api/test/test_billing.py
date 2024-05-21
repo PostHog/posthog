@@ -341,6 +341,7 @@ class TestBillingAPI(APILicensedTest):
         assert response.json() == {
             "customer_id": "cus_123",
             "license": {"plan": "cloud"},
+            "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
