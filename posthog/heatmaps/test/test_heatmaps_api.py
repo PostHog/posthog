@@ -139,7 +139,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     @snapshot_clickhouse_queries
-    def test_can_filter_by_url_pattern(self) -> None:
+    def test_can_filter_by_url_pattern_where_end_is_anchored(self) -> None:
+        # home page with no trailing slash
+        self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com")
+
+        # home page with trailing slash
+        self._create_heatmap_event(
+            "session_1",
+            "rageclick",
+            "2023-03-08T08:00:00",
+            current_url="http://example.com/",
+        )
+
+        # should match nothing, no trailing slash
+        self._assert_heatmap_single_result_count(
+            {"date_from": "2023-03-08", "url_pattern": "http://example.com", "type": "rageclick"}, 1
+        )
+
+    @parameterized.expand(
+        [
+            ["http://example.com", 1],
+            ["http://example.com*", 6],
+            ["http://example.com/products*", 5],
+            ["http://example.com/products/1*", 2],
+            ["http://example.com/products/*/reviews/*", 2],
+        ],
+        name_func=lambda f, n, p: f"{f.__name__}_{p.args[0]}",
+    )
+    @snapshot_clickhouse_queries
+    def test_can_filter_by_url_pattern(self, pattern: str, expected_matches: int) -> None:
         # the home page
         self._create_heatmap_event("session_2", "rageclick", "2023-03-08T08:01:00", current_url="http://example.com/")
 
