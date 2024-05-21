@@ -124,10 +124,7 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     actions({
         setSurveyMissing: true,
-        editingSurvey: (editing: boolean) => {
-            // console.log('Editing Survey:', editing)
-            return { editing }
-        },
+        editingSurvey: (editing: boolean) => ({ editing }),
         setDefaultForQuestionType: (
             idx: number,
             type: SurveyQuestionType,
