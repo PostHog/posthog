@@ -351,7 +351,7 @@ export const createOrganization = async (organizationProperties = {}) => {
         setup_section_2_completed: true, // DEPRECATED
         for_internal_metrics: false,
         domain_whitelist: [],
-        availble_features: [],
+        available_features: [],
         available_product_features: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),

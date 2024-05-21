@@ -181,7 +181,7 @@ class User(AbstractUser, UUIDClassicModel):
         org_available_product_features = Organization.objects.filter(members=self).values_list(
             "available_product_features", flat=True
         )
-        org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
+        org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features[0]]
         if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
             try:
                 from ee.models import ExplicitTeamMembership
