@@ -444,12 +444,10 @@ def serialize_database(
 
         field_input = {}
         table = getattr(context.database, table_key, None)
-        if isinstance(table, FunctionCallTable):
-            field_input = table.get_asterisk()
-        elif isinstance(table, Table):
+        if isinstance(table, Table):
             field_input = table.fields
 
-        fields = serialize_fields(field_input, context)
+        fields = serialize_fields(field_input, context, warehouse_table.columns)
         fields_dict = {field.name: field for field in fields}
 
         # Schema

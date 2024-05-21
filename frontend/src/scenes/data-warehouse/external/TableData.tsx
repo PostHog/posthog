@@ -146,7 +146,10 @@ export function TableData(): JSX.Element {
                                         kind: NodeKind.HogQLQuery,
                                         // TODO: Use `hogql` tag?
                                         query: `SELECT ${Object.values(table.fields)
-                                            .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                            .filter(
+                                                ({ table, fields, chain, schema_valid }) =>
+                                                    !table && !fields && !chain && schema_valid
+                                            )
                                             .map(({ name }) => name)} FROM ${table.name} LIMIT 100`,
                                     },
                                 })

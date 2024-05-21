@@ -90,7 +90,10 @@ export function DatabaseTables<T extends DatabaseSchemaTable>({
                                               kind: NodeKind.HogQLQuery,
                                               // TODO: Use `hogql` tag?
                                               query: `SELECT ${Object.values(obj.fields)
-                                                  .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                                  .filter(
+                                                      ({ table, fields, chain, schema_valid }) =>
+                                                          !table && !fields && !chain && schema_valid
+                                                  )
                                                   .map(({ name }) => name)} FROM ${
                                                   table === 'numbers' ? 'numbers(0, 10)' : table
                                               } LIMIT 100`,
