@@ -80,7 +80,7 @@ class OrganizationDomainManager(models.Manager):
 
         candidate_sso_enforcement = query["sso_enforcement"]
 
-        available_product_features = query["organization__avialable_product_features"]
+        available_product_features = query["organization__available_product_features"]
         available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:

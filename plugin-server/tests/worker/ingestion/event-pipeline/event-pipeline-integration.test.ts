@@ -176,7 +176,7 @@ describe('Event Pipeline integration test', () => {
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_organization
-             SET available_features = '{"zapier"}'`,
+                SET available_product_features = array ['{"key": "zapier", "name": "zapier"}'::jsonb]`,
             [],
             'testTag'
         )
