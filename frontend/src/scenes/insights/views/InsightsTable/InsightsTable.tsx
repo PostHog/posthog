@@ -237,7 +237,7 @@ export function InsightsTable({
             useURLForSorting={insightMode !== ItemMode.Edit}
             rowRibbonColor={isLegend ? (item) => getSeriesColor(item.seriesIndex, compare || false) : undefined}
             firstColumnSticky
-            maxHeaderWidth="10rem"
+            maxHeaderWidth="20rem"
         />
     )
 }
