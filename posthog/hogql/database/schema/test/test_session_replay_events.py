@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
@@ -214,6 +215,12 @@ class TestFilterSessionReplaysByEvents(ClickhouseTestMixin, APIBaseTest):
 
 @freeze_time("2021-01-01T13:46:23")
 class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
+    @staticmethod
+    def _poe_modifiers(mode: PersonsOnEventsMode) -> HogQLQueryModifiers:
+        modifiers = HogQLQueryModifiers()
+        modifiers.personsOnEventsMode = mode
+        return modifiers
+
     def setUp(self):
         super().setUp()
 
@@ -295,6 +302,32 @@ class TestFilterSessionReplaysByPerson(ClickhouseTestMixin, APIBaseTest):
         assert response.results == [
             ("session_with_person_with_person_property",),
         ]
+
+    @snapshot_clickhouse_queries
+    def test_select_by_event_person_props_poe_mode(self):
+        q = """
+            select distinct session_id
+            from raw_session_replay_events where ifNull(events.person.properties.person_property, 'false') = 'true'
+            order by session_id asc
+            """
+
+        poe_disabled_response = execute_hogql_query(
+            q,
+            self.team,
+            modifiers=self._poe_modifiers(PersonsOnEventsMode.disabled),
+        )
+
+        poe_enabled_response = execute_hogql_query(
+            q,
+            self.team,
+            modifiers=self._poe_modifiers(PersonsOnEventsMode.person_id_no_override_properties_on_events),
+        )
+
+        assert poe_enabled_response.clickhouse != poe_disabled_response.clickhouse
+
+        # assert response.results == [
+        #     ("session_with_person_with_person_property",),
+        # ]
 
     @snapshot_clickhouse_queries
     def test_select_person_property(self):
