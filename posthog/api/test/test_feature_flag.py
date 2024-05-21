@@ -3735,7 +3735,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(
             (
                 AvailableFeature.ROLE_BASED_ACCESS
-                in [feature["key"] for feature in self.organization.available_product_features]
+                in [feature["key"] for feature in self.organization.available_product_features or []]
             ),
             False,
         )

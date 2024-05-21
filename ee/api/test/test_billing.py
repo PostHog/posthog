@@ -260,6 +260,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
         assert res.json() == {
+            "available_product_features": [],
             "products": create_default_products_response()["products"],
         }
 
