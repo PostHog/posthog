@@ -9,7 +9,7 @@ from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse
+from posthog.schema import ActorsQuery, ActorsQueryResponse, CachedActorsQueryResponse, DashboardFilter
 
 
 class ActorsQueryRunner(QueryRunner):
@@ -249,6 +249,10 @@ class ActorsQueryRunner(QueryRunner):
 
     def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
+
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+        if self.source_query_runner:
+            self.source_query_runner.apply_dashboard_filters(dashboard_filter)
 
     def _is_stale(self, cached_result_package):
         return True

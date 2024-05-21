@@ -480,7 +480,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             ),
                         ],
                     )
-                except Exception:
+                except:
                     # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
                     capture_exception()
                     logger.exception("Failed to apply dashboard property filters")
