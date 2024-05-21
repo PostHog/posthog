@@ -86,30 +86,28 @@ export function HostedReverseProxy(): JSX.Element {
         },
     ]
 
-    return (
+    return isCloudOrDev ? (
         <PayGateMini feature={AvailableFeature.HOSTED_REVERSE_PROXY}>
-            {isCloudOrDev ? (
-                <div className="space-y-2">
-                    <LemonTable
-                        loading={proxyRecords.length === 0 && proxyRecordsLoading}
-                        columns={columns}
-                        dataSource={proxyRecords}
-                        expandable={{
-                            expandedRowRender: (record) => <ExpandedRow record={record} />,
-                        }}
-                    />
-                    {formState === 'collapsed' ? (
-                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                            Add domain
-                        </LemonButton>
-                    ) : (
-                        <CreateRecordForm />
-                    )}
-                </div>
-            ) : (
-                <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
-            )}
+            <div className="space-y-2">
+                <LemonTable
+                    loading={proxyRecords.length === 0 && proxyRecordsLoading}
+                    columns={columns}
+                    dataSource={proxyRecords}
+                    expandable={{
+                        expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    }}
+                />
+                {formState === 'collapsed' ? (
+                    <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
+                        Add domain
+                    </LemonButton>
+                ) : (
+                    <CreateRecordForm />
+                )}
+            </div>
         </PayGateMini>
+    ) : (
+        <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
     )
 }
 
