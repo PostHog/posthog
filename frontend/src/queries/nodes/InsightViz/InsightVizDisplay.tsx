@@ -116,11 +116,11 @@ export function InsightVizDisplay({
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
-                return <TrendInsight view={InsightType.TRENDS} context={context} />
+                return <TrendInsight view={InsightType.TRENDS} context={context} embedded={embedded} />
             case InsightType.STICKINESS:
-                return <TrendInsight view={InsightType.STICKINESS} context={context} />
+                return <TrendInsight view={InsightType.STICKINESS} context={context} embedded={embedded} />
             case InsightType.LIFECYCLE:
-                return <TrendInsight view={InsightType.LIFECYCLE} context={context} />
+                return <TrendInsight view={InsightType.LIFECYCLE} context={context} embedded={embedded} />
             case InsightType.FUNNELS:
                 return <Funnel />
             case InsightType.RETENTION:

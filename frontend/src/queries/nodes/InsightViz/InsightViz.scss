@@ -33,6 +33,11 @@
         height: 100%;
     }
 
+    .InsightCard & {
+        flex: 1;
+        height: 100%;
+    }
+
     .InsightVizDisplay__content {
         position: relative;
         display: flex;
