@@ -186,7 +186,7 @@ export function PipelinePluginConfiguration({
                         ) : null}
                     </div>
 
-                    <div className="border bg-bg-light rounded p-3 flex-2 min-w-100">
+                    <div className="border bg-bg-light rounded p-3 flex-2 min-w-100 space-y-2">
                         <>
                             {fields.length ? (
                                 fields
