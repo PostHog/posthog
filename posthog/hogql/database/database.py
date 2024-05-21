@@ -369,6 +369,7 @@ def create_hogql_database(
 
 class SerializedField(BaseModel):
     key: str
+    name: str
     type: DatabaseSerializedFieldType
     schema_valid: bool
     fields: Optional[list[str]] = None

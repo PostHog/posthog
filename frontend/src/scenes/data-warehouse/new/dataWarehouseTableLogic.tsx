@@ -27,7 +27,6 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
         access_key: '',
         access_secret: '',
     },
-    columns: [],
 }
 
 export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([

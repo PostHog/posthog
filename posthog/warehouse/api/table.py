@@ -72,6 +72,7 @@ class TableSerializer(serializers.ModelSerializer):
         return [
             SerializedField(
                 key=field.name,
+                name=field.name,
                 type=field.type,
                 schema_valid=field.schema_valid,
                 fields=field.fields,
@@ -128,6 +129,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         return [
             SerializedField(
                 key=field.name,
+                name=field.name,
                 type=field.type,
                 schema_valid=field.schema_valid,
                 fields=field.fields,

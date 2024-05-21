@@ -237,7 +237,7 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                                     // TODO: Use `hogql` tag?
                                     query: `SELECT ${schema.table.columns
                                         .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                        .map(({ key }) => key)} FROM ${
+                                        .map(({ name }) => name)} FROM ${
                                         schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
                                     } LIMIT 100`,
                                 },
