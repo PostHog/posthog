@@ -24,6 +24,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -110,6 +111,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -248,6 +250,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_activitylog"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
@@ -379,6 +382,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -565,6 +569,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
          T4."id",
          T4."password",
@@ -590,6 +595,7 @@
          T4."partial_notification_settings",
          T4."anonymize_data",
          T4."toolbar_mode",
+         T4."hedgehog_config",
          T4."events_column_config"
   FROM "posthog_notebook"
   INNER JOIN "posthog_team" ON ("posthog_notebook"."team_id" = "posthog_team"."id")
@@ -666,6 +672,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2

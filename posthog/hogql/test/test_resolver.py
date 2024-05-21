@@ -270,6 +270,19 @@ class TestResolver(BaseTest):
                         """),
         )
 
+    def test_join_using(self):
+        node = self._select(
+            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        assert constraint.constraint_type == "USING"
+        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
+
+        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):

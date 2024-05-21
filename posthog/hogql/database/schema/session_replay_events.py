@@ -41,7 +41,8 @@ def join_replay_table_to_sessions_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "session_id"]),
             right=ast.Field(chain=[to_table, "session_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
@@ -77,7 +78,8 @@ def join_with_events_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "session_id"]),
             right=ast.Field(chain=[to_table, "$session_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
 
     return join_expr
@@ -129,7 +131,8 @@ def join_with_console_logs_log_entries_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "session_id"]),
             right=ast.Field(chain=[to_table, "log_source_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
 
     return join_expr
