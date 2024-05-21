@@ -173,21 +173,11 @@ def select_from_sessions_table(
     # for now just remove the duplicate definitions from the code
     aggregate_fields["$entry_pathname"] = ast.Call(
         name="path",
-        args=[
-            ast.Call(
-                name="argMinMerge",
-                args=[aggregate_fields["$entry_current_url"]],
-            )
-        ],
+        args=[aggregate_fields["$entry_current_url"]],
     )
     aggregate_fields["$exit_pathname"] = ast.Call(
         name="path",
-        args=[
-            ast.Call(
-                name="argMaxMerge",
-                args=[aggregate_fields["$exit_current_url"]],
-            )
-        ],
+        args=[aggregate_fields["$exit_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
         name="dateDiff",
