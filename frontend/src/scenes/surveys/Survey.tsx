@@ -95,26 +95,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
             <LemonDivider />
             <SurveyReleaseSummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             <LemonDivider />
-            <div className="flex items-center gap-2 justify-end">
-                <LemonButton
-                    data-attr="cancel-survey"
-                    type="secondary"
-                    loading={surveyLoading}
-                    onClick={() => {
-                        if (isEditingSurvey) {
-                            editingSurvey(false)
-                            loadSurvey()
-                        } else {
-                            router.actions.push(urls.surveys())
-                        }
-                    }}
-                >
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" data-attr="save-survey" htmlType="submit" loading={surveyLoading}>
-                    {id === 'new' ? 'Save as draft' : 'Save'}
-                </LemonButton>
-            </div>
         </Form>
     )
 }
