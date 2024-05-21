@@ -90,7 +90,6 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClientAuthenticationAnonStartRateThrottle],
     )
     def start(self, request: Request, *args, **kwargs) -> JsonResponse:
-        # TODO: Figure out a sensible rate limiting here
         code = str(uuid4())
         secret = str(uuid4())
 
