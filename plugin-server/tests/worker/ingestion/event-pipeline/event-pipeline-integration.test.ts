@@ -45,8 +45,8 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         ;[hub, closeServer] = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres)
-        await actionManager.prepare()
+        actionManager = new ActionManager(hub.db.postgres, hub)
+        await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
             hub.db.postgres,

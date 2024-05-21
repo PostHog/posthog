@@ -24,14 +24,17 @@ export const actionLogic = kea<actionLogicType>([
         setIsComplete: (isComplete) => ({ isComplete }),
     })),
     loaders(({ props }) => ({
-        action: {
-            loadAction: async () => {
-                if (!props.id) {
-                    throw new Error('Cannot fetch an unsaved action from the API.')
-                }
-                return await api.actions.get(props.id)
+        action: [
+            null as ActionType | null,
+            {
+                loadAction: async () => {
+                    if (!props.id) {
+                        throw new Error('Cannot fetch an unsaved action from the API.')
+                    }
+                    return await api.actions.get(props.id)
+                },
             },
-        },
+        ],
     })),
     reducers(() => ({
         pollTimeout: [

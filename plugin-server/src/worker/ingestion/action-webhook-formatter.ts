@@ -1,3 +1,4 @@
+import { Webhook } from '@posthog/plugin-scaffold'
 import { format } from 'util'
 
 import { Action, PostIngestionEvent, Team } from '../../types'
@@ -45,6 +46,17 @@ export class ActionWebhookFormatter {
         this.eventLink = `${this.projectUrl}/events/${encodeURIComponent(event.eventUuid)}/${encodeURIComponent(
             event.timestamp
         )}`
+    }
+
+    composeWebhook(): Webhook {
+        return {
+            url: this.webhookUrl,
+            body: JSON.stringify(this.generateWebhookPayload()),
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            method: 'POST',
+        }
     }
 
     generateWebhookPayload(): Record<string, any> {

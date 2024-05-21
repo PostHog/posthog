@@ -11,6 +11,7 @@ import { NodeKind } from '~/queries/schema'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
+import { ActionPlugins } from './ActionPlugins'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -46,6 +47,8 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
             <ActionEdit id={id} action={action} />
             {id && (
                 <>
+                    <ActionPlugins />
+
                     {isComplete ? (
                         <div className="mt-8">
                             <h2 className="subtitle">Matching events</h2>

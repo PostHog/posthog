@@ -36,7 +36,6 @@ export function elementsToAction(
     elements: ElementType[]
 ): Pick<ActionStepType, 'selector' | 'text' | 'href' | 'tag_name'> {
     return {
-        tag_name: elements[0].tag_name,
         href: elements[0].href,
         text: elements[0].text,
         ...(!elements[0].href && !elements[0].text ? { selector: recurseSelector(elements, '', 0) } : ''),

@@ -227,6 +227,7 @@ interface UserBaseType {
 export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
+    hedgehog_config?: MinimalHedgehogConfig
 }
 
 /**
@@ -264,6 +265,35 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
+    hedgehog_config?: Partial<HedgehogConfig>
+}
+
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export interface MinimalHedgehogConfig {
+    use_as_profile: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+}
+
+export interface HedgehogConfig extends MinimalHedgehogConfig {
+    enabled: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+    walking_enabled: boolean
+    interactions_enabled: boolean
+    controls_enabled: boolean
+    party_mode_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -305,7 +335,6 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -501,6 +530,7 @@ export interface ActionType {
     action_id?: number // alias of id to make it compatible with event definitions uuid
     bytecode?: any[]
     bytecode_error?: string
+    plugin_configs?: PluginConfigWithPluginInfoNew[]
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1777,6 +1807,7 @@ export interface PluginConfigType {
     error?: PluginErrorType
     delivery_rate_24h?: number | null
     created_at?: string
+    match_action?: ActionType['id']
 }
 
 /** @deprecated in favor of PluginConfigWithPluginInfoNew */
@@ -1797,6 +1828,7 @@ export interface PluginConfigTypeNew {
     updated_at: string
     delivery_rate_24h?: number | null
     config: Record<string, any>
+    match_action?: ActionType['id']
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -2492,6 +2524,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2521,6 +2554,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    shuffleOptions?: boolean
     hasOpenChoice?: boolean
 }
 
