@@ -21,7 +21,7 @@ from posthog.schema import (
 from posthog.test.base import BaseTest, _create_event, _create_person
 
 
-class TestQueryBuilder(BaseTest):
+class TestTrendsQueryBuilder(BaseTest):
     def setUp(self):
         super().setUp()
 

@@ -75,6 +75,7 @@ class BreakdownValues:
         self.breakdown_limit = breakdown_filter.breakdown_limit or get_breakdown_limit_for_context(limit_context)
         self.query_date_range = query_date_range
         self.modifiers = modifiers
+        self.limit_context = limit_context
 
     def get_breakdown_values(self) -> list[str | int]:
         if self.breakdown_type == "cohort":
@@ -202,6 +203,7 @@ class BreakdownValues:
                 query=query,
                 team=self.team,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
             if response.results and len(response.results) > 0:
                 values = response.results[0][0]
@@ -215,6 +217,7 @@ class BreakdownValues:
                 query=query,
                 team=self.team,
                 modifiers=self.modifiers,
+                limit_context=self.limit_context,
             )
             value_index = (response.columns or []).index("value")
             values = [row[value_index] for row in response.results or []]
@@ -272,5 +275,5 @@ class BreakdownValues:
             self.series,
             self.chart_display_type,
             self.query_date_range,
-            should_aggregate_values=True,  # doesn't matter in this case
+            is_total_value=True,  # doesn't matter in this case
         )
