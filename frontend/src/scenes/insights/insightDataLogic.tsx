@@ -32,7 +32,7 @@ import { insightLogic } from './insightLogic'
 import { cleanFilters, setTestAccountFilterForNewInsight } from './utils/cleanFilters'
 import { compareFilters } from './utils/compareFilters'
 
-const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: filtersToQueryNode(filters),
 })
@@ -124,6 +124,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         (isLifecycleQuery(query.source) && !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]))
                 )
             },
+        ],
+        useQueryDashboardCards: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_DASHBOARD_CARDS],
         ],
 
         query: [
