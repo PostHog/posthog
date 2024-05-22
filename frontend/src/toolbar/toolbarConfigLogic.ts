@@ -64,6 +64,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
 
+            // TODO: Error handling
             const authorizationCode = await toolbarFetch(`/api/client_authorization/start`, 'POST')
                 .then((response) => response.json())
                 .then((data) => data.code)
