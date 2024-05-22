@@ -122,6 +122,7 @@ export interface NewSurvey
         | 'iteration_count'
         | 'iteration_frequency_days'
         | 'iteration_start_dates'
+        | 'current_iteration'
     > {
     id: 'new'
     linked_flag_id: number | null

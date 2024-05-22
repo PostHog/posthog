@@ -649,7 +649,7 @@ export default function SurveyEdit(): JSX.Element {
                             content: (
                                 <>
                                     <h2> How often should we show this survey? </h2>
-                                    <LemonField>
+                                    <LemonField name="ignored">
                                         {({ onChange }) => {
                                             return (
                                                 <LemonRadio

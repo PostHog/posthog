@@ -62,6 +62,13 @@ export interface SurveyRatingResults {
     }
 }
 
+export interface SurveyRecurringNPSResults {
+    [key: number]: {
+        data: number[]
+        total: number
+    }
+}
+
 type SurveyNPSResult = {
     Promoters: number
     Detractors: number
@@ -260,7 +267,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 iteration,
             }: {
                 questionIndex: number
-                iteration?: number
+                iteration?: number | null | undefined
             }): Promise<SurveyRatingResults> => {
                 const { survey } = values
 
@@ -368,9 +375,11 @@ export const surveyLogic = kea<surveyLogicType>([
 
                     if (iterations.has(iteration)) {
                         const currentValue = iterations.get(iteration)
-                        currentValue.Detractors += detractors
-                        currentValue.Promoters += promoters
-                        currentValue.Passives += passives
+                        if (currentValue !== undefined) {
+                            currentValue.Detractors += detractors
+                            currentValue.Promoters += promoters
+                            currentValue.Passives += passives
+                        }
                     } else {
                         iterations.set(iteration, {
                             Detractors: detractors,

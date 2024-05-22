@@ -177,6 +177,7 @@ export function RatingQuestionBarChart({
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
     surveyRatingResultsReady: QuestionResultsReady
+    iteration?: number | null | undefined
 }): JSX.Element {
     const { loadSurveyRatingResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
@@ -252,12 +253,12 @@ export function NPSSurveyResultsBarChart({
     questionIndex,
     surveyRecurringNPSResults,
     surveyRecurringNPSResultsReady,
-    iteration,
+    iterationStartDates,
 }: {
     questionIndex: number
     surveyRecurringNPSResults: SurveyRecurringNPSResults
     surveyRecurringNPSResultsReady: QuestionResultsReady
-    iteration?: number
+    iterationStartDates: string[]
 }): JSX.Element {
     const { loadSurveyRecurringNPSResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
@@ -268,7 +269,7 @@ export function NPSSurveyResultsBarChart({
     }
 
     useEffect(() => {
-        loadSurveyRecurringNPSResults({ questionIndex, iteration })
+        loadSurveyRecurringNPSResults({ questionIndex })
     }, [questionIndex])
 
     return (
@@ -312,7 +313,7 @@ export function NPSSurveyResultsBarChart({
                                             hoverBackgroundColor: barColor,
                                         },
                                     ]}
-                                    labels={survey.iteration_start_dates.map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
+                                    labels={iterationStartDates.map((sd) => dayjs(sd).format('YYYY-MM-DD'))}
                                 />
                             </BindLogic>
                         </div>

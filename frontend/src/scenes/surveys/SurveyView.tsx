@@ -219,15 +219,18 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <div className="flex flex-row gap-8">
-                                                {survey.iteration_count > 0 && survey.iteration_frequency_days > 0 && (
-                                                    <div className="flex flex-col">
-                                                        <span className="card-secondary mt-4">Schedule</span>
-                                                        <span>
-                                                            Repeats every {survey.iteration_frequency_days} days,{' '}
-                                                            {survey.iteration_count} times
-                                                        </span>
-                                                    </div>
-                                                )}
+                                                {survey.iteration_count &&
+                                                    survey.iteration_frequency_days &&
+                                                    survey.iteration_count > 0 &&
+                                                    survey.iteration_frequency_days > 0 && (
+                                                        <div className="flex flex-col">
+                                                            <span className="card-secondary mt-4">Schedule</span>
+                                                            <span>
+                                                                Repeats every {survey.iteration_frequency_days} days,{' '}
+                                                                {survey.iteration_count} times
+                                                            </span>
+                                                        </div>
+                                                    )}
                                             </div>
                                             {survey.responses_limit && (
                                                 <>
@@ -332,15 +335,18 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     iteration={survey.current_iteration}
                                 />
 
-                                {survey.iteration_count > 0 && (
-                                    <NPSSurveyResultsBarChart
-                                        key={`nps-survey-results-q-${i}`}
-                                        surveyRecurringNPSResults={surveyRecurringNPSResults}
-                                        surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
-                                        iterationStartDates={survey.iteration_start_dates}
-                                        questionIndex={i}
-                                    />
-                                )}
+                                {survey.iteration_count &&
+                                    survey.iteration_count > 0 &&
+                                    survey.iteration_start_dates &&
+                                    survey.iteration_start_dates.length > 0 && (
+                                        <NPSSurveyResultsBarChart
+                                            key={`nps-survey-results-q-${i}`}
+                                            surveyRecurringNPSResults={surveyRecurringNPSResults}
+                                            surveyRecurringNPSResultsReady={surveyRecurringNPSResultsReady}
+                                            iterationStartDates={survey.iteration_start_dates}
+                                            questionIndex={i}
+                                        />
+                                    )}
                             </>
                         )
                     } else if (question.type === SurveyQuestionType.SingleChoice) {
