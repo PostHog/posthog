@@ -5,7 +5,7 @@ from datetime import date
 from posthog.models import Survey
 
 
-def _update_survey_iteration(survey):
+def _update_survey_iteration(survey: Survey) -> None:
     survey.refresh_from_db()
     if survey.iteration_start_dates is None or survey.end_date is not None:
         return
@@ -15,7 +15,7 @@ def _update_survey_iteration(survey):
     survey.save(update_fields=["current_iteration", "current_iteration_start_date"])
 
 
-def _get_current_iteration(survey):
+def _get_current_iteration(survey: Survey) -> int:
     today_date = date.today()
     for idx, start_date in enumerate(survey.iteration_start_dates):
         delta = (today_date - start_date.date()).days
