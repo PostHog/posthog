@@ -20,7 +20,7 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
+    const { isConfirmOrganizationSubmitting, showNewOrgWarning } = useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
 
     return (
@@ -62,14 +62,6 @@ export function ConfirmOrganization(): JSX.Element {
                 enableFormOnSubmit
                 className="space-y-4"
             >
-                <LemonField name="email" label="Email">
-                    <LemonInput className="ph-ignore-input" value={email} disabled />
-                </LemonField>
-
-                <LemonField name="first_name" label="Your name">
-                    <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
-                </LemonField>
-
                 <LemonField
                     name="organization_name"
                     label="Organization name"

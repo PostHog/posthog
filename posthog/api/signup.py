@@ -2,14 +2,12 @@ from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
 import structlog
-from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from django.shortcuts import redirect
-from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
@@ -293,63 +291,6 @@ class InviteSignupViewset(generics.CreateAPIView):
         )
 
 
-# Social Signup
-# views & serializers
-class SocialSignupSerializer(serializers.Serializer):
-    """
-    Signup serializer when the account is created using social authentication.
-    Pre-processes information not obtained from SSO provider to create organization.
-    """
-
-    organization_name: serializers.Field = serializers.CharField(max_length=128)
-    first_name: serializers.Field = serializers.CharField(max_length=128)
-    role_at_organization: serializers.Field = serializers.CharField(max_length=123, required=False, default="")
-
-    def create(self, validated_data, **kwargs):
-        request = self.context["request"]
-
-        if not request.session.get("backend"):
-            raise serializers.ValidationError(
-                "Inactive social login session. Go to /login and log in before continuing."
-            )
-
-        email = request.session.get("email")
-        organization_name = validated_data["organization_name"]
-        role_at_organization = validated_data["role_at_organization"]
-        first_name = validated_data["first_name"]
-
-        serializer = SignupSerializer(
-            data={
-                "organization_name": organization_name,
-                "first_name": first_name,
-                "email": email,
-                "password": None,
-                "role_at_organization": role_at_organization,
-            },
-            context={"request": request},
-        )
-        serializer.is_social_signup = True
-
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        logger.info(
-            f"social_create_user_signup",
-            full_name_len=len(first_name),
-            email_len=len(email),
-            user=user.id,
-        )
-
-        return {"continue_url": reverse("social:complete", args=[request.session["backend"]])}
-
-    def to_representation(self, instance: Any) -> Any:
-        return self.instance
-
-
-class SocialSignupViewset(generics.CreateAPIView):
-    serializer_class = SocialSignupSerializer
-    permission_classes = (CanCreateOrg,)
-
-
 class TeamInviteSurrogate:
     """This reimplements parts of OrganizationInvite that enable compatibility with the old Team.signup_token."""
 
@@ -362,11 +303,6 @@ class TeamInviteSurrogate:
 
     def use(self, user: Any, *args, **kwargs) -> None:
         user.join(organization=self.organization)
-
-
-class CompanyNameForm(forms.Form):
-    companyName = forms.CharField(max_length=64)
-    emailOptIn = forms.BooleanField(required=False)
 
 
 def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email: str, full_name: str) -> User:
@@ -446,6 +382,16 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
+def process_social_signup(strategy: DjangoStrategy, email: str, full_name: str) -> User:
+    try:
+        user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
+        return user
+    except Exception as e:
+        capture_exception(e)
+        message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
+        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+
+
 def social_user(backend, uid, user=None, *args, **kwargs):
     provider = backend.name
     # NOTE: This is almost identical to the original function but with a str conversion that is otherwise missing
@@ -453,7 +399,7 @@ def social_user(backend, uid, user=None, *args, **kwargs):
     social = backend.strategy.storage.user.get_social_auth(provider, uid)
     if social:
         if user and social.user != user:
-            raise ValueError("wat")
+            raise ValidationError("This social account is already associated with a different user.")
         elif not user:
             user = social.user
     return {
@@ -523,9 +469,7 @@ def social_create_user(
     if invite_id:
         from_invite = True
         user = process_social_invite_signup(strategy, invite_id, email, full_name)
-
     else:
-        # JIT Provisioning?
         user = process_social_domain_jit_provisioning_signup(email, full_name)
         logger.info(
             f"social_create_user_jit_user",
@@ -565,7 +509,7 @@ def social_create_user(
                 email_len=len(email),
             )
 
-            return redirect(f"/organization/confirm-creation?{query_params_string}")
+            user = process_social_signup(strategy, email, full_name)
 
     report_user_signed_up(
         user,

@@ -16,9 +16,6 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     path(['scenes', 'organization', 'confirmOrganizationLogic']),
 
     actions({
-        setEmail: (email: string) => ({
-            email,
-        }),
         setShowNewOrgWarning: (show: boolean) => ({ show }),
     }),
 
@@ -27,12 +24,6 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             false,
             {
                 setShowNewOrgWarning: (_, { show }) => show,
-            },
-        ],
-        email: [
-            '',
-            {
-                setEmail: (_, { email }) => email,
             },
         ],
     }),
@@ -59,9 +50,8 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     })),
 
     urlToAction(({ actions }) => ({
-        '/organization/confirm-creation': (_, { email, organization_name, first_name }) => {
+        '/organization/confirm-creation': (_, { organization_name, first_name }) => {
             actions.setConfirmOrganizationValues({ organization_name, first_name })
-            actions.setEmail(email)
         },
     })),
 ])

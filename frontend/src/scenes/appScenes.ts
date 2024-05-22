@@ -44,7 +44,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseSettings]: () => import('./data-warehouse/settings/DataWarehouseSettingsScene'),
     [Scene.DataWarehouseRedirect]: () => import('./data-warehouse/redirect/DataWarehouseRedirectScene'),
-    [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
+    [Scene.OrganizationCreateFirst]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
     [Scene.ProjectCreateFirst]: () => import('./project/Create'),
