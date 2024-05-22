@@ -513,7 +513,7 @@ class PersonsArgMaxVersion(str, Enum):
 
 
 class PersonsJoinMode(str, Enum):
-    inner_excluding_deleted = "inner_excluding_deleted"
+    inner = "inner"
     left = "left"
 
 
