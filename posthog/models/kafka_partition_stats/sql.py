@@ -113,7 +113,7 @@ class PartitionStatsV2Table:
                 offset UInt64,
                 token String,
                 distinct_id String,
-                ip String,
+                ip Tuple(v4 IPv4, v6 IPv6),
                 event String,
                 data_length UInt64,
                 timestamp DateTime
@@ -149,11 +149,11 @@ class PartitionStatsV2MaterializedView:
                 _offset AS offset,
                 token,
                 distinct_id,
-                ip,
+                (toIPv4OrDefault(kafka_table.ip), toIPv6OrDefault(kafka_table.ip)) AS ip,
                 if(startsWith(JSONExtractString(data, 'event') AS _event, '$'), _event, '') AS event,
                 length(data) AS data_length,
                 _timestamp AS timestamp
-            FROM {CLICKHOUSE_DATABASE}.{self.from_table.table_name}
+            FROM {CLICKHOUSE_DATABASE}.{self.from_table.table_name} AS kafka_table
         """
 
     def get_drop_table_sql(self) -> str:
