@@ -40,7 +40,6 @@ from posthog.auth import (
     JwtAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    TemporaryTokenAuthentication,
     authenticate_secondarily,
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
@@ -470,7 +469,7 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        authentication_classes=[SessionAuthentication, JwtAuthentication, PersonalAPIKeyAuthentication],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()

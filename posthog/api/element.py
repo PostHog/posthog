@@ -6,7 +6,6 @@ from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
@@ -39,7 +38,6 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     queryset = Element.objects.all()
     serializer_class = ElementSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

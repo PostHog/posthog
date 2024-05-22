@@ -4,7 +4,6 @@ from typing import Any, List, Literal  # noqa: UP035
 from rest_framework import viewsets, request, response, serializers, status
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
@@ -149,8 +148,6 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
-
-    authentication_classes = [TemporaryTokenAuthentication]
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})

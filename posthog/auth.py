@@ -175,35 +175,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(is_active=True, temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesn't exist")
-            return (user.first(), None)
-
-        return None
-
-    # NOTE: This appears first in the authentication chain often so we want to define an authenticate_header to ensure 401 and not 403
-    def authenticate_header(self, request: Request):
-        return "Bearer"
-
-
 class JwtAuthentication(authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User

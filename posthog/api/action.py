@@ -8,9 +8,6 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import (
-    TemporaryTokenAuthentication,
-)
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action
@@ -126,7 +123,6 @@ class ActionViewSet(
     renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer)
     queryset = Action.objects.select_related("created_by").all()
     serializer_class = ActionSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     ordering = ["-last_calculated_at", "name"]
 
     def safely_get_queryset(self, queryset):

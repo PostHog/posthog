@@ -30,31 +30,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     reducers(({ props }) => ({
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
-        temporaryToken: [
-            props.temporaryToken || null,
-            { logout: () => null, tokenExpired: () => null, authenticate: () => null },
-        ],
+        // TODO: Copy this logic to the access token side of things
+        // temporaryToken: [
+        //     props.temporaryToken || null,
+        //     { logout: () => null, tokenExpired: () => null, authenticate: () => null },
+        // ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
 
-    selectors({
-        posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        apiURL: [
-            (s) => [s.props],
-            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
-        ],
-        jsURL: [
-            (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
-        ],
-        dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
-        isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
-    }),
-
-    loaders(({ values, actions, props }) => ({
+    loaders(({ values, props }) => ({
         authorization: [
             {
                 authorizationCode: props.authorizationCode || null,
@@ -72,7 +58,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
                     const payload = await res.json()
 
-                    console.log('PAYLOAD', payload)
                     return {
                         authorizationCode: payload.code,
                     }
@@ -97,6 +82,23 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             },
         ],
     })),
+
+    selectors({
+        posthog: [(s) => [s.props], (props) => props.posthog ?? null],
+        apiURL: [
+            (s) => [s.props],
+            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
+        ],
+        jsURL: [
+            (s) => [s.props, s.apiURL],
+            (props: ToolbarProps, apiUrl) =>
+                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
+        ],
+        dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
+        accessToken: [(s) => [s.authorization], (authorization) => authorization?.accessToken ?? null],
+        // TODO: Check for expiry
+        isAuthenticated: [(s) => [s.accessToken], (accessToken) => !!accessToken],
+    }),
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
@@ -141,7 +143,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             // Most params we don't change, only those that we may have modified during the session
             const toolbarParams: ToolbarProps = {
                 ...values.props,
-                temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
@@ -149,8 +150,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 accessToken: values.authorization?.accessToken ?? undefined,
                 authorizationCode: values.authorization?.authorizationCode ?? undefined,
             }
-
-            console.log('PERSISTING CONFIG', toolbarParams)
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
         },
@@ -186,7 +185,7 @@ export async function toolbarFetch(
     */
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
-    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
+    const accessToken = toolbarConfigLogic.findMounted()?.values.accessToken
     const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
 
     let fullUrl: string
@@ -194,22 +193,17 @@ export async function toolbarFetch(
         fullUrl = url
     } else {
         const { pathname, searchParams } = combineUrl(url)
-        const params = { ...searchParams, temporary_token: temporaryToken }
+        const params = { ...searchParams }
         fullUrl = `${apiURL}${pathname}${encodeParams(params, '?')}`
     }
 
-    const payloadData = payload
-        ? {
-              body: JSON.stringify(payload),
-              headers: {
-                  'Content-Type': 'application/json',
-              },
-          }
-        : {}
-
     const response = await fetch(fullUrl, {
         method,
-        ...payloadData,
+        body: payload ? JSON.stringify(payload) : undefined,
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+        },
     })
     if (response.status === 403) {
         const responseData = await response.json()
