@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Dict, Optional, cast
+from typing import Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
@@ -26,6 +26,8 @@ MOCK_GITLAB_SSO_RESPONSE = {
     "name": "John Doe",
 }
 
+VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+
 
 class TestSignupAPI(APIBaseTest):
     @classmethod
@@ -45,7 +47,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "John",
                 "last_name": "Doe",
                 "email": "hedgehog@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
@@ -68,6 +70,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -104,7 +107,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("notsecure"))
+        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_email_collision(self):
@@ -116,7 +119,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "John",
                 "email": "fake@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -138,7 +141,7 @@ class TestSignupAPI(APIBaseTest):
                 {
                     "first_name": "Jane",
                     "email": "hedgehog2@posthog.com",
-                    "password": "notsecure",
+                    "password": VALID_TEST_PASSWORD,
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -147,7 +150,7 @@ class TestSignupAPI(APIBaseTest):
                 {
                     "first_name": "Jane",
                     "email": "hedgehog2@posthog.com",
-                    "password": "notsecure",
+                    "password": VALID_TEST_PASSWORD,
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -185,7 +188,7 @@ class TestSignupAPI(APIBaseTest):
                         {
                             "first_name": "Jane",
                             "email": "hedgehog4@posthog.com",
-                            "password": "notsecure",
+                            "password": VALID_TEST_PASSWORD,
                         },
                     )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -200,7 +203,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -218,6 +221,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog2@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -247,7 +251,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("notsecure"))
+        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
@@ -260,7 +264,7 @@ class TestSignupAPI(APIBaseTest):
             body = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             }
             body.pop(attribute)
 
@@ -294,10 +298,10 @@ class TestSignupAPI(APIBaseTest):
         required_attributes = ["first_name", "email"]
 
         for attribute in required_attributes:
-            body: Dict[str, Optional[str]] = {
+            body: dict[str, Optional[str]] = {
                 "first_name": "Jane",
                 "email": "invalid@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             }
             body[attribute] = None
 
@@ -344,6 +348,29 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), count)
         self.assertEqual(Team.objects.count(), team_count)
 
+    def test_cant_sign_up_with_weak_passwords(self):
+        cases = [
+            ["password", "Add another word or two. Uncommon words are better."],
+            [
+                "test test test",
+                "Add another word or two. Uncommon words are better. Avoid repeated words and characters.",
+            ],
+            ["12345678", "Add another word or two. Uncommon words are better."],
+        ]
+
+        for password, detail in cases:
+            res = self.client.post(
+                "/api/signup/",
+                {"first_name": "Jane", "email": "failed@posthog.com", "password": password},
+            )
+            assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+            assert res.json() == {
+                "type": "validation_error",
+                "code": "password_too_weak",
+                "detail": detail,
+                "attr": "password",
+            }, [password, res.json()]
+
     def test_default_dashboard_is_created_on_signup(self):
         """
         Tests that the default web app dashboard is created on signup.
@@ -355,7 +382,7 @@ class TestSignupAPI(APIBaseTest):
             {
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "password": "notsecure",
+                "password": VALID_TEST_PASSWORD,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -373,6 +400,7 @@ class TestSignupAPI(APIBaseTest):
                 "email": "hedgehog75@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -777,7 +805,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
-        user = self._create_user("test+29@posthog.com", "test_password")
+        user = self._create_user("test+29@posthog.com", VALID_TEST_PASSWORD)
         new_org = Organization.objects.create(name="Test, Inc")
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+29@posthog.com", organization=new_org
@@ -811,7 +839,7 @@ class TestInviteSignupAPI(APIBaseTest):
             )
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
-        user = self._create_user("test+39@posthog.com", "test_password")
+        user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+49@posthog.com", organization=self.organization
         )
@@ -860,7 +888,7 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {
                 "first_name": "Alice",
-                "password": "test_password",
+                "password": VALID_TEST_PASSWORD,
                 "email_opt_in": True,
                 "role_at_organization": "Engineering",
             },
@@ -878,6 +906,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+99@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": False,
+                "hedgehog_config": None,
             },
         )
 
@@ -923,7 +952,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["email"], "test+99@posthog.com")
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password("test_password"))
+        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
 
     @pytest.mark.ee
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
@@ -939,7 +968,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Alice", "password": "test_password", "email_opt_in": True},
+            {"first_name": "Alice", "password": VALID_TEST_PASSWORD, "email_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -962,7 +991,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Charlie", "password": "test_password"},
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -985,7 +1014,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 f"/api/signup/{invite.id}/",
                 {
                     "first_name": "Alice",
-                    "password": "test_password",
+                    "password": VALID_TEST_PASSWORD,
                     "email_opt_in": True,
                 },
             )
@@ -1007,7 +1036,7 @@ class TestInviteSignupAPI(APIBaseTest):
                     f"/api/signup/{invite.id}/",
                     {
                         "first_name": "Alice",
-                        "password": "test_password",
+                        "password": VALID_TEST_PASSWORD,
                         "email_opt_in": True,
                     },
                 )
@@ -1039,7 +1068,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 f"/api/signup/{invite.id}/",
                 {
                     "first_name": "Alice",
-                    "password": "test_password",
+                    "password": VALID_TEST_PASSWORD,
                     "email_opt_in": True,
                 },
             )
@@ -1051,7 +1080,7 @@ class TestInviteSignupAPI(APIBaseTest):
     @patch("posthoganalytics.capture")
     @patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
     def test_existing_user_can_sign_up_to_a_new_organization(self, mock_update_distinct_ids, mock_capture):
-        user = self._create_user("test+159@posthog.com", "test_password")
+        user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD)
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1087,6 +1116,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+159@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": None,
+                "hedgehog_config": None,
             },
         )
 
@@ -1136,7 +1166,7 @@ class TestInviteSignupAPI(APIBaseTest):
         (as this endpoint does not do any checks that might be required).
         """
         new_org = Organization.objects.create(name="TestCo")
-        user = self._create_user("test+189@posthog.com", "test_password")
+        user = self._create_user("test+189@posthog.com", VALID_TEST_PASSWORD)
         user2 = self._create_user("test+949@posthog.com")
         user2.join(organization=new_org)
 
@@ -1149,7 +1179,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Bob", "password": "new_password"},
+            {"first_name": "Bob", "password": VALID_TEST_PASSWORD + "_new"},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
@@ -1163,6 +1193,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "email": "test+189@posthog.com",
                 "redirect_url": "/",
                 "is_email_verified": None,
+                "hedgehog_config": None,
             },  # note the unchanged attributes
         )
 
@@ -1172,7 +1203,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # User is not changed
         self.assertEqual(user.first_name, "")
-        self.assertFalse(user.check_password("new_password"))  # Password is not updated
+        self.assertFalse(user.check_password(VALID_TEST_PASSWORD + "_new"))  # Password is not updated
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -1201,7 +1232,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         for attribute in required_attributes:
-            body = {"first_name": "Charlie", "password": "test_password"}
+            body = {"first_name": "Charlie", "password": VALID_TEST_PASSWORD}
             body.pop(attribute)
 
             response = self.client.post(f"/api/signup/{invite.id}/", body)
@@ -1252,7 +1283,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{uuid.uuid4()}/",
-            {"first_name": "Charlie", "password": "test_password"},
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -1282,7 +1313,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Charlie", "password": "test_password"},
+            {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -1416,7 +1447,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_invite_an_already_existing_user(self):
         # Given an existing user
-        user = self._create_user("test+29@posthog.com", "test_password")
+        user = self._create_user("test+29@posthog.com", VALID_TEST_PASSWORD)
 
         # IF an invitation is sent to that particular user
         invite: OrganizationInvite = OrganizationInvite.objects.create(

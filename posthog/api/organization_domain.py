@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, cast
+from typing import Any, cast
 
 from rest_framework import exceptions, request, response, serializers
 from rest_framework.decorators import action
@@ -7,7 +7,9 @@ from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.models import OrganizationDomain
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
@@ -38,16 +40,16 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             "has_saml": {"read_only": True},
         }
 
-    def create(self, validated_data: Dict[str, Any]) -> OrganizationDomain:
+    def create(self, validated_data: dict[str, Any]) -> OrganizationDomain:
+        organization: Organization = self.context["view"].organization
+        if is_cloud() and not organization.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
+            raise exceptions.PermissionDenied("Automatic provisioning is not enabled for this organization.")
         validated_data["organization"] = self.context["view"].organization
         validated_data.pop(
             "jit_provisioning_enabled", None
         )  # can never be set on creation because domain must be verified
         validated_data.pop("sso_enforcement", None)  # can never be set on creation because domain must be verified
-        instance = super().create(validated_data)
-
-        if not is_cloud():
-            instance, _ = instance.attempt_verification()
+        instance: OrganizationDomain = super().create(validated_data)
 
         return instance
 
@@ -56,7 +58,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Please enter a valid domain or subdomain name.")
         return domain
 
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
 
         if instance and not instance.verified_at:
@@ -66,6 +68,13 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                         {protected_attr: "This attribute cannot be updated until the domain is verified."},
                         code="verification_required",
                     )
+        if instance and attrs.get("jit_provisioning_enabled", None):
+            organization: Organization = self.context["view"].organization
+            if not organization.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
+                raise serializers.ValidationError(
+                    {"jit_provisioning_enabled": "Automatic provisioning is not enabled for this organization."},
+                    code="feature_not_available",
+                )
 
         return attrs
 
@@ -74,10 +83,7 @@ class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions]
-    queryset = OrganizationDomain.objects.all()
-
-    def get_queryset(self):
-        return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by("domain")
+    queryset = OrganizationDomain.objects.order_by("domain").all()
 
     @action(methods=["POST"], detail=True)
     def verify(self, request: request.Request, **kw) -> response.Response:

@@ -228,7 +228,7 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
         #
         # Why write to a file at all? Because we need to serialize the data anyway, and it's the
         # safest way to stay within batch endpoint payload limits and not waste process memory.
-        posthog_batch_header = """{"api_key": "%s","historical_migration":true,"batch": [""" % inputs.token
+        posthog_batch_header = """{{"api_key": "{}","historical_migration":true,"batch": [""".format(inputs.token)
         posthog_batch_footer = "]}"
 
         with BatchExportTemporaryFile() as batch_file:
@@ -339,6 +339,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
+            batch_export_id=inputs.batch_export_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
@@ -372,6 +373,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_http_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 "NonRetryableResponseError",
             ],

@@ -37,6 +37,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
                     unit: 'event',
+                    flat_rate: false,
                     free_allocation: 1000000,
                     features: [
                         {
@@ -99,6 +100,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/product-analytics',
                     note: null,
                     unit: 'event',
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -437,6 +439,7 @@ export const billingJson: BillingV2Type = {
                             docs_url: 'https://posthog.com/docs/product-analytics/group-analytics',
                             note: null,
                             unit: 'event',
+                            flat_rate: false,
                             free_allocation: null,
                             features: [
                                 {
@@ -628,6 +631,7 @@ export const billingJson: BillingV2Type = {
                             docs_url: 'https://posthog.com/docs/cdp/batch-exports',
                             note: null,
                             unit: 'event',
+                            flat_rate: false,
                             free_allocation: null,
                             features: [
                                 {
@@ -890,6 +894,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/session-replay',
                     note: null,
                     unit: 'recording',
+                    flat_rate: false,
                     free_allocation: 5000,
                     features: [
                         {
@@ -1025,6 +1030,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/session-replay',
                     note: null,
                     unit: 'recording',
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -1460,6 +1466,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs/feature-flags',
                     note: null,
                     unit: 'request',
+                    flat_rate: false,
                     free_allocation: 1000000,
                     features: [
                         {
@@ -1601,6 +1608,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/feature-flags/feature-flags.png',
                     docs_url: 'https://posthog.com/docs/feature-flags',
                     note: null,
+                    flat_rate: false,
                     unit: 'request',
                     free_allocation: null,
                     features: [
@@ -2014,6 +2022,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/surveys/surveys.png',
                     docs_url: 'https://posthog.com/docs/surveys',
                     note: null,
+                    flat_rate: false,
                     unit: 'survey response',
                     free_allocation: 250,
                     features: [
@@ -2101,6 +2110,7 @@ export const billingJson: BillingV2Type = {
                     image_url: 'https://posthog.com/images/products/surveys/surveys.png',
                     docs_url: 'https://posthog.com/docs/surveys',
                     note: null,
+                    flat_rate: false,
                     unit: 'survey response',
                     free_allocation: null,
                     features: [
@@ -2423,7 +2433,7 @@ export const billingJson: BillingV2Type = {
             image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
             screenshot_url: null,
             icon_key: 'IconBolt',
-            docs_url: 'https://posthog.com/docs/apps',
+            docs_url: 'https://posthog.com/docs/cdp',
             subscribed: null,
             plans: [
                 {
@@ -2432,9 +2442,10 @@ export const billingJson: BillingV2Type = {
                     name: 'Free',
                     description: 'Connect PostHog to your favorite tools.',
                     image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
-                    docs_url: 'https://posthog.com/docs/apps',
+                    docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2472,9 +2483,9 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Transformations',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2492,9 +2503,10 @@ export const billingJson: BillingV2Type = {
                     name: 'Paid',
                     description: 'Connect PostHog to your favorite tools.',
                     image_url: 'https://posthog.com/images/product/product-icons/integrations.svg',
-                    docs_url: 'https://posthog.com/docs/apps',
+                    docs_url: 'https://posthog.com/docs/cdp',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2532,17 +2544,18 @@ export const billingJson: BillingV2Type = {
                         },
                         {
                             key: 'apps',
-                            name: 'Apps',
+                            name: 'Transformations',
                             description:
-                                'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                                'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                             unit: null,
                             limit: null,
                             note: null,
                         },
                         {
                             key: 'app_metrics',
-                            name: 'App metrics',
-                            description: 'Get metrics on your apps to see their usage, reliability, and more.',
+                            name: 'Transformation & destination metrics',
+                            description:
+                                'Get metrics on your transformation and destination metrics to see their usage, reliability, and more.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -2575,9 +2588,9 @@ export const billingJson: BillingV2Type = {
             features: [
                 {
                     key: 'apps',
-                    name: 'Apps',
+                    name: 'Transformations',
                     description:
-                        'Use apps to transform, filter, and modify your incoming data. (Export apps not included, see the Data pipelines addon for product analytics.)',
+                        'Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)',
                     images: null,
                     icon_key: null,
                     type: null,
@@ -2617,8 +2630,9 @@ export const billingJson: BillingV2Type = {
                 },
                 {
                     key: 'app_metrics',
-                    name: 'App metrics',
-                    description: 'Get metrics on your apps to see their usage, reliability, and more.',
+                    name: 'Transformation & destination metrics',
+                    description:
+                        'Get metrics on your transformation and destination metrics to see their usage, reliability, and more.',
                     images: null,
                     icon_key: null,
                     type: null,
@@ -2646,6 +2660,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2721,6 +2736,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2814,6 +2830,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -2969,15 +2986,6 @@ export const billingJson: BillingV2Type = {
                             note: null,
                         },
                         {
-                            key: 'team_collaboration',
-                            name: 'Team collaboration features',
-                            description:
-                                'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
@@ -3010,6 +3018,7 @@ export const billingJson: BillingV2Type = {
                     docs_url: 'https://posthog.com/docs',
                     note: null,
                     unit: null,
+                    flat_rate: false,
                     free_allocation: null,
                     features: [
                         {
@@ -3050,15 +3059,6 @@ export const billingJson: BillingV2Type = {
                             name: 'White labeling',
                             description:
                                 'Use your own branding on surveys, shared dashboards, shared insights, and more.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'team_collaboration',
-                            name: 'Team collaboration features',
-                            description:
-                                'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -3480,15 +3480,6 @@ export const billingJson: BillingV2Type = {
                     name: 'Custom MSA',
                     description:
                         "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'team_collaboration',
-                    name: 'Team collaboration features',
-                    description:
-                        'Work together better with tags on dashboards and insights; descriptions on insights, events, & properties; verified events; comments on almost anything.',
                     images: null,
                     icon_key: null,
                     type: null,

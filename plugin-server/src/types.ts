@@ -78,7 +78,6 @@ export enum PluginServerMode {
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
-    recordings_ingestion_v3 = 'recordings-ingestion-v3',
     person_overrides = 'person-overrides',
 }
 
@@ -116,6 +115,7 @@ export interface PluginsServerConfig {
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean // whether to disallow external schemas like protobuf for clickhouse kafka engine
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string // (advanced) a comma separated list of teams to disable clickhouse external schemas for
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events to for clickhouse ingestion
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data to for clickhouse ingestion
     REDIS_URL: string
     POSTHOG_REDIS_PASSWORD: string
     POSTHOG_REDIS_HOST: string
@@ -209,6 +209,7 @@ export interface PluginsServerConfig {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
+    LAZY_PERSON_CREATION_TEAMS: string
 
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -236,6 +237,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_OVERFLOW_ENABLED: boolean
     SESSION_RECORDING_OVERFLOW_BUCKET_CAPACITY: number
     SESSION_RECORDING_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: number
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -292,6 +294,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
     poeWritesExcludeTeams: ValueMatcher<number>
+    lazyPersonCreationTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -308,7 +311,6 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
-    sessionRecordingV3Ingestion?: boolean
     personOverrides?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -506,6 +508,9 @@ export type VMMethods = {
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
 
+// Helper when ensuring that a required method is implemented
+export type VMMethodsConcrete = Required<VMMethods>
+
 export enum AlertLevel {
     P0 = 0,
     P1 = 1,
@@ -616,6 +621,7 @@ interface BaseEvent {
 export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
 export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
 export type ClickHouseTimestampSecondPrecision = Brand<string, 'ClickHouseTimestamp'>
+export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
@@ -635,7 +641,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group2_created_at?: ClickHouseTimestamp
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
-    person_mode: 'full' | 'propertyless'
+    person_mode: PersonMode
 }
 
 /** Parsed event row from ClickHouse. */
@@ -656,23 +662,12 @@ export interface ClickHouseEvent extends BaseEvent {
     group2_created_at?: DateTime | null
     group3_created_at?: DateTime | null
     group4_created_at?: DateTime | null
-    person_mode: 'full' | 'propertyless'
+    person_mode: PersonMode
 }
 
-/** Event in a database-agnostic shape, AKA an ingestion event.
- * This is what should be passed around most of the time in the plugin server.
+/** Event structure before initial ingestion.
+ * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
  */
-interface BaseIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-    elementsList: Element[]
-}
-
-/** Ingestion event before saving, BaseIngestionEvent without elementsList */
 export interface PreIngestionEvent {
     eventUuid: string
     event: string
@@ -682,8 +677,12 @@ export interface PreIngestionEvent {
     timestamp: ISOTimestamp
 }
 
-/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
-export interface PostIngestionEvent extends BaseIngestionEvent {
+/** Parsed event structure after initial ingestion.
+ * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
+ */
+
+export interface PostIngestionEvent extends PreIngestionEvent {
+    elementsList?: Element[]
     person_id?: string // This is not optional, but BaseEvent needs to be fixed first
     person_created_at: ISOTimestamp | null
     person_properties: Properties
@@ -732,9 +731,22 @@ export interface RawPerson extends BasePerson {
 }
 
 /** Usable Person model. */
-export interface Person extends BasePerson {
+export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
+}
+
+/** Person model exposed outside of person-specific DB logic. */
+export interface Person {
+    team_id: number
+    properties: Properties
+    uuid: string
+    created_at: DateTime
+
+    // Set to `true` when an existing person row was found for this `distinct_id`, but the event was
+    // sent with `$process_person_profile=false`. This is an unexpected branch that we want to flag
+    // for debugging and billing purposes, and typically means a misconfigured SDK.
+    force_upgrade?: boolean
 }
 
 /** Clickhouse Person model. */
@@ -914,8 +926,6 @@ export enum StringMatching {
 }
 
 export interface ActionStep {
-    id: number
-    action_id: number
     tag_name: string | null
     text: string | null
     /** @default StringMatching.Exact */
@@ -927,7 +937,6 @@ export interface ActionStep {
     url: string | null
     /** @default StringMatching.Contains */
     url_matching: StringMatching | null
-    name: string | null
     event: string | null
     properties: PropertyFilter[] | null
 }
@@ -946,12 +955,13 @@ export interface RawAction {
     is_calculating: boolean
     updated_at: string
     last_calculated_at: string
-    bytecode?: any[]
-    bytecode_error?: string
+    steps_json: ActionStep[] | null
+    bytecode: any[] | null
+    bytecode_error: string | null
 }
 
 /** Usable Action model. */
-export interface Action extends RawAction {
+export interface Action extends Omit<RawAction, 'steps_json'> {
     steps: ActionStep[]
     hooks: Hook[]
 }
@@ -1098,4 +1108,27 @@ export type RRWebEvent = Record<string, any> & {
 
 export interface ValueMatcher<T> {
     (value: T): boolean
+}
+
+export type RawClickhouseHeatmapEvent = {
+    /**
+     * session id lets us offer example recordings on high traffic parts of the page,
+     * and could let us offer more advanced filtering of heatmap data
+     * we will break the relationship between particular sessions and clicks in aggregating this data
+     * it should always be treated as an exemplar and not as concrete values
+     */
+    session_id: string
+    distinct_id: string
+    viewport_width: number
+    viewport_height: number
+    pointer_target_fixed: boolean
+    current_url: string
+    // x is the x with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    x: number
+    // y is the y with resolution applied, the resolution converts high fidelity mouse positions into an NxN grid
+    y: number
+    scale_factor: 16 // in the future we may support other values
+    timestamp: string
+    type: string
+    team_id: number
 }

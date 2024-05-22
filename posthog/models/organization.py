@@ -1,6 +1,6 @@
 import json
 import sys
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 
 import structlog
 from django.conf import settings
@@ -45,7 +45,7 @@ class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
-    period: Optional[List[str]]
+    period: Optional[list[str]]
 
 
 class OrganizationMembershipLevel(models.IntegerChoices):
@@ -64,9 +64,9 @@ class OrganizationManager(models.Manager):
         self,
         user: Optional["User"],
         *,
-        team_fields: Optional[Dict[str, Any]] = None,
+        team_fields: Optional[dict[str, Any]] = None,
         **kwargs,
-    ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
+    ) -> tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .project import Project  # Avoiding circular import
 
@@ -169,7 +169,7 @@ class Organization(UUIDModel):
     __repr__ = sane_repr("name")
 
     @property
-    def _billing_plan_details(self) -> Tuple[Optional[str], Optional[str]]:
+    def _billing_plan_details(self) -> tuple[Optional[str], Optional[str]]:
         """
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
@@ -188,7 +188,7 @@ class Organization(UUIDModel):
                 return (license.plan, "ee")
         return (None, None)
 
-    def update_available_features(self) -> List[Union[AvailableFeature, str]]:
+    def update_available_features(self) -> list[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
         if is_cloud() or self.usage:
             # Since billing V2 we just use the available features which are updated when the billing service is called

@@ -1,6 +1,5 @@
 import { Billing } from 'scenes/billing/Billing'
-
-import { AvailableFeature } from '~/types'
+import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
 
 import { Invites } from './organization/Invites'
 import { OrgAdminConfiguration } from './organization/OrgAdminConfiguration'
@@ -13,6 +12,7 @@ import { AutocaptureSettings, ExceptionAutocaptureSettings } from './project/Aut
 import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './project/HeatmapsSettings'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
@@ -27,7 +27,9 @@ import {
     ProjectVariables,
     WebSnippet,
 } from './project/ProjectSettings'
+import { Proxy } from './project/Proxy'
 import {
+    NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayCostControl,
@@ -39,6 +41,7 @@ import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig
 import { WebhookIntegration } from './project/WebhookIntegration'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
+import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -78,13 +81,18 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'project',
         id: 'project-autocapture',
-        title: 'Autocapture',
+        title: 'Autocapture & heatmaps',
 
         settings: [
             {
                 id: 'autocapture',
                 title: 'Autocapture',
                 component: <AutocaptureSettings />,
+            },
+            {
+                id: 'heatmaps',
+                title: 'Heatmaps',
+                component: <HeatmapsSettings />,
             },
             {
                 id: 'exception-autocapture',
@@ -114,6 +122,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'persons-on-events',
+                title: 'Event person filtering behavior',
+                component: <PersonsOnEvents />,
             },
             {
                 id: 'correlation-analysis',
@@ -154,6 +167,11 @@ export const SettingsMap: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
+            },
+            {
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
@@ -162,12 +180,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
-                features: [
-                    AvailableFeature.SESSION_REPLAY_SAMPLING,
-                    AvailableFeature.REPLAY_FEATURE_FLAG_BASED_RECORDING,
-                    AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM,
-                ],
             },
             {
                 id: 'replay-ai-config',
@@ -220,7 +232,6 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
-                flag: 'IP_ALLOWLIST_SETTING',
                 component: <IPAllowListInfo />,
             },
         ],
@@ -323,6 +334,19 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-proxy',
+        title: 'Proxy',
+        flag: 'PROXY_AS_A_SERVICE',
+        settings: [
+            {
+                id: 'organization-proxy',
+                title: 'Proxy',
+                component: <Proxy />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -388,6 +412,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+            },
+            {
+                id: 'hedgehog-mode',
+                title: 'Hedgehog mode',
+                component: <HedgehogModeSettings />,
             },
         ],
     },

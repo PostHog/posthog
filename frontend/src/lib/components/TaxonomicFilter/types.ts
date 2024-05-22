@@ -105,7 +105,7 @@ export enum TaxonomicFilterGroupType {
     Plugins = 'plugins',
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
-    Sessions = 'sessions',
+    SessionProperties = 'session_properties',
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
 }

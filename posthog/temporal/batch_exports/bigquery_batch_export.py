@@ -391,11 +391,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         )
 
         finish_inputs = FinishBatchExportRunInputs(
-            id=run_id, status=BatchExportRun.Status.COMPLETED, team_id=inputs.team_id
-        )
-
-        finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
+            batch_export_id=inputs.batch_export_id,
             status=BatchExportRun.Status.COMPLETED,
             team_id=inputs.team_id,
         )
@@ -435,6 +432,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         await execute_batch_export_insert_activity(
             insert_into_bigquery_activity,
             insert_inputs,
+            interval=inputs.interval,
             non_retryable_error_types=[
                 # Raised on missing permissions.
                 "Forbidden",
@@ -442,6 +440,11 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                 "RefreshError",
                 # Usually means the dataset or project doesn't exist.
                 "NotFound",
+                # Raised when something about dataset is wrong (not alphanumeric, too long, etc).
+                "BadRequest",
+                # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
+                # don't anticipate a `ValueError` thrown from our own export code.
+                "ValueError",
             ],
             finish_inputs=finish_inputs,
         )

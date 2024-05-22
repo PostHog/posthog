@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Dict
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
@@ -11,7 +10,6 @@ from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.constants import AvailableFeature
 from posthog.models import Person, Cohort, GroupTypeMapping
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.group.util import create_group
 from posthog.session_recordings.sql.session_replay_event_sql import (
@@ -38,10 +36,6 @@ from posthog.test.base import (
 
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, APIBaseTest):
-    # this test does not create any session_recording_events, only writes to the session_replay summary table
-    # it is a pair with test_session_recording_list
-    # it should pass all the same tests but without needing the session_recording_events table at all
-
     @classmethod
     def teardown_class(cls):
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -52,8 +46,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id = self.team.pk
         if properties is None:
             properties = []
-        action = Action.objects.create(team_id=team_id, name=name)
-        ActionStep.objects.create(action=action, event=name, properties=properties)
+        action = Action.objects.create(
+            team_id=team_id, name=name, steps_json=[{"event": name, "properties": properties}]
+        )
         return action
 
     def create_event(
@@ -76,13 +71,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             properties=properties,
         )
 
-    def _filter_recordings_by(self, recordings_filter: Dict) -> SessionRecordingQueryResult:
+    def _filter_recordings_by(self, recordings_filter: dict) -> SessionRecordingQueryResult:
         the_filter = SessionRecordingsFilter(team=self.team, data=recordings_filter)
         session_recording_list_instance = SessionRecordingListFromReplaySummary(filter=the_filter, team=self.team)
         return session_recording_list_instance.run()
 
     @property
-    def base_time(self):
+    def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
     @snapshot_clickhouse_queries
@@ -97,8 +92,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -111,8 +106,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -125,8 +120,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_two,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=2000)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
             first_url=None,
             click_count=2,
@@ -148,8 +143,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "duration": 1980,
                 "active_seconds": 792.0,
                 "inactive_seconds": 1188.0,
-                "start_time": self.base_time + relativedelta(seconds=20),
-                "end_time": self.base_time + relativedelta(seconds=2000),
+                "start_time": self.an_hour_ago + relativedelta(seconds=20),
+                "end_time": self.an_hour_ago + relativedelta(seconds=2000),
                 "first_url": None,
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -165,8 +160,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "duration": 50,
                 "active_seconds": 25.0,
                 "inactive_seconds": 25.0,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=50),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -191,8 +186,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_total_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -205,8 +200,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_active_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=59)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -219,8 +214,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_inactive_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=61)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=0,
@@ -287,8 +282,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=20)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=20)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -301,8 +296,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -315,8 +310,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_two,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=2000)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=2000)),
             distinct_id=user,
             first_url=None,
             click_count=2,
@@ -341,8 +336,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "duration": 1980,
                 "active_seconds": 792.0,
                 "inactive_seconds": 1188.0,
-                "start_time": self.base_time + relativedelta(seconds=20),
-                "end_time": self.base_time + relativedelta(seconds=2000),
+                "start_time": self.an_hour_ago + relativedelta(seconds=20),
+                "end_time": self.an_hour_ago + relativedelta(seconds=2000),
                 "first_url": None,
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -368,8 +363,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "duration": 50,
                 "active_seconds": 25.0,
                 "inactive_seconds": 25.0,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=50),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=50),
                 "first_url": "https://example.io/home",
                 "console_log_count": 0,
                 "console_warn_count": 0,
@@ -396,13 +391,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_id_one = f"test_basic_query_with_ordering-session-1-{str(uuid4())}"
         session_id_two = f"test_basic_query_with_ordering-session-2-{str(uuid4())}"
 
-        session_one_start = self.base_time + relativedelta(seconds=10)
+        session_one_start = self.an_hour_ago + relativedelta(seconds=10)
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=session_one_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=1000,
             active_milliseconds=1,  # most errors, but the least activity
@@ -413,19 +408,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
             first_timestamp=session_one_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=12,
             active_milliseconds=1,  # most errors, but the least activity
         )
 
-        session_two_start = self.base_time
+        session_two_start = self.an_hour_ago
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
             # starts before session one
             first_timestamp=session_two_start,
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             distinct_id=user,
             console_error_count=430,
             active_milliseconds=1000,  # most activity, but the least errors
@@ -466,24 +461,24 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url="https://on-first-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=10),
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=10),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url="https://on-second-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_one,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=20),
-            last_timestamp=self.base_time + relativedelta(seconds=40),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=20),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=40),
             first_url="https://on-third-event.com",
         )
 
@@ -491,24 +486,24 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=(self.base_time + relativedelta(seconds=50)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=50)),
             first_url=None,
         )
 
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             first_url="https://first-is-on-second-event.com",
         )
 
         produce_replay_summary(
             session_id=session_id_two,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=25)),
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=25)),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             first_url="https://another-on-the-session.com",
         )
 
@@ -516,8 +511,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=50),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=50),
             distinct_id=user,
             first_url=None,
         )
@@ -525,8 +520,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=10)),
-            last_timestamp=self.base_time + relativedelta(seconds=50),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=50),
             distinct_id=user,
             first_url=None,
         )
@@ -534,8 +529,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             session_id=session_id_three,
             team_id=self.team.pk,
-            first_timestamp=(self.base_time + relativedelta(seconds=20)),
-            last_timestamp=self.base_time + relativedelta(seconds=60),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=20)),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=60),
             distinct_id=user,
             first_url=None,
         )
@@ -544,15 +539,15 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             session_id=session_id_four,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=20),
-            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=20),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=25),
             first_url="https://on-first-received-event.com",
         )
         produce_replay_summary(
             session_id=session_id_four,
             team_id=self.team.pk,
-            first_timestamp=self.base_time + relativedelta(seconds=10),
-            last_timestamp=self.base_time + relativedelta(seconds=25),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=10),
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=25),
             first_url="https://on-second-received-event-but-actually-first.com",
         )
 
@@ -597,8 +592,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_one,
             team_id=another_team.pk,
             distinct_id=user,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url=None,
             click_count=2,
             keypress_count=2,
@@ -610,8 +605,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_two,
             team_id=self.team.pk,
             distinct_id=user,
-            first_timestamp=self.base_time,
-            last_timestamp=self.base_time + relativedelta(seconds=20),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(seconds=20),
             first_url=None,
             click_count=2,
             keypress_count=2,
@@ -633,18 +628,18 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -688,13 +683,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         # but the page view event is outside TTL
         self.create_event(
             user,
-            self.base_time
+            self.an_hour_ago
             - relativedelta(days=SessionRecordingListFromReplaySummary.SESSION_RECORDINGS_DEFAULT_LIMIT + 1),
             properties={"$session_id": session_id_one, "$window_id": str(uuid4())},
         )
@@ -750,7 +745,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": session_id_total_is_61,
                 "$window_id": str(uuid4()),
@@ -760,8 +755,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_total_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time.isoformat().replace("T", " "),
-            last_timestamp=(self.base_time + relativedelta(seconds=61)).isoformat().replace("T", " "),
+            first_timestamp=self.an_hour_ago.isoformat().replace("T", " "),
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)).isoformat().replace("T", " "),
             distinct_id=user,
             first_url="https://example.io/home",
             click_count=2,
@@ -772,7 +767,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": session_id_active_is_61,
                 "$window_id": str(uuid4()),
@@ -782,8 +777,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             session_id=session_id_active_is_61,
             team_id=self.team.pk,
             # can CH handle a timestamp with no T
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=59)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=59)),
             distinct_id=user,
             first_url="https://a-different-url.com",
             click_count=2,
@@ -845,12 +840,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id_one,
@@ -860,7 +855,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -917,25 +912,25 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1"},
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": "1"},
             event_name="new-event",
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1008,12 +1003,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             event_name="custom-event",
             properties={
                 "$browser": "Chrome",
@@ -1024,7 +1019,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1115,20 +1110,20 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=60)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=60)),
             team_id=self.team.id,
         )
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": session_id, "$window_id": window_id},
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1150,8 +1145,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
-                "start_time": self.base_time,
-                "end_time": self.base_time + relativedelta(seconds=60),
+                "start_time": self.an_hour_ago,
+                "end_time": self.an_hour_ago + relativedelta(seconds=60),
                 "active_seconds": 0.0,
                 "click_count": 0,
                 "first_url": None,
@@ -1174,8 +1169,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=29)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=29)),
             team_id=self.team.id,
         )
 
@@ -1183,8 +1178,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id_two,
-            first_timestamp=self.base_time,
-            last_timestamp=(self.base_time + relativedelta(seconds=61)),
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=61)),
             team_id=self.team.id,
         )
 
@@ -1206,63 +1201,63 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id="three days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id="two days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=2)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
             team_id=self.team.id,
         )
 
-        (session_recordings, _) = self._filter_recordings_by({"date_from": self.base_time.strftime("%Y-%m-%d")})
+        (session_recordings, _) = self._filter_recordings_by({"date_from": self.an_hour_ago.strftime("%Y-%m-%d")})
         assert session_recordings == []
 
         (session_recordings, _) = self._filter_recordings_by(
-            {"date_from": (self.base_time - relativedelta(days=2)).strftime("%Y-%m-%d")}
+            {"date_from": (self.an_hour_ago - relativedelta(days=2)).strftime("%Y-%m-%d")}
         )
         assert len(session_recordings) == 1
         assert session_recordings[0]["session_id"] == "two days before base time"
 
     @snapshot_clickhouse_queries
     def test_date_from_filter_cannot_search_before_ttl(self):
-        with freeze_time(self.base_time):
+        with freeze_time(self.an_hour_ago):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
-                first_timestamp=(self.base_time - relativedelta(days=22)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=22)),
                 # an illegally long session but it started 22 days ago
-                last_timestamp=(self.base_time - relativedelta(days=3)),
+                last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
-                first_timestamp=(self.base_time - relativedelta(days=19)),
-                last_timestamp=(self.base_time - relativedelta(days=2)),
+                first_timestamp=(self.an_hour_ago - relativedelta(days=19)),
+                last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
                 team_id=self.team.id,
             )
 
             (session_recordings, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=20)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=20)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             (session_recordings, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=21)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=21)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
 
             (session_recordings, _) = self._filter_recordings_by(
-                {"date_from": (self.base_time - relativedelta(days=22)).strftime("%Y-%m-%d")}
+                {"date_from": (self.an_hour_ago - relativedelta(days=22)).strftime("%Y-%m-%d")}
             )
             assert len(session_recordings) == 1
             assert session_recordings[0]["session_id"] == "storage is not past ttl"
@@ -1274,25 +1269,25 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id="three days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=3, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id="two days before base time",
-            first_timestamp=(self.base_time - relativedelta(days=2, seconds=100)),
-            last_timestamp=(self.base_time - relativedelta(days=2)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=2, seconds=100)),
+            last_timestamp=(self.an_hour_ago - relativedelta(days=2)),
             team_id=self.team.id,
         )
 
         (session_recordings, _) = self._filter_recordings_by(
-            {"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=4)).strftime("%Y-%m-%d")}
         )
         assert session_recordings == []
 
         (session_recordings, _) = self._filter_recordings_by(
-            {"date_to": (self.base_time - relativedelta(days=3)).strftime("%Y-%m-%d")}
+            {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%d")}
         )
 
         assert len(session_recordings) == 1
@@ -1366,38 +1361,38 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=three_user_ids[0],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             # does not match because of user distinct id
             distinct_id=three_user_ids[2],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3)),
             team_id=self.team.id,
         )
         self.create_event(
             three_user_ids[0],
-            self.base_time - relativedelta(days=3),
+            self.an_hour_ago - relativedelta(days=3),
             properties={"$session_id": target_session_id},
         )
         self.create_event(
             three_user_ids[0],
-            self.base_time - relativedelta(days=3),
+            self.an_hour_ago - relativedelta(days=3),
             event_name="custom-event",
             properties={"$browser": "Chrome", "$session_id": target_session_id},
         )
         produce_replay_summary(
             distinct_id=three_user_ids[1],
             session_id=target_session_id,
-            first_timestamp=(self.base_time - relativedelta(days=3) + relativedelta(hours=6)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3) + relativedelta(hours=6)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=three_user_ids[1],
             # does not match because of session id
             session_id=str(uuid4()),
-            first_timestamp=(self.base_time - relativedelta(days=3) + relativedelta(hours=6)),
+            first_timestamp=(self.an_hour_ago - relativedelta(days=3) + relativedelta(hours=6)),
             team_id=self.team.id,
         )
 
@@ -1406,8 +1401,8 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = self._filter_recordings_by(
             {
                 "person_uuid": str(p.uuid),
-                "date_to": (self.base_time + relativedelta(days=3)).strftime("%Y-%m-%d"),
-                "date_from": (self.base_time - relativedelta(days=10)).strftime("%Y-%m-%d"),
+                "date_to": (self.an_hour_ago + relativedelta(days=3)).strftime("%Y-%m-%d"),
+                "date_from": (self.an_hour_ago - relativedelta(days=10)).strftime("%Y-%m-%d"),
                 "session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}',
                 "events": [
                     {
@@ -1438,14 +1433,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
-        self.create_event(1, self.base_time + relativedelta(seconds=15), team=another_team)
+        self.create_event(1, self.an_hour_ago + relativedelta(seconds=15), team=another_team)
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1477,25 +1472,25 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user_one,
             session_id=session_id_one,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user_one,
             session_id=session_id_one,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user_two,
             session_id=session_id_two,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user_two,
             session_id=session_id_two,
-            first_timestamp=(self.base_time + relativedelta(seconds=30)),
+            first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
             team_id=self.team.id,
         )
 
@@ -1551,27 +1546,27 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 # self.create_event(user_one, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 # self.create_event(user_two, self.base_time, team=self.team)
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
 
@@ -1627,12 +1622,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 self.create_event(
                     user_one,
-                    self.base_time,
+                    self.an_hour_ago,
                     team=self.team,
                     event_name="custom_event",
                     properties={"$session_id": session_id_one},
@@ -1640,18 +1635,18 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 produce_replay_summary(
                     distinct_id=user_one,
                     session_id=session_id_one,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time,
+                    first_timestamp=self.an_hour_ago,
                     team_id=self.team.id,
                 )
                 self.create_event(
                     user_two,
-                    self.base_time,
+                    self.an_hour_ago,
                     team=self.team,
                     event_name="custom_event",
                     properties={"$session_id": session_id_two},
@@ -1659,7 +1654,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
                 produce_replay_summary(
                     distinct_id=user_two,
                     session_id=session_id_two,
-                    first_timestamp=self.base_time + relativedelta(seconds=30),
+                    first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                     team_id=self.team.id,
                 )
 
@@ -1721,13 +1716,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             user_distinct_id,
-            self.base_time,
+            self.an_hour_ago,
             event_name="$pageview",
             properties={"$session_id": session_id},
         )
         self.create_event(
             user_distinct_id,
-            self.base_time,
+            self.an_hour_ago,
             event_name="$autocapture",
             properties={"$session_id": str(uuid4())},
         )
@@ -1735,13 +1730,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user_distinct_id,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user_distinct_id,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1785,7 +1780,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -1796,13 +1791,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1850,7 +1845,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         session_id = f"test_event_filter_with_hogql_properties-1-{str(uuid4())}"
         self.create_event(
             user,
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": session_id,
@@ -1861,13 +1856,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id=user,
             session_id=session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1926,7 +1921,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": page_view_session_id,
@@ -1937,7 +1932,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Chrome",
                 "$session_id": my_custom_event_session_id,
@@ -1948,7 +1943,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$browser": "Safari",
                 "$session_id": non_matching__event_session_id,
@@ -1960,19 +1955,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=page_view_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=my_custom_event_session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=non_matching__event_session_id,
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -1993,7 +1988,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             non_matching__event_session_id,
@@ -2024,7 +2018,6 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         assert sorted(
             [sr["session_id"] for sr in session_recordings],
-            key=lambda x: x[0],
         ) == [
             my_custom_event_session_id,
             page_view_session_id,
@@ -2063,14 +2056,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2098,14 +2091,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2133,14 +2126,14 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=without_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
 
@@ -2170,28 +2163,28 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=with_warns_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=with_errors_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=with_two_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             console_log_count=3,
@@ -2229,7 +2222,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_logs_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_log_count=4,
             log_messages={
@@ -2244,7 +2237,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_warns_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_warn_count=5,
             log_messages={
@@ -2260,7 +2253,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_errors_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             log_messages={
@@ -2275,7 +2268,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=with_two_session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
             console_error_count=4,
             console_log_count=3,
@@ -2374,12 +2367,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2389,7 +2382,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
@@ -2446,30 +2439,30 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": "1", "$window_id": "1", "$browser": "Chrome"},
         )
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={"$session_id": "2", "$window_id": "1", "$browser": "Firefox"},
         )
 
@@ -2557,12 +2550,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2572,19 +2565,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -2649,12 +2642,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             produce_replay_summary(
                 distinct_id="user",
                 session_id="1",
-                first_timestamp=self.base_time,
+                first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
             self.create_event(
                 "user",
-                self.base_time,
+                self.an_hour_ago,
                 properties={
                     "$session_id": "1",
                     "$window_id": "1",
@@ -2664,19 +2657,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
             produce_replay_summary(
                 distinct_id="user",
                 session_id="1",
-                first_timestamp=self.base_time + relativedelta(seconds=30),
+                first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
                 team_id=self.team.id,
             )
 
             produce_replay_summary(
                 distinct_id="user2",
                 session_id="2",
-                first_timestamp=self.base_time,
+                first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
             )
             self.create_event(
                 "user2",
-                self.base_time,
+                self.an_hour_ago,
                 properties={
                     "$session_id": "2",
                     "$window_id": "1",
@@ -2734,12 +2727,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2749,19 +2742,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -2819,12 +2812,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2834,19 +2827,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -2902,12 +2895,12 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "1",
                 "$window_id": "1",
@@ -2917,19 +2910,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
-            first_timestamp=self.base_time + relativedelta(seconds=30),
+            first_timestamp=self.an_hour_ago + relativedelta(seconds=30),
             team_id=self.team.id,
         )
 
         produce_replay_summary(
             distinct_id="user2",
             session_id="2",
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
         self.create_event(
             "user2",
-            self.base_time,
+            self.an_hour_ago,
             properties={
                 "$session_id": "2",
                 "$window_id": "1",
@@ -3000,19 +2993,19 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=team.pk,
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=team,
             event_name="$pageview",
             properties={"$session_id": session_id, "$window_id": "1"},
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=team,
             event_name="$pageleave",
             properties={"$session_id": session_id, "$window_id": "1"},
@@ -3028,13 +3021,13 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         produce_replay_summary(
             distinct_id="user",
             session_id=session_id,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.pk,
         )
         produce_replay_summary(
             distinct_id="user",
             session_id=different_group_session,
-            first_timestamp=self.base_time,
+            first_timestamp=self.an_hour_ago,
             team_id=self.team.pk,
         )
 
@@ -3056,7 +3049,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
 
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={
@@ -3067,7 +3060,7 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         )
         self.create_event(
             "user",
-            self.base_time,
+            self.an_hour_ago,
             team=self.team,
             event_name="$pageview",
             properties={

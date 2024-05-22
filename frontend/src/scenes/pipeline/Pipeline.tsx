@@ -11,6 +11,7 @@ import { AppsManagement } from './AppsManagement'
 import { Destinations } from './Destinations'
 import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
+import { importAppsLogic } from './importAppsLogic'
 import { NewButton } from './NewButton'
 import { Overview } from './Overview'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
@@ -18,14 +19,21 @@ import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
-    const { currentTab, canEnableNewDestinations, canGloballyManagePlugins } = useValues(pipelineLogic)
+    const { currentTab, canGloballyManagePlugins } = useValues(pipelineLogic)
+    const { hasEnabledImportApps } = useValues(importAppsLogic)
 
     let tabToContent: Partial<Record<PipelineTab, JSX.Element>> = {
         [PipelineTab.Overview]: <Overview />,
         [PipelineTab.Transformations]: <Transformations />,
         [PipelineTab.Destinations]: <Destinations />,
         [PipelineTab.SiteApps]: <FrontendApps />,
-        [PipelineTab.ImportApps]: <ImportApps />, // TODO: only show if some enabled
+    }
+    // Import apps are deprecated, we only show the tab if there are some still enabled
+    if (hasEnabledImportApps) {
+        tabToContent = {
+            ...tabToContent,
+            [PipelineTab.ImportApps]: <ImportApps />,
+        }
     }
     if (canGloballyManagePlugins) {
         tabToContent = {
@@ -35,13 +43,12 @@ export function Pipeline(): JSX.Element {
     }
 
     const maybeKind = PIPELINE_TAB_TO_NODE_STAGE[currentTab]
-    const showNewButton = maybeKind && (currentTab !== PipelineTab.Destinations || canEnableNewDestinations)
 
     return (
         <div className="pipeline-scene">
             <PageHeader
                 caption="Add transformations to the events sent to PostHog or export them to other tools."
-                buttons={showNewButton ? <NewButton stage={maybeKind} /> : undefined}
+                buttons={maybeKind ? <NewButton stage={maybeKind} /> : undefined}
             />
             <LemonTabs
                 activeKey={currentTab}

@@ -1,7 +1,6 @@
 import './PlayerMeta.scss'
 
-import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { IconDownload, IconMagic, IconSearch } from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconMagic, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -19,7 +18,6 @@ import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import { gatherIconProperties, PropertyIcons } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -28,23 +26,6 @@ import { Logo } from '~/toolbar/assets/Logo'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
-
-function SessionPropertyMeta(props: {
-    fullScreen: boolean
-    iconProperties: Record<string, any>
-    predicate: (x: string) => boolean
-}): JSX.Element {
-    const gatheredProperties = gatherIconProperties(props.iconProperties)
-
-    return (
-        <PropertyIcons
-            recordingProperties={gatheredProperties}
-            iconClassnames="text-muted-alt"
-            showTooltip={false}
-            showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
-        />
-    )
-}
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
     if (!lastUrl) {
@@ -86,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-export function PlayerMeta(): JSX.Element {
+export function PlayerMeta({ linkIconsOnly = false }: { linkIconsOnly?: boolean }): JSX.Element {
     const { sessionRecordingId, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -98,7 +79,6 @@ export function PlayerMeta(): JSX.Element {
         currentWindowIndex,
         startTime,
         sessionPlayerMetaDataLoading,
-        sessionProperties,
     } = useValues(playerMetaLogic(logicProps))
 
     const { ref, size } = useResizeBreakpoints({
@@ -197,24 +177,13 @@ export function PlayerMeta(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                        <div className="text-muted">
-                            {sessionPlayerMetaDataLoading ? (
-                                <LemonSkeleton className="w-1/4 h-4 my-1" />
-                            ) : sessionProperties ? (
-                                <SessionPropertyMeta
-                                    fullScreen={isFullScreen}
-                                    iconProperties={sessionProperties}
-                                    predicate={(x) => !!x}
-                                />
-                            ) : null}
-                        </div>
                     </div>
 
                     {sessionRecordingId && (
-                        <>
-                            <PlayerMetaLinks />
+                        <div className="flex items-center gap-0.5">
+                            <PlayerMetaLinks iconsOnly={linkIconsOnly} />
                             {mode === SessionRecordingPlayerMode.Standard && <MenuActions />}
-                        </>
+                        </div>
                     )}
                 </div>
                 <div
@@ -288,7 +257,7 @@ const MenuActions = (): JSX.Element => {
     const items: LemonMenuItems = [
         {
             label: 'Export to file',
-            onClick: exportRecordingToFile,
+            onClick: () => exportRecordingToFile(false),
             icon: <IconDownload />,
             tooltip: 'Export recording to a file. This can be loaded later into PostHog for playback.',
         },

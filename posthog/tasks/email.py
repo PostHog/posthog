@@ -1,13 +1,15 @@
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 import posthoganalytics
 import structlog
+from asgiref.sync import sync_to_async
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
+from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.models import (
@@ -158,6 +160,62 @@ def send_fatal_plugin_error(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+async def send_batch_export_run_failure(
+    batch_export_run_id: int,
+) -> None:
+    is_email_available_result = await sync_to_async(is_email_available)(with_absolute_urls=True)
+    if not is_email_available_result:
+        return
+
+    batch_export_run: BatchExportRun = await sync_to_async(
+        BatchExportRun.objects.select_related("batch_export__team").get
+    )(id=batch_export_run_id)
+    team: Team = batch_export_run.batch_export.team
+    # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
+    last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
+
+    campaign_key: str = (
+        f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
+    )
+
+    message = await sync_to_async(EmailMessage)(
+        campaign_key=campaign_key,
+        subject=f"PostHog: {batch_export_run.batch_export.name} batch export run failure",
+        template_name="batch_export_run_failure",
+        template_context={
+            "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
+            "team": team,
+            "id": batch_export_run.batch_export.id,
+            "name": batch_export_run.batch_export.name,
+        },
+    )
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.select_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    all_memberships: list[OrganizationMembership] = await sync_to_async(list)(memberships)  # type: ignore
+    for membership in all_memberships:
+        has_notification_settings_enabled = await sync_to_async(membership.user.notification_settings.get)(
+            "batch_export_run_failure", True
+        )
+        if has_notification_settings_enabled is False:
+            continue
+        team_permissions = UserPermissions(membership.user).team(team)
+        # Only send the email to users who have access to the affected project
+        # Those without access have `effective_membership_level` of `None`
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+
+    if memberships_to_email:
+        for membership in memberships_to_email:
+            message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        await sync_to_async(message.send)(send_async=True)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_canary_email(user_email: str) -> None:
     message = EmailMessage(
         campaign_key=f"canary_email_{uuid.uuid4()}",
@@ -223,7 +281,7 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     send_message_to_all_staff_users(message)
 
 
-def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> List[User]:
+def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(

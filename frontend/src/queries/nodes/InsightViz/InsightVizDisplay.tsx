@@ -1,7 +1,5 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -12,6 +10,7 @@ import {
     FunnelSingleStepState,
     InsightEmptyState,
     InsightErrorState,
+    InsightLoadingState,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
@@ -75,24 +74,22 @@ export function InsightVizDisplay({
         erroredQueryId,
         timedOutQueryId,
         vizSpecificOptions,
+        query,
     } = useValues(insightVizDataLogic(insightProps))
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
                 <div className="flex flex-col flex-1 justify-center items-center">
-                    <Animation type={AnimationType.LaptopHog} />
-                    {!!timedOutQueryId && (
-                        <InsightTimeoutState isLoading={true} queryId={timedOutQueryId} insightProps={insightProps} />
-                    )}
+                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
                 </div>
             )
         }
 
         if (validationError) {
-            return <InsightValidationError detail={validationError} />
+            return <InsightValidationError query={query} detail={validationError} />
         }
 
         // Insight specific empty states - note order is important here
@@ -107,16 +104,10 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
-            return <InsightErrorState queryId={erroredQueryId} />
+            return <InsightErrorState query={query} queryId={erroredQueryId} />
         }
         if (timedOutQueryId) {
-            return (
-                <InsightTimeoutState
-                    isLoading={insightDataLoading}
-                    queryId={timedOutQueryId}
-                    insightProps={insightProps}
-                />
-            )
+            return <InsightTimeoutState queryId={timedOutQueryId} />
         }
 
         return null

@@ -11,6 +11,7 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import { InsightActorsQueryOptionsResponse } from '~/queries/schema'
 import {
     CohortType,
     FunnelsFilterType,
@@ -191,12 +192,11 @@ export const buildPeopleUrl = ({
             const cleanedParams = cleanFilters(params)
             const funnelParams = toParams(cleanedParams)
             return `api/person/funnel/?${funnelParams}&cache_invalidation_key=${cacheInvalidationKey}`
-        } else {
-            // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
-            Sentry.captureException(new Error('buildPeopleUrl used for non-trends funnel'), {
-                extra: { filters },
-            })
         }
+        // TODO: We should never land in this case; Remove this if Sentry doesn't unexpectedly capture this.
+        Sentry.captureException(new Error('buildPeopleUrl used for non-trends funnel'), {
+            extra: { filters },
+        })
     } else if (isPathsFilter(filters)) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
@@ -207,4 +207,12 @@ export const buildPeopleUrl = ({
             extra: { filters },
         })
     }
+}
+
+export const cleanedInsightActorsQueryOptions = (
+    insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
+): [string, any[]][] => {
+    return Object.entries(insightActorsQueryOptions ?? {}).filter(([, value]) => {
+        return Array.isArray(value) && !!value.length
+    })
 }

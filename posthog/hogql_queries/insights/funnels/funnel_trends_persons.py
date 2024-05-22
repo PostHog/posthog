@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List
 
 from rest_framework.exceptions import ValidationError
 
@@ -39,7 +38,7 @@ class FunnelTrendsActors(FunnelTrends):
         self.dropOff = actorsQuery.funnelTrendsDropOff
         self.entrancePeriodStart = entrancePeriodStart
 
-    def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
         if (
             hasattr(self.context, "actorsQuery")
             and self.context.actorsQuery is not None
@@ -71,7 +70,7 @@ class FunnelTrendsActors(FunnelTrends):
             did_not_reach_to_step_count_condition,
         ) = self.get_steps_reached_conditions()
 
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
             *self._get_funnel_person_step_events(),
         ]
@@ -88,5 +87,4 @@ class FunnelTrendsActors(FunnelTrends):
             select_from=select_from,
             order_by=order_by,
             where=where,
-            # SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         )

@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
@@ -22,7 +20,7 @@ COHORT_PEOPLE_FIELDS = {
 }
 
 
-def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]], team_id: int):
+def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], team_id: int):
     from posthog.hogql import ast
     from posthog.models import Cohort
 
@@ -39,8 +37,8 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]
     if "cohort_id" not in requested_fields:
         requested_fields = {**requested_fields, "cohort_id": ["cohort_id"]}
 
-    fields: List[ast.Expr] = [
-        ast.Alias(alias=name, expr=ast.Field(chain=[table_name] + chain)) for name, chain in requested_fields.items()
+    fields: list[ast.Expr] = [
+        ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])) for name, chain in requested_fields.items()
     ]
 
     return ast.SelectQuery(
@@ -60,7 +58,7 @@ def select_from_cohort_people_table(requested_fields: Dict[str, List[str | int]]
 
 
 class RawCohortPeople(Table):
-    fields: Dict[str, FieldOrTable] = {
+    fields: dict[str, FieldOrTable] = {
         **COHORT_PEOPLE_FIELDS,
         "sign": IntegerDatabaseField(name="sign"),
         "version": IntegerDatabaseField(name="version"),
@@ -74,9 +72,9 @@ class RawCohortPeople(Table):
 
 
 class CohortPeople(LazyTable):
-    fields: Dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
+    fields: dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: Dict[str, List[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
         return select_from_cohort_people_table(requested_fields, context.team_id)
 
     def to_printed_clickhouse(self, context):

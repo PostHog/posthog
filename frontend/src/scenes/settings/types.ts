@@ -30,6 +30,7 @@ export type SettingSectionId =
     | 'organization-billing'
     | 'organization-authentication'
     | 'organization-rbac'
+    | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
     | 'user-api-keys'
@@ -52,6 +53,7 @@ export type SettingId =
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
+    | 'replay-network'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
@@ -69,6 +71,7 @@ export type SettingId =
     | 'authentication-domains'
     | 'organization-rbac'
     | 'organization-delete'
+    | 'organization-proxy'
     | 'details'
     | 'change-password'
     | '2fa'
@@ -77,6 +80,8 @@ export type SettingId =
     | 'optout'
     | 'theme'
     | 'replay-ai-config'
+    | 'heatmaps'
+    | 'hedgehog-mode'
 
 export type Setting = {
     id: SettingId

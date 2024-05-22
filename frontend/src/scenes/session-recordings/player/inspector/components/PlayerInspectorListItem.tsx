@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconDashboard, IconEye, IconGear, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -13,7 +12,7 @@ import useResizeObserver from 'use-resize-observer'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import { IconWindow } from '../../icons'
-import { playerSettingsLogic } from '../../playerSettingsLogic'
+import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './ItemConsoleLog'
@@ -68,7 +67,7 @@ export function PlayerInspectorListItem({
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { tab, durationMs, end, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
-    const { timestampMode } = useValues(playerSettingsLogic)
+    const { timestampFormat } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
@@ -201,8 +200,11 @@ export function PlayerInspectorListItem({
             {!isExpanded ? (
                 <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
-                        {timestampMode === 'absolute' ? (
-                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />
+                        {timestampFormat != TimestampFormat.Relative ? (
+                            (timestampFormat === TimestampFormat.UTC
+                                ? item.timestamp.tz('UTC')
+                                : item.timestamp
+                            ).format('DD, MMM HH:mm:ss')
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (

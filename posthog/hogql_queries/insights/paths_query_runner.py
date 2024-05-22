@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Dict, Literal, cast
+from typing import Any, Literal, cast
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -24,6 +24,7 @@ from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
+    CachedPathsQueryResponse,
     FunnelsActorsQuery,
     FunnelsFilter,
     HogQLQueryModifiers,
@@ -43,11 +44,12 @@ EDGE_LIMIT_DEFAULT = 50
 
 class PathsQueryRunner(QueryRunner):
     query: PathsQuery
-    query_type = PathsQuery
+    response: PathsQueryResponse
+    cached_response: CachedPathsQueryResponse
 
     def __init__(
         self,
-        query: PathsQuery | Dict[str, Any],
+        query: PathsQuery | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
@@ -228,6 +230,7 @@ class PathsQueryRunner(QueryRunner):
                         left=ast.Field(chain=["events", "person_id"]),
                         right=ast.Field(chain=["funnel_actors", "actor_id"]),
                     ),
+                    constraint_type="ON",
                 ),
             ),
         )
@@ -869,7 +872,7 @@ class PathsQueryRunner(QueryRunner):
             for source, target, value, avg_conversion_time in response.results
         )
 
-        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql)
+        return PathsQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
     @property
     def extra_event_fields_and_properties(self) -> list[str]:

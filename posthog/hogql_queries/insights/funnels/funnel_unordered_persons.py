@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -6,7 +6,7 @@ from posthog.hogql_queries.insights.funnels.funnel_unordered import FunnelUnorde
 
 
 class FunnelUnorderedActors(FunnelUnordered):
-    def _get_funnel_person_step_events(self) -> List[ast.Expr]:
+    def _get_funnel_person_step_events(self) -> list[ast.Expr]:
         # Unordered funnels does not support matching events (and thereby recordings),
         # but it simplifies the logic if we return an empty array for matching events
         if (
@@ -19,9 +19,9 @@ class FunnelUnorderedActors(FunnelUnordered):
 
     def actor_query(
         self,
-        extra_fields: Optional[List[str]] = None,
+        extra_fields: Optional[list[str]] = None,
     ) -> ast.SelectQuery:
-        select: List[ast.Expr] = [
+        select: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=ast.Field(chain=["aggregation_target"])),
             *self._get_funnel_person_step_events(),
             *self._get_timestamp_outer_select(),
@@ -36,5 +36,4 @@ class FunnelUnorderedActors(FunnelUnordered):
             select_from=select_from,
             order_by=order_by,
             where=where,
-            # SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
         )

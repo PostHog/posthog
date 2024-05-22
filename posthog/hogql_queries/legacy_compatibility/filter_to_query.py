@@ -1,7 +1,7 @@
 import copy
 from enum import Enum
 import json
-from typing import Any, List, Dict, Literal
+from typing import Any, Literal
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.models.entity.entity import Entity as LegacyEntity
 from posthog.schema import (
@@ -9,6 +9,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     ChartDisplayType,
+    DataWarehouseNode,
     DateRange,
     EventsNode,
     FunnelExclusionActionsNode,
@@ -56,7 +57,7 @@ def clean_display(display: str):
 
 def legacy_entity_to_node(
     entity: LegacyEntity, include_properties: bool, math_availability: MathAvailability
-) -> EventsNode | ActionsNode:
+) -> EventsNode | ActionsNode | DataWarehouseNode:
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
@@ -92,6 +93,15 @@ def legacy_entity_to_node(
 
     if entity.type == "actions":
         return ActionsNode(id=entity.id, **shared)
+    elif entity.type == "data_warehouse":
+        return DataWarehouseNode(
+            id=entity.id,
+            id_field=entity.id_field,
+            distinct_id_field=entity.distinct_id_field,
+            timestamp_field=entity.timestamp_field,
+            table_name=entity.table_name,
+            **shared,
+        )
     else:
         return EventsNode(event=entity.id, **shared)
 
@@ -118,7 +128,7 @@ def exlusion_entity_to_node(entity) -> FunnelExclusionEventsNode | FunnelExclusi
 
 
 # TODO: remove this method that returns legacy entities
-def to_base_entity_dict(entity: Dict):
+def to_base_entity_dict(entity: dict):
     return {
         "type": entity.get("type"),
         "id": entity.get("id"),
@@ -140,7 +150,7 @@ insight_to_query_type = {
 INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "STICKINESS"]
 
 
-def _date_range(filter: Dict):
+def _date_range(filter: dict):
     date_range = DateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
@@ -153,7 +163,7 @@ def _date_range(filter: Dict):
     return {"dateRange": date_range}
 
 
-def _interval(filter: Dict):
+def _interval(filter: dict):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
@@ -163,7 +173,7 @@ def _interval(filter: Dict):
     return {"interval": filter.get("interval")}
 
 
-def _series(filter: Dict):
+def _series(filter: dict):
     if _insight_type(filter) == "RETENTION" or _insight_type(filter) == "PATHS":
         return {}
 
@@ -188,8 +198,8 @@ def _series(filter: Dict):
     }
 
 
-def _entities(filter: Dict):
-    processed_entities: List[LegacyEntity] = []
+def _entities(filter: dict):
+    processed_entities: list[LegacyEntity] = []
 
     # add actions
     actions = filter.get("actions", [])
@@ -203,6 +213,12 @@ def _entities(filter: Dict):
         events = json.loads(events)
     processed_entities.extend([LegacyEntity({**entity, "type": "events"}) for entity in events])
 
+    # add data warehouse
+    warehouse = filter.get("data_warehouse", [])
+    if isinstance(warehouse, str):
+        warehouse = json.loads(warehouse)
+    processed_entities.extend([LegacyEntity({**entity, "type": "data_warehouse"}) for entity in warehouse])
+
     # order by order
     processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
 
@@ -213,7 +229,7 @@ def _entities(filter: Dict):
     return processed_entities
 
 
-def _sampling_factor(filter: Dict):
+def _sampling_factor(filter: dict):
     if isinstance(filter.get("sampling_factor"), str):
         try:
             return float(filter.get("sampling_factor"))
@@ -223,16 +239,16 @@ def _sampling_factor(filter: Dict):
         return {"samplingFactor": filter.get("sampling_factor")}
 
 
-def _properties(filter: Dict):
+def _properties(filter: dict):
     raw_properties = filter.get("properties", None)
     return {"properties": clean_global_properties(raw_properties)}
 
 
-def _filter_test_accounts(filter: Dict):
+def _filter_test_accounts(filter: dict):
     return {"filterTestAccounts": filter.get("filter_test_accounts")}
 
 
-def _breakdown_filter(_filter: Dict):
+def _breakdown_filter(_filter: dict):
     if _insight_type(_filter) != "TRENDS" and _insight_type(_filter) != "FUNNELS":
         return {}
 
@@ -275,13 +291,13 @@ def _breakdown_filter(_filter: Dict):
     return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
 
 
-def _group_aggregation_filter(filter: Dict):
+def _group_aggregation_filter(filter: dict):
     if _insight_type(filter) == "STICKINESS" or _insight_type(filter) == "LIFECYCLE":
         return {}
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
 
-def _insight_filter(filter: Dict):
+def _insight_filter(filter: dict):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
@@ -342,6 +358,7 @@ def _insight_filter(filter: Dict):
                     else None
                 ),
                 period=filter.get("period"),
+                showMean=filter.get("show_mean"),
             )
         }
     elif _insight_type(filter) == "PATHS":
@@ -366,6 +383,7 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
                 toggledLifecycles=filter.get("toggledLifecycles"),
+                showLegend=filter.get("show_legend"),
                 showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
@@ -381,13 +399,13 @@ def _insight_filter(filter: Dict):
     else:
         raise Exception(f"Invalid insight type {filter.get('insight')}.")
 
-    if len(list(insight_filter.values())[0].model_dump(exclude_defaults=True)) == 0:
+    if len(next(iter(insight_filter.values())).model_dump(exclude_defaults=True)) == 0:
         return {}
 
     return insight_filter
 
 
-def filters_to_funnel_paths_query(filter: Dict[str, Any]) -> FunnelPathsFilter | None:
+def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter | None:
     funnel_paths = filter.get("funnel_paths")
     funnel_filter = filter.get("funnel_filter")
 
@@ -404,13 +422,13 @@ def filters_to_funnel_paths_query(filter: Dict[str, Any]) -> FunnelPathsFilter |
     )
 
 
-def _insight_type(filter: Dict) -> INSIGHT_TYPE:
+def _insight_type(filter: dict) -> INSIGHT_TYPE:
     if filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 
 
-def filter_to_query(filter: Dict) -> InsightQueryNode:
+def filter_to_query(filter: dict) -> InsightQueryNode:
     filter = copy.deepcopy(filter)  # duplicate to prevent accidental filter alterations
 
     Query = insight_to_query_type[_insight_type(filter)]

@@ -7,15 +7,15 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from structlog import get_logger
 
 from posthog.cloud_utils import is_cloud
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
-
-from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,18 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.ANALYTICS_QUERIES.value, acks_late=True)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.ANALYTICS_QUERIES.value,
+    acks_late=True,
+    autoretry_for=(
+        # Important: Only retry for things that might be okay on the next try
+        CHQueryErrorTooManySimultaneousQueries,
+    ),
+    retry_backoff=1,
+    retry_backoff_max=2,
+    max_retries=3,
+)
 def process_query_task(
     team_id: int,
     user_id: int,
@@ -161,8 +172,6 @@ CLICKHOUSE_TABLES = [
     "sharded_session_replay_events",
     "log_entries",
 ]
-if not is_cloud():
-    CLICKHOUSE_TABLES.append("session_recording_events")
 
 
 @shared_task(ignore_result=True)
@@ -537,6 +546,13 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
+def validate_proxy_domains() -> None:
+    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
+
+    validate_proxy_domains()
+
+
+@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -550,7 +566,14 @@ def schedule_cache_updates_task() -> None:
     schedule_cache_updates()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    retry_backoff=10,
+    retry_backoff_max=30,
+    max_retries=3,
+    retry_jitter=True,
+)
 def update_cache_task(caching_state_id: UUID) -> None:
     from posthog.caching.insight_cache import update_cache
 
@@ -629,6 +652,13 @@ def verify_persons_data_in_sync() -> None:
         return
 
     verify()
+
+
+@shared_task(ignrore_result=True)
+def stop_surveys_reached_target() -> None:
+    from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
+
+    stop_surveys_reached_target()
 
 
 def recompute_materialized_columns_enabled() -> bool:

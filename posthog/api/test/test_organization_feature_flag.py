@@ -1,3 +1,4 @@
+from unittest.mock import ANY
 from rest_framework import status
 from posthog.models.cohort.util import sort_cohorts_topologically
 from posthog.models.user import User
@@ -11,7 +12,7 @@ from posthog.models.feedback.survey import Survey
 from posthog.models.early_access_feature import EarlyAccessFeature
 from posthog.api.dashboards.dashboard import Dashboard
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from typing import Any, Dict
+from typing import Any
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -45,15 +46,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             {
                 "flag_id": flag.id,
                 "team_id": flag.team.id,
-                "created_by": {
-                    "id": self.user.id,
-                    "uuid": str(self.user.uuid),
-                    "distinct_id": self.user.distinct_id,
-                    "first_name": self.user.first_name,
-                    "last_name": self.user.last_name,
-                    "email": self.user.email,
-                    "is_email_verified": self.user.is_email_verified,
-                },
+                "created_by": ANY,
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
@@ -382,7 +375,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -2,11 +2,11 @@ import copy
 import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Optional, cast
+from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from dateutil import parser
-from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -19,7 +19,6 @@ from posthog.constants import (
     TRENDS_LINEAR,
 )
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -33,7 +32,7 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
-    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, str, Dict, Callable]:
+    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> tuple[str, str, dict, Callable]:
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
@@ -53,7 +52,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return query_type, sql, params, parse_function
 
     # Use cached result even on refresh if team has strict caching enabled
-    def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:
+    def get_cached_result(self, filter: Filter, team: Team) -> Optional[list[dict[str, Any]]]:
         if not team.strict_caching_enabled or filter.breakdown or filter.display != TRENDS_LINEAR:
             return None
 
@@ -73,7 +72,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return cached_result if _is_present else None
 
     # Determine if the current timerange is present in the cache
-    def is_present_timerange(self, cached_result: List[Dict[str, Any]], filter: Filter, team: Team) -> bool:
+    def is_present_timerange(self, cached_result: list[dict[str, Any]], filter: Filter, team: Team) -> bool:
         if (
             len(cached_result) > 0
             and cached_result[0].get("days")
@@ -92,7 +91,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         return _is_present
 
     # Use a condensed filter if a cached result exists in the current timerange
-    def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[str, Any]]]:
+    def adjusted_filter(self, filter: Filter, team: Team) -> tuple[Filter, Optional[dict[str, Any]]]:
         cached_result = self.get_cached_result(filter, team)
 
         new_filter = filter.shallow_clone({"date_from": interval_unit(filter.interval)}) if cached_result else filter
@@ -107,7 +106,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def merge_results(
         self,
         result,
-        cached_result: Optional[Dict[str, Any]],
+        cached_result: Optional[dict[str, Any]],
         entity_order: int,
         filter: Filter,
         team: Team,
@@ -129,7 +128,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         else:
             return result, {}
 
-    def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
+    def _run_query(self, filter: Filter, team: Team, entity: Entity) -> list[dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         with push_scope() as scope:
             query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
@@ -163,12 +162,12 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
     def _run_query_for_threading(
         self,
-        result: List,
+        result: list,
         index: int,
         query_type,
         sql,
         params,
-        query_tags: Dict,
+        query_tags: dict,
         filter: Filter,
         team_id: int,
     ):
@@ -177,10 +176,10 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             scope.set_context("query", {"sql": sql, "params": params})
             result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter, team_id=team_id)
 
-    def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
-        result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
-        parse_functions: List[Optional[Callable]] = [None] * len(filter.entities)
-        sql_statements_with_params: List[Tuple[Optional[str], Dict]] = [(None, {})] * len(filter.entities)
+    def _run_parallel(self, filter: Filter, team: Team) -> list[dict[str, Any]]:
+        result: list[Optional[list[dict[str, Any]]]] = [None] * len(filter.entities)
+        parse_functions: list[Optional[Callable]] = [None] * len(filter.entities)
+        sql_statements_with_params: list[tuple[Optional[str], dict]] = [(None, {})] * len(filter.entities)
         cached_result = None
         jobs = []
 
@@ -225,7 +224,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                         "params": sql_statements_with_params[i][1],
                     },
                 )
-                serialized_data = cast(List[Callable], parse_functions)[entity.index](result[entity.index])
+                serialized_data = cast(list[Callable], parse_functions)[entity.index](result[entity.index])
                 serialized_data = self._format_serialized(entity, serialized_data)
                 merged_results, cached_result = self.merge_results(
                     serialized_data,
@@ -237,9 +236,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 result[entity.index] = merged_results
 
         # flatten results
-        flat_results: List[Dict[str, Any]] = []
+        flat_results: list[dict[str, Any]] = []
         for item in result:
-            for flat in cast(List[Dict[str, Any]], item):
+            for flat in cast(list[dict[str, Any]], item):
                 flat_results.append(flat)
 
             if cached_result:
@@ -248,12 +247,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return flat_results
 
-    def run(self, filter: Filter, team: Team, is_csv_export: bool = False, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, is_csv_export: bool = False, *args, **kwargs) -> list[dict[str, Any]]:
         self.is_csv_export = is_csv_export
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
-        actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
         if filter.formula:
             return handle_compare(filter, self._run_formula_query, team)
@@ -274,10 +272,10 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return result
 
-    def _format_serialized(self, entity: Entity, result: List[Dict[str, Any]]):
+    def _format_serialized(self, entity: Entity, result: list[dict[str, Any]]):
         serialized_data = []
 
-        serialized: Dict[str, Any] = {
+        serialized: dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
             "count": 0,
@@ -293,7 +291,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return serialized_data
 
-    def _handle_cumulative(self, entity_metrics: List) -> List[Dict[str, Any]]:
+    def _handle_cumulative(self, entity_metrics: list) -> list[dict[str, Any]]:
         for metrics in entity_metrics:
             metrics.update(data=list(accumulate(metrics["data"])))
         return entity_metrics

@@ -12,6 +12,7 @@ class PropertyType(models.TextChoices):
     String = "String", "String"
     Numeric = "Numeric", "Numeric"
     Boolean = "Boolean", "Boolean"
+    Duration = "Duration", "Duration"
 
 
 class PropertyFormat(models.TextChoices):
@@ -34,6 +35,7 @@ class PropertyDefinition(UUIDModel):
         EVENT = 1, "event"
         PERSON = 2, "person"
         GROUP = 3, "group"
+        SESSION = 4, "session"
 
     team: models.ForeignKey = models.ForeignKey(
         Team,
@@ -69,23 +71,22 @@ class PropertyDefinition(UUIDModel):
         indexes = [
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
-            models.Index(  # type: ignore
-                F("team_id"),  # type: ignore
-                F("type"),  # type: ignore
-                Coalesce(F("group_type_index"), -1),  # type: ignore
-                F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
-                F("name").asc(),  # type: ignore
+            models.Index(
+                F("team_id"),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("query_usage_30_day").desc(nulls_last=True),
+                F("name").asc(),
                 name="index_property_def_query",
             ),
             # creates an index pganalyze identified as missing
             # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
             models.Index(fields=["team_id", "type", "is_numerical"]),
-        ] + [
             GinIndex(
                 name="index_property_definition_name",
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
-            )  # To speed up DB-based fuzzy searching
+            ),  # To speed up DB-based fuzzy searching
         ]
         constraints = [
             models.CheckConstraint(

@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from posthog.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
-from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id
@@ -16,6 +15,7 @@ from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.util import PersonPropertiesMode
+from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -25,14 +25,12 @@ from posthog.test.base import (
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
 )
-from posthog.utils import PersonOnEventsMode
 
 
 def _create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
-    action = Action.objects.create(team=team, name=name)
-    ActionStep.objects.create(action=action, event=name)
+    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name}])
     return action
 
 
@@ -145,7 +143,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -200,7 +198,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -225,7 +223,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -276,7 +274,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -297,7 +295,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY
-            if self.team.person_on_events_mode == PersonOnEventsMode.DISABLED
+            if self.team.person_on_events_mode == PersonsOnEventsMode.disabled
             else PersonPropertiesMode.DIRECT_ON_EVENTS,
             hogql_context=filter.hogql_context,
         )
@@ -1144,12 +1142,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     def test_query_with_multiple_new_style_cohorts(self):
-        action1 = Action.objects.create(team=self.team, name="action1")
-        ActionStep.objects.create(
-            event="$autocapture",
-            action=action1,
-            url="https://posthog.com/feedback/123",
-            url_matching=ActionStep.EXACT,
+        action1 = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "url": "https://posthog.com/feedback/123",
+                    "url_matching": "exact",
+                }
+            ],
         )
 
         # satiesfies all conditions

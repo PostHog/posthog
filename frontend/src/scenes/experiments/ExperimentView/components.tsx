@@ -238,29 +238,29 @@ export function NoResultsEmptyState(): JSX.Element {
     )
 }
 
+export function EllipsisAnimation(): JSX.Element {
+    const [ellipsis, setEllipsis] = useState('.')
+
+    useEffect(() => {
+        let count = 1
+        let direction = 1
+
+        const interval = setInterval(() => {
+            setEllipsis('.'.repeat(count))
+            count += direction
+
+            if (count === 3 || count === 1) {
+                direction *= -1
+            }
+        }, 300)
+
+        return () => clearInterval(interval)
+    }, [])
+
+    return <span>{ellipsis}</span>
+}
+
 export function ExperimentLoadingAnimation(): JSX.Element {
-    function EllipsisAnimation(): JSX.Element {
-        const [ellipsis, setEllipsis] = useState('.')
-
-        useEffect(() => {
-            let count = 1
-            let direction = 1
-
-            const interval = setInterval(() => {
-                setEllipsis('.'.repeat(count))
-                count += direction
-
-                if (count === 3 || count === 1) {
-                    direction *= -1
-                }
-            }, 300)
-
-            return () => clearInterval(interval)
-        }, [])
-
-        return <span>{ellipsis}</span>
-    }
-
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <Animation type={AnimationType.LaptopHog} />
@@ -273,7 +273,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
 }
 
 export function PageHeaderCustom(): JSX.Element {
-    const { experiment, isExperimentRunning } = useValues(experimentLogic)
+    const { experiment, isExperimentRunning, isExperimentStopped } = useValues(experimentLogic)
     const {
         launchExperiment,
         resetRunningExperiment,
@@ -307,38 +307,44 @@ export function PageHeaderCustom(): JSX.Element {
                     )}
                     {experiment && isExperimentRunning && (
                         <div className="flex flex-row gap-2">
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => (exposureCohortId ? undefined : createExposureCohort())}
-                                                fullWidth
-                                                data-attr={`${exposureCohortId ? 'view' : 'create'}-exposure-cohort`}
-                                                to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
-                                                targetBlank={!!exposureCohortId}
-                                            >
-                                                {exposureCohortId ? 'View' : 'Create'} exposure cohort
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadExperimentResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-experiment"
-                                            >
-                                                Refresh experiment results
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => loadSecondaryMetricResults(true)}
-                                                fullWidth
-                                                data-attr="refresh-secondary-metrics"
-                                            >
-                                                Refresh secondary metrics
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
+                            {!isExperimentStopped && !experiment.archived && (
+                                <>
+                                    <More
+                                        overlay={
+                                            <>
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        exposureCohortId ? undefined : createExposureCohort()
+                                                    }
+                                                    fullWidth
+                                                    data-attr={`${
+                                                        exposureCohortId ? 'view' : 'create'
+                                                    }-exposure-cohort`}
+                                                    to={exposureCohortId ? urls.cohort(exposureCohortId) : undefined}
+                                                    targetBlank={!!exposureCohortId}
+                                                >
+                                                    {exposureCohortId ? 'View' : 'Create'} exposure cohort
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadExperimentResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-experiment"
+                                                >
+                                                    Refresh experiment results
+                                                </LemonButton>
+                                                <LemonButton
+                                                    onClick={() => loadSecondaryMetricResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-secondary-metrics"
+                                                >
+                                                    Refresh secondary metrics
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
                             <ResetButton experiment={experiment} onConfirm={resetRunningExperiment} />
                             {!experiment.end_date && (
                                 <LemonButton
@@ -350,13 +356,11 @@ export function PageHeaderCustom(): JSX.Element {
                                     Stop
                                 </LemonButton>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
+                            {isExperimentStopped && (
+                                <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                    <b>Archive</b>
+                                </LemonButton>
+                            )}
                         </div>
                     )}
                 </>
@@ -376,13 +380,14 @@ export function ActionBanner(): JSX.Element {
         areResultsSignificant,
         isExperimentStopped,
         funnelResultsPersonsTotal,
-        recommendedSampleSize,
         actualRunningTime,
-        recommendedRunningTime,
         getHighestProbabilityVariant,
     } = useValues(experimentLogic)
 
     const { archiveExperiment } = useActions(experimentLogic)
+
+    const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
+    const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     if (!experiment || experimentLoading || experimentResultsLoading) {
         return <></>

@@ -4,7 +4,6 @@ import json
 import uuid
 
 from asgiref.sync import sync_to_async
-from dlt.common.schema.typing import TSchemaTables
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
@@ -24,7 +23,6 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
 
-from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     update_external_job_status,
 )
@@ -32,10 +30,8 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     get_active_schemas_for_source_id,
     ExternalDataSource,
-    aget_schema_by_id,
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-from typing import Dict
 
 
 @dataclasses.dataclass
@@ -59,31 +55,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
     logger.info(
         f"Updated external data job with for external data source {inputs.run_id} to status {inputs.status}",
-    )
-
-
-@dataclasses.dataclass
-class ValidateSchemaInputs:
-    run_id: str
-    team_id: int
-    schema_id: uuid.UUID
-    table_schema: TSchemaTables
-    table_row_counts: Dict[str, int]
-
-
-@activity.defn
-async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
-    await validate_schema_and_update_table(
-        run_id=inputs.run_id,
-        team_id=inputs.team_id,
-        schema_id=inputs.schema_id,
-        table_schema=inputs.table_schema,
-        table_row_counts=inputs.table_row_counts,
-    )
-
-    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
-    logger.info(
-        f"Validated schema for external data job {inputs.run_id}",
     )
 
 
@@ -118,12 +89,6 @@ async def check_schedule_activity(inputs: ExternalDataWorkflowInputs) -> bool:
         # Delete the source schedule in favour of the schema schedules
         await a_delete_external_data_schedule(ExternalDataSource(id=inputs.external_data_source_id))
         logger.info(f"Deleted schedule for source {inputs.external_data_source_id}")
-        return True
-
-    schema_model = await aget_schema_by_id(inputs.external_data_schema_id, inputs.team_id)
-
-    # schema turned off so don't sync
-    if schema_model and not schema_model.should_sync:
         return True
 
     logger.info("Schema ID is set. Continuing...")
@@ -164,7 +129,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             team_id=inputs.team_id, schema_id=inputs.external_data_schema_id, source_id=inputs.external_data_source_id
         )
 
-        run_id = await workflow.execute_activity(
+        run_id, incremental = await workflow.execute_activity(
             create_external_data_job_model_activity,
             create_external_data_job_inputs,
             start_to_close_timeout=dt.timedelta(minutes=1),
@@ -188,29 +153,18 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
             )
 
+            timeout_params = (
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                if incremental
+                else {"start_to_close_timeout": dt.timedelta(hours=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
+            )
+
             table_schemas, table_row_counts = await workflow.execute_activity(
                 import_data_activity,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(hours=30),
-                retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(minutes=1),
-            )
-
-            # check schema first
-            validate_inputs = ValidateSchemaInputs(
-                run_id=run_id,
-                team_id=inputs.team_id,
-                schema_id=inputs.external_data_schema_id,
-                table_schema=table_schemas,
-                table_row_counts=table_row_counts,
-            )
-
-            await workflow.execute_activity(
-                validate_schema_activity,
-                validate_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+                **timeout_params,
+            )  # type: ignore
 
             # Create source templates
             await workflow.execute_activity(

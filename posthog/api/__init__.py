@@ -4,6 +4,8 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
 from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
+from ..heatmaps.heatmaps_api import LegacyHeatmapViewSet, HeatmapViewSet
+from .session import SessionViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -32,6 +34,7 @@ from . import (
     plugin,
     plugin_log_entry,
     property_definition,
+    proxy_record,
     query,
     search,
     scheduled_change,
@@ -250,6 +253,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"proxy_records",
+    proxy_record.ProxyRecordViewset,
+    "proxy_records",
+    ["organization_id"],
+)
+organizations_router.register(
     r"feature_flags",
     organization_feature_flag.OrganizationFeatureFlagView,
     "organization_feature_flags",
@@ -316,7 +325,7 @@ from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
-router.register(r"element", LegacyElementViewSet, basename="element")
+router.register(r"heatmap", LegacyHeatmapViewSet, basename="heatmap")
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
@@ -331,6 +340,8 @@ project_session_recordings_router = projects_router.register(
     "project_session_recordings",
     ["team_id"],
 )
+projects_router.register(r"heatmaps", HeatmapViewSet, "project_heatmaps", ["team_id"])
+projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
 from sentry_sdk import capture_exception
@@ -22,6 +22,7 @@ from posthog.hogql.database.models import (
     ExpressionField,
 )
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
+from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
@@ -56,7 +57,8 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.warehouse.models.table import DataWarehouseTableColumns
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -80,6 +82,7 @@ class Database(BaseModel):
     console_logs_log_entries: ReplayConsoleLogsLogEntriesTable = ReplayConsoleLogsLogEntriesTable()
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: SessionsTable = SessionsTable()
+    heatmaps: HeatmapsTable = HeatmapsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -93,21 +96,22 @@ class Database(BaseModel):
     # system tables
     numbers: NumbersTable = NumbersTable()
 
-    # clunky: keep table names in sync with above
-    _table_names: ClassVar[List[str]] = [
+    # These are the tables exposed via SQL editor autocomplete and data management
+    _table_names: ClassVar[list[str]] = [
         "events",
         "groups",
         "persons",
-        "person_distinct_id2",
+        "person_distinct_ids",
         "person_overrides",
         "session_replay_events",
-        "cohortpeople",
-        "person_static_cohort",
+        "cohort_people",
+        "static_cohort_people",
         "log_entries",
         "sessions",
+        "heatmaps",
     ]
 
-    _warehouse_table_names: List[str] = []
+    _warehouse_table_names: list[str] = []
 
     _timezone: Optional[str]
     _week_start_day: Optional[WeekStartDay]
@@ -134,8 +138,11 @@ class Database(BaseModel):
             return getattr(self, table_name)
         raise QueryError(f'Unknown table "{table_name}".')
 
-    def get_all_tables(self) -> List[str]:
+    def get_all_tables(self) -> list[str]:
         return self._table_names + self._warehouse_table_names
+
+    def get_posthog_tables(self) -> list[str]:
+        return self._table_names
 
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
@@ -224,9 +231,9 @@ def create_hogql_database(
         if database.events.fields.get(mapping.group_type) is None:
             database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    tables: Dict[str, Table] = {}
+    tables: dict[str, Table] = {}
     for table in DataWarehouseTable.objects.filter(team_id=team.pk).exclude(deleted=True):
-        tables[table.name] = table.hogql_definition()
+        tables[table.name] = table.hogql_definition(modifiers)
 
     if modifiers.dataWarehouseEventsModifiers:
         for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
@@ -274,6 +281,11 @@ def create_hogql_database(
     database.add_warehouse_tables(**tables)
 
     for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
+        # Skip if either table is not present. This can happen if the table was deleted after the join was created.
+        # User will be prompted on UI to resolve missing tables underlying the JOIN
+        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+            continue
+
         try:
             source_table = database.get_table(join.source_table_name)
             joining_table = database.get_table(join.joining_table_name)
@@ -292,7 +304,7 @@ def create_hogql_database(
                 from_field=from_field,
                 to_field=to_field,
                 join_table=joining_table,
-                join_function=join.join_function,
+                join_function=join.join_function(),
             )
 
             if join.source_table_name == "persons":
@@ -321,14 +333,17 @@ def create_hogql_database(
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join.join_function,
+                            # reusing join_function but with different source_table_key since we're joining 'directly' on events
+                            join_function=join.join_function(
+                                override_source_table_key=f"person.{join.source_table_key}"
+                            ),
                         )
                     else:
                         table_or_field.fields[join.field_name] = LazyJoin(
                             from_field=from_field,
                             to_field=to_field,
                             join_table=joining_table,
-                            join_function=join.join_function,
+                            join_function=join.join_function(),
                         )
         except Exception as e:
             capture_exception(e)
@@ -338,53 +353,57 @@ def create_hogql_database(
 
 class _SerializedFieldBase(TypedDict):
     key: str
-    type: Literal[
-        "integer",
-        "float",
-        "string",
-        "datetime",
-        "date",
-        "boolean",
-        "array",
-        "json",
-        "lazy_table",
-        "virtual_table",
-        "field_traverser",
-        "expression",
-    ]
+    type: DatabaseSerializedFieldType
+    schema_valid: bool
 
 
 class SerializedField(_SerializedFieldBase, total=False):
-    fields: List[str]
+    fields: list[str]
     table: str
-    chain: List[str | int]
+    chain: list[str | int]
 
 
-def serialize_database(context: HogQLContext) -> Dict[str, List[SerializedField]]:
-    tables: Dict[str, List[SerializedField]] = {}
+def serialize_database(context: HogQLContext) -> dict[str, list[SerializedField]]:
+    tables: dict[str, list[SerializedField]] = {}
 
     if context.database is None:
         raise ResolutionError("Must provide database to serialize_database")
 
-    for table_key in context.database.model_fields.keys():
-        field_input: Dict[str, Any] = {}
+    table_names = context.database.get_posthog_tables()
+    for table_key in table_names:
+        field_input: dict[str, Any] = {}
         table = getattr(context.database, table_key, None)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
             field_input = table.fields
 
-        field_output: List[SerializedField] = serialize_fields(field_input, context)
+        field_output: list[SerializedField] = serialize_fields(field_input, context)
         tables[table_key] = field_output
 
     return tables
 
 
-def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField]:
+def serialize_fields(
+    field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
+) -> list[SerializedField]:
     from posthog.hogql.database.models import SavedQuery
 
-    field_output: List[SerializedField] = []
+    field_output: list[SerializedField] = []
     for field_key, field in field_input.items():
+        try:
+            if db_columns is not None:
+                column = db_columns[field_key]
+                if isinstance(column, str):
+                    schema_valid = True
+                else:
+                    schema_valid = cast(bool, column.get("valid", True))
+            else:
+                schema_valid = True
+        except KeyError:
+            # We redefine fields on some sourced tables, causing the "hogql" and "clickhouse" field names to be intentionally out of sync
+            schema_valid = True
+
         if field_key == "team_id":
             pass
         elif isinstance(field, DatabaseField):
@@ -392,42 +411,69 @@ def serialize_fields(field_input, context: HogQLContext) -> List[SerializedField
                 continue
 
             if isinstance(field, IntegerDatabaseField):
-                field_output.append({"key": field_key, "type": "integer"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.integer, "schema_valid": schema_valid}
+                )
             elif isinstance(field, FloatDatabaseField):
-                field_output.append({"key": field_key, "type": "float"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.float, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringDatabaseField):
-                field_output.append({"key": field_key, "type": "string"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.string, "schema_valid": schema_valid}
+                )
             elif isinstance(field, DateTimeDatabaseField):
-                field_output.append({"key": field_key, "type": "datetime"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.datetime, "schema_valid": schema_valid}
+                )
             elif isinstance(field, DateDatabaseField):
-                field_output.append({"key": field_key, "type": "date"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.date, "schema_valid": schema_valid}
+                )
             elif isinstance(field, BooleanDatabaseField):
-                field_output.append({"key": field_key, "type": "boolean"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.boolean, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringJSONDatabaseField):
-                field_output.append({"key": field_key, "type": "json"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.json, "schema_valid": schema_valid}
+                )
             elif isinstance(field, StringArrayDatabaseField):
-                field_output.append({"key": field_key, "type": "array"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.array, "schema_valid": schema_valid}
+                )
             elif isinstance(field, ExpressionField):
-                field_output.append({"key": field_key, "type": "expression"})
+                field_output.append(
+                    {"key": field_key, "type": DatabaseSerializedFieldType.expression, "schema_valid": schema_valid}
+                )
         elif isinstance(field, LazyJoin):
             is_view = isinstance(field.resolve_table(context), SavedQuery)
             field_output.append(
                 {
                     "key": field_key,
-                    "type": "view" if is_view else "lazy_table",
+                    "type": DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
                     "table": field.resolve_table(context).to_printed_hogql(),
                     "fields": list(field.resolve_table(context).fields.keys()),
+                    "schema_valid": schema_valid,
                 }
             )
         elif isinstance(field, VirtualTable):
             field_output.append(
                 {
                     "key": field_key,
-                    "type": "virtual_table",
+                    "type": DatabaseSerializedFieldType.virtual_table,
                     "table": field.to_printed_hogql(),
                     "fields": list(field.fields.keys()),
+                    "schema_valid": schema_valid,
                 }
             )
         elif isinstance(field, FieldTraverser):
-            field_output.append({"key": field_key, "type": "field_traverser", "chain": field.chain})
+            field_output.append(
+                {
+                    "key": field_key,
+                    "type": DatabaseSerializedFieldType.field_traverser,
+                    "chain": field.chain,
+                    "schema_valid": schema_valid,
+                }
+            )
     return field_output

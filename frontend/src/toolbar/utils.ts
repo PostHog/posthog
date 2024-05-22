@@ -2,9 +2,10 @@ import { finder } from '@medv/finder'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { CSSProperties } from 'react'
 
-import { ActionStepForm, BoxColor, ElementRect } from '~/toolbar/types'
-import { ActionStepType, StringMatching } from '~/types'
+import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { ActionStepType } from '~/types'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
@@ -65,11 +66,10 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     return {
         event: '$autocapture',
         href: element.getAttribute('href') || '',
-        name: element.getAttribute('name') || '',
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: StringMatching.Exact,
+        url_matching: 'exact',
     }
 }
 
@@ -246,26 +246,21 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     return null
 }
 
-export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): BoxColor | undefined {
+export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): CSSProperties | undefined {
     if (color === 'blue') {
         return {
             backgroundBlendMode: 'multiply',
             background: `hsla(240, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(240, 90%, 27%, 0.5) 0px 3px 10px ${hover ? 4 : 2}px`,
+            boxShadow: `hsla(240, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 4 : 0}px`,
+            outline: `hsla(240, 90%, 58%, 0.5) solid 1px`,
         }
     }
     if (color === 'red') {
         return {
             backgroundBlendMode: 'multiply',
             background: `hsla(4, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(4, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
-        }
-    }
-    if (color === 'green') {
-        return {
-            backgroundBlendMode: 'multiply',
-            background: `hsla(97, 90%, 58%, ${opacity})`,
-            boxShadow: `hsla(97, 90%, 27%, 0.8) 0px 3px 10px ${hover ? 4 : 2}px`,
+            boxShadow: `hsla(4, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 5 : 0}px`,
+            outline: `hsla(4, 90%, 58%, 0.5) solid 1px`,
         }
     }
 }
@@ -297,20 +292,19 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
                 href_selected: false,
                 url_selected: false,
             }
-        } else {
-            return {
-                ...step,
-                selector_selected: hasSelector,
-                text_selected: false,
-                url_selected: false,
-                href_selected: false,
-            }
+        }
+        return {
+            ...step,
+            selector_selected: hasSelector,
+            text_selected: false,
+            url_selected: false,
+            href_selected: false,
         }
     }
 
     return {
         ...step,
-        url_matching: step.url_matching || StringMatching.Exact,
+        url_matching: step.url_matching || 'exact',
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,

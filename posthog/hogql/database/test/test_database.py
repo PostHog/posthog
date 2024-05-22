@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.warehouse.models.join import DataWarehouseJoin
 
 
@@ -66,7 +67,7 @@ class TestDatabase(BaseTest):
                         pretty=False,
                     )
 
-    @patch("posthog.hogql.query.sync_execute", return_value=(None, None))
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_with_warehouse_tables(self, patch_execute):
         credential = DataWarehouseCredential.objects.create(
@@ -89,7 +90,7 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+            f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=1000000, max_expanded_ast_elements=1000000, max_query_size=524288",
         )
 
     def test_database_group_type_mappings(self):
@@ -266,6 +267,7 @@ class TestDatabase(BaseTest):
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_warehouse_joins_persons_poe_v2(self):
         DataWarehouseJoin.objects.create(
             team=self.team,
@@ -287,7 +289,9 @@ class TestDatabase(BaseTest):
 
         assert poe.fields["some_field"] is not None
 
-        print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+        printed = print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+        assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
 
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(

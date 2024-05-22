@@ -99,6 +99,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -115,6 +116,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -273,6 +275,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -357,6 +360,7 @@
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -373,6 +377,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."plugins_opt_in",
@@ -437,6 +442,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2

@@ -1,4 +1,5 @@
 import apiReal from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
 import {
     CohortType,
@@ -76,6 +77,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
+    heatmaps_opt_in: true,
     autocapture_exceptions_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
@@ -98,7 +100,6 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     plugins_access_level: PluginsAccessLevel.Root,
     enforce_2fa: false,
     teams: [MOCK_DEFAULT_TEAM],
-    available_features: [],
     is_member_join_email_enabled: true,
     metadata: {},
     available_product_features: [],
@@ -129,6 +130,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,

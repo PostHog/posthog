@@ -21,7 +21,6 @@
         "subscriptions",
         "paths_advanced",
         "advanced_permissions",
-        "team_collaboration",
         "ingestion_taxonomy",
         "correlation_analysis",
         "tagging",
@@ -217,14 +216,6 @@
             "key": "advanced_permissions",
             "name": "Dashboard permissions",
             "description": "Restrict access to dashboards within the organization to only those who need it.",
-            "unit": null,
-            "limit": null,
-            "note": null
-        },
-        {
-            "key": "team_collaboration",
-            "name": "Tags & text cards",
-            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
             "unit": null,
             "limit": null,
             "note": null
@@ -498,14 +489,6 @@
                             "key": "advanced_permissions",
                             "name": "Dashboard permissions",
                             "description": "Restrict access to dashboards within the organization to only those who need it.",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "team_collaboration",
-                            "name": "Tags & text cards",
-                            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1781,15 +1764,6 @@
                                     "group": "product_analytics"
                                 },
                                 {
-                                    "key": "team_collaboration",
-                                    "name": "Tags & text cards",
-                                    "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
-                                    "unit": null,
-                                    "limit": null,
-                                    "note": null,
-                                    "group": "product_analytics"
-                                },
-                                {
                                     "key": "ingestion_taxonomy",
                                     "name": "Ingestion taxonomy",
                                     "description": "Ingestion taxonomy",
@@ -2310,15 +2284,6 @@
                                     "key": "advanced_permissions",
                                     "name": "Dashboard permissions",
                                     "description": "Restrict access to dashboards within the organization to only those who need it.",
-                                    "unit": null,
-                                    "limit": null,
-                                    "note": null,
-                                    "group": "product_analytics"
-                                },
-                                {
-                                    "key": "team_collaboration",
-                                    "name": "Tags & text cards",
-                                    "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
