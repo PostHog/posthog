@@ -181,7 +181,6 @@ class JwtAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
-
     valid_audiences = [PosthogJwtAudience.IMPERSONATED_USER, PosthogJwtAudience.CLIENT]
 
     @classmethod

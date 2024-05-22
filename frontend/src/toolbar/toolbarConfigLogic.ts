@@ -66,14 +66,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                     const { authorizationCode } = values.authorization
 
                     if (!authorizationCode) {
-                        return {}
+                        return values.authorization
                     }
                     const res = await toolbarFetch(`/api/client_authorization/check?code=${authorizationCode}`)
                     if (res.status !== 200) {
                         throw new Error('Something went wrong. Please re-authenticate')
                     }
                     const payload = await res.json()
-                    lemonToast.success('PostHog Toolbar authorized!')
+
+                    if (payload.status !== 'authorized') {
+                        return values.authorization
+                    }
 
                     return {
                         accessToken: payload.access_token,
