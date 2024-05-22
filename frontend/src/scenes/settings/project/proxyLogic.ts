@@ -43,7 +43,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 })
                 lemonToast.success('Record created')
                 actions.completeForm()
-                return [...values.proxyRecords, response]
+                return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
                 void api.delete(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`)
