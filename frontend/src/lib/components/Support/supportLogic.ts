@@ -400,6 +400,11 @@ export const supportLogic = kea<supportLogicType>([
                             '\n' +
                             getDjangoAdminLink(userLogic.values.user, cloudRegion, teamLogic.values.currentTeamId) +
                             '\n' +
+                            'PoE mode: ' +
+                            (teamLogic.values.currentTeam?.modifiers?.personsOnEventsMode ??
+                                teamLogic.values.currentTeam?.default_modifiers?.personsOnEventsMode ??
+                                'disabled') +
+                            '\n' +
                             (target_area === 'billing' || target_area === 'login' || target_area === 'onboarding'
                                 ? getBillingAdminLink(userLogic.values.user) + '\n'
                                 : '') +
