@@ -30,7 +30,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
             [
                 'updateBillingLimits',
                 'updateBillingLimitsSuccess',
-                'loadBilling',
                 'loadBillingSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
