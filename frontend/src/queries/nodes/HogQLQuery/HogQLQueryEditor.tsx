@@ -12,7 +12,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { languages } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
-import { urls } from 'scenes/urls'
+import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
+import useResizeObserver from 'use-resize-observer'
 
 import { query } from '~/queries/query'
 import { AutocompleteCompletionItem, HogQLAutocomplete, HogQLQuery, NodeKind } from '~/queries/schema'
@@ -101,7 +102,16 @@ export interface HogQLQueryEditorProps {
 }
 
 let uniqueNode = 0
+
+const EDITOR_HEIGHT = 222
+const TABLE_PANEL_HEIGHT = EDITOR_HEIGHT + 78
+
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
+    const editorRef = useRef<HTMLDivElement | null>(null)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const artificialHogHeight = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] ? 40 : 0
+    const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT + artificialHogHeight)
+
     const [key] = useState(() => uniqueNode++)
     const [monacoAndEditor, setMonacoAndEditor] = useState(
         null as [Monaco, importedEditor.IStandaloneCodeEditor] | null
@@ -119,7 +129,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
         useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -129,8 +138,23 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         }
     }, [])
 
+    useResizeObserver({
+        ref: editorRef,
+        onResize: () => {
+            if (editorRef.current) {
+                setPanelHeight(Math.max(TABLE_PANEL_HEIGHT, editorRef.current.clientHeight + 78 + artificialHogHeight))
+            }
+        },
+    })
+
     return (
-        <div className="space-y-2">
+        <div className="space-y-2 flex flex-row">
+            <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
+                    <DatabaseTableTreeWithItems inline />
+                </div>
+            </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
                 className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
@@ -182,17 +206,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                                             HogQL
                                         </Link>
-                                        , our wrapper around ClickHouse SQL. Explore the{' '}
-                                        <Link
-                                            to={
-                                                featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]
-                                                    ? urls.dataWarehouse()
-                                                    : urls.database()
-                                            }
-                                        >
-                                            database schema
-                                        </Link>{' '}
-                                        available to you.
+                                        , our wrapper around ClickHouse SQL
                                     </div>
                                 ),
                                 placement: 'right-start',
@@ -203,7 +217,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         />
                     </span>
                     {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="resize-y overflow-hidden" style={{ height: 222 }}>
+                    <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             className="border rounded overflow-hidden h-full"
                             language="mysql"

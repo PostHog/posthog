@@ -5,7 +5,7 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
-import { ActionStepType, StringMatching } from '~/types'
+import { ActionStepType } from '~/types'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
@@ -69,7 +69,7 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
         text: getSafeText(element) || '',
         selector: query || '',
         url: window.location.protocol + '//' + window.location.host + window.location.pathname,
-        url_matching: StringMatching.Exact,
+        url_matching: 'exact',
     }
 }
 
@@ -304,7 +304,7 @@ export function actionStepToActionStepFormItem(step: ActionStepType, isNew = fal
 
     return {
         ...step,
-        url_matching: step.url_matching || StringMatching.Exact,
+        url_matching: step.url_matching || 'exact',
         href_selected: typeof step.href !== 'undefined' && step.href !== null,
         text_selected: typeof step.text !== 'undefined' && step.text !== null,
         selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
