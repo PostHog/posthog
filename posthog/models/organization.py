@@ -190,7 +190,7 @@ class Organization(UUIDModel):
         """Updates field `available_product_features`. Does not `save()`."""
         if is_cloud() or self.usage:
             # Since billing V2 we just use the field which is updated when the billing service is called
-            return self.available_product_features  # type: ignore
+            return self.available_product_features or []
 
         try:
             from ee.models.license import License
@@ -204,13 +204,17 @@ class Organization(UUIDModel):
         # Demo gets all features
         if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-            self.available_product_features = [{"key": feature, "name": feature} for feature in features]
+            self.available_product_features = [
+                {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+            ]
         else:
             # Otherwise, try to find a valid license on this instance
             license = License.objects.first_valid()
             if license:
                 features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-                self.available_product_features = [{"key": feature, "name": feature} for feature in features]
+                self.available_product_features = [
+                    {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+                ]
 
         return self.available_product_features
 
