@@ -37,6 +37,9 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
+                if (!values.user?.organization) {
+                    return null
+                }
                 return await api.organizationMembers.listAll({
                     limit: PAGINATION_LIMIT,
                 })
