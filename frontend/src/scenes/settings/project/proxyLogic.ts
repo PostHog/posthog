@@ -55,19 +55,10 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions }) => ({
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
-        deleteRecordSuccess: () => actions.loadRecords(),
         createRecordSuccess: () => actions.loadRecords(),
-        loadRecordsSuccess: () => {
-            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
-            if (shouldRefresh) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadRecords()
-                }, 5000)
-            }
-        },
     })),
     forms(({ actions }) => ({
         createRecord: {
@@ -84,8 +75,14 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, cache }) => {
         actions.loadRecords()
+        cache.refreshTimeout = setTimeout(() => {
+            const shouldRefresh = values.proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
+            if (shouldRefresh) {
+                actions.loadRecords()
+            }
+        }, 5000)
     }),
     beforeUnmount(({ cache }) => {
         if (cache.refreshTimeout) {
