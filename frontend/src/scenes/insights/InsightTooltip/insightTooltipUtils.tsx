@@ -52,7 +52,7 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
      * @default false
      */
     embedded?: boolean
-    date?: string
+    date?: string | number
     hideInspectActorsSection?: boolean
     seriesData: SeriesDatum[]
     formula?: boolean
@@ -66,12 +66,15 @@ export const ROW_CUTOFF = 8
 export function getTooltipTitle(
     seriesData: SeriesDatum[],
     altTitleOrFn?: string | ((tooltipData: SeriesDatum[], date: string) => React.ReactNode),
-    date?: string
+    date?: string | number
 ): React.ReactNode | null {
     // Use tooltip alternate title (or generate one if it's a function). Else default to date.
     if (altTitleOrFn) {
         if (typeof altTitleOrFn === 'function') {
-            return altTitleOrFn(seriesData, getFormattedDate(date))
+            if (typeof date === 'string') {
+                return altTitleOrFn(seriesData, getFormattedDate(date))
+            }
+            return null
         }
         return altTitleOrFn
     }
@@ -86,17 +89,22 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     month: 'MMMM YYYY',
 }
 
-export function getFormattedDate(input?: string | number, interval: IntervalType = 'day'): string {
-    // Number of intervals (i.e. days, weeks)
-    if (Number.isInteger(input)) {
-        return pluralize(input as number, interval)
-    }
+export function getFormattedDate(input: string, interval: IntervalType = 'day'): string {
     const day = dayjs(input)
     // Dayjs formatted day
     if (input !== undefined && day.isValid()) {
         return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
     }
     return String(input)
+}
+
+export function getFormattedTimeInterval(intervalAmount: number, interval: IntervalType = 'day'): string {
+    // Number of intervals (i.e. days, weeks)
+    if (Number.isInteger(intervalAmount)) {
+        return pluralize(intervalAmount, interval)
+    }
+
+    return String(intervalAmount)
 }
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {

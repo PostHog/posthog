@@ -13,7 +13,7 @@ import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from 
 
 import {
     COL_CUTOFF,
-    getFormattedDate,
+    getFormattedTimeInterval,
     getTooltipTitle,
     InsightTooltipProps,
     invertDataSource,
@@ -100,8 +100,8 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        (date
-            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
+        (date && typeof date === 'number'
+            ? `${getFormattedTimeInterval(date, seriesData?.[0]?.filter?.interval)} (${
                   timezone ? shortTimeZone(timezone) : 'UTC'
               })`
             : null)
