@@ -327,7 +327,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
-        # TODO(@zach): remove the following after 2024-05-22
+        # TODO(@zach): remove the following after 2024-05-24
         BillingManager(license).update_billing_admin_emails(organization)
 
     except Exception as err:
