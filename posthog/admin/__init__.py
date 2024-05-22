@@ -15,7 +15,7 @@ from posthog.admin.admins import (
     PluginAdmin,
     PluginConfigAdmin,
     ProjectAdmin,
-    RedisAdmin,
+    RedisMutationAdmin,
     SurveyAdmin,
     TeamAdmin,
     TextAdmin,
@@ -68,4 +68,4 @@ admin.site.register(Survey, SurveyAdmin)
 
 admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
 
-admin.site.register(RedisMutation, RedisAdmin)
+admin.site.register(RedisMutation, RedisMutationAdmin)

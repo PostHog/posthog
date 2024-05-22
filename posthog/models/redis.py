@@ -27,6 +27,12 @@ class MutationInactiveError(Exception):
         )
 
 
+class MutationFailedToSaveError(Exception):
+    """Exception to group any other exceptions raised by calling save."""
+
+    pass
+
+
 class RedisMutation(models.Model):
     """Modelling mutation operations that can be applied on Redis.
 
@@ -102,6 +108,11 @@ class RedisMutation(models.Model):
     discarded_by = models.CharField(max_length=200, null=True, editable=False)
     discarded_at = models.DateTimeField(null=True, editable=False)
 
+    @property
+    def approvals(self) -> int:
+        """Return number of approvals on this mutation."""
+        return len(self.approved_by)
+
     def apply(self, apply_requested_by: str):
         """Apply this mutation on Redis.
 
@@ -129,7 +140,7 @@ class RedisMutation(models.Model):
         self.applied_by = apply_requested_by
         self.applied_at = dt.datetime.now()
 
-        self.save()
+        self.try_save()
 
     def raise_if_not_active(self) -> None:
         """Raise an exception if this mutation is not active."""
@@ -140,10 +151,16 @@ class RedisMutation(models.Model):
         """Whether this mutation is still active and may still be approved and applied."""
         return self.status not in (self.Status.FAILED, self.Status.COMPLETED, self.Status.DISCARDED)
 
-    @property
-    def approvals(self) -> int:
-        """Return number of approvals on this mutation."""
-        return len(self.approved_by)
+    def try_save(self):
+        """Attempt to save mutation.
+
+        Any exception raised as the cause for MutationFailedToSaveError so that callers can catch
+        a single exception.
+        """
+        try:
+            self.save()
+        except Exception as e:
+            raise MutationFailedToSaveError from e
 
     def run_mutation_command(self):
         """Run this mutation on Redis."""
@@ -159,7 +176,7 @@ class RedisMutation(models.Model):
         self.discarded_by = discarded_by
         self.discarded_at = dt.datetime.now()
 
-        self.save()
+        self.try_save()
 
     def approve(self, approved_by: str) -> None:
         """Approve this active mutation.
@@ -178,7 +195,7 @@ class RedisMutation(models.Model):
         if self.is_over_approval_threshold():
             self.status = self.Status.APPROVED
 
-        self.save()
+        self.try_save()
 
     def is_over_approval_threshold(self) -> int:
         """Whether this mutation has enough approvals to be applied."""
