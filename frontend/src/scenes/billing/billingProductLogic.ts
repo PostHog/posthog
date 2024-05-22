@@ -30,6 +30,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             [
                 'updateBillingLimits',
                 'updateBillingLimitsSuccess',
+                'loadBilling',
                 'loadBillingSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
@@ -266,6 +267,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     ? actions.reportSurveySent(values.surveyID, values.surveyResponse)
                     : actions.reportSurveyDismissed(values.surveyID)
             }
+            location.reload()
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
             if (scrollToProductKey && scrollToProductKey === props.product.type) {

@@ -24,7 +24,7 @@ export const OnboardingBillingStep = ({
     product: BillingProductV2Type
     stepKey?: OnboardingStepKey
 }): JSX.Element => {
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingLoading } = useValues(billingLogic)
     const { productKey } = useValues(onboardingLogic)
     const { currentAndUpgradePlans } = useValues(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
@@ -39,13 +39,14 @@ export const OnboardingBillingStep = ({
             showSkip={!product.subscribed}
             stepKey={stepKey}
             continueOverride={
-                product?.subscribed ? undefined : (
+                product?.subscribed && !billingLoading ? undefined : (
                     <BillingUpgradeCTA
                         // TODO: redirect path won't work properly until navigation is properly set up
-                        to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, true)}
+                        to={getUpgradeProductLink(product, plan?.plan_key || '', redirectPath, true)}
                         type="primary"
                         status="alt"
                         center
+                        disabledReason={billingLoading && 'Please wait...'}
                         disableClientSideRouting
                         onClick={() => {
                             reportBillingUpgradeClicked(product.type)
@@ -57,7 +58,7 @@ export const OnboardingBillingStep = ({
                 )
             }
         >
-            {billing?.products && productKey && product ? (
+            {billing?.products && productKey && product && !billingLoading ? (
                 <div className="mt-6">
                     {product.subscribed && (
                         <div className="mb-8">
@@ -92,7 +93,7 @@ export const OnboardingBillingStep = ({
                         </div>
                     )}
 
-                    {(!product.subscribed || showPlanComp) && (
+                    {(!product.subscribed || showPlanComp) && !billingLoading && (
                         <>
                             <BillingHero />
                             <PlanComparison product={product} includeAddons />
@@ -100,7 +101,9 @@ export const OnboardingBillingStep = ({
                     )}
                 </div>
             ) : (
-                <Spinner className="text-lg" />
+                <div className="flex items-center justify-center my-6">
+                    <Spinner className="text-2xl text-muted" />
+                </div>
             )}
         </OnboardingStep>
     )

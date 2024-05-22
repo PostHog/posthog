@@ -121,8 +121,12 @@ export const PlanComparison = ({
     const { width, ref: planComparisonRef } = useResizeObserver()
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
-    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
-    const { reportSurveyShown, setSurveyResponse } = useActions(billingProductLogic({ product }))
+    const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
+        billingProductLogic({ product })
+    )
+    const { reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
+        billingProductLogic({ product })
+    )
     const billingDaysRemaining = billing?.billing_period?.current_period_end.diff(dayjs(), 'days')
     const billingDaysTotal = billing?.billing_period?.current_period_end.diff(
         billing.billing_period?.current_period_start,
@@ -136,6 +140,8 @@ export const PlanComparison = ({
                     to={
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
+                            : i < currentPlanIndex
+                            ? undefined // Downgrade action handled in onClick
                             : !plan.included_if
                             ? getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)
                             : plan.included_if == 'has_subscription' &&
@@ -166,12 +172,14 @@ export const PlanComparison = ({
                         if (!plan.current_plan) {
                             // TODO: add current plan key and new plan key
                             reportBillingUpgradeClicked(product.type)
+                            setBillingProductLoading(product.type)
                         }
-                        if (plan.included_if == 'has_subscription' && !plan.current_plan && i < currentPlanIndex) {
+                        if (!plan.included_if && !plan.current_plan && i < currentPlanIndex) {
                             setSurveyResponse(product.type, '$survey_response_1')
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
                         }
                     }}
+                    loading={billingProductLoading === product.type && !plan.current_plan && !plan.contact_support}
                     data-attr={`upgrade-${plan.name}`}
                 >
                     {plan.current_plan
