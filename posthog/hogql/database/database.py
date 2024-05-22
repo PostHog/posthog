@@ -481,7 +481,7 @@ def serialize_database(
                 id=str(db_source.source_id),
                 status=db_source.status,
                 source_type=db_source.source_type,
-                prefix=db_source.prefix,
+                prefix=db_source.prefix or "",
                 last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
             )
 
