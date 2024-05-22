@@ -3,6 +3,7 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -81,8 +82,26 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"
-                    value={(totalIntervals ?? 11) - 1}
-                    onChange={(value) => updateInsightFilter({ totalIntervals: (value || 0) + 1 })}
+                    defaultValue={(totalIntervals ?? 11) - 1}
+                    min={1}
+                    max={31}
+                    onBlur={({ target }) => {
+                        let newValue = Number(target.value)
+                        if (newValue > 31) {
+                            // See if just the first two numbers are under 31 (when someone mashed keys)
+                            newValue = Number(target.value.substring(0, 2))
+                            if (newValue > 31) {
+                                newValue = 10
+                            }
+                            toast.warn(
+                                <>
+                                    The maximum number of {dateOptionPlurals[period || 'Day']} is <strong>31</strong>
+                                </>
+                            )
+                        }
+                        target.value = newValue.toString()
+                        updateInsightFilter({ totalIntervals: (newValue || 0) + 1 })
+                    }}
                 />
                 <LemonSelect
                     className="mx-2"
