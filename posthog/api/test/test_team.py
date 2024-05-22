@@ -529,6 +529,7 @@ class TestTeamAPI(APIBaseTest):
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # .../insights/trend/ can't run in HogQL yet
     def test_update_modifiers_remove_cache(self):
         self.client.patch(
             f"/api/projects/{self.team.id}/",
