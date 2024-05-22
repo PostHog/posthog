@@ -1580,6 +1580,109 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["detail"] == "Question choices must be a list of strings"
 
 
+class TestSurveysRecurringIterations(APIBaseTest):
+    def test_can_create_recurring_survey(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Recurring NPS SUrvey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "description": "Get feedback on the new notebooks feature",
+                        "type": "popover",
+                        "questions": "this is my question",
+                    }
+                ],
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        assert response_data["iteration_start_dates"] is None
+        assert response_data["current_iteration"] is None
+        survey = Survey.objects.get(id=response_data["id"])
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "start_date": datetime.now() - timedelta(days=1),
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+
+    @freeze_time("2024-05-22 14:40:09")
+    def test_iterations_always_start_from_start_date(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Recurring NPS SUrvey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "description": "Get feedback on the new notebooks feature",
+                        "type": "popover",
+                        "questions": "this is my question",
+                    }
+                ],
+                "iteration_count": 2,
+                "iteration_frequency_days": 30,
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        assert response_data["iteration_start_dates"] is None
+        assert response_data["current_iteration"] is None
+        survey = Survey.objects.get(id=response_data["id"])
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+        )
+        response_data = response.json()
+        assert response_data["iteration_start_dates"] is not None
+        assert len(response_data["iteration_start_dates"]) == 2
+        assert response_data["current_iteration"] == 1
+        assert response_data["iteration_start_dates"] == ["2024-05-22T14:40:09Z", "2024-06-21T14:40:09Z"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"iteration_count": 4, "iteration_frequency_days": 30},
+        )
+        response_data = response.json()
+        assert len(response_data["iteration_start_dates"]) == 4
+        assert response_data["iteration_start_dates"] == [
+            "2024-05-22T14:40:09Z",
+            "2024-06-21T14:40:09Z",
+            "2024-07-21T14:40:09Z",
+            "2024-08-20T14:40:09Z",
+        ]
+
+    def test_cannot_remove_questions(self):
+        pass
+
+    def test_cannot_remove_options_from_questions(self):
+        pass
+
+    def test_cannot_reduce_iterations_lt_current_iteration(self):
+        pass
+
+    def test_can_stop_and_resume_survey(self):
+        pass
+
+
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):
         cache.clear()
