@@ -181,6 +181,7 @@
   ALTER TABLE sharded_events ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.1
@@ -189,6 +190,7 @@
   ALTER TABLE person ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.2
@@ -197,6 +199,7 @@
   ALTER TABLE person_distinct_id ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.3
@@ -205,6 +208,7 @@
   ALTER TABLE person_distinct_id2 ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.4
@@ -213,6 +217,7 @@
   ALTER TABLE groups ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.5
@@ -221,6 +226,7 @@
   ALTER TABLE cohortpeople ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.6
@@ -229,6 +235,7 @@
   ALTER TABLE person_static_cohort ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams.7
@@ -237,6 +244,7 @@
   ALTER TABLE plugin_log_entries ON CLUSTER 'posthog'
   DELETE
   WHERE team_id = 2
+    OR team_id = 2
   '''
 # ---
 # name: TestAsyncDeletion.test_delete_teams_unrelated
