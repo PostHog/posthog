@@ -35,6 +35,7 @@ from posthog.tasks.tasks import (
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
+    poll_query_performance,
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
@@ -87,6 +88,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
+
+    add_periodic_task_with_expiry(sender, 1, poll_query_performance.s(), "1 sec query performance")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
