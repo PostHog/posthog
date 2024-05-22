@@ -367,7 +367,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         plugin_configs = PluginConfig.objects.filter(
             Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
         )
-        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+        return Response(
+            PluginConfigSerializer(plugin_configs, many=True, context=super().get_serializer_context()).data
+        )
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
