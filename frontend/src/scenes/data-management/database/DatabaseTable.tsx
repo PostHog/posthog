@@ -175,6 +175,15 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                         }
 
                         if (!field.schema_valid && !inEditSchemaMode) {
+                            if (field.name.includes('-')) {
+                                return (
+                                    <>
+                                        Hyphens are not allowed in column names. <code>{field.name}</code> will not be
+                                        queryable.
+                                    </>
+                                )
+                            }
+
                             return (
                                 <>
                                     <code>{field.name}</code> can't be parsed as a <code>{field.type}</code>. It will
