@@ -27,7 +27,6 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
         access_key: '',
         access_secret: '',
     },
-    columns: [],
 }
 
 export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
@@ -68,7 +67,6 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            actions.loadDataWarehouse()
             router.actions.replace(urls.dataWarehouse())
         },
         updateTableSuccess: async ({ table }) => {

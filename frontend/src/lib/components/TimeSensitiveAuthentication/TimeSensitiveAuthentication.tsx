@@ -20,14 +20,16 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             onClose={() => setDismissedReauthentication(true)}
             maxWidth="30rem"
             footer={
-                <LemonButton
-                    type="primary"
-                    form="reauthentication"
-                    loading={isReauthenticationSubmitting}
-                    onClick={submitReauthentication}
-                >
-                    Re-authenticate
-                </LemonButton>
+                user?.has_password ? (
+                    <LemonButton
+                        type="primary"
+                        form="reauthentication"
+                        loading={isReauthenticationSubmitting}
+                        onClick={submitReauthentication}
+                    >
+                        Re-authenticate
+                    </LemonButton>
+                ) : undefined
             }
         >
             <p>You are accessing a sensitive part of PostHog. For your security we require you to re-authenticate.</p>
@@ -45,7 +47,6 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                                 type="password"
                                 className="ph-ignore-input"
                                 data-attr="password"
-                                placeholder="••••••••••"
                                 autoComplete="current-password"
                             />
                         </LemonField>

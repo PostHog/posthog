@@ -181,12 +181,12 @@ class Insight(models.Model):
             return self.filters
 
     def get_effective_query(self, *, dashboard: Optional[Dashboard]) -> Optional[dict]:
-        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+        from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 
         if not dashboard or not self.query:
             return self.query
 
-        return apply_dashboard_filters(self.query, dashboard.filters, self.team)
+        return apply_dashboard_filters_to_dict(self.query, dashboard.filters, self.team)
 
     @property
     def url(self):
