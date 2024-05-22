@@ -35,6 +35,7 @@ from posthog.tasks.tasks import (
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
+    poll_query_performance,
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
@@ -45,12 +46,10 @@ from posthog.tasks.tasks import (
     sync_insight_cache_states_task,
     update_event_partitions,
     update_quota_limiting,
-    validate_proxy_domains,
     verify_persons_data_in_sync,
     stop_surveys_reached_target,
 )
 from posthog.utils import get_crontab
-from posthog.cloud_utils import is_cloud
 
 
 def add_periodic_task_with_expiry(
@@ -89,6 +88,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
+
+    add_periodic_task_with_expiry(sender, 1, poll_query_performance.s(), "1 sec query performance")
 
     # Update events table partitions twice a week
     sender.add_periodic_task(
@@ -226,14 +227,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         process_scheduled_changes.s(),
         name="process scheduled changes",
     )
-
-    if is_cloud():
-        add_periodic_task_with_expiry(
-            sender,
-            10,
-            validate_proxy_domains.s(),
-            name="validate proxy domain",
-        )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(

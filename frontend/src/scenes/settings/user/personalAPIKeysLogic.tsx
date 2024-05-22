@@ -301,6 +301,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
 
             LemonDialog.open({
                 title: 'Personal API key ready',
+                width: 536,
                 content: (
                     <>
                         <p className="mb-4">You can now use key "{key.label}" for authentication:</p>
