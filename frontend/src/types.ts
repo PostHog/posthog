@@ -227,6 +227,7 @@ interface UserBaseType {
 export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
+    hedgehog_config?: MinimalHedgehogConfig
 }
 
 /**
@@ -243,7 +244,6 @@ export type UserTheme = 'light' | 'dark' | 'system'
 /** Full User model. */
 export interface UserType extends UserBaseType {
     date_joined: string
-    email_opt_in: boolean
     notification_settings: NotificationSettings
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -264,6 +264,35 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
+    hedgehog_config?: Partial<HedgehogConfig>
+}
+
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export interface MinimalHedgehogConfig {
+    use_as_profile: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+}
+
+export interface HedgehogConfig extends MinimalHedgehogConfig {
+    enabled: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+    walking_enabled: boolean
+    interactions_enabled: boolean
+    controls_enabled: boolean
+    party_mode_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -280,6 +309,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    mask_value?: string | null
     created_at: string
     last_used_at: string
     team_id: number
@@ -305,7 +335,6 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -504,11 +533,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum StringMatching {
-    Contains = 'contains',
-    Regex = 'regex',
-    Exact = 'exact',
-}
+export type ActionStepStringMatching = 'contains' | 'exact' | 'regex'
 
 export interface ActionStepType {
     event?: string | null
@@ -518,14 +543,13 @@ export interface ActionStepType {
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
-    text_matching?: StringMatching | null
+    text_matching?: ActionStepStringMatching | null
     href?: string | null
-    /** @default StringMatching.Exact */
-    href_matching?: StringMatching | null
+    /** @default ActionStepStringMatching.Exact */
+    href_matching?: ActionStepStringMatching | null
     url?: string | null
     /** @default StringMatching.Contains */
-    url_matching?: StringMatching | null
-    isNew?: string
+    url_matching?: ActionStepStringMatching | null
 }
 
 export interface ElementType {

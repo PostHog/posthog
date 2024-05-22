@@ -85,7 +85,8 @@ class TestVisitor(BaseTest):
                                     op=ast.CompareOperationOp.Eq,
                                     left=ast.Field(chain=["d"]),
                                     right=ast.Field(chain=["e"]),
-                                )
+                                ),
+                                constraint_type="ON",
                             ),
                         ),
                         sample=ast.SampleExpr(

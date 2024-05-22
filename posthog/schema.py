@@ -762,7 +762,7 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
-    query_async: Optional[bool] = True
+    query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
     query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
@@ -4036,24 +4036,10 @@ class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+    fixedProperties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+        default=None,
+        description="Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
+    )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -4061,24 +4047,10 @@ class ActorsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+    properties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+        default=None,
+        description="Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
+    )
     response: Optional[ActorsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None
