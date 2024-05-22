@@ -7,6 +7,10 @@
     // Tricky: needs to match the equivalent height button from LemonButton.scss
     --lemon-calendar-time-button-height: 2.3125rem;
 
+    .LemonCalendar__month {
+        width: 100%;
+    }
+
     .LemonCalendar__month > thead > tr:first-child > th,
     .LemonCalendar__month > tbody > tr > td {
         padding: calc(var(--lemon-calendar-row-gap) / 2) 0;

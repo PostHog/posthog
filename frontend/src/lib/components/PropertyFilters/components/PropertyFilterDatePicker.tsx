@@ -48,7 +48,7 @@ export function PropertyFilterDatePicker({
             value={datePickerValue}
             format={dateFormat}
             visible={datePickerOpen}
-            onClickOutside={() => setDatePickerOpen(true)}
+            onClickOutside={() => setDatePickerOpen(false)}
             onChange={(selectedDate) => {
                 if (selectedDate) {
                     setDatePickerValue(selectedDate)
@@ -58,7 +58,7 @@ export function PropertyFilterDatePicker({
             }}
             onClose={() => setDatePickerOpen(false)}
             granularity={includeTimeInFilter ? 'minute' : 'day'}
-            buttonProps={{ 'data-attr': 'filter-date-picker', fullWidth: true }}
+            buttonProps={{ 'data-attr': 'filter-date-picker', fullWidth: true, onClick: () => setDatePickerOpen(true) }}
             showTimeToggle
             onToggleTime={setIncludeTimeInFilter}
         />
