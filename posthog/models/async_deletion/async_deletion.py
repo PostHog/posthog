@@ -4,7 +4,7 @@ from django.db import models
 class DeletionType(models.IntegerChoices):
     Team = 0
     Person = 1
-    Group = 2  # IMPORTANT: Group deletions are not supported at the moment
+    Group = 2
     Cohort_stale = 3
     Cohort_full = 4
 
@@ -47,16 +47,3 @@ class AsyncDeletion(models.Model):
 
     # When was the data verified to be deleted - we can skip it in the next round
     delete_verified_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
-
-
-CLICKHOUSE_ASYNC_DELETION_TABLE = """
-CREATE OR REPLACE TABLE {table_name} ON CLUSTER '{cluster}'
-(
-    `id` UInt64,
-    `deletion_type` UInt8,
-    `key` String,
-    `group_type_index` String,
-    `team_id` Int64
-)
-ENGINE = Join(ANY, LEFT, team_id, deletion_type, key)
-"""
