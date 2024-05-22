@@ -3,6 +3,8 @@ import datetime as dt
 from django.contrib.postgres import fields
 from django.db import models
 
+from posthog.redis import get_client
+
 
 class MissingApprovalError(Exception):
     """Exception raised when executing an operation without required amount of approvals."""
@@ -31,6 +33,13 @@ class MutationFailedToSaveError(Exception):
     """Exception to group any other exceptions raised by calling save."""
 
     pass
+
+
+class NotSupportedCommandError(Exception):
+    """Exception raised when attempting to apply an unsupported command to a Redis key of a given type."""
+
+    def __init__(self, redis_key: str, redis_type: str, command: str):
+        super().__init__(f"Command {command} is not supported on key {redis_key} of type {redis_type}.")
 
 
 class RedisMutation(models.Model):
@@ -87,7 +96,7 @@ class RedisMutation(models.Model):
     id = models.BigAutoField(primary_key=True, editable=False)
 
     redis_key = models.CharField(max_length=200, null=False, blank=False)
-    redis_type = models.CharField(max_length=200, null=False, blank=False, choices=RedisType.choices)
+    redis_type = models.CharField(max_length=200, null=True, blank=False, choices=RedisType.choices)
     value = models.CharField(null=True, blank=True)
     command = models.CharField(max_length=200, null=False, blank=False, choices=MutationCommand.choices)
     parameters = models.JSONField(default=dict, blank=True)
@@ -97,7 +106,6 @@ class RedisMutation(models.Model):
         max_length=200,
         null=False,
         choices=Status.choices,
-        default=Status.CREATED,
     )
     approved_by = fields.ArrayField(base_field=models.CharField(null=False), default=list, editable=False)
     created_at = models.DateTimeField(null=False, auto_now_add=True, editable=False)
@@ -105,6 +113,7 @@ class RedisMutation(models.Model):
     last_updated_at = models.DateTimeField(null=False, auto_now=True, editable=False)
     applied_by = models.CharField(max_length=200, null=True, editable=False)
     applied_at = models.DateTimeField(null=True, editable=False)
+    apply_error = models.TextField(null=True, editable=False)
     discarded_by = models.CharField(max_length=200, null=True, editable=False)
     discarded_at = models.DateTimeField(null=True, editable=False)
 
@@ -132,7 +141,8 @@ class RedisMutation(models.Model):
 
         try:
             self.run_mutation_command()
-        except Exception:
+        except Exception as e:
+            self.apply_error = f"{e.__class__.__name__}: {str(e)}"
             self.status = self.Status.FAILED
         else:
             self.status = self.Status.COMPLETED
@@ -164,9 +174,34 @@ class RedisMutation(models.Model):
 
     def run_mutation_command(self):
         """Run this mutation on Redis."""
-        # TODO: Actually run the mutation
-        # Implementation will vary according to command.
-        pass
+        match self.command:
+            case self.MutationCommand.SET:
+                # We do not need to check here whether current type is 'string' as SET will overwrite
+                # whatever value the key holds, regardless of its current type.
+                # TODO: A warning could be issued if an overwrite to a non-string type happens.
+                redis_client = get_client()
+                redis_client.set(self.redis_key, self.value, **self.parameters)
+
+            case self.MutationCommand.APPEND:
+                redis_client = get_client()
+                redis_client.append(self.redis_key, self.value, **self.parameters)
+
+            case self.MutationCommand.SADD:
+                # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
+                redis_client = get_client()
+                redis_client.sadd(self.redis_key, self.value)
+
+            case self.MutationCommand.DEL:
+                redis_client = get_client()
+                redis_client.delete(self.redis_key)
+
+            case self.MutationCommand.EXPIRE:
+                redis_client = get_client()
+                seconds = int(self.value)  # This has been validated to be castable to int.
+                redis_client.expire(self.redis_key, time=seconds)
+
+            case _:
+                raise NotSupportedCommandError(self.redis_key, self.redis_type, self.command)
 
     def discard(self, discarded_by: str) -> None:
         """Discard this active mutation."""

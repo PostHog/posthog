@@ -1,9 +1,11 @@
 from django import forms
 from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
 from django.http import HttpRequest
 from django.utils.translation import ngettext
 
-from posthog.models.redis import MutationFailedToSaveError, MutationInactiveError
+from posthog.models.redis import MutationFailedToSaveError, MutationInactiveError, RedisMutation
+from posthog.redis import get_client
 
 
 class RedisMutationForm(forms.ModelForm):
@@ -14,8 +16,84 @@ class RedisMutationForm(forms.ModelForm):
         self.fields["redis_key"].widget = forms.TextInput(attrs={"size": 50})
         self.fields["value"].widget = forms.Textarea(attrs={"rows": 10, "cols": 50})
 
+    def clean(self):
+        super().clean()
+
+        self.cleaned_data["status"] = "created"
+
+        redis_key = self.cleaned_data.get("redis_key", None)
+        self.cleaned_data["redis_type"] = self.try_get_redis_type(redis_key)
+
+        command = self.cleaned_data.get("command", None)
+        self.validate_command(command)
+
+        return self.cleaned_data
+
+    def validate_command(self, command: str | None):
+        """Command specific validation of inputs.
+
+        This method should implement guardrails that cannot be encoded as database constraints but we
+        know are required to safely operate with Redis.
+
+        For safety, any non-validated command is considered not supported.
+        """
+        if command is None:
+            raise ValidationError("Command is not a valid choice")
+
+        match (command, self.cleaned_data):
+            case (RedisMutation.MutationCommand.EXPIRE, {"value": value}):
+                try:
+                    int(value)
+                except (ValueError, TypeError):
+                    raise ValidationError(f"EXPIRE requires the provided value of '{value}' to be castable to 'int'.")
+
+            case (RedisMutation.MutationCommand.SET, {"value": value}):
+                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
+
+                if value is None:
+                    raise ValidationError(f"SET command must take some 'str' value")
+
+            case (RedisMutation.MutationCommand.APPEND, {"value": value}):
+                # TODO: Validate optional parameters passed to Redis (NX, XX, EX, PX, etc...).
+
+                if value is None:
+                    raise ValidationError(f"APPEND command must take some 'str' value")
+
+            case (RedisMutation.MutationCommand.SADD, {"value": value}):
+                # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
+                redis_type = self.cleaned_data["redis_type"]
+                if redis_type is not None and redis_type != "set":
+                    raise ValidationError(f"SADD can only operate on 'set' type, not '{redis_type}'")
+
+                if value is None:
+                    raise ValidationError(f"SADD command must take at least one value")
+
+            case (RedisMutation.MutationCommand.DEL, rest):
+                if "value" in rest:
+                    self.cleaned_data["value"] = None
+
+            case (command, _):
+                raise ValidationError(f"Command '{command}' is not supported")
+
+    def try_get_redis_type(self, redis_key: str | None) -> str | None:
+        """Attempt to obtain the type of given 'redis_key'."""
+
+        if redis_key is None:
+            raise ValidationError(f"redis_key is a required field")
+
+        redis_client = get_client()
+
+        type_ = redis_client.type(redis_key).decode("utf8")
+
+        if type_ == "none":
+            return None
+        return type_
+
     def save(self, commit=True):
-        self.cleaned_data["status"] = "Created"
+        """Populate instance with additional fields before saving."""
+
+        self.instance.status = self.cleaned_data["status"]
+        self.instance.redis_type = self.cleaned_data["redis_type"]
         return super().save(commit=commit)
 
 
@@ -32,6 +110,7 @@ class RedisMutationAdmin(admin.ModelAdmin):
 
     list_display = [
         "redis_key",
+        "redis_type",
         "value",
         "command",
         "status",
