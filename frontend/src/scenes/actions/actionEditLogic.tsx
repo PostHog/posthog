@@ -23,7 +23,7 @@ export interface SetActionProps {
 
 export interface ActionEditLogicProps {
     id?: number
-    action?: ActionType
+    action?: ActionType | null
 }
 
 export const DEFAULT_ACTION_STEP: ActionStepType = {
