@@ -1,6 +1,9 @@
 from django.db import models
 
 
+MAX_QUERY_SIZE = 2_621_440
+
+
 class DeletionType(models.IntegerChoices):
     Team = 0
     Person = 1

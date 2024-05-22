@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.client import sync_execute
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionType, MAX_QUERY_SIZE
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -43,6 +43,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             DELETE WHERE {" OR ".join(conditions)}
             """,
             args,
+            settings={"max_query_size": MAX_QUERY_SIZE},
         )
 
         # Team data needs to be deleted from other models as well, groups/persons handles deletions on a schema level
@@ -67,6 +68,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
                 DELETE WHERE {" OR ".join(conditions)}
                 """,
                 args,
+                settings={"max_query_size": MAX_QUERY_SIZE},
             )
 
     def _verify_by_group(self, deletion_type: int, async_deletions: list[AsyncDeletion]) -> list[AsyncDeletion]:
@@ -89,6 +91,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             WHERE {" OR ".join(conditions)}
             """,
             args,
+            settings={"max_query_size": MAX_QUERY_SIZE},
         )
         return {tuple(row) for row in clickhouse_result}
 
