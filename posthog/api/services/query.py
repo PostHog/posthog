@@ -28,14 +28,14 @@ from posthog.schema import (
 logger = structlog.get_logger(__name__)
 
 
-def process_query(
+def process_query_dict(
     team: Team,
     query_json: dict,
     *,
     dashboard_filters_json: Optional[dict] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     model = QuerySchemaRoot.model_validate(query_json)
     tag_queries(query=query_json)
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
@@ -55,7 +55,7 @@ def process_query_model(
     dashboard_filters: Optional[DashboardFilter] = None,
     limit_context: Optional[LimitContext] = None,
     execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
-) -> dict:
+) -> dict | BaseModel:
     result: dict | BaseModel
 
     try:
@@ -98,6 +98,4 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         result = query_runner.run(execution_mode=execution_mode)
 
-    if isinstance(result, BaseModel):
-        return result.model_dump()
     return result
