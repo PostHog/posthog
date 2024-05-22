@@ -464,7 +464,7 @@ def social_create_user(
             user.is_email_verified = True
             user.save()
         process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
-        return {"is_new": False}
+        return {"is_new": False, "user": user}
 
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
