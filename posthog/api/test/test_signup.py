@@ -50,7 +50,6 @@ class TestSignupAPI(APIBaseTest):
                 "password": VALID_TEST_PASSWORD,
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
-                "email_opt_in": False,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -78,7 +77,6 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "John")
         self.assertEqual(user.last_name, "Doe")
         self.assertEqual(user.email, "hedgehog@posthog.com")
-        self.assertFalse(user.email_opt_in)
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
         self.assertFalse(user.is_email_verified)
 
@@ -228,7 +226,6 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
-        self.assertTrue(user.email_opt_in)  # Defaults to True
         self.assertEqual(organization.name, f"{user.first_name}'s Organization")
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
@@ -924,7 +921,6 @@ class TestInviteSignupAPI(APIBaseTest):
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "Alice")
         self.assertEqual(user.email, "test+99@posthog.com")
-        self.assertEqual(user.email_opt_in, True)
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
@@ -968,7 +964,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
-            {"first_name": "Alice", "password": VALID_TEST_PASSWORD, "email_opt_in": True},
+            {"first_name": "Alice", "password": VALID_TEST_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
@@ -1015,7 +1011,6 @@ class TestInviteSignupAPI(APIBaseTest):
                 {
                     "first_name": "Alice",
                     "password": VALID_TEST_PASSWORD,
-                    "email_opt_in": True,
                 },
             )
 
@@ -1037,7 +1032,6 @@ class TestInviteSignupAPI(APIBaseTest):
                     {
                         "first_name": "Alice",
                         "password": VALID_TEST_PASSWORD,
-                        "email_opt_in": True,
                     },
                 )
 
@@ -1069,7 +1063,6 @@ class TestInviteSignupAPI(APIBaseTest):
                 {
                     "first_name": "Alice",
                     "password": VALID_TEST_PASSWORD,
-                    "email_opt_in": True,
                 },
             )
 
@@ -1432,7 +1425,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_cannot_use_social_invite_sign_up_without_required_attributes(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
-        response = self.client.post("/api/social_signup", {"email_opt_in": False})
+        response = self.client.post("/api/social_signup", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),

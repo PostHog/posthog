@@ -148,7 +148,7 @@ class User(AbstractUser, UUIDClassicModel):
     strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
-    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+
     theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
     partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
@@ -160,6 +160,8 @@ class User(AbstractUser, UUIDClassicModel):
 
     # DEPRECATED
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
+    # DEPRECATED - Most emails are done via 3rd parties and we use their opt/in out tooling
+    email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # Remove unused attributes from `AbstractUser`
     username = None
@@ -296,7 +298,6 @@ class User(AbstractUser, UUIDClassicModel):
 
         return {
             "realm": get_instance_realm(),
-            "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,
