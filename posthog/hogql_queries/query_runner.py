@@ -407,9 +407,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedResponse(**fresh_response_dict)
 
-        # Dont cache debug queries with errors
+        # Dont cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if has_error is None or len(has_error) == 0:
+        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
             # TODO: Use JSON serializer in general for redis cache
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(fresh_response.model_dump())
             cache.set(cache_key, fresh_response_serialized, settings.CACHED_RESULTS_TTL)
