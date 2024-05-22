@@ -32,7 +32,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         filteredTables: [
             (s) => [s.database, s.searchTerm],
             (database, searchTerm): DatabaseSchemaTable[] => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return []
                 }
 
@@ -44,7 +44,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         allTables: [
             (s) => [s.database],
             (database): DatabaseSchemaTable[] => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return []
                 }
 
@@ -54,7 +54,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         posthogTables: [
             (s) => [s.database],
             (database): DatabaseSchemaTable[] => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return []
                 }
 
@@ -64,7 +64,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         posthogTablesMap: [
             (s) => [s.database],
             (database): Record<string, DatabaseSchemaTable> => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return {}
                 }
 
@@ -79,7 +79,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         dataWarehouseTables: [
             (s) => [s.database],
             (database): DatabaseSchemaDataWarehouseTable[] => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return []
                 }
 
@@ -91,7 +91,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         dataWarehouseTablesMap: [
             (s) => [s.database],
             (database): Record<string, DatabaseSchemaDataWarehouseTable> => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return {}
                 }
 
@@ -106,7 +106,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         views: [
             (s) => [s.database],
             (database): DatabaseSchemaViewTable[] => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return []
                 }
 
@@ -116,7 +116,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         viewsMap: [
             (s) => [s.database],
             (database): Record<string, DatabaseSchemaViewTable> => {
-                if (!database) {
+                if (!database || !database.tables) {
                     return {}
                 }
 
