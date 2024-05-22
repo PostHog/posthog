@@ -37,7 +37,7 @@ class ConfirmAuthSerializer(serializers.Serializer):
     verification: serializers.CharField = serializers.CharField(max_length=128, required=True)
 
 
-class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     queryset = User.objects.none()
     throttle_classes = [ClientAuthenticationUserRateThrottle]
@@ -48,7 +48,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not code:
             raise exceptions.ValidationError({"code": "Missing code"})
 
-        verification = cache.get(f"cli-authentication/flows/{code}")
+        verification = cache.get(f"client-authorization/flows/{code}")
 
         if not verification:
             raise exceptions.ValidationError({"code": "Code invalid or expired"})
@@ -62,7 +62,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = serializer.validated_data
         code = data["code"]
         given_verification = data["verification"]
-        known_verification = cache.get(f"cli-authentication/flows/{code}")
+        known_verification = cache.get(f"client-authorization/flows/{code}")
 
         if not known_verification:
             raise exceptions.ValidationError({"code": "Code invalid or expired"})
@@ -70,7 +70,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if known_verification != given_verification:
             raise exceptions.ValidationError({"code": "Something went wrong. Please restart the flow"})
 
-        known_verification = cache.delete(f"cli-authentication/flows/{code}")
+        known_verification = cache.delete(f"client-authorization/flows/{code}")
 
         access_token = encode_jwt(
             {"id": request.user.id},
@@ -78,7 +78,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             PosthogJwtAudience.CLIENT,
         )
 
-        cache.set(f"cli-authentication/tokens/{code}", access_token, timeout=60)
+        cache.set(f"client-authorization/tokens/{code}", access_token, timeout=60)
 
         return JsonResponse({"status": "authorized"})
 
@@ -93,7 +93,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         code = str(uuid4())
         secret = str(uuid4())
 
-        cache.set(f"cli-authentication/flows/{code}", secret, timeout=60 * 5)  # 5 minute timeout
+        cache.set(f"client-authorization/flows/{code}", secret, timeout=60 * 5)  # 5 minute timeout
 
         return JsonResponse({"code": code})
 
@@ -108,12 +108,12 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # TODO: Sensible rate limiting here
         code = request.GET.get("code")
 
-        secret = cache.get(f"cli-authentication/flows/{code}")
-        access_token = cache.get(f"cli-authentication/tokens/{code}")
+        secret = cache.get(f"client-authorization/flows/{code}")
+        access_token = cache.get(f"client-authorization/tokens/{code}")
 
         if access_token:
             # We delete it so it can only be given out once
-            cache.delete(f"cli-authentication/tokens/{code}")
+            cache.delete(f"client-authorization/tokens/{code}")
 
         status = "missing"
 

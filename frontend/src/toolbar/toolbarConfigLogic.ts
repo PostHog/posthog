@@ -8,6 +8,8 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
 
+export type ToolbarAuthenticationState = Pick<ToolbarProps, 'authorizationCode' | 'accessToken'>
+
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
@@ -20,6 +22,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
+        setAuthenticationState: (state: ToolbarAuthenticationState) => ({ state }),
     }),
 
     reducers(({ props }) => ({
@@ -32,6 +35,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
+
+        authentication: [
+            null as ToolbarAuthenticationState | null,
+            {
+                setAuthenticationState: (_, { state }) => state,
+            },
+        ],
     })),
 
     selectors({
@@ -50,11 +60,18 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        authenticate: () => {
+        authenticate: async () => {
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
-            actions.persistConfig()
-            window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
+
+            const authorizationCode = await toolbarFetch(`/api/client_authorization/start`, 'POST')
+                .then((response) => response.json())
+                .then((data) => data.code)
+
+            console.log(authorizationCode)
+
+            // actions.persistConfig()
+            // window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')

@@ -584,6 +584,8 @@ export interface ToolbarParams {
     userEmail?: string
     dataAttributes?: string[]
     featureFlags?: Record<string, string | boolean>
+    authorizationCode?: string
+    accessToken?: string
 }
 
 export interface ToolbarProps extends ToolbarParams {
