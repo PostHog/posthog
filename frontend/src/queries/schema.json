@@ -1345,6 +1345,12 @@
                 "cache_key": {
                     "type": "string"
                 },
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -1388,6 +1394,8 @@
             },
             "required": [
                 "cache_key",
+                "dateFrom",
+                "dateTo",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -1874,6 +1882,12 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "dateFrom": {
+                                    "type": "string"
+                                },
+                                "dateTo": {
+                                    "type": "string"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -1903,7 +1917,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["results"],
+                            "required": ["dateFrom", "dateTo", "results"],
                             "type": "object"
                         },
                         {
@@ -5685,6 +5699,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -5714,7 +5734,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": ["dateFrom", "dateTo", "results"],
                     "type": "object"
                 },
                 {
@@ -6006,6 +6026,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "dateFrom": {
+                            "type": "string"
+                        },
+                        "dateTo": {
+                            "type": "string"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -6035,7 +6061,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results"],
+                    "required": ["dateFrom", "dateTo", "results"],
                     "type": "object"
                 },
                 {
@@ -7694,6 +7720,12 @@
         "WebOverviewQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "dateFrom": {
+                    "type": "string"
+                },
+                "dateTo": {
+                    "type": "string"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -7723,7 +7755,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results"],
+            "required": ["dateFrom", "dateTo", "results"],
             "type": "object"
         },
         "WebStatsBreakdown": {

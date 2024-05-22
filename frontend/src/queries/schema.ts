@@ -1055,6 +1055,8 @@ export interface SamplingRate {
 
 export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
+    dateFrom: string
+    dateTo: string
 }
 export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 

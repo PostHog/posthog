@@ -146,6 +146,8 @@ FROM (
             ],
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
         )
 
     @cached_property
