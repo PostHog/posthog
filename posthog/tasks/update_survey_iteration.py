@@ -16,11 +16,16 @@ def _update_survey_iteration(survey: Survey) -> None:
 
 
 def _get_current_iteration(survey: Survey) -> int:
+    if survey.iteration_start_dates is None or survey.iteration_frequency_days is None or survey.end_date is not None:
+        return 0
+
     today_date = date.today()
-    for idx, start_date in enumerate(survey.iteration_start_dates):
-        delta = (today_date - start_date.date()).days
-        if delta > 0 and delta < survey.iteration_frequency_days:
-            return idx + 1
+    idx = 0
+    for start_date in survey.iteration_start_dates:
+        if start_date is not None and survey.iteration_frequency_days is not None:
+            delta = (today_date - start_date.date()).days
+            if delta > 0 and delta < survey.iteration_frequency_days:
+                return idx + 1
 
     return 0
 
