@@ -44,16 +44,17 @@ export const createFirstOrganizationLogic = kea<createFirstOrganizationLogicType
                 // Update user info as well as creating the org
 
                 try {
-                    await Promise.all([
-                        api.update('api/users/@me/', {
+                    if (formValues.first_name) {
+                        await api.update('api/users/@me/', {
                             first_name: formValues.first_name,
-                        }),
-                        api.create('api/organizations/', {
-                            name: formValues.organization_name,
-                        }),
-                    ])
+                        })
+                    }
+                    await api.create('api/organizations/', {
+                        name: formValues.organization_name,
+                    })
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create organization')
+                    return
                 }
 
                 window.location.reload()
