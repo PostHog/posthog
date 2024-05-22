@@ -1003,7 +1003,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "events": [{"id": "$pageview"}],
                 "insight": "TRENDS",
-                "date_from": "-7d",
+                "date_from": None,
                 "date_to": None,
             },
         )
