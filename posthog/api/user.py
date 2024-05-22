@@ -31,6 +31,7 @@ from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.client_auth import confirm_client_auth_flow, start_client_auth_flow
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
@@ -491,12 +492,14 @@ def redirect_to_site(request):
 
     if not team or not hostname_in_allowed_url_list(team.app_urls, urllib.parse.urlparse(app_url).hostname):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    request.user.temporary_token = secrets.token_urlsafe(32)
-    request.user.save()
+
+    code, verification = start_client_auth_flow()
+    confirm_client_auth_flow(code, verification, request.user)
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,
-        "temporaryToken": request.user.temporary_token,
+        "authorizationCode": code,
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",

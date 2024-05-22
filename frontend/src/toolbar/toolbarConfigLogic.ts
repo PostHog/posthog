@@ -30,11 +30,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     reducers(({ props }) => ({
         // TRICKY: We cache a copy of the props. This allows us to connect the logic without passing the props in - only the top level caller has to do this.
         props: [props],
-        // TODO: Copy this logic to the access token side of things
-        // temporaryToken: [
-        //     props.temporaryToken || null,
-        //     { logout: () => null, tokenExpired: () => null, authenticate: () => null },
-        // ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
@@ -105,16 +100,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             actions.authorize()
-            // toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
-            // const encodedUrl = encodeURIComponent(window.location.href)
-            // // TODO: Error handling
-            // const authorizationCode = await toolbarFetch(`/api/client_authorization/start`, 'POST')
-            //     .then((response) => response.json())
-            //     .then((data) => data.code)
-            // actions.setAuthenticationState({ authorizationCode })
-            // actions.persistConfig()
-            // window.location.href = `${values.apiURL}/client_authorization/?code=${authorizationCode}&redirect_url=${encodedUrl}&client_id=toolbar`
         },
 
         authorizeSuccess: async () => {

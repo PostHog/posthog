@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -37,6 +37,37 @@ class ConfirmAuthSerializer(serializers.Serializer):
     verification: serializers.CharField = serializers.CharField(max_length=128, required=True)
 
 
+def start_client_auth_flow() -> tuple[str, str]:
+    code = str(uuid4())
+    verification = str(uuid4())
+
+    cache.set(f"client-authorization/flows/{code}", verification, timeout=60 * 5)  # 5 minute timeout
+
+    return (code, verification)
+
+
+def confirm_client_auth_flow(code: str, verification: str, user: User) -> str:
+    known_verification = cache.get(f"client-authorization/flows/{code}")
+
+    if not known_verification:
+        raise exceptions.ValidationError({"code": "Code invalid or expired"})
+
+    if known_verification != verification:
+        raise exceptions.ValidationError({"code": "Something went wrong. Please restart the flow"})
+
+    known_verification = cache.delete(f"client-authorization/flows/{code}")
+
+    access_token = encode_jwt(
+        {"id": user.id},
+        DEFAULT_CLIENT_AUTHENTICATION_TIME,
+        PosthogJwtAudience.CLIENT,
+    )
+
+    cache.set(f"client-authorization/tokens/{code}", access_token, timeout=60)
+
+    return access_token
+
+
 class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
     queryset = User.objects.none()
@@ -60,25 +91,8 @@ class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         serializer = ConfirmAuthSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        code = data["code"]
-        given_verification = data["verification"]
-        known_verification = cache.get(f"client-authorization/flows/{code}")
 
-        if not known_verification:
-            raise exceptions.ValidationError({"code": "Code invalid or expired"})
-
-        if known_verification != given_verification:
-            raise exceptions.ValidationError({"code": "Something went wrong. Please restart the flow"})
-
-        known_verification = cache.delete(f"client-authorization/flows/{code}")
-
-        access_token = encode_jwt(
-            {"id": request.user.id},
-            DEFAULT_CLIENT_AUTHENTICATION_TIME,
-            PosthogJwtAudience.CLIENT,
-        )
-
-        cache.set(f"client-authorization/tokens/{code}", access_token, timeout=60)
+        confirm_client_auth_flow(data["code"], data["verification"], cast(User, request.user))
 
         return JsonResponse({"status": "authorized"})
 
@@ -90,10 +104,7 @@ class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClientAuthenticationAnonStartRateThrottle],
     )
     def start(self, request: Request, *args, **kwargs) -> JsonResponse:
-        code = str(uuid4())
-        secret = str(uuid4())
-
-        cache.set(f"client-authorization/flows/{code}", secret, timeout=60 * 5)  # 5 minute timeout
+        code, _ = start_client_auth_flow()
 
         return JsonResponse({"code": code})
 
@@ -105,7 +116,6 @@ class ClientAuthorizationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClientAuthenticationAnonCheckRateThrottle],
     )
     def check(self, request: Request, *args, **kwargs) -> JsonResponse:
-        # TODO: Sensible rate limiting here
         code = request.GET.get("code")
 
         secret = cache.get(f"client-authorization/flows/{code}")
