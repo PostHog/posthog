@@ -312,11 +312,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: false,
         defaultDocsPath: '/docs/data/organizations-and-projects',
     },
-    [Scene.OrganizationCreationConfirm]: {
-        name: 'Confirm organization creation',
-        onlyUnauthenticated: true,
-        defaultDocsPath: '/docs/data/organizations-and-projects',
-    },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -557,7 +552,6 @@ export const routes: Record<string, Scene> = {
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationBilling()]: Scene.Billing,
     [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
-    [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
     [urls.instanceStatus()]: Scene.SystemStatus,
     [urls.instanceSettings()]: Scene.SystemStatus,
     [urls.instanceStaffUsers()]: Scene.SystemStatus,

@@ -9,19 +9,18 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { confirmOrganizationLogic } from './confirmOrganizationLogic'
+import { createFirstOrganizationLogic } from './createFirstOrganizationLogic'
 
 export const scene: SceneExport = {
-    component: ConfirmOrganization,
-    logic: organizationLogic,
+    component: CreateFirstOrganization,
+    logic: createFirstOrganizationLogic,
 }
 
-export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, showNewOrgWarning } = useValues(confirmOrganizationLogic)
-    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+export function CreateFirstOrganization(): JSX.Element {
+    const { isConfirmOrganizationSubmitting, showNewOrgWarning, user } = useValues(createFirstOrganizationLogic)
+    const { setShowNewOrgWarning } = useActions(createFirstOrganizationLogic)
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
@@ -57,11 +56,17 @@ export function ConfirmOrganization(): JSX.Element {
             </div>
 
             <Form
-                logic={confirmOrganizationLogic}
+                logic={createFirstOrganizationLogic}
                 formKey="confirmOrganization"
                 enableFormOnSubmit
                 className="space-y-4"
             >
+                {!user?.first_name ? (
+                    <LemonField name="first_name" label="Your name">
+                        <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
+                    </LemonField>
+                ) : null}
+
                 <LemonField
                     name="organization_name"
                     label="Organization name"

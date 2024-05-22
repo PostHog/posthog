@@ -1,19 +1,23 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userLogic } from 'scenes/userLogic'
 
-import type { confirmOrganizationLogicType } from './confirmOrganizationLogicType'
+import type { createFirstOrganizationLogicType } from './createFirstOrganizationLogicType'
 
-export interface ConfirmOrganizationFormValues {
+export interface CreateFirstOrganizationFormValues {
     organization_name?: string
     first_name?: string
     role_at_organization?: string
 }
 
-export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
-    path(['scenes', 'organization', 'confirmOrganizationLogic']),
+export const createFirstOrganizationLogic = kea<createFirstOrganizationLogicType>([
+    path(['scenes', 'organization', 'createFirstOrganizationLogic']),
+    connect({
+        values: [userLogic, ['user']],
+    }),
 
     actions({
         setShowNewOrgWarning: (show: boolean) => ({ show }),
@@ -28,23 +32,31 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
         ],
     }),
 
-    forms(() => ({
+    forms(({ values }) => ({
         confirmOrganization: {
-            defaults: {} as ConfirmOrganizationFormValues,
+            defaults: {} as CreateFirstOrganizationFormValues,
             errors: ({ organization_name, first_name }) => ({
-                first_name: !first_name ? 'Please enter your name' : undefined,
+                first_name: !values.user?.first_name && !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
 
             submit: async (formValues) => {
+                // Update user info as well as creating the org
+
                 try {
-                    const response = await api.create('api/social_signup/', {
-                        ...formValues,
-                    })
-                    location.href = response.success_url || '/'
+                    await Promise.all([
+                        api.update('api/users/@me/', {
+                            first_name: formValues.first_name,
+                        }),
+                        api.create('api/organizations/', {
+                            name: formValues.organization_name,
+                        }),
+                    ])
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create organization')
                 }
+
+                window.location.reload()
             },
         },
     })),

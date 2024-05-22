@@ -3,14 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { confirmOrganizationLogic } from './confirmOrganizationLogic'
+import { createFirstOrganizationLogic } from './createFirstOrganizationLogic'
 
-describe('confirmOrganizationLogic', () => {
-    let logic: ReturnType<typeof confirmOrganizationLogic.build>
+describe('createFirstOrganizationLogic', () => {
+    let logic: ReturnType<typeof createFirstOrganizationLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = confirmOrganizationLogic()
+        logic = createFirstOrganizationLogic()
         logic.mount()
     })
 
