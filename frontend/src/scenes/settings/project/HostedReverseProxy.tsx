@@ -1,6 +1,5 @@
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonInput,
     LemonMenu,
@@ -16,14 +15,12 @@ import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 export function HostedReverseProxy(): JSX.Element {
-    const { isCloudOrDev } = useValues(preflightLogic)
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
 
@@ -86,7 +83,7 @@ export function HostedReverseProxy(): JSX.Element {
         },
     ]
 
-    return isCloudOrDev ? (
+    return (
         <PayGateMini feature={AvailableFeature.HOSTED_REVERSE_PROXY}>
             <div className="space-y-2">
                 <LemonTable
@@ -106,8 +103,6 @@ export function HostedReverseProxy(): JSX.Element {
                 )}
             </div>
         </PayGateMini>
-    ) : (
-        <LemonBanner type="warning">Using a reverse proxy only works in PostHog Cloud</LemonBanner>
     )
 }
 
