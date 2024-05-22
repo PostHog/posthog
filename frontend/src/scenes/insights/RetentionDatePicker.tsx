@@ -24,8 +24,13 @@ export function RetentionDatePicker(): JSX.Element {
                 granularity={period === 'Hour' ? 'hour' : 'day'}
                 placeholder="Today"
                 clearable
-                buttonProps={{ tooltip: 'Cohorts up to this end date', children: 'Always say this', type: 'tertiary' }}
-                format={period === 'Hour' ? `MMM D${yearSuffix}, h a` : `MMM D${yearSuffix}`}
+                buttonProps={{
+                    tooltip: 'Cohorts up to this end date',
+                    type: 'tertiary',
+                    sideIcon: null,
+                    size: 'small',
+                }}
+                format={period === 'Hour' ? `MMM D${yearSuffix}, h A` : `MMM D${yearSuffix}`}
             />
         </span>
     )

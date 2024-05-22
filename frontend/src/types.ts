@@ -131,7 +131,6 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    TEAM_COLLABORATION = 'team_collaboration',
     ADVANCED_PERMISSIONS = 'advanced_permissions',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
@@ -228,6 +227,7 @@ interface UserBaseType {
 export interface UserBasicType extends UserBaseType {
     is_email_verified?: any
     id: number
+    hedgehog_config?: MinimalHedgehogConfig
 }
 
 /**
@@ -253,6 +253,7 @@ export interface UserType extends UserBaseType {
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
+    sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
     organizations: OrganizationBasicType[]
@@ -264,6 +265,35 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
+    hedgehog_config?: Partial<HedgehogConfig>
+}
+
+export type HedgehogColorOptions =
+    | 'green'
+    | 'red'
+    | 'blue'
+    | 'purple'
+    | 'dark'
+    | 'light'
+    | 'sepia'
+    | 'invert'
+    | 'invert-hue'
+    | 'greyscale'
+
+export interface MinimalHedgehogConfig {
+    use_as_profile: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+}
+
+export interface HedgehogConfig extends MinimalHedgehogConfig {
+    enabled: boolean
+    color: HedgehogColorOptions | null
+    accessories: string[]
+    walking_enabled: boolean
+    interactions_enabled: boolean
+    controls_enabled: boolean
+    party_mode_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -280,6 +310,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    mask_value?: string | null
     created_at: string
     last_used_at: string
     team_id: number
@@ -305,7 +336,6 @@ export interface OrganizationType extends OrganizationBasicType {
     updated_at: string
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[]
-    available_features: AvailableFeatureUnion[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
@@ -504,11 +534,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum StringMatching {
-    Contains = 'contains',
-    Regex = 'regex',
-    Exact = 'exact',
-}
+export type ActionStepStringMatching = 'contains' | 'exact' | 'regex'
 
 export interface ActionStepType {
     event?: string | null
@@ -518,14 +544,13 @@ export interface ActionStepType {
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
-    text_matching?: StringMatching | null
+    text_matching?: ActionStepStringMatching | null
     href?: string | null
-    /** @default StringMatching.Exact */
-    href_matching?: StringMatching | null
+    /** @default ActionStepStringMatching.Exact */
+    href_matching?: ActionStepStringMatching | null
     url?: string | null
     /** @default StringMatching.Contains */
-    url_matching?: StringMatching | null
-    isNew?: string
+    url_matching?: ActionStepStringMatching | null
 }
 
 export interface ElementType {
@@ -913,6 +938,10 @@ export type DurationType = 'duration' | 'active_seconds' | 'inactive_seconds'
 
 export type FilterableLogLevel = 'info' | 'warn' | 'error'
 export interface RecordingFilters {
+    /**
+     * live mode is front end only, sets date_from and date_to to the last hour
+     */
+    live_mode?: boolean
     date_from?: string | null
     date_to?: string | null
     events?: FilterType['events']
@@ -1890,7 +1919,7 @@ export enum ChartDisplayCategory {
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql' | 'data_warehouse'
-export type IntervalType = 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
 export enum InsightType {
@@ -2107,6 +2136,9 @@ export interface RetentionFilterType extends FilterType {
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
+
+    //frontend only
+    show_mean?: boolean
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2490,6 +2522,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    shuffleQuestions?: boolean
 }
 
 export interface SurveyQuestionBase {
@@ -2519,6 +2552,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    shuffleOptions?: boolean
     hasOpenChoice?: boolean
 }
 

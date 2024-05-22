@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Optional, Union, cast
 
 import jwt
@@ -19,6 +20,10 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
+
+
+class BillingAPIErrorCodes(Enum):
+    OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -121,6 +126,7 @@ class BillingManager:
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)
+
             if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
@@ -137,56 +143,62 @@ class BillingManager:
 
             stripe_portal_url = self._get_stripe_portal_url(organization)
             response["stripe_portal_url"] = stripe_portal_url
+
+            # Extend the products with accurate usage_limit info
+            for product in response["products"]:
+                usage_key = product.get("usage_key", None)
+                if not usage_key:
+                    continue
+                usage = response.get("usage_summary", {}).get(usage_key, {})
+                usage_limit = usage.get("limit")
+                current_usage = usage.get("usage") or 0
+
+                if (
+                    organization
+                    and organization.usage
+                    and organization.usage.get(usage_key, {}).get("todays_usage", None)
+                ):
+                    todays_usage = organization.usage[usage_key]["todays_usage"]
+                    current_usage = current_usage + todays_usage
+
+                product["current_usage"] = current_usage
+                product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
+
+                # Also update the tiers
+                if product.get("tiers"):
+                    product["tiers"] = compute_usage_per_tier(
+                        current_usage, product["projected_usage"], product["tiers"]
+                    )
+                    product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
+
+                # Update the add on tiers
+                # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
+                for addon in product.get("addons"):
+                    if not addon.get("subscribed"):
+                        continue
+                    addon_usage_key = addon.get("usage_key")
+                    if not usage_key:
+                        continue
+                    if addon_usage_key != usage_key:
+                        usage = response.get("usage_summary", {}).get(addon_usage_key, {})
+                        usage_limit = usage.get("limit")
+                        current_usage = usage.get("usage") or 0
+                        if (
+                            organization
+                            and organization.usage
+                            and organization.usage.get(usage_key, {}).get("todays_usage", None)
+                        ):
+                            todays_usage = organization.usage[usage_key]["todays_usage"]
+                            current_usage = current_usage + todays_usage
+                    addon["current_usage"] = current_usage
+                    addon["tiers"] = compute_usage_per_tier(current_usage, addon["projected_usage"], addon["tiers"])
+                    addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
         else:
             products = self.get_default_products(organization)
             response = {
                 "available_features": [],
                 "products": products["products"],
             }
-
-        # Extend the products with accurate usage_limit info
-        for product in response["products"]:
-            usage_key = product.get("usage_key", None)
-            if not usage_key:
-                continue
-            usage = response.get("usage_summary", {}).get(usage_key, {})
-            usage_limit = usage.get("limit")
-            current_usage = usage.get("usage") or 0
-
-            if organization and organization.usage and organization.usage.get(usage_key, {}).get("todays_usage", None):
-                todays_usage = organization.usage[usage_key]["todays_usage"]
-                current_usage = current_usage + todays_usage
-
-            product["current_usage"] = current_usage
-            product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
-
-            # Also update the tiers
-            if product["tiers"]:
-                product["tiers"] = compute_usage_per_tier(current_usage, product["projected_usage"], product["tiers"])
-                product["current_amount_usd"] = sum_total_across_tiers(product["tiers"])
-
-            # Update the add on tiers
-            # TODO: enhanced_persons: make sure this updates properly for addons with different usage keys
-            for addon in product["addons"]:
-                if not addon["subscribed"]:
-                    continue
-                addon_usage_key = addon.get("usage_key")
-                if not usage_key:
-                    continue
-                if addon_usage_key != usage_key:
-                    usage = response.get("usage_summary", {}).get(addon_usage_key, {})
-                    usage_limit = usage.get("limit")
-                    current_usage = usage.get("usage") or 0
-                    if (
-                        organization
-                        and organization.usage
-                        and organization.usage.get(usage_key, {}).get("todays_usage", None)
-                    ):
-                        todays_usage = organization.usage[usage_key]["todays_usage"]
-                        current_usage = current_usage + todays_usage
-                addon["current_usage"] = current_usage
-                addon["tiers"] = compute_usage_per_tier(current_usage, addon["projected_usage"], addon["tiers"])
-                addon["current_amount_usd"] = sum_total_across_tiers(addon["tiers"])
 
         return response
 
@@ -332,11 +344,6 @@ class BillingManager:
                 org_modified = True
                 sync_org_quota_limits(organization)
 
-        available_features = data.get("available_features", None)
-        if available_features and available_features != organization.available_features:
-            organization.available_features = data["available_features"]
-            org_modified = True
-
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
             organization.available_product_features = data["available_product_features"]
@@ -374,3 +381,16 @@ class BillingManager:
             raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
         return {"Authorization": f"Bearer {billing_service_token}"}
+
+    def get_invoices(self, organization: Organization, status: Optional[str]):
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
+            params={"status": status},
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        data = res.json()
+
+        return data

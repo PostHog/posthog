@@ -55,8 +55,16 @@
             "additionalProperties": false,
             "properties": {
                 "fixedProperties": {
+                    "description": "Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -81,8 +89,16 @@
                     "type": "array"
                 },
                 "properties": {
+                    "description": "Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
                     "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -1539,6 +1555,28 @@
             ],
             "type": "string"
         },
+        "ClickhouseQueryStatus": {
+            "additionalProperties": false,
+            "properties": {
+                "active_cpu_time": {
+                    "type": "integer"
+                },
+                "bytes_read": {
+                    "type": "integer"
+                },
+                "estimated_rows_total": {
+                    "type": "integer"
+                },
+                "rows_read": {
+                    "type": "integer"
+                },
+                "time_elapsed": {
+                    "type": "integer"
+                }
+            },
+            "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
+            "type": "object"
+        },
         "CohortPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -2271,6 +2309,9 @@
                 "key": {
                     "type": "string"
                 },
+                "schema_valid": {
+                    "type": "boolean"
+                },
                 "table": {
                     "type": "string"
                 },
@@ -2278,7 +2319,7 @@
                     "$ref": "#/definitions/DatabaseSerializedFieldType"
                 }
             },
-            "required": ["key", "type"],
+            "required": ["key", "type", "schema_valid"],
             "type": "object"
         },
         "DatabaseSerializedFieldType": {
@@ -3919,6 +3960,9 @@
                         "person_id_override_properties_joined"
                     ],
                     "type": "string"
+                },
+                "s3TableUseInvalidColumns": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4590,7 +4634,7 @@
             "type": "object"
         },
         "IntervalType": {
-            "enum": ["hour", "day", "week", "month"],
+            "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "LifecycleFilter": {
@@ -6467,8 +6511,13 @@
                     "type": "string"
                 },
                 "query_async": {
+                    "const": true,
                     "default": true,
+                    "description": "ONLY async queries use QueryStatus.",
                     "type": "boolean"
+                },
+                "query_progress": {
+                    "$ref": "#/definitions/ClickhouseQueryStatus"
                 },
                 "results": {},
                 "start_time": {
@@ -6568,6 +6617,9 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "showMean": {
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
@@ -6593,6 +6645,9 @@
                 },
                 "returning_entity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "show_mean": {
+                    "type": "boolean"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"

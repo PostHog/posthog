@@ -178,6 +178,17 @@ class ChartDisplayType(str, Enum):
     WorldMap = "WorldMap"
 
 
+class ClickhouseQueryStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active_cpu_time: int
+    bytes_read: int
+    estimated_rows_total: int
+    rows_read: int
+    time_elapsed: int
+
+
 class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -489,6 +500,7 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: Optional[MaterializationMode] = None
     personsArgMaxVersion: Optional[PersonsArgMaxVersion] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
+    s3TableUseInvalidColumns: Optional[bool] = None
 
 
 class Compare(str, Enum):
@@ -546,6 +558,7 @@ class InsightType(str, Enum):
 
 
 class IntervalType(str, Enum):
+    minute = "minute"
     hour = "hour"
     day = "day"
     week = "week"
@@ -749,7 +762,8 @@ class QueryStatus(BaseModel):
     error_message: Optional[str] = None
     expiration_time: Optional[AwareDatetime] = None
     id: str
-    query_async: Optional[bool] = True
+    query_async: Literal[True] = Field(default=True, description="ONLY async queries use QueryStatus.")
+    query_progress: Optional[ClickhouseQueryStatus] = None
     results: Optional[Any] = None
     start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
@@ -1672,6 +1686,7 @@ class DatabaseSchemaQueryResponseField(BaseModel):
     chain: Optional[list[str]] = None
     fields: Optional[list[str]] = None
     key: str
+    schema_valid: bool
     table: Optional[str] = None
     type: DatabaseSerializedFieldType
 
@@ -2334,6 +2349,7 @@ class RetentionFilter(BaseModel):
     retentionReference: Optional[RetentionReference] = None
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = None
 
@@ -2346,6 +2362,7 @@ class RetentionFilterLegacy(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
+    show_mean: Optional[bool] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -4019,24 +4036,10 @@ class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+    fixedProperties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+        default=None,
+        description="Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
+    )
     kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -4044,24 +4047,10 @@ class ActorsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
-    properties: Optional[
-        list[
-            Union[
-                EventPropertyFilter,
-                PersonPropertyFilter,
-                ElementPropertyFilter,
-                SessionPropertyFilter,
-                CohortPropertyFilter,
-                RecordingDurationFilter,
-                GroupPropertyFilter,
-                FeaturePropertyFilter,
-                HogQLPropertyFilter,
-                EmptyPropertyFilter,
-                DataWarehousePropertyFilter,
-                DataWarehousePersonPropertyFilter,
-            ]
-        ]
-    ] = None
+    properties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+        default=None,
+        description="Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
+    )
     response: Optional[ActorsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None

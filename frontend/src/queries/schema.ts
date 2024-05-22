@@ -13,6 +13,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntervalType,
@@ -195,6 +196,7 @@ export interface HogQLQueryModifiers {
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
+    s3TableUseInvalidColumns?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -755,6 +757,7 @@ export type RetentionFilter = {
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     period?: RetentionFilterLegacy['period']
+    showMean?: RetentionFilterLegacy['show_mean']
 }
 
 export interface RetentionValue {
@@ -925,10 +928,21 @@ export interface CacheMissResponse {
     cache_key: string | null
 }
 
+export type ClickhouseQueryStatus = {
+    bytes_read: integer
+    rows_read: integer
+    estimated_rows_total: integer
+    time_elapsed: integer
+    active_cpu_time: integer
+}
+
 export type QueryStatus = {
     id: string
-    /**  @default true */
-    query_async: boolean
+    /**
+     * ONLY async queries use QueryStatus.
+     * @default true
+     */
+    query_async: true
     team_id: integer
     /**  @default false */
     error: boolean
@@ -944,6 +958,7 @@ export type QueryStatus = {
     /**  @format date-time */
     expiration_time?: string
     task_id?: string
+    query_progress?: ClickhouseQueryStatus
 }
 
 export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
@@ -975,8 +990,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    properties?: AnyPropertyFilter[]
-    fixedProperties?: AnyPropertyFilter[]
+    /** Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py. */
+    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    /** Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -1282,6 +1299,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
 export interface DatabaseSchemaQueryResponseField {
     key: string
     type: DatabaseSerializedFieldType
+    schema_valid: boolean
     table?: string
     fields?: string[]
     chain?: string[]
@@ -1358,6 +1376,7 @@ export interface BreakdownFilter {
     breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
+// TODO: Rename to `DashboardFilters` for consistency with `HogQLFilters`
 export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
