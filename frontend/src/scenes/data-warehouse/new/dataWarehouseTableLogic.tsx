@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { DataTableNode } from '~/queries/schema'
 import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
@@ -33,7 +32,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
     path(['scenes', 'data-warehouse', 'tableLogic']),
     props({} as TableLogicProps),
     connect(() => ({
-        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseSceneLogic, ['loadDataWarehouse']],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     })),
     actions({
         editingTable: (editing: boolean) => ({ editing }),
