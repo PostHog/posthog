@@ -104,6 +104,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     metadata: {},
     available_product_features: [],
     member_count: 2,
+    billing_access_level: OrganizationMembershipLevel.Member,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
