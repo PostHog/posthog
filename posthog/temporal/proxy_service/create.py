@@ -97,6 +97,7 @@ async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
+        raise
 
 
 @activity.defn
