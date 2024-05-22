@@ -266,7 +266,7 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
             continue
 
         if isinstance(query_response, BaseModel):
-            query_response = query_response.model_dump()
+            query_response = query_response.model_dump(by_alias=True)
         yield from _convert_response_to_csv_data(query_response)
         return
 

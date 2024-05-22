@@ -143,7 +143,7 @@ def calculate_for_query_based_insight(
         return NothingInCacheResult(cache_key=response.cache_key)
 
     if isinstance(response, BaseModel):
-        response = response.model_dump()
+        response = response.model_dump(by_alias=True)
 
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape

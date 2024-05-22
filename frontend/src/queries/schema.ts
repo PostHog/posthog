@@ -1296,15 +1296,64 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
     teamId?: integer
 }
 
-export interface DatabaseSchemaQueryResponseField {
-    key: string
+export interface DatabaseSchemaSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    incremental: boolean
+    status: string
+    last_synced_at?: string
+}
+
+export interface DatabaseSchemaSource {
+    id: string
+    status: string
+    source_type: string
+    prefix: string
+    last_synced_at?: string
+}
+
+export interface DatabaseSchemaField {
+    name: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string
     fields?: string[]
-    chain?: string[]
+    chain?: (string | integer)[]
 }
-export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
+
+export interface DatabaseSchemaTableCommon {
+    type: 'posthog' | 'data_warehouse' | 'view'
+    id: string
+    name: string
+    fields: Record<string, DatabaseSchemaField>
+}
+
+export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
+    type: 'view'
+    query: HogQLQuery
+}
+
+export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
+    type: 'posthog'
+}
+
+export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
+    type: 'data_warehouse'
+    format: string
+    url_pattern: string
+    schema?: DatabaseSchemaSchema
+    source?: DatabaseSchemaSource
+}
+
+export type DatabaseSchemaTable =
+    | DatabaseSchemaPostHogTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+
+export interface DatabaseSchemaQueryResponse {
+    tables: Record<string, DatabaseSchemaTable>
+}
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery
