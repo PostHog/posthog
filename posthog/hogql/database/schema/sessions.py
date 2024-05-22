@@ -121,6 +121,24 @@ def select_from_sessions_table(
     if "session_id" not in requested_fields:
         requested_fields = {**requested_fields, "session_id": ["session_id"]}
 
+    def arg_min_merge_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, field_name])]),
+                ast.Constant(value="null"),
+            ],
+        )
+
+    def arg_max_merge_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="nullIf",
+            args=[
+                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])]),
+                ast.Constant(value="null"),
+            ],
+        )
+
     aggregate_fields: dict[str, ast.Expr] = {
         "distinct_id": ast.Call(name="any", args=[ast.Field(chain=[table_name, "distinct_id"])]),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
@@ -134,29 +152,16 @@ def select_from_sessions_table(
                 )
             ],
         ),
-        "$entry_current_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])]),
-        "$entry_pathname": ast.Call(
-            name="path", args=[ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "entry_url"])])]
-        ),
-        "$exit_current_url": ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
-        "$exit_pathname": ast.Call(
-            name="path",
-            args=[
-                ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, "exit_url"])]),
-            ],
-        ),
-        "$entry_utm_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_source"])]),
-        "$entry_utm_campaign": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_campaign"])]
-        ),
-        "$entry_utm_medium": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_medium"])]),
-        "$entry_utm_term": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_term"])]),
-        "$entry_utm_content": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_utm_content"])]),
-        "$entry_referring_domain": ast.Call(
-            name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_referring_domain"])]
-        ),
-        "$entry_gclid": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gclid"])]),
-        "$entry_gad_source": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "initial_gad_source"])]),
+        "$entry_current_url": arg_min_merge_field("entry_url"),
+        "$exit_current_url": arg_max_merge_field("exit_url"),
+        "$entry_utm_source": arg_min_merge_field("initial_utm_source"),
+        "$entry_utm_campaign": arg_min_merge_field("initial_utm_campaign"),
+        "$entry_utm_medium": arg_min_merge_field("initial_utm_medium"),
+        "$entry_utm_term": arg_min_merge_field("initial_utm_term"),
+        "$entry_utm_content": arg_min_merge_field("initial_utm_content"),
+        "$entry_referring_domain": arg_min_merge_field("initial_referring_domain"),
+        "$entry_gclid": arg_min_merge_field("initial_gclid"),
+        "$entry_gad_source": arg_min_merge_field("initial_gad_source"),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
@@ -166,6 +171,14 @@ def select_from_sessions_table(
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
+    aggregate_fields["$entry_pathname"] = ast.Call(
+        name="path",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
+    aggregate_fields["$exit_pathname"] = ast.Call(
+        name="path",
+        args=[aggregate_fields["$exit_current_url"]],
+    )
     aggregate_fields["$session_duration"] = ast.Call(
         name="dateDiff",
         args=[
@@ -265,7 +278,8 @@ def join_events_table_to_sessions_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "$session_id"]),
             right=ast.Field(chain=[to_table, "session_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 

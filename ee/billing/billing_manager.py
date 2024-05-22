@@ -223,6 +223,17 @@ class BillingManager:
         except Exception as e:
             capture_exception(e)
 
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        try:
+            admin_emails = list(
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+                ).values_list("email", flat=True)
+            )
+            self.update_billing(organization, {"org_admin_emails": admin_emails})
+        except Exception as e:
+            capture_exception(e)
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
