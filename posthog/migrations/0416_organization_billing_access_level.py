@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0414_personalapikey_mask_value"),
+        ("posthog", "0415_pluginconfig_match_action"),
     ]
 
     operations = [
