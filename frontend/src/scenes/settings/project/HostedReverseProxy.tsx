@@ -1,5 +1,6 @@
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonMenu,
@@ -20,9 +21,13 @@ import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
 
+const MAX_PROXY_RECORDS = 3
+
 export function HostedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
+
+    const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -95,9 +100,15 @@ export function HostedReverseProxy(): JSX.Element {
                     }}
                 />
                 {formState === 'collapsed' ? (
-                    <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                        Add domain
-                    </LemonButton>
+                    maxRecordsReached ? (
+                        <LemonBanner type="info">
+                            There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
+                        </LemonBanner>
+                    ) : (
+                        <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
+                            Add domain
+                        </LemonButton>
+                    )
                 ) : (
                     <CreateRecordForm />
                 )}
