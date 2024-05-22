@@ -563,10 +563,6 @@ posthog/hogql/test/_test_parser.py:0: error: Item "None" of "JoinExpr | None" ha
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
 posthog/hogql/functions/test/test_cohort.py:0: error: "TestCohort" has no attribute "snapshot"  [attr-defined]
-posthog/hogql/database/test/test_database.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
-posthog/hogql/database/test/test_database.py:0: note: Possible overload variants:
-posthog/hogql/database/test/test_database.py:0: note: def __getitem__(self, SupportsIndex, /) -> Any
-posthog/hogql/database/test/test_database.py:0: note: def __getitem__(self, slice, /) -> tuple[Any, ...]
 posthog/hogql/database/schema/event_sessions.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/ai.py:0: error: No overload variant of "__getitem__" of "tuple" matches argument type "str"  [call-overload]
 posthog/hogql/ai.py:0: note: Possible overload variants:
