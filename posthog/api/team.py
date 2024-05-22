@@ -429,7 +429,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
-            TimeSensitiveActionPermission,
             *self.permission_classes,
         ]
 
