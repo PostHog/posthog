@@ -9,4 +9,9 @@ PERSISTED_FEATURE_FLAGS = [
     "simplify-actions",
     "historical-exports-v2",
     "ingestion-warnings-enabled",
+    "new-experiments-ui",
+    "hogql-in-insight-serialization",
+    "hogql-insights-preview",
+    "persons-hogql-query",
+    "datanode-concurrency-limit",
 ]
