@@ -2,10 +2,8 @@ import functools
 import re
 from datetime import timedelta
 from typing import Any, Optional, Union
-from urllib.parse import urlsplit
 
 import jwt
-from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse

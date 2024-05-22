@@ -27,7 +27,7 @@ export function ClientAuthorizationScene(): JSX.Element {
                     <>
                         <h2>Authorization completed!</h2>
 
-                        {authentication?.return_url ? (
+                        {authentication?.redirect_url ? (
                             <p>You will shortly be redirected back to the application...</p>
                         ) : (
                             <p>You can now close this window</p>
