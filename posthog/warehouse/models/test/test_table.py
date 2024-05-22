@@ -1,24 +1,71 @@
+from unittest.mock import patch
+
 from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabaseField, StringDatabaseField
 from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestTable(BaseTest):
-    # Not worth actually testing this as it would involve going to a remote server, and it's slow
-    # def test_get_columns(self):
-    #     credential = DataWarehouseCredential.objects.create(
-    #         access_key='',
-    #         access_secret='',
-    #         team=self.team
-    #     )
-    #     table = DataWarehouseTable.objects.create(
-    #         name='bla',
-    #         url_pattern='https://databeach-hackathon.s3.amazonaws.com/tim_test/test_events6.pqt',
-    #         credentials=credential,
-    #         type=DataWarehouseTable.TableType.Parquet,
-    #         team=self.team
-    #     )
-    #     table.get_columns()
+    def test_get_columns(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Int64"]]
+            columns = table.get_columns()
+            assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}}
+
+    def test_get_columns_with_nullable(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Nullable(Int64)"]]
+            columns = table.get_columns()
+            assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
+
+    def test_get_columns_with_type_args(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "DateTime(6, 'UTC')"]]
+            columns = table.get_columns()
+            assert columns == {
+                "id": {"clickhouse": "DateTime(6, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True}
+            }
+
+    def test_get_columns_with_array(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Array(String)"]]
+            columns = table.get_columns()
+            assert columns == {
+                "id": {"clickhouse": "Array(String)", "hogql": "StringArrayDatabaseField", "valid": True}
+            }
+
+    def test_get_columns_with_nullable_and_args(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Nullable(DateTime(6, 'UTC'))"]]
+            columns = table.get_columns()
+            assert columns == {
+                "id": {"clickhouse": "Nullable(DateTime(6, 'UTC'))", "hogql": "DateTimeDatabaseField", "valid": True}
+            }
 
     def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

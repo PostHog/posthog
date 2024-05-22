@@ -27,8 +27,6 @@ export interface LemonCalendarProps {
     weekStartDay?: number
     /** Show a time picker */
     showTime?: boolean
-    /** Only allow upcoming dates */
-    onlyAllowUpcoming?: boolean
 }
 
 export interface GetLemonButtonPropsOpts {
@@ -68,7 +66,9 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
         >
             {range(0, months).map((month) => {
                 const startOfMonth = leftmostMonth.add(month, 'month').startOf('month')
-                const endOfMonth = startOfMonth.endOf('month')
+                // need to add a day because of https://github.com/iamkun/dayjs/issues/2007
+                // calling endOf('month') on startOfMonth goes to the end of the previous month
+                const endOfMonth = startOfMonth.add(1, 'day').endOf('month')
                 const firstDay = startOfMonth.subtract((startOfMonth.day() - weekStartDay + 7) % 7, 'days')
                 const lastDay = endOfMonth.add((((weekStartDay + 6) % 7) - endOfMonth.day() + 7) % 7, 'days')
                 const weeks = lastDay.diff(firstDay, 'week') + 1
@@ -130,16 +130,11 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                 <tr key={week} data-attr="lemon-calendar-week">
                                     {range(0, 7).map((day) => {
                                         const date = firstDay.add(week * 7 + day, 'day')
-                                        const pastDate = date.isBefore(today)
                                         const defaultProps: LemonButtonProps = {
                                             className: clsx('flex-col', {
                                                 'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
-                                            disabledReason:
-                                                props.onlyAllowUpcoming && pastDate
-                                                    ? 'Cannot select dates in the past'
-                                                    : undefined,
                                         }
 
                                         const buttonProps =

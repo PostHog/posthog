@@ -42,13 +42,17 @@ function proposedDate(target: dayjs.Dayjs | null, { value, unit }: GetLemonButto
     return date
 }
 
+function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayjs.Dayjs {
+    return targetDate.clone().hour(timeSource.hour()).minute(timeSource.minute())
+}
+
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
-    onChange: (date: dayjs.Dayjs) => void
+    onChange?: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
     showTime?: boolean
-    onlyAllowUpcoming?: boolean
+    selectionPeriod?: 'past' | 'upcoming'
 }
 
 export function LemonCalendarSelect({
@@ -57,7 +61,7 @@ export function LemonCalendarSelect({
     months,
     onClose,
     showTime,
-    onlyAllowUpcoming,
+    selectionPeriod,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
@@ -65,6 +69,7 @@ export function LemonCalendarSelect({
     )
 
     const now = dayjs()
+    const today = now.startOf('day')
     const isAM = useMemo(() => selectValue?.format('a') === 'am', [selectValue])
 
     const scrollToTime = (date: dayjs.Dayjs, skipAnimation: boolean): void => {
@@ -115,15 +120,23 @@ export function LemonCalendarSelect({
                 months={months}
                 getLemonButtonProps={({ date, props }) => {
                     const modifiedProps: LemonButtonProps = { ...props }
-                    const isDisabled =
-                        onlyAllowUpcoming &&
-                        selectValue &&
-                        date.isSame(now.tz('utc'), 'date') &&
-                        (selectValue.hour() < now.hour() ||
-                            (selectValue.hour() === now.hour() && selectValue.minute() <= now.minute()))
 
-                    if (isDisabled) {
-                        modifiedProps.disabledReason = 'Pick a time in the future first'
+                    if (selectionPeriod) {
+                        const isToday = date.isSame(today, 'date')
+
+                        if (selectionPeriod === 'upcoming' && date.isBefore(today)) {
+                            modifiedProps.disabledReason = 'Cannot select dates in the past'
+                        } else if (selectionPeriod === 'past' && date.isAfter(today)) {
+                            modifiedProps.disabledReason = 'Cannot select dates in the future'
+                        } else if (selectValue && isToday) {
+                            const selectedTimeOnDate = cloneTimeToDate(date, selectValue)
+
+                            if (selectionPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {
+                                modifiedProps.disabledReason = 'Pick a time in the future first'
+                            } else if (selectionPeriod === 'past' && selectedTimeOnDate.isAfter(now)) {
+                                modifiedProps.disabledReason = 'Pick a time in the past first'
+                            }
+                        }
                     }
 
                     if (date.isSame(selectValue, 'd')) {
@@ -135,13 +148,13 @@ export function LemonCalendarSelect({
                     const selected = selectValue ? selectValue.format(props.unit) : null
                     const newDate = proposedDate(selectValue, props)
 
-                    const disabledReason = onlyAllowUpcoming
-                        ? selectValue
-                            ? newDate.isBefore(now)
-                                ? 'Cannot choose a time in the past'
-                                : undefined
-                            : 'Choose a date first'
-                        : undefined
+                    const periodValidityDisabledReason =
+                        selectionPeriod === 'upcoming' && newDate.isBefore(now)
+                            ? 'Cannot choose a time in the past'
+                            : selectionPeriod === 'past' && newDate.isAfter(now)
+                            ? 'Cannot choose a time in the future'
+                            : undefined
+                    const disabledReason = selectValue ? periodValidityDisabledReason : 'Choose a date first'
 
                     return {
                         active: selected === String(props.value),
@@ -156,7 +169,6 @@ export function LemonCalendarSelect({
                     }
                 }}
                 showTime={showTime}
-                onlyAllowUpcoming={onlyAllowUpcoming}
             />
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
@@ -165,7 +177,7 @@ export function LemonCalendarSelect({
                 <LemonButton
                     type="primary"
                     disabled={!selectValue}
-                    onClick={() => selectValue && onChange(selectValue)}
+                    onClick={() => selectValue && onChange && onChange(selectValue)}
                     data-attr="lemon-calendar-select-apply"
                 >
                     Apply
@@ -175,47 +187,54 @@ export function LemonCalendarSelect({
     )
 }
 
-export function LemonCalendarSelectInput(
-    props: LemonCalendarSelectProps & {
-        onChange: (date: dayjs.Dayjs | null) => void
-        buttonProps?: LemonButtonWithSideActionProps
-        placeholder?: string
-        clearable?: boolean
-    }
-): JSX.Element {
-    const { buttonProps, placeholder, clearable, ...calendarProps } = props
-    const [visible, setVisible] = useState(false)
+export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
+    onChange?: (date: dayjs.Dayjs | null) => void
+    onClickOutside?: () => void
+    buttonProps?: Omit<LemonButtonWithSideActionProps, 'sideAction'> & { sideAction?: SideAction }
+    placeholder?: string
+    clearable?: boolean
+    visible?: boolean
+}
+
+export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): JSX.Element {
+    const { buttonProps, placeholder, clearable, visible: controlledVisible, ...calendarProps } = props
+    const [uncontrolledVisible, setUncontrolledVisible] = useState(false)
+
+    const visible = controlledVisible ?? uncontrolledVisible
 
     const showClear = props.value && clearable
 
     return (
         <Popover
             actionable
-            onClickOutside={() => setVisible(false)}
+            onClickOutside={() => {
+                setUncontrolledVisible(false)
+                props.onClickOutside?.()
+            }}
             visible={visible}
             overlay={
                 <LemonCalendarSelect
                     {...calendarProps}
                     onChange={(value) => {
-                        props.onChange(value)
-                        setVisible(false)
+                        props.onChange?.(value)
+                        setUncontrolledVisible(false)
                     }}
                     onClose={() => {
-                        setVisible(false)
+                        setUncontrolledVisible(false)
                         props.onClose?.()
                     }}
                 />
             }
         >
             <LemonButton
-                onClick={() => setVisible(true)}
+                onClick={() => setUncontrolledVisible(true)}
                 type="secondary"
                 fullWidth
                 sideAction={
                     showClear
                         ? {
                               icon: <IconX />,
-                              onClick: () => props.onChange(null),
+                              onClick: () => props.onChange?.(null),
                           }
                         : (undefined as unknown as SideAction) // We know it will be a normal button if not clearable
                 }

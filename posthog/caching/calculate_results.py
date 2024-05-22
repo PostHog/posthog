@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Optional, Union
 
+from pydantic import BaseModel
 import structlog
 from sentry_sdk import capture_exception
 
@@ -15,6 +16,8 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import flagged_conversion_to_query_based
+from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.logging.timing import timed
 from posthog.models import (
     Dashboard,
@@ -35,6 +38,7 @@ from posthog.queries.paths import Paths
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
+from posthog.schema import CacheMissResponse, DashboardFilter
 from posthog.types import FilterType
 
 if TYPE_CHECKING:
@@ -51,13 +55,23 @@ logger = structlog.get_logger(__name__)
 
 
 def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight = target if isinstance(target, Insight) else target.insight
-    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
+    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
-    if insight is None or not insight.filters:
-        return None
+    if insight is not None:
+        with flagged_conversion_to_query_based(insight):
+            if insight.query:
+                query_runner = get_query_runner_or_none(insight.query, insight.team)
+                if query_runner is None:
+                    return None  # Uncacheable query-based insight
+                if dashboard is not None and dashboard.filters:
+                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+                return query_runner.get_cache_key()
 
-    return generate_insight_cache_key(insight, dashboard)
+            if insight.filters:
+                return generate_insight_cache_key(insight, dashboard)
+
+    return None
 
 
 def get_cache_type_for_filter(cacheable: FilterType) -> CacheType:
@@ -109,32 +123,33 @@ def get_cache_type(cacheable: Optional[FilterType] | Optional[dict]) -> CacheTyp
 def calculate_for_query_based_insight(
     insight: Insight, *, dashboard: Optional[Dashboard] = None, refresh_requested: bool
 ) -> "InsightResult":
-    from posthog.api.services.query import process_query, ExecutionMode
+    from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
-    effective_query = insight.get_effective_query(dashboard=dashboard)
-    assert effective_query is not None
-
-    response = process_query(
+    response = process_query_dict(
         insight.team,
-        effective_query,
+        insight.query,
+        dashboard_filters_json=dashboard.filters if dashboard is not None else None,
         execution_mode=ExecutionMode.CALCULATION_ALWAYS
         if refresh_requested
         else ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
     )
 
-    if "results" not in response:
-        # Translating `CacheMissResponse` to legacy insights shape
-        return NothingInCacheResult(cache_key=response.get("cache_key"))
+    if isinstance(response, CacheMissResponse):
+        return NothingInCacheResult(cache_key=response.cache_key)
+
+    if isinstance(response, BaseModel):
+        response = response.model_dump()
 
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape
-        # Only `results` is guaranteed even for non-insight queries, such as `EventsQueryResponse`
-        result=response["results"],
+        # The response may not be conformant with that, hence these are all `.get()`s
+        result=response.get("results"),
+        columns=response.get("columns"),
         last_refresh=response.get("last_refresh"),
         cache_key=response.get("cache_key"),
         is_cached=response.get("is_cached", False),

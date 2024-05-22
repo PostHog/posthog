@@ -82,8 +82,3 @@ export const ShowTime: Story = BasicTemplate.bind({})
 ShowTime.args = {
     showTime: true,
 }
-
-export const OnlyAllowUpcoming: Story = BasicTemplate.bind({})
-OnlyAllowUpcoming.args = {
-    onlyAllowUpcoming: true,
-}

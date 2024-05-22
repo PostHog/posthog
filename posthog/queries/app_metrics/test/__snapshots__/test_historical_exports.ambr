@@ -100,8 +100,8 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -155,8 +155,8 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -210,8 +210,8 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -265,8 +265,8 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21

@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import connection
 from django.utils import timezone
 from prometheus_client import Gauge
+from structlog import get_logger
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
@@ -15,8 +16,6 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.tasks.utils import CeleryQueue
-
-from structlog import get_logger
 
 logger = get_logger(__name__)
 
@@ -173,8 +172,6 @@ CLICKHOUSE_TABLES = [
     "sharded_session_replay_events",
     "log_entries",
 ]
-if not is_cloud():
-    CLICKHOUSE_TABLES.append("session_recording_events")
 
 
 @shared_task(ignore_result=True)
@@ -546,6 +543,13 @@ def process_scheduled_changes() -> None:
     from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
     process_scheduled_changes()
+
+
+@shared_task(ignore_result=True)
+def validate_proxy_domains() -> None:
+    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
+
+    validate_proxy_domains()
 
 
 @shared_task(ignore_result=True)

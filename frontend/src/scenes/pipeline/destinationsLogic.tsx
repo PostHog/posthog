@@ -3,10 +3,12 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    AvailableFeature,
     BatchExportConfiguration,
     PipelineStage,
     PluginConfigTypeNew,
@@ -16,40 +18,27 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { pipelineLogic } from './pipelineLogic'
 import { BatchExportDestination, convertToPipelineNode, Destination, PipelineBackend } from './types'
-import { captureBatchExportEvent, capturePluginEvent } from './utils'
+import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from './utils'
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            userLogic,
-            ['user'],
-            pipelineLogic,
-            ['canConfigurePlugins', 'canEnableNewDestinations'],
-        ],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']],
     }),
     actions({
         toggleNode: (destination: Destination, enabled: boolean) => ({ destination, enabled }),
         deleteNode: (destination: Destination) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
+        updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
+        updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
     loaders(({ values }) => ({
         plugins: [
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results = await api.loadPaginatedResults<PluginType>(
-                        `api/organizations/@current/pipeline_destinations`
-                    )
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
+                    return loadPluginsFromUrl('api/organizations/@current/pipeline_destinations')
                 },
             },
         ],
@@ -83,6 +72,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     })
                     return { ...pluginConfigs, [destination.id]: response }
                 },
+                updatePluginConfig: ({ pluginConfig }) => {
+                    return {
+                        ...values.pluginConfigs,
+                        [pluginConfig.id]: pluginConfig,
+                    }
+                },
             },
         ],
         batchExportConfigs: [
@@ -109,6 +104,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     return Object.fromEntries(
                         Object.entries(values.batchExportConfigs).filter(([id]) => id !== destination.id)
                     )
+                },
+                updateBatchExportConfig: ({ batchExportConfig }) => {
+                    return { ...values.batchExportConfigs, [batchExportConfig.id]: batchExportConfig }
                 },
             },
         ],
@@ -147,18 +145,20 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 return !user?.has_seen_product_intro_for?.[ProductKey.PIPELINE_DESTINATIONS]
             },
         ],
+        canEnableNewDestinations: [
+            (s) => [s.user, s.hasAvailableFeature],
+            (user, hasAvailableFeature) =>
+                user?.is_impersonated ||
+                (canConfigurePlugins(user?.organization) && hasAvailableFeature(AvailableFeature.DATA_PIPELINES)),
+        ],
     }),
-    listeners(({ actions, asyncActions, values }) => ({
+    listeners(({ values, actions, asyncActions }) => ({
         toggleNode: ({ destination, enabled }) => {
-            if (!values.canConfigurePlugins) {
-                lemonToast.error("You don't have permission to enable or disable destinations")
-                return
-            }
             if (enabled && !values.canEnableNewDestinations) {
-                lemonToast.error('Data pipelines add-on is required for enabling new destinations')
+                lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                 return
             }
-            if (destination.backend === 'plugin') {
+            if (destination.backend === PipelineBackend.Plugin) {
                 actions.toggleNodeWebhook({ destination: destination, enabled: enabled })
             } else {
                 actions.toggleNodeBatchExport({ destination: destination, enabled: enabled })

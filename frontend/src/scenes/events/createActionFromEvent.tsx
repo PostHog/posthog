@@ -13,7 +13,6 @@ import {
     EventType,
     PropertyFilterType,
     PropertyOperator,
-    StringMatching,
     TeamType,
 } from '~/types'
 
@@ -37,7 +36,6 @@ export function elementsToAction(
     elements: ElementType[]
 ): Pick<ActionStepType, 'selector' | 'text' | 'href' | 'tag_name'> {
     return {
-        tag_name: elements[0].tag_name,
         href: elements[0].href,
         text: elements[0].text,
         ...(!elements[0].href && !elements[0].text ? { selector: recurseSelector(elements, '', 0) } : ''),
@@ -59,7 +57,7 @@ export async function createActionFromEvent(
                 ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
                           url: event.properties.$current_url,
-                          url_matching: StringMatching.Exact,
+                          url_matching: 'exact',
                       }
                     : {}),
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
@@ -106,15 +104,14 @@ export async function createActionFromEvent(
     } catch (response: any) {
         if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
             return recurse(teamId, event, increment + 1, dataAttributes, recurse)
-        } else {
-            lemonToast.error(
-                <>
-                    Couldn't create this action. You can try{' '}
-                    <Link to={urls.createAction()}>manually creating an action instead.</Link>
-                </>
-            )
-            return
         }
+        lemonToast.error(
+            <>
+                Couldn't create this action. You can try{' '}
+                <Link to={urls.createAction()}>manually creating an action instead.</Link>
+            </>
+        )
+        return
     }
     if (action.id) {
         router.actions.push(urls.action(action.id))

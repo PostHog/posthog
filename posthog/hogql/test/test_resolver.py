@@ -250,6 +250,39 @@ class TestResolver(BaseTest):
             self._print_hogql("SELECT a FROM (SELECT 1 AS a) AS new_alias WHERE new_alias.a=1"),
         )
 
+    def test_ctes_with_union_all(self):
+        self.assertEqual(
+            self._print_hogql("""
+                    WITH cte1 AS (SELECT 1 AS a)
+                    SELECT 1 AS a
+                    UNION ALL
+                    WITH cte2 AS (SELECT 2 AS a)
+                    SELECT * FROM cte2
+                    UNION ALL
+                    SELECT * FROM cte1
+                        """),
+            self._print_hogql("""
+                    SELECT 1 AS a
+                    UNION ALL
+                    SELECT * FROM (SELECT 2 AS a) AS cte2
+                    UNION ALL
+                    SELECT * FROM (SELECT 1 AS a) AS cte1
+                        """),
+        )
+
+    def test_join_using(self):
+        node = self._select(
+            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        constraint = cast(ast.SelectQuery, node).select_from.next_join.constraint
+        assert constraint.constraint_type == "USING"
+        assert cast(ast.Field, cast(ast.Alias, constraint.expr).expr).chain == ["a"]
+
+        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert cast(ast.SelectQuery, node).select_from.next_join.constraint.constraint_type == "USING"
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_table(self):

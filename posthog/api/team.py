@@ -44,6 +44,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    TimeSensitiveActionPermission,
     get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
@@ -165,6 +166,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
+            "modifiers",
+            "default_modifiers",
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
@@ -179,6 +182,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "default_modifiers",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
         )
@@ -334,7 +338,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _handle_timezone_update(self, team: Team) -> None:
+    def _clear_team_insight_cache(self, team: Team) -> None:
         # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
@@ -342,8 +346,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def update(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         before_update = instance.__dict__.copy()
 
-        if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance)
+        if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
+            "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
+        ):
+            self._clear_team_insight_cache(instance)
 
         if (
             "session_replay_config" in validated_data
@@ -423,6 +429,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
+            TimeSensitiveActionPermission,
             *self.permission_classes,
         ]
 

@@ -125,10 +125,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-14d",
                         "date_to": "-7d",
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
+                    }
                 },
             ),
             (
@@ -165,23 +162,13 @@ class TestInsightModel(BaseTest):
                 # test that if no filters are set then none are outputted
                 {},
                 {},
-                {
-                    "dateRange": {
-                        "date_from": None,
-                        "date_to": None,
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
-                },
+                {},
             ),
             (
                 # test that properties from the query are used when there are no dashboard properties
                 {"properties": [browser_equals_firefox]},
                 {},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
-                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
             ),
@@ -190,7 +177,7 @@ class TestInsightModel(BaseTest):
                 {},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_chrome],
                 },
@@ -200,7 +187,7 @@ class TestInsightModel(BaseTest):
                 {"properties": [browser_equals_firefox]},
                 {"properties": [browser_equals_chrome]},
                 {
-                    "dateRange": {"date_from": None, "date_to": None, "explicitDate": None},
+                    "dateRange": None,
                     "filterTestAccounts": None,
                     "properties": [browser_equals_firefox, browser_equals_chrome],
                 },

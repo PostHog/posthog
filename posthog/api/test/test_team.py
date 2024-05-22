@@ -32,12 +32,12 @@ class TestTeamAPI(APIBaseTest):
             team_id = self.team.pk
 
         starting_log_response = self.client.get(f"/api/projects/{team_id}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_organization_activity_log(self, expected: list[dict]) -> None:
         starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
-        assert starting_log_response.status_code == 200
+        assert starting_log_response.status_code == 200, starting_log_response.json()
         assert starting_log_response.json()["results"] == expected
 
     def _assert_activity_log_is_empty(self) -> None:
@@ -524,6 +524,37 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
         self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
+        # Verify cache was deleted
+        self.assertEqual(cache.get(response["filters_hash"]), None)
+
+    def test_update_modifiers_remove_cache(self):
+        self.client.patch(
+            f"/api/projects/{self.team.id}/",
+            {"modifiers": {"personsOnEventsMode": "person_id_no_override_properties_on_events"}},
+        )
+        # Seed cache with some insights
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"filters": {"events": json.dumps([{"id": "user signed up"}])}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"filters": {"events": json.dumps([{"id": "$pageview"}])}},
+        ).json()
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "$pageview"}])},
+        )
+        self.client.get(
+            f"/api/projects/{self.team.id}/insights/trend/",
+            data={"events": json.dumps([{"id": "user signed up"}])},
+        )
+
+        self.assertEqual(cache.get(response["filters_hash"])["result"][0]["count"], 0)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/",
+            {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
+        )
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 

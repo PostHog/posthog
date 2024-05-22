@@ -80,6 +80,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
+        "minute": "%-d-%b-%Y %H:%M",
         "hour": "%-d-%b-%Y %H:%M",
         "month": "%b %Y",
     }
@@ -195,14 +196,23 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    if match.group("type") == "h":
-        delta_mapping["hours"] = int(match.group("number"))
+    elif match.group("type") == "h":
+        if match.group("number"):
+            delta_mapping["hours"] = int(match.group("number"))
+        if match.group("position") == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif match.group("position") == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
     elif match.group("type") == "d":
         if match.group("number"):
             delta_mapping["days"] = int(match.group("number"))
@@ -543,12 +553,13 @@ def get_compare_period_dates(
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
+    new_date_to = date_from
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
         new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
         new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
-    else:
+    elif interval != "minute":
         # Align previous period time range to day boundaries
         new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
         # Handle date_from = -7d, -14d etc. specially
@@ -610,7 +621,7 @@ def decompress(data: Any, compression: str):
         try:
             data = gzip.decompress(data)
         except (EOFError, OSError, zlib.error) as error:
-            raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
+            raise RequestParsingError("Failed to decompress data. {}".format(str(error)))
 
     if compression == "lz64":
         KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
@@ -648,9 +659,9 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
-                raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
+                raise RequestParsingError("Invalid JSON: {}".format(str(error_main))) from inner
         else:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise RequestParsingError("Invalid JSON: {}".format(str(error_main)))
 
     # TODO: data can also be an array, function assumes it's either None or a dictionary.
     return data

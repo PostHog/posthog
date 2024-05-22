@@ -4,6 +4,7 @@ from typing import Any, Optional
 from collections.abc import Generator
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
+from pydantic import BaseModel
 import requests
 import structlog
 from openpyxl import Workbook
@@ -11,7 +12,8 @@ from django.http import QueryDict
 from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
 
-from posthog.api.services.query import process_query
+from posthog.api.services.query import process_query_dict
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
@@ -86,7 +88,7 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
     if isinstance(data.get("results"), list):
         # query like
-        if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and "types" in data:
+        if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
             # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
             # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
             for row in results:
@@ -104,14 +106,13 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
         if not first_result:
             return
-        elif len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+        elif len(results) == 1 and isinstance(first_result, dict) and set(first_result.keys()) == {"people", "count"}:
             # persons modal like
             yield from results[0].get("people")
             return
         elif isinstance(first_result, list) or first_result.get("action_id"):
             multiple_items = results if isinstance(first_result, list) else [results]
             # FUNNELS LIKE
-
             for items in multiple_items:
                 yield from (
                     {
@@ -249,8 +250,11 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
 
     while True:
         try:
-            query_response = process_query(
-                team=exported_asset.team, query_json=query, limit_context=LimitContext.EXPORT
+            query_response = process_query_dict(
+                team=exported_asset.team,
+                query_json=query,
+                limit_context=LimitContext.EXPORT,
+                execution_mode=ExecutionMode.CALCULATION_ALWAYS,
             )
         except QuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
@@ -261,6 +265,8 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
             query["breakdownFilter"]["breakdown_limit"] = limit
             continue
 
+        if isinstance(query_response, BaseModel):
+            query_response = query_response.model_dump()
         yield from _convert_response_to_csv_data(query_response)
         return
 

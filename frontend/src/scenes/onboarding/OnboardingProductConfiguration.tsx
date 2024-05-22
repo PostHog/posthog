@@ -62,21 +62,23 @@ export const OnboardingProductConfiguration = ({
     }, [])
 
     const combinedList: ConfigOption[] = [
-        ...configOptions.map((option) => ({
-            title: option.title,
-            description: option.description,
-            type: option.type as ConfigType,
-            selectOptions: option.selectOptions,
-            value: option.value,
-            onChange: (newValue: boolean | string | number) => {
-                // Use the current value from the ref to ensure that onChange always accesses
-                // the latest state of configOptions, preventing the closure from using stale data.
-                const updatedConfigOptions = configOptionsRef.current.map((o) =>
-                    o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o
-                )
-                setConfigOptions(updatedConfigOptions)
-            },
-        })),
+        ...configOptions
+            .filter((option) => option.visible)
+            .map((option) => ({
+                title: option.title,
+                description: option.description,
+                type: option.type as ConfigType,
+                selectOptions: option.selectOptions,
+                value: option.value,
+                onChange: (newValue: boolean | string | number) => {
+                    // Use the current value from the ref to ensure that onChange always accesses
+                    // the latest state of configOptions, preventing the closure from using stale data.
+                    const updatedConfigOptions = configOptionsRef.current.map((o) =>
+                        o.teamProperty === option.teamProperty ? { ...o, value: newValue } : o
+                    )
+                    setConfigOptions(updatedConfigOptions)
+                },
+            })),
         ...defaultEnabledPlugins.map((plugin) => {
             const pluginContent = pluginContentMapping[plugin.name]
             return {

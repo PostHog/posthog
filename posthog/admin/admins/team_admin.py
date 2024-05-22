@@ -82,6 +82,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "access_control",
                     "inject_web_apps",
                     "extra_settings",
+                    "modifiers",
                 ],
             },
         ),

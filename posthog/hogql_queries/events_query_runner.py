@@ -19,7 +19,7 @@ from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
-from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse
+from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
@@ -37,6 +37,8 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
+    response: EventsQueryResponse
+    cached_response: CachedEventsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -100,7 +102,7 @@ class EventsQueryRunner(QueryRunner):
                             action = Action.objects.get(pk=self.query.actionId, team_id=self.team.pk)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
-                        if action.steps.count() == 0:
+                        if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
@@ -256,16 +258,12 @@ class EventsQueryRunner(QueryRunner):
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        new_query = self.query.model_copy()  # Shallow copy!
-
         if dashboard_filter.date_to or dashboard_filter.date_from:
-            new_query.before = dashboard_filter.date_to
-            new_query.after = dashboard_filter.date_from
+            self.query.before = dashboard_filter.date_to
+            self.query.after = dashboard_filter.date_from
 
         if dashboard_filter.properties:
-            new_query.properties = (new_query.properties or []) + dashboard_filter.properties
-
-        return new_query
+            self.query.properties = (self.query.properties or []) + dashboard_filter.properties
 
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
