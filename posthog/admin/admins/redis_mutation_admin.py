@@ -271,16 +271,35 @@ class RedisMutationAdmin(admin.ModelAdmin):
         for mutation in queryset.all():
             try:
                 mutation.apply(str(user))
-            except Exception:
+
+            except MutationInactiveError:
                 self.message_user(
                     request,
-                    "mutation on %(redis_key)s triggered by %(user)s failed to apply"  # noqa: UP031
-                    % {"redis_key": mutation.redis_key, "user": str(user)},
+                    "cannot apply mutation on %(redis_key)s as it is not active" % {"redis_key": mutation.redis_key},  # noqa: UP031
                     messages.ERROR,
                 )
                 failures += 1
+
+            except MutationFailedToSaveError:
+                self.message_user(
+                    request,
+                    "mutation on %(redis_key)s could not be saved after applying" % {"redis_key": mutation.redis_key},  # noqa: UP031
+                    messages.ERROR,
+                )
+                failures += 1
+
             else:
-                applied += 1
+                if mutation.status == RedisMutation.Status.COMPLETED:
+                    applied += 1
+                else:
+                    self.message_user(
+                        request,
+                        "mutation on %(redis_key)s triggered by %(user)s failed to apply: %(error)s"  # noqa: UP031
+                        % {"redis_key": mutation.redis_key, "user": str(user), "error": mutation.apply_error},
+                        messages.ERROR,
+                    )
+
+                    failures += 1
 
         self.message_results_of_action_to_user(
             action="applied", request=request, successes=applied, failures=failures, user=str(user)
