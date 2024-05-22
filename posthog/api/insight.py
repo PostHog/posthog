@@ -86,7 +86,6 @@ from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
@@ -207,9 +206,6 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             representation["query"] = instance.query or instance.query_from_filters
         else:
             filters = instance.dashboard_filters()
-
-            if not filters.get("date_from") and not instance.query:
-                filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
             representation["filters"] = filters
 
         return representation
