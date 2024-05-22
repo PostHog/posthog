@@ -16,7 +16,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
+from posthog.models.api_scopes import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_METHODS = ["POST", "PUT"]
@@ -313,25 +313,30 @@ class APIScopePermission(BasePermission):
                 return "patch"
         return view.action
 
+    def _get_scopes(self, request, view) -> tuple[list[str], list[str], list[str]]:
+        if not hasattr(request.successful_authenticator, "scopes"):
+            raise NotImplementedError("This permission class only works with authenticators containing 'scopes'")
+
+        scopes: list[str] = request.successful_authenticator.scopes
+        scoped_teams: list[str] = getattr(request.successful_authenticator, "scoped_teams", [])
+        scoped_organizations: list[str] = getattr(request.successful_authenticator, "scoped_organizations", [])
+
+        return scopes, scoped_teams, scoped_organizations
+
     def has_permission(self, request, view) -> bool:
         # NOTE: We do this first to error out quickly if the view is missing the required attribute
         # Helps devs remember to add it.
         self.get_scope_object(request, view)
 
-        # API Scopes currently only apply to PersonalAPIKeyAuthentication
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            return True
-
-        key_scopes = request.successful_authenticator.personal_api_key.scopes
-
-        # TRICKY: Legacy API keys have no scopes and are allowed to do anything, even if the view is unsupported.
-        if not key_scopes:
+        scopes, _, _ = self._get_scopes(request, view)
+        # API Scopes permissioning only applies if scopes are present in some form, otherwise nothing is applied
+        if not scopes:
             return True
 
         required_scopes = self.get_required_scopes(request, view)
         self.check_team_and_org_permissions(request, view)
 
-        if "*" in key_scopes:
+        if "*" in scopes:
             return True
 
         for required_scope in required_scopes:
@@ -341,15 +346,14 @@ class APIScopePermission(BasePermission):
             if required_scope.endswith(":read"):
                 valid_scopes.append(required_scope.replace(":read", ":write"))
 
-            if not any(scope in key_scopes for scope in valid_scopes):
+            if not any(scope in scopes for scope in valid_scopes):
                 self.message = f"API key missing required scope '{required_scope}'"
                 return False
 
         return True
 
     def check_team_and_org_permissions(self, request, view) -> None:
-        scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-        scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        _, scoped_teams, scoped_organizations = self._get_scopes(request, view)
 
         if scoped_teams:
             try:

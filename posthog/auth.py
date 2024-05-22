@@ -165,6 +165,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.scopes = personal_api_key_object.scopes
+        self.scoped_organizations = personal_api_key_object.scoped_organizations
+        self.scoped_teams = personal_api_key_object.scoped_teams
 
         return personal_api_key_object.user, None
 
@@ -181,16 +184,19 @@ class JwtAuthentication(authentication.BaseAuthentication):
     keyword = "Bearer"
     valid_audiences = [PosthogJwtAudience.IMPERSONATED_USER, PosthogJwtAudience.CLIENT]
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                for audience in cls.valid_audiences:
+                for audience in self.valid_audiences:
                     try:
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, audience=audience)
                         user = User.objects.get(pk=info["id"])
+                        self.scopes = info.get("scope", "").split(",")
+                        self.scoped_teams = [info["team_id"]] if info.get("team_id") else []
+                        self.scoped_organizations = [info["organization_id"]] if info.get("organization_id") else []
+
                         return (user, None)
                     except Exception as e:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go

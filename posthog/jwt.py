@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
 
 import jwt
 from django.conf import settings
@@ -15,7 +15,9 @@ class PosthogJwtAudience(Enum):
     CLIENT = "posthog:client"  # Meant for client authentication such as the Toolbar or CLI tools
 
 
-def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
+def encode_jwt(
+    payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience, scopes: Optional[list[str]] = None
+) -> str:
     """
     Create a JWT ensuring that the correct audience and signing token is used
     """
@@ -27,6 +29,7 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
             **payload,
             "exp": datetime.now(tz=timezone.utc) + expiry_delta,
             "aud": audience.value,
+            "scope": ",".join(scopes) if scopes else None,
         },
         settings.SECRET_KEY,
         algorithm="HS256",
