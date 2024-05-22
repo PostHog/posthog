@@ -151,7 +151,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2 flex flex-row">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex pt-2 max-sm:hidden w-96 mr-2" style={{ height: panelHeight }}>
+                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
                     <DatabaseTableTreeWithItems inline />
                 </div>
             </FlaggedFeature>
