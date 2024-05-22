@@ -225,4 +225,5 @@ export const urls = {
     canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (): string => `/heatmaps`,
+    clientAuthorization: (): string => `/client_authorization`,
 }

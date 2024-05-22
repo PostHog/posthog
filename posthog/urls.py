@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from typing import Any, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 import structlog
