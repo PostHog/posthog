@@ -36,6 +36,7 @@ from posthog.utils import get_can_create_org
 logger = structlog.get_logger(__name__)
 
 
+# TODO: Rethink this - they can login without verifiying - we should instead do a frontend check
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
     if is_email_available() and not user.is_email_verified:
         EmailVerifier.create_token_and_send_email_verification(user)
