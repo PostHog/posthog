@@ -278,7 +278,8 @@ def join_events_table_to_sessions_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "$session_id"]),
             right=ast.Field(chain=[to_table, "session_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
