@@ -446,6 +446,39 @@ def process_social_domain_jit_provisioning_signup(
     return user
 
 
+def social_user(backend, uid, user=None, *args, **kwargs):
+    provider = backend.name
+    # NOTE: This is almost identical to the original function but with a str conversion that is otherwise missing
+    uid = str(uid) if not isinstance(uid, str) else uid
+    social = backend.strategy.storage.user.get_social_auth(provider, uid)
+    if social:
+        if user and social.user != user:
+            raise ValueError("wat")
+        elif not user:
+            user = social.user
+    return {
+        "social": social,
+        "user": user,
+        "is_new": user is None,
+        "new_association": social is None,
+    }
+
+
+def associate_user(backend, uid, user=None, social=None, *args, **kwargs):
+    if user and not social:
+        try:
+            social = backend.strategy.storage.user.create_social_auth(user, uid, backend.name)
+        except Exception as err:
+            if not backend.strategy.storage.is_integrity_error(err):
+                raise
+            result = social_user(backend, uid, user, *args, **kwargs)
+            if not result["social"]:
+                raise
+            return result
+        else:
+            return {"social": social, "user": social.user, "new_association": True}
+
+
 @partial
 def social_create_user(
     strategy: DjangoStrategy,
