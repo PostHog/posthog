@@ -43,7 +43,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
     dependencies = [
-        ("posthog", "0413_user_hedgehog_config"),
+        ("posthog", "0414_personalapikey_mask_value"),
     ]
 
     operations = [

@@ -48,8 +48,9 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
             {id && (
                 <>
                     <ActionPlugins />
+
                     {isComplete ? (
-                        <div>
+                        <div className="mt-8">
                             <h2 className="subtitle">Matching events</h2>
                             <p>
                                 This is the list of <strong>recent</strong> events that match this action.

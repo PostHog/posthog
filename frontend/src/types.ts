@@ -310,6 +310,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    mask_value?: string | null
     created_at: string
     last_used_at: string
     team_id: number
@@ -534,11 +535,7 @@ export interface ActionType {
 }
 
 /** Sync with plugin-server/src/types.ts */
-export enum StringMatching {
-    Contains = 'contains',
-    Regex = 'regex',
-    Exact = 'exact',
-}
+export type ActionStepStringMatching = 'contains' | 'exact' | 'regex'
 
 export interface ActionStepType {
     event?: string | null
@@ -548,14 +545,13 @@ export interface ActionStepType {
     tag_name?: string
     text?: string | null
     /** @default StringMatching.Exact */
-    text_matching?: StringMatching | null
+    text_matching?: ActionStepStringMatching | null
     href?: string | null
-    /** @default StringMatching.Exact */
-    href_matching?: StringMatching | null
+    /** @default ActionStepStringMatching.Exact */
+    href_matching?: ActionStepStringMatching | null
     url?: string | null
     /** @default StringMatching.Contains */
-    url_matching?: StringMatching | null
-    isNew?: string
+    url_matching?: ActionStepStringMatching | null
 }
 
 export interface ElementType {
