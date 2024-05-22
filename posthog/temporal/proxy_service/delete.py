@@ -65,10 +65,10 @@ async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
         inputs.domain,
     )
 
-    client = get_grpc_client()
+    client = await get_grpc_client()
 
     try:
-        await client.Create(
+        await client.Delete(
             DeleteRequest(
                 uuid=str(inputs.proxy_record_id),
                 domain=inputs.domain,
@@ -77,6 +77,9 @@ async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
+        if e.code() == grpc.StatusCode.NOT_FOUND:
+            raise NonRetriableException("not found") from e
+        raise
 
 
 @workflow.defn(name="delete-proxy")

@@ -1,7 +1,11 @@
 import { IconX } from '@posthog/icons'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
-import { GetLemonButtonTimePropsOpts, LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
+import {
+    GetLemonButtonTimePropsOpts,
+    LemonCalendar,
+    LemonCalendarProps,
+} from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Popover } from '../Popover'
@@ -51,7 +55,7 @@ export interface LemonCalendarSelectProps {
     onChange?: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
-    showTime?: boolean
+    granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
 }
 
@@ -60,13 +64,11 @@ export function LemonCalendarSelect({
     onChange,
     months,
     onClose,
-    showTime,
+    granularity = 'day',
     selectionPeriod,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
-    const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(
-        value ? (showTime ? value : value.startOf('day')) : null
-    )
+    const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
 
     const now = dayjs()
     const today = now.startOf('day')
@@ -83,10 +85,15 @@ export function LemonCalendarSelect({
 
     const onDateClick = (date: dayjs.Dayjs | null): void => {
         if (date) {
-            date = showTime ? date.hour(selectValue === null ? now.hour() : selectValue.hour()) : date.startOf('hour')
-            date = showTime
-                ? date.minute(selectValue === null ? now.minute() : selectValue.minute())
-                : date.startOf('minute')
+            date =
+                granularity === 'minute'
+                    ? date.minute(selectValue === null ? now.minute() : selectValue.minute())
+                    : date.startOf('minute')
+
+            date = ['hour', 'minute'].includes(granularity)
+                ? date.hour(selectValue === null ? now.hour() : selectValue.hour())
+                : date.startOf('hour')
+
             scrollToTime(date, true)
         }
 
@@ -168,7 +175,7 @@ export function LemonCalendarSelect({
                         },
                     }
                 }}
-                showTime={showTime}
+                granularity={granularity}
             />
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
@@ -194,6 +201,7 @@ export type LemonCalendarSelectInputProps = LemonCalendarSelectProps & {
     placeholder?: string
     clearable?: boolean
     visible?: boolean
+    format?: string
 }
 
 export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): JSX.Element {
@@ -240,7 +248,14 @@ export function LemonCalendarSelectInput(props: LemonCalendarSelectInputProps): 
                 }
                 {...props.buttonProps}
             >
-                {props.value?.format(`MMMM D, YYYY${props.showTime && ' h:mm A'}`) ?? placeholder ?? 'Select date'}
+                {props.value?.format(
+                    props.format ??
+                        `MMMM D, YYYY${
+                            props.granularity === 'minute' ? ' h:mm A' : props.granularity === 'hour' ? ' h A' : ''
+                        }`
+                ) ??
+                    placeholder ??
+                    'Select date'}
             </LemonButton>
         </Popover>
     )

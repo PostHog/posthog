@@ -83,7 +83,6 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         if record and record.status in (ProxyRecord.Status.WAITING, ProxyRecord.Status.ERRORING):
             record.delete()
         elif record:
-            record.status = ProxyRecord.Status.DELETING
             temporal = sync_connect()
             inputs = DeleteHostedProxyInputs(
                 organization_id=record.organization_id,
@@ -99,6 +98,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     task_queue=GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
+            record.status = ProxyRecord.Status.DELETING
             record.save()
 
         return Response(

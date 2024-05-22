@@ -857,9 +857,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT_UNSUPPORTED(JoinOpCross)
 
   VISIT(JoinConstraintClause) {
-    if (ctx->USING()) {
-      throw NotImplementedError("Unsupported: JOIN ... USING");
-    }
     PyObject* column_expr_list = visitAsPyObject(ctx->columnExprList());
     Py_ssize_t column_expr_list_size = PyList_Size(column_expr_list);
     if (column_expr_list_size == -1) {
@@ -872,7 +869,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
     PyObject* expr = Py_NewRef(PyList_GET_ITEM(column_expr_list, 0));
     Py_DECREF(column_expr_list);
-    RETURN_NEW_AST_NODE("JoinConstraint", "{s:N}", "expr", expr);
+    RETURN_NEW_AST_NODE("JoinConstraint", "{s:N,s:s}", "expr", expr, "constraint_type", ctx->USING() ? "USING" : "ON");
   }
 
   VISIT(SampleClause) {

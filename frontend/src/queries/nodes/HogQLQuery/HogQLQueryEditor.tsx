@@ -108,7 +108,9 @@ const TABLE_PANEL_HEIGHT = EDITOR_HEIGHT + 78
 
 export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
-    const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const artificialHogHeight = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] ? 40 : 0
+    const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT + artificialHogHeight)
 
     const [key] = useState(() => uniqueNode++)
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -127,7 +129,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { queryInput, hasErrors, error, prompt, aiAvailable, promptError, promptLoading, isValidView } =
         useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
@@ -141,7 +142,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         ref: editorRef,
         onResize: () => {
             if (editorRef.current) {
-                setPanelHeight(Math.max(TABLE_PANEL_HEIGHT, editorRef.current.clientHeight + 78))
+                setPanelHeight(Math.max(TABLE_PANEL_HEIGHT, editorRef.current.clientHeight + 78 + artificialHogHeight))
             }
         },
     })
@@ -150,7 +151,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2 flex flex-row">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex gap-2 pt-2 max-sm:hidden sm:w-96" style={{ height: panelHeight }}>
+                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
                     <DatabaseTableTreeWithItems inline />
                 </div>
             </FlaggedFeature>

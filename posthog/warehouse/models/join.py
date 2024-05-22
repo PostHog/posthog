@@ -82,7 +82,8 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         op=ast.CompareOperationOp.Eq,
                         left=left,
                         right=right,
-                    )
+                    ),
+                    constraint_type="ON",
                 ),
             )
             return join_expr

@@ -19,7 +19,7 @@ from posthog.temporal.proxy_service.common import (
     update_proxy_record,
     UpdateProxyRecordInputs,
 )
-from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest
+from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, CertificateState_READY
 
 
 @dataclass
@@ -97,6 +97,7 @@ async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
+        raise
 
 
 @activity.defn
@@ -123,13 +124,17 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 
         # throw exceptions until ready
         # this lets temporal handle retry/backoff logic
-        if response.certificateStatus != "READY":
-            raise Exception("certificate not yet ready")
+        if response.certificate_status != CertificateState_READY:
+            raise ApplicationError("certificate not yet ready")
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
             raise NonRetriableException("not found") from e
+    except ApplicationError:
+        raise
+    except Exception as e:
+        raise NonRetriableException("unknown exception in wait_for_certificate") from e
 
 
 @workflow.defn(name="create-proxy")

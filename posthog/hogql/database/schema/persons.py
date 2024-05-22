@@ -100,7 +100,8 @@ def join_with_persons_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "person_id"]),
             right=ast.Field(chain=[to_table, "id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 
