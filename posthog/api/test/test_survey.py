@@ -945,9 +945,8 @@ class TestSurvey(APIBaseTest):
         list = self.client.get(f"/api/projects/{self.team.id}/surveys/")
         response_data = list.json()
         assert list.status_code == status.HTTP_200_OK, response_data
+        survey = Survey.objects.get(team_id=self.team.id)
 
-        # remove the automatically inserted targeting flag from test assertion.
-        response_data.get("results")[0]["internal_targeting_flag"] = None
         assert response_data == {
             "count": 1,
             "next": None,
@@ -968,7 +967,37 @@ class TestSurvey(APIBaseTest):
                     "created_at": ANY,
                     "created_by": ANY,
                     "targeting_flag": None,
-                    "internal_targeting_flag": None,
+                    "internal_targeting_flag": {
+                        "id": ANY,
+                        "team_id": self.team.id,
+                        "name": "Targeting flag for survey Notebooks power users survey",
+                        "key": ANY,
+                        "filters": {
+                            "groups": [
+                                {
+                                    "variant": "",
+                                    "properties": [
+                                        {
+                                            "key": f"$survey_dismissed/{survey.id}",
+                                            "type": "person",
+                                            "value": "is_not_set",
+                                            "operator": "is_not_set",
+                                        },
+                                        {
+                                            "key": f"$survey_responded/{survey.id}",
+                                            "type": "person",
+                                            "value": "is_not_set",
+                                            "operator": "is_not_set",
+                                        },
+                                    ],
+                                    "rollout_percentage": 100,
+                                }
+                            ]
+                        },
+                        "deleted": False,
+                        "active": False,
+                        "ensure_experience_continuity": False,
+                    },
                     "linked_flag": None,
                     "linked_flag_id": None,
                     "conditions": None,
