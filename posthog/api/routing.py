@@ -108,7 +108,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
 
+    def dangerously_get_authenticators(self):
+        """
+        WARNING: This should be used very carefully. It is only for endpoints with very specific authentication needs.
+        """
+        raise NotImplementedError()
+
     def get_authenticators(self):
+        try:
+            return self.dangerously_get_authenticators()
+        except NotImplementedError:
+            pass
+
         # NOTE: Custom authentication_classes go first as these typically have extra initial checks
         authentication_classes: list = [
             *self.authentication_classes,

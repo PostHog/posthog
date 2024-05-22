@@ -80,7 +80,7 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         cache.set(f"cli-authentication/tokens/{code}", access_token, timeout=60)
 
-        return JsonResponse({"message": "Success! You can close this window now."})
+        return JsonResponse({"status": "authorized"})
 
     @action(
         methods=["GET", "POST"],
@@ -121,6 +121,6 @@ class ClientAuthenticationViewset(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             status = "pending"
 
         if access_token:
-            status = "authenticated"
+            status = "authorized"
 
         return JsonResponse({"status": status, "access_token": access_token})

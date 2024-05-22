@@ -12,7 +12,7 @@ class PosthogJwtAudience(Enum):
     IMPERSONATED_USER = (
         "posthog:impersonated_user"  # This is used by background jobs on behalf of the user e.g. exports
     )
-    CLI = "posthog:cli"
+    CLIENT = "posthog:client"  # Meant for client authentication such as the Toolbar or CLI tools
 
 
 def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
