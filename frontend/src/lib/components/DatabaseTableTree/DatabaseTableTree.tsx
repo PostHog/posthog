@@ -1,6 +1,6 @@
 import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
-import { TreeFolderRow, TreeRow } from './TreeRow'
+import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
 
 export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
     children?: React.ReactNode
@@ -11,7 +11,7 @@ export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
     selectedRow?: DataWarehouseTableType | null
 }
 
-export type TreeItem = TreeItemFolder | TreeItemLeaf
+export type TreeItem = TreeItemFolder | TreeItemLeaf | TreeTableItemLeaf
 
 export interface TreeItemFolder {
     name: string
@@ -20,8 +20,14 @@ export interface TreeItemFolder {
     isLoading?: boolean
 }
 
-export interface TreeItemLeaf {
+export interface TreeTableItemLeaf {
     table: DataWarehouseTableType
+    icon?: React.ReactNode
+}
+
+export interface TreeItemLeaf {
+    name: string
+    type: string
     icon?: React.ReactNode
 }
 
@@ -35,7 +41,7 @@ export function DatabaseTableTree({
 }: TreeProps): JSX.Element {
     return (
         <ul
-            className={`bg-bg-light ${depth == 1 ? 'p-4 overflow-y-scroll h-full' : ''} rounded-lg ${className}`}
+            className={`bg-bg-light ${depth == 1 ? 'p-4 overflow-y-scroll h-full w-full' : ''} rounded-lg ${className}`}
             {...props}
         >
             {items.map((item, index) => {
@@ -50,13 +56,26 @@ export function DatabaseTableTree({
                         />
                     )
                 }
+
+                if ('table' in item) {
+                    return (
+                        <TreeTableRow
+                            key={depth + '_' + index}
+                            item={item}
+                            depth={depth}
+                            onClick={onSelectRow}
+                            selected={!!(selectedRow?.name == item.table.name)}
+                        />
+                    )
+                }
+
                 return (
                     <TreeRow
                         key={depth + '_' + index}
                         item={item}
                         depth={depth}
                         onClick={onSelectRow}
-                        selected={!!(selectedRow?.name == item.table.name)}
+                        selected={!!(selectedRow?.name == item.name)}
                     />
                 )
             })}

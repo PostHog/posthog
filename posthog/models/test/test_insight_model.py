@@ -125,10 +125,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-14d",
                         "date_to": "-7d",
-                        "explicitDate": None,
-                    },
-                    "filterTestAccounts": None,
-                    "properties": None,
+                    }
                 },
             ),
             (
@@ -165,19 +162,13 @@ class TestInsightModel(BaseTest):
                 # test that if no filters are set then none are outputted
                 {},
                 {},
-                {
-                    "dateRange": None,
-                    "filterTestAccounts": None,
-                    "properties": None,
-                },
+                {},
             ),
             (
                 # test that properties from the query are used when there are no dashboard properties
                 {"properties": [browser_equals_firefox]},
                 {},
                 {
-                    "dateRange": None,
-                    "filterTestAccounts": None,
                     "properties": [browser_equals_firefox],
                 },
             ),
