@@ -324,12 +324,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -1176,12 +1176,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -1518,12 +1518,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -1960,12 +1960,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -2415,12 +2415,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -2861,12 +2861,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -3338,12 +3338,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -3637,12 +3637,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -3858,12 +3858,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -4630,12 +4630,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -5066,12 +5066,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
@@ -5515,12 +5515,12 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
          "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
