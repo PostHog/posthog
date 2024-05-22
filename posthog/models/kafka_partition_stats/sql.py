@@ -150,7 +150,7 @@ class PartitionStatsV2MaterializedView:
                 token,
                 distinct_id,
                 (toIPv4OrDefault(kafka_table.ip), toIPv6OrDefault(kafka_table.ip)) AS ip,
-                if(startsWith(JSONExtractString(data, 'event') AS _event, '$'), _event, '') AS event,
+                JSONExtractString(data, 'event') AS event,
                 length(data) AS data_length,
                 _timestamp AS timestamp
             FROM {CLICKHOUSE_DATABASE}.{self.from_table.table_name} AS kafka_table
