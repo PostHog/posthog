@@ -82,6 +82,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebTopClicksQuery = 'WebTopClicksQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
+    WebTimeOfActivityQuery = 'WebTimeOfActivityQuery',
 
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
@@ -1106,7 +1107,29 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<u
     limit?: integer
     offset?: integer
 }
+
+export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase<unknown[]> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    samplingRate?: SamplingRate
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
 export type CachedWebStatsTableQueryResponse = WebStatsTableQueryResponse & CachedQueryResponseMixin
+
+export interface WebTimeOfActivityQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    kind: NodeKind.WebTimeOfActivityQuery
+}
+export type WebTimeOfActivityResults = Record<string, Record<number, number>>
+
+export interface WebTimeOfActivityQueryResponse extends AnalyticsQueryResponseBase<WebTimeOfActivityResults> {
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+}
+export type CachedWebTimeOfActivityQueryResponse = WebTimeOfActivityQueryResponse & CachedQueryResponseMixin
 
 export type InsightQueryNode =
     | TrendsQuery
