@@ -8,7 +8,7 @@ import { useCallback, useState } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema'
 
-import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf } from './DatabaseTableTree'
+import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 
 export interface TreeRowProps {
     item: TreeItemLeaf
@@ -17,7 +17,28 @@ export interface TreeRowProps {
     selected?: boolean
 }
 
-export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element {
+export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
+    return (
+        <li>
+            <div className={clsx('TreeRow text-ellipsis cursor-default', selected ? 'TreeRow__selected' : '')}>
+                <span className="mr-2">{item.icon}</span>
+                <div className="flex flex-row justify-between w-100">
+                    <div className="w-40 overflow-hidden text-ellipsis whitespace-nowrap">{item.name}</div>
+                    <div className="text-right whitespace-nowrap">{item.type}</div>
+                </div>
+            </div>
+        </li>
+    )
+}
+
+export interface TreeTableRowProps {
+    item: TreeTableItemLeaf
+    depth: number
+    onClick?: (row: DataWarehouseTableType) => void
+    selected?: boolean
+}
+
+export function TreeTableRow({ item, onClick, selected }: TreeTableRowProps): JSX.Element {
     const _onClick = useCallback(() => {
         onClick && onClick(item.table)
     }, [onClick, item])
@@ -40,16 +61,19 @@ export interface TreeFolderRowProps {
 }
 
 export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {
-    const [collapsed, setCollapsed] = useState(false)
     const { name, items, emptyLabel } = item
+
+    const isColumnType = items.length > 0 && 'type' in items[0]
+
+    const [collapsed, setCollapsed] = useState(isColumnType)
 
     const _onClick = useCallback(() => {
         setCollapsed(!collapsed)
     }, [collapsed])
 
     return (
-        <li>
-            <div className={clsx('TreeRow', 'font-bold')} onClick={_onClick}>
+        <li className="overflow-hidden">
+            <div className={clsx('TreeRow', isColumnType ? '' : 'font-bold')} onClick={_onClick}>
                 <span className="mr-2">{collapsed ? <IconChevronRight /> : <IconChevronDown />}</span>
                 {name}
             </div>
@@ -60,13 +84,13 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `2rem`, padding: 0 }}
+                        style={{ marginLeft: `14px`, padding: 0 }}
                     />
                 ) : (
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${2 * depth}rem`,
+                            marginLeft: `${14 * depth}px`,
                         }}
                     >
                         {item.isLoading ? (

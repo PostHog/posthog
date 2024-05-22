@@ -28,7 +28,7 @@ class CredentialSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        extra_kwargs = {"access_secret": {"write_only": "True"}}
+        extra_kwargs = {"access_key": {"write_only": "True"}, "access_secret": {"write_only": "True"}}
 
 
 class TableSerializer(serializers.ModelSerializer):

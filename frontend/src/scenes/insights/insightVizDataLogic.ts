@@ -327,8 +327,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [s.insightDataError],
             (insightDataError): string | null => {
                 // We use 512 for query timeouts
+                // Async queries put the error message on data.error_message, while synchronous ones use detail
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? insightDataError.detail?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
+                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
