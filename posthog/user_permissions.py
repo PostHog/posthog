@@ -196,7 +196,6 @@ class UserDashboardPermissions:
     @cached_property
     def can_restrict(self) -> bool:
         # Sync conditions with frontend hasInherentRestrictionsRights
-        from posthog.models.organization import OrganizationMembership
 
         # The owner (aka creator) has full permissions
         if self.p.user.pk == self.dashboard.created_by_id:
