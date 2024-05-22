@@ -1,7 +1,8 @@
 from asgiref.sync import sync_to_async
 from rest_framework import status
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.test.base import APIBaseTest
 
 
@@ -61,7 +62,7 @@ class TestOrganizationAPI(APIBaseTest):
     # Updating organizations
 
     def test_update_organization_if_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.organization.name = self.CONFIG_ORGANIZATION_NAME
         self.organization.is_member_join_email_enabled = True
@@ -81,7 +82,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(self.organization.is_member_join_email_enabled, False)
 
     def test_update_organization_if_owner(self):
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.level = OrganizationMembershipLevel.OWNER
         self.organization_membership.save()
         self.organization.name = self.CONFIG_ORGANIZATION_NAME
         self.organization.is_member_join_email_enabled = True
@@ -101,7 +102,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(self.organization.is_member_join_email_enabled, False)
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "ASDFG"})
         response_email = self.client.patch(
@@ -114,7 +115,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertNotEqual(self.organization.name, "ASDFG")
 
     def test_cant_update_plugins_access_level(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.organization.plugins_access_level = 3
         self.organization.save()
@@ -129,7 +130,7 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})

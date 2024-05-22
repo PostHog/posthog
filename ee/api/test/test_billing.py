@@ -23,7 +23,7 @@ from posthog.cloud_utils import (
     TEST_clear_instance_license_cache,
     get_cached_instance_license,
 )
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 
@@ -822,7 +822,7 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = None
         self.organization.save()
         # Create a demo project
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Test", "is_demo": True})
         self.assertEqual(response.status_code, 201)

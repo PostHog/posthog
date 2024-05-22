@@ -12,7 +12,7 @@ from rest_framework import status
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.team.team import Team
 from posthog.plugins.access import (
     can_configure_plugins,
@@ -894,7 +894,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Plugin.objects.count(), 1)
 
-        self.user.join(organization=other_org, level=OrganizationMembership.Level.OWNER)
+        self.user.join(organization=other_org, level=OrganizationMembershipLevel.OWNER)
 
         response = self.client.post(
             f"/api/organizations/{other_org.id}/plugins/",

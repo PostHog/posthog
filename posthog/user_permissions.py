@@ -12,6 +12,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.organization import OrganizationMembershipLevel
 
 
 class UserPermissions:
@@ -144,7 +145,7 @@ class UserTeamPermissions:
         self.team = team
 
     @cached_property
-    def effective_membership_level(self) -> Optional["OrganizationMembership.Level"]:
+    def effective_membership_level(self) -> Optional["OrganizationMembershipLevel"]:
         """Return an effective membership level.
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
@@ -157,7 +158,7 @@ class UserTeamPermissions:
         self,
         organization: Optional[Organization],
         organization_membership: Optional[OrganizationMembership],
-    ) -> Optional["OrganizationMembership.Level"]:
+    ) -> Optional["OrganizationMembershipLevel"]:
         if organization is None or organization_membership is None:
             return None
 
@@ -171,7 +172,7 @@ class UserTeamPermissions:
         if explicit_membership_level is not None:
             return max(explicit_membership_level, organization_membership.level)
         # Only organizations admins and above get implicit project membership
-        elif organization_membership.level < OrganizationMembership.Level.ADMIN:
+        elif organization_membership.level < OrganizationMembershipLevel.ADMIN:
             return None
         else:
             return organization_membership.level
@@ -203,7 +204,7 @@ class UserDashboardPermissions:
         effective_project_membership_level = self.p.current_team.effective_membership_level
         return (
             effective_project_membership_level is not None
-            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
+            and effective_project_membership_level >= OrganizationMembershipLevel.ADMIN
         )
 
     @cached_property

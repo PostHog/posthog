@@ -78,7 +78,7 @@ class OrganizationManager(models.Manager):
                 organization_membership = OrganizationMembership.objects.create(
                     organization=organization,
                     user=user,
-                    level=OrganizationMembership.Level.OWNER,
+                    level=OrganizationMembershipLevel.OWNER,
                 )
                 user.current_organization = organization
                 user.organization = user.current_organization  # Update cached property
@@ -296,12 +296,12 @@ class OrganizationMembership(UUIDModel):
         if new_level is not None:
             if membership_being_updated.id == self.id:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
-            if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+            if new_level == OrganizationMembershipLevel.OWNER:
+                if self.level != OrganizationMembershipLevel.OWNER:
                     raise exceptions.PermissionDenied(
                         "You can only pass on organization ownership if you're its owner."
                     )
-                self.level = OrganizationMembership.Level.ADMIN
+                self.level = OrganizationMembershipLevel.ADMIN
                 self.save()
             elif new_level > self.level:
                 raise exceptions.PermissionDenied(
@@ -310,7 +310,7 @@ class OrganizationMembership(UUIDModel):
         if membership_being_updated.id != self.id:
             if membership_being_updated.organization_id != self.organization_id:
                 raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
+            if self.level < OrganizationMembershipLevel.ADMIN:
                 raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
             if membership_being_updated.level > self.level:
                 raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")

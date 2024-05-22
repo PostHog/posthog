@@ -31,7 +31,7 @@ from posthog.models import (
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
 from posthog.models.group.group import Group
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.person import PersonDistinctId
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.plugin import sync_team_inject_web_apps
@@ -3541,7 +3541,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
         OrganizationMembership.objects.using(dbname).create(
             user=user,
             organization=organization,
-            level=OrganizationMembership.Level.OWNER,
+            level=OrganizationMembershipLevel.OWNER,
         )
 
         return organization, team, user

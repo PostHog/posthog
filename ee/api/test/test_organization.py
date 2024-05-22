@@ -8,7 +8,7 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 from posthog.models import Team, User
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership, OrganizationMembershipLevel
 from posthog.tasks.tasks import sync_all_organization_available_features
 
 
@@ -25,7 +25,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         )
         self.assertEqual(
             OrganizationMembership.objects.get(organization_id=response_data.get("id"), user=self.user).level,
-            OrganizationMembership.Level.OWNER,
+            OrganizationMembershipLevel.OWNER,
         )
 
     @patch("secrets.choice", return_value="Y")
@@ -82,7 +82,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         organization_props = self.organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=org_id).exists())
 
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.level = OrganizationMembershipLevel.OWNER
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/organizations/{org_id}")
@@ -122,8 +122,8 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
 
     def test_no_delete_organization_not_owning(self):
         for level in (
-            OrganizationMembership.Level.MEMBER,
-            OrganizationMembership.Level.ADMIN,
+            OrganizationMembershipLevel.MEMBER,
+            OrganizationMembershipLevel.ADMIN,
         ):
             self.organization_membership.level = level
             self.organization_membership.save()
@@ -143,7 +143,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
 
     def test_delete_organization_owning(self):
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.level = OrganizationMembershipLevel.OWNER
         self.organization_membership.save()
         membership_ids = OrganizationMembership.objects.filter(organization=self.organization).values_list(
             "id", flat=True
@@ -161,7 +161,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.assertTrue(User.objects.filter(id=self.user.pk).exists())
 
     def test_no_delete_organization_not_belonging_to(self):
-        for level in OrganizationMembership.Level:
+        for level in OrganizationMembershipLevel:
             self.organization_membership.level = level
             self.organization_membership.save()
             organization = Organization.objects.create(name="Some Other Org")
@@ -184,7 +184,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             )
 
     def test_update_org(self):
-        for level in OrganizationMembership.Level:
+        for level in OrganizationMembershipLevel:
             self.organization_membership.level = level
             self.organization_membership.save()
             response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "Woof"})
@@ -200,7 +200,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 "code": "permission_denied",
                 "type": "authentication_error",
             }
-            if level < OrganizationMembership.Level.ADMIN:
+            if level < OrganizationMembershipLevel.ADMIN:
                 potential_err_message = f"Somehow managed to update the org as a level {level} (which is below admin)"
                 self.assertEqual(response_rename.json(), expected_response, potential_err_message)
                 self.assertEqual(response_rename.status_code, 403, potential_err_message)
@@ -214,7 +214,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
                 self.assertTrue(self.organization.name, "Woof")
 
     def test_no_update_organization_not_belonging_to(self):
-        for level in OrganizationMembership.Level:
+        for level in OrganizationMembershipLevel:
             self.organization_membership.level = level
             self.organization_membership.save()
             organization = Organization.objects.create(name="Meow")
@@ -274,7 +274,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         License.PLANS = current_plans
 
     def test_get_organization_restricted_teams_hidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         Team.objects.create(
             organization=self.organization,

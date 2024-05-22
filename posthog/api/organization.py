@@ -15,7 +15,7 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
@@ -56,7 +56,7 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
         min_level = (
-            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
+            OrganizationMembershipLevel.OWNER if request.method == "DELETE" else OrganizationMembershipLevel.ADMIN
         )
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
@@ -117,7 +117,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 
         return organization
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembershipLevel]:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 

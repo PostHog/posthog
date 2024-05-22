@@ -16,6 +16,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
@@ -127,7 +128,7 @@ class OrganizationAdminWritePermissions(BasePermission):
 
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
+            >= OrganizationMembershipLevel.ADMIN
         )
 
     def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
@@ -139,7 +140,7 @@ class OrganizationAdminWritePermissions(BasePermission):
 
         return (
             OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= OrganizationMembership.Level.ADMIN
+            >= OrganizationMembershipLevel.ADMIN
         )
 
 
@@ -181,7 +182,7 @@ class TeamMemberLightManagementPermission(BasePermission):
         if requesting_level is None:
             return False
         minimum_level = (
-            OrganizationMembership.Level.MEMBER if request.method != "DELETE" else OrganizationMembership.Level.ADMIN
+            OrganizationMembershipLevel.MEMBER if request.method != "DELETE" else OrganizationMembershipLevel.ADMIN
         )
         return requesting_level >= minimum_level
 
@@ -199,9 +200,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
         if requesting_level is None:
             return False
         minimum_level = (
-            OrganizationMembership.Level.MEMBER
-            if request.method in SAFE_METHODS
-            else OrganizationMembership.Level.ADMIN
+            OrganizationMembershipLevel.MEMBER if request.method in SAFE_METHODS else OrganizationMembershipLevel.ADMIN
         )
         return requesting_level >= minimum_level
 

@@ -26,6 +26,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDClassicModel,
@@ -451,7 +452,7 @@ class Team(UUIDClassicModel):
         else:
             user_ids_queryset = (
                 OrganizationMembership.objects.filter(
-                    organization_id=self.organization_id, level__gte=OrganizationMembership.Level.ADMIN
+                    organization_id=self.organization_id, level__gte=OrganizationMembershipLevel.ADMIN
                 )
                 .values_list("user_id", flat=True)
                 .union(

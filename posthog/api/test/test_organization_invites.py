@@ -8,7 +8,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import (
     Organization,
     OrganizationInvite,
-    OrganizationMembership,
+    OrganizationMembershipLevel,
 )
 from posthog.test.base import APIBaseTest
 
@@ -295,7 +295,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     # Deleting invites
 
     def test_delete_organization_invite_if_plain_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")

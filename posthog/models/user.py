@@ -14,7 +14,7 @@ from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
-from .organization import Organization, OrganizationMembership
+from .organization import Organization, OrganizationMembership, OrganizationMembershipLevel
 from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
@@ -81,7 +81,7 @@ class UserManager(BaseUserManager):
                 team = create_team(organization, user)
             else:
                 team = Team.objects.create_with_data(user=user, organization=organization, **(team_fields or {}))
-            user.join(organization=organization, level=OrganizationMembership.Level.OWNER)
+            user.join(organization=organization, level=OrganizationMembershipLevel.OWNER)
             return organization, team, user
 
     def create_and_join(
@@ -90,7 +90,7 @@ class UserManager(BaseUserManager):
         email: str,
         password: Optional[str],
         first_name: str = "",
-        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        level: OrganizationMembershipLevel = OrganizationMembershipLevel.MEMBER,
         **extra_fields,
     ) -> "User":
         with transaction.atomic():
@@ -189,7 +189,7 @@ class User(AbstractUser, UUIDClassicModel):
                     Q(parent_membership__user=self)
                 ).values_list("team_id", flat=True)
                 organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                    user=self, level__gte=OrganizationMembership.Level.ADMIN
+                    user=self, level__gte=OrganizationMembershipLevel.ADMIN
                 ).values_list("organization_id", flat=True)
                 # If project access control IS applicable, make sure
                 # - project doesn't have access control OR
@@ -223,14 +223,14 @@ class User(AbstractUser, UUIDClassicModel):
         self,
         *,
         organization: Organization,
-        level: OrganizationMembership.Level = OrganizationMembership.Level.MEMBER,
+        level: OrganizationMembershipLevel = OrganizationMembershipLevel.MEMBER,
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
             if (
                 AvailableFeature.PROJECT_BASED_PERMISSIONING not in organization.available_features
-                or level >= OrganizationMembership.Level.ADMIN
+                or level >= OrganizationMembershipLevel.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("access_control", "id").first()
@@ -239,7 +239,7 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
-        if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
+        if level == OrganizationMembershipLevel.OWNER and not self.current_organization.customer_id:
             self.update_billing_customer_email(organization)
         self.update_billing_distinct_ids(organization)
         return membership
@@ -253,7 +253,7 @@ class User(AbstractUser, UUIDClassicModel):
 
     def leave(self, *, organization: Organization) -> None:
         membership: OrganizationMembership = OrganizationMembership.objects.get(user=self, organization=organization)
-        if membership.level == OrganizationMembership.Level.OWNER:
+        if membership.level == OrganizationMembershipLevel.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
             membership.delete()

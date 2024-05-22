@@ -2,7 +2,8 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
-from posthog.models import Dashboard, OrganizationMembership, User
+from posthog.models import Dashboard, User
+from posthog.models.organization import OrganizationMembershipLevel
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
@@ -13,7 +14,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.test_dashboard = Dashboard.objects.create(team=self.team, name="Test Insights 9001", created_by=self.user)
 
     def test_list_collaborators_as_person_without_edit_access(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.created_by = None
@@ -44,7 +45,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(response_data[1]["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_cannot_add_collaborator_to_unrestricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         self.test_dashboard.save()
@@ -66,7 +67,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
 
     def test_can_add_collaborator_to_edit_restricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.save()
@@ -87,7 +88,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_cannot_add_yourself_to_restricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.save()
@@ -110,7 +111,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
 
     def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.created_by = None
@@ -133,7 +134,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.save()
@@ -155,7 +156,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
 
     def test_cannot_add_collaborator_to_other_org_to_edit_restricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.save()
@@ -179,7 +180,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
     def test_cannot_update_existing_collaborator(self):
         # This will change once there are more levels, but with just two it doesn't make sense to PATCH privileges
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         self.test_dashboard.save()
@@ -198,7 +199,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_cannot_remove_collaborator_from_unrestricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         self.test_dashboard.save()
@@ -223,7 +224,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         )
 
     def test_can_remove_collaborator_from_restricted_dashboard_as_creator(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.save()
@@ -241,7 +242,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_cannot_remove_collaborator_from_restricted_dashboard_as_other_user(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.test_dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.test_dashboard.created_by = None

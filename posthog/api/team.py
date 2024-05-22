@@ -31,7 +31,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
@@ -187,7 +187,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "groups_on_events_querying_enabled",
         )
 
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
+    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembershipLevel]:
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
@@ -280,7 +280,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
                 organization_id=organization_id, user=request.user
             )
-            if org_membership.level < OrganizationMembership.Level.ADMIN:
+            if org_membership.level < OrganizationMembershipLevel.ADMIN:
                 raise exceptions.PermissionDenied("Your organization access level is insufficient.")
 
         if "autocapture_exceptions_errors_to_ignore" in attrs:

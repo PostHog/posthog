@@ -15,7 +15,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models.organization import OrganizationInvite, OrganizationMembership, OrganizationMembershipLevel
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
@@ -560,7 +560,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(
             cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+            OrganizationMembershipLevel.MEMBER,
         )
         self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
 
@@ -638,7 +638,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(user.organization_memberships.count(), 1)
             self.assertEqual(
                 cast(OrganizationMembership, user.organization_memberships.first()).level,
-                OrganizationMembership.Level.MEMBER,
+                OrganizationMembershipLevel.MEMBER,
             )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")

@@ -32,6 +32,7 @@ from posthog.models import (
     Text,
 )
 from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.organization import OrganizationMembershipLevel
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -2326,7 +2327,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     # Extra permissioning tests here
     def test_insight_trends_allowed_if_project_open_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = False
         self.team.save()

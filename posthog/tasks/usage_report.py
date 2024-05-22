@@ -33,7 +33,7 @@ from posthog.logging.timing import timed_log
 from posthog.models import GroupTypeMapping, OrganizationMembership, User
 from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
@@ -278,7 +278,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     # Find the membership object for the org owner
     user = None
     membership = OrganizationMembership.objects.filter(
-        organization_id=organization_id, level=OrganizationMembership.Level.OWNER
+        organization_id=organization_id, level=OrganizationMembershipLevel.OWNER
     ).first()
     if not membership:
         # If no owner membership is present, pick the first membership association we can find

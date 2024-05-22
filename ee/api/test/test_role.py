@@ -4,12 +4,12 @@ from rest_framework import status
 from ee.api.test.base import APILicensedTest
 from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 
 
 class TestRoleAPI(APILicensedTest):
     def test_only_organization_admins_and_higher_can_create(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         admin_create_res = self.client.post(
             "/api/organizations/@current/roles",
@@ -18,7 +18,7 @@ class TestRoleAPI(APILicensedTest):
             },
         )
 
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         member_create_res = self.client.post(
             "/api/organizations/@current/roles",
@@ -37,14 +37,14 @@ class TestRoleAPI(APILicensedTest):
             organization=self.organization,
             created_by=self.user,
         )
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         admin_update_res = self.client.patch(
             f"/api/organizations/@current/roles/{existing_eng_role.id}",
             {"name": "on call support"},
         )
 
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         member_update_res = self.client.patch(
             f"/api/organizations/@current/roles/{existing_eng_role.id}",
@@ -59,7 +59,7 @@ class TestRoleAPI(APILicensedTest):
     def test_cannot_duplicate_role_name(self):
         Role.objects.create(name="Marketing", organization=self.organization)
         count = Role.objects.count()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         res = self.client.post(
             "/api/organizations/@current/roles",
@@ -87,9 +87,9 @@ class TestRoleAPI(APILicensedTest):
 
     def test_updating_feature_flags_access_level_for_a_role(self):
         role = Role.objects.create(organization=self.organization, name="Engineering")
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
-        self.assertEqual(self.organization_membership.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(self.organization_membership.level, OrganizationMembershipLevel.ADMIN)
         self.assertEqual(
             role.feature_flags_access_level,
             OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
@@ -112,7 +112,7 @@ class TestRoleAPI(APILicensedTest):
         )
 
     def test_returns_correct_results_by_organization(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         self.client.post(

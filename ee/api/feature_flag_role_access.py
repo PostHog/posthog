@@ -8,7 +8,7 @@ from ee.models.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import OrganizationMembershipLevel
 
 
 class FeatureFlagRoleAccessPermissions(BasePermission):
@@ -19,7 +19,7 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
             return True
         if (
             request.user.organization_memberships.get(organization=request.user.organization).level
-            >= OrganizationMembership.Level.ADMIN
+            >= OrganizationMembershipLevel.ADMIN
         ):
             return True
         try:

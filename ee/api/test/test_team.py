@@ -7,7 +7,7 @@ from rest_framework.status import (
 
 from ee.api.test.base import APILicensedTest
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembershipLevel
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.test.base import FuzzyInt
@@ -19,7 +19,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     # Creating projects
 
     def test_create_project(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Test"})
         self.assertEqual(response.status_code, 201)
@@ -29,14 +29,14 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Test",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "effective_membership_level": OrganizationMembershipLevel.ADMIN,
             },
             response_data,
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_non_admin_cannot_create_project(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         count = Team.objects.count()
         response = self.client.post("/api/projects/", {"name": "Test"})
@@ -48,7 +48,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
 
     def test_create_demo_project(self, *args):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(Team.objects.count(), 3)
@@ -58,14 +58,14 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Hedgebox",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "effective_membership_level": OrganizationMembershipLevel.ADMIN,
             },
             response_data,
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
     def test_create_two_demo_projects(self, *args):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(Team.objects.count(), 3)
@@ -75,7 +75,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Hedgebox",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "effective_membership_level": OrganizationMembershipLevel.ADMIN,
             },
             response_data,
         )
@@ -110,7 +110,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
 
     def test_user_create_project_for_org_via_url(self):
         # Set both current and new org to high enough membership level
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         current_org, _, _ = Organization.objects.bootstrap(self.user, name="other_org")
@@ -138,21 +138,21 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     # Deleting projects
 
     def test_delete_team_as_org_admin_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         response = self.client.delete(f"/api/projects/{self.team.id}")
         self.assertEqual(response.status_code, HTTP_204_NO_CONTENT)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 0)
 
     def test_delete_team_as_org_member_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         response = self.client.delete(f"/api/projects/{self.team.id}")
         self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_delete_open_team_as_org_member_but_project_admin_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(
             team=self.team,
@@ -164,7 +164,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_delete_private_team_as_org_member_but_project_admin_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -178,7 +178,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 0)
 
     def test_delete_second_team_as_org_admin_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
@@ -186,7 +186,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
     def test_no_delete_team_not_administrating_organization(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         team = Team.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/projects/{team.id}")
@@ -207,7 +207,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     # Updating projects
 
     def test_rename_project_as_org_member_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
 
         response = self.client.patch(f"/api/projects/@current/", {"name": "Erinaceus europaeus"})
@@ -217,7 +217,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(self.team.name, "Erinaceus europaeus")
 
     def test_rename_private_project_as_org_member_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -245,7 +245,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(response.status_code, HTTP_404_NOT_FOUND)
 
     def test_rename_private_project_as_org_member_and_project_member_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -262,7 +262,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(self.team.name, "Acherontia atropos")
 
     def test_enable_access_control_as_org_member_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
 
         response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
@@ -272,7 +272,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertFalse(self.team.access_control)
 
     def test_enable_access_control_as_org_admin_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.patch(f"/api/projects/@current/", {"access_control": True})
@@ -282,7 +282,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertTrue(self.team.access_control)
 
     def test_enable_access_control_as_org_member_and_project_admin_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         ExplicitTeamMembership.objects.create(
             team=self.team,
@@ -297,7 +297,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertFalse(self.team.access_control)
 
     def test_disable_access_control_as_org_member_forbidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -311,7 +311,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_disable_access_control_as_org_member_and_project_admin_forbidden(self):
         # Only org-wide admins+ should be allowed to make the project open,
         # because if a project-specific admin who is only an org member did it, they wouldn't be able to reenable it
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -328,7 +328,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertTrue(self.team.access_control)
 
     def test_disable_access_control_as_org_admin_allowed(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -359,7 +359,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     # Fetching projects
 
     def test_fetch_team_as_org_admin_works(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = OrganizationMembershipLevel.ADMIN
         self.organization_membership.save()
 
         response = self.client.get(f"/api/projects/@current/")
@@ -370,13 +370,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Default project",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "effective_membership_level": OrganizationMembershipLevel.ADMIN,
             },
             response_data,
         )
 
     def test_fetch_team_as_org_member_works(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
 
         response = self.client.get(f"/api/projects/@current/")
@@ -387,13 +387,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Default project",
                 "access_control": False,
-                "effective_membership_level": OrganizationMembership.Level.MEMBER,
+                "effective_membership_level": OrganizationMembershipLevel.MEMBER,
             },
             response_data,
         )
 
     def test_fetch_private_team_as_org_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -408,7 +408,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         )
 
     def test_fetch_private_team_as_org_member_and_project_member(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -426,13 +426,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Default project",
                 "access_control": True,
-                "effective_membership_level": OrganizationMembership.Level.MEMBER,
+                "effective_membership_level": OrganizationMembershipLevel.MEMBER,
             },
             response_data,
         )
 
     def test_fetch_private_team_as_org_member_and_project_admin(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
@@ -450,7 +450,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             {
                 "name": "Default project",
                 "access_control": True,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+                "effective_membership_level": OrganizationMembershipLevel.ADMIN,
             },
             response_data,
         )
@@ -471,7 +471,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(self.not_found_response(), response_data)
 
     def test_list_teams_restricted_ones_hidden(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.level = OrganizationMembershipLevel.MEMBER
         self.organization_membership.save()
         Team.objects.create(
             organization=self.organization,

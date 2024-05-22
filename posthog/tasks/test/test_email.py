@@ -10,7 +10,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.organization import OrganizationInvite, OrganizationMembership
+from posthog.models.organization import OrganizationInvite, OrganizationMembershipLevel
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
     send_async_migration_complete_email,
@@ -35,7 +35,7 @@ def create_org_team_and_user(creation_date: str, email: str, ingested_event: boo
             organization=org,
             email=email,
             password=None,
-            level=OrganizationMembership.Level.OWNER,
+            level=OrganizationMembershipLevel.OWNER,
         )
         return org, user
 
@@ -82,7 +82,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             organization=org,
             email="new-user@posthog.com",
             password=None,
-            level=OrganizationMembership.Level.MEMBER,
+            level=OrganizationMembershipLevel.MEMBER,
         )
         send_member_join(user.uuid, org.id)
 
