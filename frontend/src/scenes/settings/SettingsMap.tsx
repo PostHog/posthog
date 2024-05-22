@@ -12,9 +12,9 @@ import { CorrelationConfig } from './project/CorrelationConfig'
 import { DataAttributes } from './project/DataAttributes'
 import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './project/HeatmapsSettings'
-import { HostedReverseProxy } from './project/HostedReverseProxy'
 import { IPAllowListInfo } from './project/IPAllowListInfo'
 import { IPCapture } from './project/IPCapture'
+import { ManagedReverseProxy } from './project/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
 import { ProjectAccessControl } from './project/ProjectAccessControl'
@@ -322,12 +322,12 @@ export const SettingsMap: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-proxy',
-        title: 'Hosted reverse proxy',
+        title: 'Managed reverse proxy',
         settings: [
             {
                 id: 'organization-proxy',
                 title: 'Proxy',
-                component: <HostedReverseProxy />,
+                component: <ManagedReverseProxy />,
             },
         ],
     },

@@ -28,8 +28,8 @@ class DeleteProxyRecordInputs:
 
 
 @dataclass
-class DeleteHostedProxyInputs:
-    """Inputs for the DeleteHostedProxy Workflow and Activity."""
+class DeleteManagedProxyInputs:
+    """Inputs for the DeleteManagedProxy Workflow and Activity."""
 
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -56,7 +56,7 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
 
 
 @activity.defn
-async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
+async def delete_hosted_proxy(inputs: DeleteManagedProxyInputs):
     """Activity that calls the proxy provisioner to delete the resources for a Hosted Proxy."""
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
@@ -83,17 +83,17 @@ async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
 
 
 @workflow.defn(name="delete-proxy")
-class DeleteHostedProxyWorkflow(PostHogWorkflow):
+class DeleteManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to delete a Hosted Reverse Proxy."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> DeleteHostedProxyInputs:
+    def parse_inputs(inputs: list[str]) -> DeleteManagedProxyInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-        return DeleteHostedProxyInputs(**loaded)
+        return DeleteManagedProxyInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, inputs: DeleteHostedProxyInputs) -> None:
+    async def run(self, inputs: DeleteManagedProxyInputs) -> None:
         """Workflow implementation to delete a Hosted Reverse Proxy."""
 
         try:

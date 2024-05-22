@@ -23,7 +23,7 @@ import { proxyLogic, ProxyRecord } from './proxyLogic'
 
 const MAX_PROXY_RECORDS = 3
 
-export function HostedReverseProxy(): JSX.Element {
+export function ManagedReverseProxy(): JSX.Element {
     const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
     const { showForm, deleteRecord } = useActions(proxyLogic)
 
@@ -89,7 +89,7 @@ export function HostedReverseProxy(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.HOSTED_REVERSE_PROXY}>
+        <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
             <div className="space-y-2">
                 <LemonTable
                     loading={proxyRecords.length === 0 && proxyRecordsLoading}

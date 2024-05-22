@@ -151,7 +151,7 @@ export enum AvailableFeature {
     SUPPORT_RESPONSE_TIME = 'support_response_time',
     DATA_PIPELINES_TRANSFORMATIONS = 'data_pipelines_transformations',
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
-    HOSTED_REVERSE_PROXY = 'hosted_reverse_proxy',
+    MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`

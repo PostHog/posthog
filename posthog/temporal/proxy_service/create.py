@@ -23,8 +23,8 @@ from posthog.temporal.proxy_service.proto import CreateRequest, StatusRequest, C
 
 
 @dataclass
-class CreateHostedProxyInputs:
-    """Inputs for the CreateHostedProxy Workflow and Activity."""
+class CreateManagedProxyInputs:
+    """Inputs for the CreateManagedProxy Workflow and Activity."""
 
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -74,7 +74,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
 
 @activity.defn
-async def create_hosted_proxy(inputs: CreateHostedProxyInputs):
+async def create_hosted_proxy(inputs: CreateManagedProxyInputs):
     """Activity that calls the proxy provisioner to create the resources for
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
@@ -138,17 +138,17 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 
 
 @workflow.defn(name="create-proxy")
-class CreateHostedProxyWorkflow(PostHogWorkflow):
+class CreateManagedProxyWorkflow(PostHogWorkflow):
     """A Temporal Workflow to create a Hosted Reverse Proxy."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> CreateHostedProxyInputs:
+    def parse_inputs(inputs: list[str]) -> CreateManagedProxyInputs:
         """Parse inputs from the management command CLI."""
         loaded = json.loads(inputs[0])
-        return CreateHostedProxyInputs(**loaded)
+        return CreateManagedProxyInputs(**loaded)
 
     @temporalio.workflow.run
-    async def run(self, inputs: CreateHostedProxyInputs) -> None:
+    async def run(self, inputs: CreateManagedProxyInputs) -> None:
         """Workflow implementation to create a Hosted Reverse Proxy."""
 
         try:

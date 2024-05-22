@@ -3422,8 +3422,8 @@ export const billingJson: BillingV2Type = {
                                     note: null,
                                 },
                                 {
-                                    key: 'hosted_reverse_proxy',
-                                    name: 'Hosted reverse proxy',
+                                    key: 'managed_reverse_proxy',
+                                    name: 'Managed reverse proxy',
                                     description:
                                         'Send events through your own domain to capture more usage data without having to self-host PostHog.',
                                     images: null,
@@ -3572,8 +3572,8 @@ export const billingJson: BillingV2Type = {
                             type: null,
                         },
                         {
-                            key: 'hosted_reverse_proxy',
-                            name: 'Hosted reverse proxy',
+                            key: 'managed_reverse_proxy',
+                            name: 'Managed reverse proxy',
                             description:
                                 'Send events through your own domain to capture more usage data without having to self-host PostHog.',
                             images: null,
