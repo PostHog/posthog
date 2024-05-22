@@ -286,12 +286,12 @@ class OrganizationMembership(UUIDModel):
         ]
 
     def __str__(self):
-        return str(self.Level(self.level))
+        return str(OrganizationMembershipLevel(self.level))
 
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
-        new_level: Optional[Level] = None,
+        new_level: Optional[OrganizationMembershipLevel] = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
