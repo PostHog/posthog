@@ -205,7 +205,8 @@ def join_with_events_table_session_duration(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "$session_id"]),
             right=ast.Field(chain=[to_table, "id"]),
-        )
+        ),
+        constraint_type="ON",
     )
 
     return join_expr
