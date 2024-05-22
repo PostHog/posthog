@@ -1,13 +1,11 @@
-import { LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
@@ -20,10 +18,6 @@ import { Destination } from './types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from './utils'
 
 export function Destinations(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <p>Pipeline 3000 not available yet</p>
-    }
     const { destinations, shouldShowProductIntroduction } = useValues(pipelineDestinationsLogic)
 
     const shouldShowEmptyState = !destinations.some((destination) => destination.enabled)
@@ -61,6 +55,16 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                 loading={loading}
                 columns={[
                     {
+                        title: 'App',
+                        width: 0,
+                        render: function RenderAppInfo(_, destination) {
+                            if (destination.backend === 'plugin') {
+                                return <RenderApp plugin={destination.plugin} />
+                            }
+                            return <RenderBatchExportIcon type={destination.service.type} />
+                        },
+                    },
+                    {
                         title: 'Name',
                         sticky: true,
                         render: function RenderPluginName(_, destination) {
@@ -84,15 +88,6 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                         },
                     },
                     {
-                        title: 'App',
-                        render: function RenderAppInfo(_, destination) {
-                            if (destination.backend === 'plugin') {
-                                return <RenderApp plugin={destination.plugin} />
-                            }
-                            return <RenderBatchExportIcon type={destination.service.type} />
-                        },
-                    },
-                    {
                         title: 'Frequency',
                         render: function RenderFrequency(_, destination) {
                             return destination.interval
@@ -101,7 +96,17 @@ export function DestinationsTable({ inOverview = false }: { inOverview?: boolean
                     {
                         title: 'Weekly volume',
                         render: function RenderSuccessRate(_, destination) {
-                            return <AppMetricSparkLine pipelineNode={destination} />
+                            return (
+                                <Link
+                                    to={urls.pipelineNode(
+                                        PipelineStage.Destination,
+                                        destination.id,
+                                        PipelineNodeTab.Metrics
+                                    )}
+                                >
+                                    <AppMetricSparkLine pipelineNode={destination} />
+                                </Link>
+                            )
                         },
                     },
                     updatedAtColumn() as LemonTableColumn<Destination, any>,
@@ -148,7 +153,8 @@ export const DestinationMoreOverlay = ({
     destination: Destination
     inOverview?: boolean
 }): JSX.Element => {
-    const { canConfigurePlugins, canEnableNewDestinations } = useValues(pipelineLogic)
+    const { canConfigurePlugins } = useValues(pipelineLogic)
+    const { canEnableNewDestinations } = useValues(pipelineDestinationsLogic)
     const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic)
 
     return (

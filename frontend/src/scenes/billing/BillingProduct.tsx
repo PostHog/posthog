@@ -42,7 +42,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isOnboarding, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, redirectPath, isOnboarding, isUnlicensedDebug, billingError } = useValues(billingLogic)
     const {
         customLimitUsd,
         showTierBreakdown,
@@ -298,6 +298,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             <h4 className="my-4">Addons</h4>
                             <div className="gap-y-4 flex flex-col">
                                 {product.addons
+                                    // TODO: enhanced_persons: remove this filter
                                     .filter((addon) => !addon.inclusion_only)
                                     .map((addon, i) => {
                                         return <BillingProductAddon key={i} addon={addon} />
@@ -404,6 +405,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 icon={<IconPlus />}
                                                 disableClientSideRouting
                                                 loading={billingProductLoading === product.type}
+                                                disabledReason={billingError && billingError.message}
                                                 onClick={() => {
                                                     reportBillingUpgradeClicked(product.type)
                                                     setBillingProductLoading(product.type)

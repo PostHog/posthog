@@ -1,12 +1,16 @@
 import json
 import os
 import secrets
-import structlog
+import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
+
+import jwt
 import requests
+import structlog
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
@@ -22,21 +26,23 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-import time
-import jwt
-from datetime import datetime, timedelta
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import raise_if_user_provided_url_unsafe, PublicIPOnlyHttpAdapter
-from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, authenticate_secondarily
+from posthog.api.utils import PublicIPOnlyHttpAdapter, raise_if_user_provided_url_unsafe
+from posthog.auth import (
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    TemporaryTokenAuthentication,
+    authenticate_secondarily,
+)
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_logged_in,
@@ -44,7 +50,7 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.middleware import get_impersonated_session_expires_at
-from posthog.models import Team, User, UserScenePersonalisation, Dashboard
+from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.permissions import APIScopePermission
@@ -53,7 +59,6 @@ from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
-from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 logger = structlog.get_logger(__name__)
 
@@ -68,6 +73,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
@@ -89,7 +95,6 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "pending_email",
-            "email_opt_in",
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
@@ -98,6 +103,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "sensitive_session_expires_at",
             "team",
             "organization",
             "organizations",
@@ -111,6 +117,7 @@ class UserSerializer(serializers.ModelSerializer):
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
+            "hedgehog_config",
         ]
 
         read_only_fields = [
@@ -121,6 +128,8 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "has_password",
             "is_impersonated",
+            "is_impersonated_until",
+            "sensitive_session_expires_at",
             "team",
             "organization",
             "organizations",
@@ -132,7 +141,7 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def get_has_password(self, instance: User) -> bool:
-        return instance.has_usable_password()
+        return bool(instance.password) and instance.has_usable_password()
 
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:
@@ -143,9 +152,26 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):
             return None
 
-        time = get_impersonated_session_expires_at(self.context["request"])
+        expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
-        return time.replace(tzinfo=timezone.utc).isoformat() if time else None
+        return expires_at_time.replace(tzinfo=timezone.utc).isoformat() if expires_at_time else None
+
+    def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
+        if "request" not in self.context:
+            return None
+
+        session_created_at: int = self.context["request"].session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+        if not session_created_at:
+            # This should always be covered by the middleware but just in case
+            return None
+
+        # Session expiry is the time when the session was created plus the
+        session_expiry_time = datetime.fromtimestamp(session_created_at) + timedelta(
+            seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
+        )
+
+        return session_expiry_time.replace(tzinfo=timezone.utc).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
@@ -437,6 +463,21 @@ class UserViewSet(
         instance.refresh_from_db()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        throttle_classes=[],
+        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+    )
+    def hedgehog_config(self, request, **kwargs):
+        instance = self.get_object()
+        if request.method == "GET":
+            return Response(instance.hedgehog_config)
+        else:
+            instance.hedgehog_config = request.data
+            instance.save()
+            return Response(instance.hedgehog_config)
 
 
 @authenticate_secondarily

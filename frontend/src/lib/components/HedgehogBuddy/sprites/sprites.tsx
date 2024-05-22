@@ -1,3 +1,5 @@
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+
 export const SPRITE_SIZE = 80
 export const SHADOW_HEIGHT = SPRITE_SIZE / 8
 export const SPRITE_SHEET_WIDTH = SPRITE_SIZE * 8
@@ -28,9 +30,12 @@ export type AccessoryInfo = {
 // Simple workaround is we detect if the domain is localhost and if not we just use https://us.posthog.com
 export const baseSpritePath = (): string => {
     let path = `/static/hedgehog/sprites`
+    const toolbarAPIUrl = toolbarConfigLogic.findMounted()?.values.apiURL
 
     if (window.location.hostname !== 'localhost') {
         path = `https://us.posthog.com${path}`
+    } else if (toolbarAPIUrl) {
+        path = `${toolbarAPIUrl}${path}`
     }
 
     return path
@@ -120,18 +125,6 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
 }
 
 export const standardAccessories: { [key: string]: AccessoryInfo } = {
-    xmas_hat: {
-        img: 'xmas-hat',
-        group: 'headwear',
-    },
-    xmas_antlers: {
-        img: 'xmas-antlers',
-        group: 'headwear',
-    },
-    xmas_scarf: {
-        img: 'xmas-scarf',
-        group: 'other',
-    },
     beret: {
         img: 'beret',
         group: 'headwear',
@@ -184,5 +177,17 @@ export const standardAccessories: { [key: string]: AccessoryInfo } = {
     tophat: {
         img: 'tophat',
         group: 'headwear',
+    },
+    xmas_hat: {
+        img: 'xmas-hat',
+        group: 'headwear',
+    },
+    xmas_antlers: {
+        img: 'xmas-antlers',
+        group: 'headwear',
+    },
+    xmas_scarf: {
+        img: 'xmas-scarf',
+        group: 'other',
     },
 }

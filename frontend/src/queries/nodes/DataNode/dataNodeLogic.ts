@@ -29,6 +29,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
+import { QueryStatus } from '~/queries/schema'
 import {
     ActorsQuery,
     ActorsQueryResponse,
@@ -119,7 +120,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     props({ query: {} } as DataNodeLogicProps),
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (!props.query) {
             return // Can't do anything without a query
         }
@@ -128,7 +129,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
         if (
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
-            !queryEqual(props.query, oldProps.query) &&
+            ((!values.response?.['result'] && !values.response?.['results']) ||
+                !queryEqual(props.query, oldProps.query)) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
         ) {
@@ -150,6 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setPollResponse: (status: QueryStatus | null) => ({ status }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -183,6 +186,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     actions.abortAnyRunningQuery()
+                    actions.setPollResponse(null)
                     const abortController = new AbortController()
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
@@ -203,7 +207,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                             addModifiers(props.query, props.modifiers),
                                             methodOptions,
                                             refresh,
-                                            queryId
+                                            queryId,
+                                            undefined,
+                                            actions.setPollResponse
                                         )) ?? null
                                     const duration = performance.now() - now
                                     return { data, duration }
@@ -298,6 +304,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => false,
             },
         ],
+        queryId: [
+            null as null | string,
+            {
+                loadData: (_, { queryId }) => queryId,
+            },
+        ],
         newDataLoading: [
             false,
             {
@@ -321,6 +333,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => false,
                 loadData: () => false,
                 cancelQuery: () => true,
+            },
+        ],
+        pollResponse: [
+            null as null | Record<string, QueryStatus | null>,
+            {
+                setPollResponse: (state, { status }) => {
+                    return { status, previousStatus: state && state.status }
+                },
             },
         ],
         autoLoadToggled: [
@@ -394,11 +414,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
-        ],
-        hogQLInsightsRetentionFlagEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) =>
-                !!(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS] || featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]),
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

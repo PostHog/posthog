@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconDocument, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSelectOptions, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -15,7 +15,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath } = useValues(billingLogic)
+    const { billing, redirectPath, billingError } = useValues(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans, surveyID, billingProductLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -34,6 +34,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     // Filter out the addon itself from the features list
     const addonFeatures = addon.features?.filter((feature) => feature.name !== addon.name)
+
+    const is_enhanced_persons_og_customer =
+        addon.type === 'enhanced_persons' &&
+        addon.plans?.find((plan) => plan.plan_key === 'addon-20240404-og-customers')
 
     return (
         <div className="bg-side rounded p-6 flex flex-col" ref={productRef}>
@@ -60,6 +64,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             )}
                         </div>
                         <p className="ml-0 mb-0">{addon.description}</p>
+                        {is_enhanced_persons_og_customer && (
+                            <p className="mt-2 mb-0">
+                                <Link
+                                    to="https://posthog.com/changelog/2024#person-profiles-addon"
+                                    className="italic"
+                                    target="_blank"
+                                    targetBlankIcon
+                                >
+                                    Why is this here?{' '}
+                                </Link>
+                            </p>
+                        )}
                     </div>
                 </div>
                 <div className="ml-4 mr-4 mt-2 self-center flex items-center gap-x-3 whitespace-nowrap">
@@ -115,6 +131,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                         currentAndUpgradePlans?.upgradePlan?.plan_key
                                     }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                     disableClientSideRouting
+                                    disabledReason={billingError && billingError.message}
                                     loading={billingProductLoading === addon.type}
                                     onClick={() => {
                                         setBillingProductLoading(addon.type)

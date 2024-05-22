@@ -128,12 +128,16 @@ export class ApiError extends Error {
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
 
+    /** Link to external resources, e.g. stripe invoices */
+    link: string | null
+
     constructor(message?: string, public status?: number, public data?: any) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
+        this.link = data?.link || null
     }
 }
 
@@ -690,8 +694,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('query')
     }
 
-    public queryStatus(queryId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.query(teamId).addPathComponent(queryId)
+    public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
+        const apiRequest = this.query(teamId).addPathComponent(queryId)
+        if (showProgress) {
+            return apiRequest.withQueryString('showProgress=true')
+        }
+        return apiRequest
     }
 
     // Notebooks
@@ -2080,8 +2088,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string): Promise<QueryStatus> {
-            return await new ApiRequest().queryStatus(queryId).get()
+        async get(queryId: string, showProgress: boolean): Promise<QueryStatus> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get()
         },
     },
 

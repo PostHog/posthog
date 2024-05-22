@@ -66,6 +66,8 @@ class Entity(PropertyMixin):
     # data warehouse fields
     id_field: Optional[str]
     timestamp_field: Optional[str]
+    distinct_id_field: Optional[str]
+    table_name: Optional[str]
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.id = data.get("id")
@@ -95,6 +97,8 @@ class Entity(PropertyMixin):
         )
         self.id_field = data.get("id_field")
         self.timestamp_field = data.get("timestamp_field")
+        self.distinct_id_field = data.get("distinct_id_field")
+        self.table_name = data.get("table_name")
 
         self._action: Optional[Action] = None
         self._data = data  # push data to instance object so mixins are handled properly
@@ -114,6 +118,10 @@ class Entity(PropertyMixin):
             "math_hogql": self.math_hogql,
             "math_group_type_index": self.math_group_type_index,
             "properties": self.property_groups.to_dict(),
+            "id_field": self.id_field,
+            "timestamp_field": self.timestamp_field,
+            "distinct_id_field": self.distinct_id_field,
+            "table_name": self.table_name,
         }
 
     def equals(self, other) -> bool:
@@ -171,6 +179,10 @@ class Entity(PropertyMixin):
         "math_property",
         "math_hogql",
         "properties",
+        "id_field",
+        "timestamp_field",
+        "distinct_id_field",
+        "table_name",
     )
 
 

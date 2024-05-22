@@ -39,7 +39,7 @@ export function ExperimentDates(): JSX.Element {
                 <div className="flex">
                     {isStartDatePickerOpen ? (
                         <LemonCalendarSelectInput
-                            showTime
+                            granularity="minute"
                             visible
                             value={dayjs(start_date)}
                             onChange={(newStartDate) => {

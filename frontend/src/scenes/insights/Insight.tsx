@@ -1,5 +1,3 @@
-import './Insight.scss'
-
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'

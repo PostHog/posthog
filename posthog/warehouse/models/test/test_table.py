@@ -15,7 +15,7 @@ class TestTable(BaseTest):
         with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Int64"]]
             columns = table.get_columns()
-            assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
+            assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}}
 
     def test_get_columns_with_nullable(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -26,7 +26,7 @@ class TestTable(BaseTest):
         with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(Int64)"]]
             columns = table.get_columns()
-            assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
+            assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
 
     def test_get_columns_with_type_args(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -37,7 +37,9 @@ class TestTable(BaseTest):
         with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "DateTime(6, 'UTC')"]]
             columns = table.get_columns()
-            assert columns == {"id": {"clickhouse": "DateTime(6, 'UTC')", "hogql": "DateTimeDatabaseField"}}
+            assert columns == {
+                "id": {"clickhouse": "DateTime(6, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True}
+            }
 
     def test_get_columns_with_array(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -48,7 +50,9 @@ class TestTable(BaseTest):
         with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Array(String)"]]
             columns = table.get_columns()
-            assert columns == {"id": {"clickhouse": "Array(String)", "hogql": "StringArrayDatabaseField"}}
+            assert columns == {
+                "id": {"clickhouse": "Array(String)", "hogql": "StringArrayDatabaseField", "valid": True}
+            }
 
     def test_get_columns_with_nullable_and_args(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -59,7 +63,26 @@ class TestTable(BaseTest):
         with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
             sync_execute_results.return_value = [["id", "Nullable(DateTime(6, 'UTC'))"]]
             columns = table.get_columns()
-            assert columns == {"id": {"clickhouse": "Nullable(DateTime(6, 'UTC'))", "hogql": "DateTimeDatabaseField"}}
+            assert columns == {
+                "id": {"clickhouse": "Nullable(DateTime(6, 'UTC'))", "hogql": "DateTimeDatabaseField", "valid": True}
+            }
+
+    def test_get_columns_with_complex_tuples(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Map(String, Map(String, Array(UInt64)))"]]
+            columns = table.get_columns()
+            assert columns == {
+                "id": {
+                    "clickhouse": "Map(String, Map(String, Array(UInt64)))",
+                    "hogql": "StringJSONDatabaseField",
+                    "valid": True,
+                }
+            }
 
     def test_hogql_definition_old_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

@@ -37,6 +37,7 @@ export function Billing(): JSX.Element {
         isActivateLicenseSubmitting,
         over20kAnnual,
         isAnnualPlan,
+        billingError,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -87,7 +88,7 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     return (
-        <div ref={ref}>
+        <div ref={ref} className="pb-60">
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -106,6 +107,11 @@ export function Billing(): JSX.Element {
                         </LemonButton>
                     </Form>
                 </>
+            )}
+            {billingError && (
+                <LemonBanner type={billingError.status} className="mb-2" action={billingError.action}>
+                    {billingError.message}
+                </LemonBanner>
             )}
             {billing?.free_trial_until ? (
                 <LemonBanner type="success" className="mb-2">
