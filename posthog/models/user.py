@@ -297,7 +297,6 @@ class User(AbstractUser, UUIDClassicModel):
 
         return {
             "realm": get_instance_realm(),
-            "email_opt_in": self.email_opt_in,
             "anonymize_data": self.anonymize_data,
             "email": self.email if not self.anonymize_data else None,
             "is_signed_up": True,

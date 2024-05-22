@@ -60,7 +60,6 @@ class TestUser(BaseTest):
                 user_2.get_analytics_metadata(),
                 {
                     "realm": "hosted-clickhouse",
-                    "email_opt_in": False,
                     "anonymize_data": False,
                     "email": "test_org_2@posthog.com",
                     "is_signed_up": True,

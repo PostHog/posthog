@@ -198,7 +198,6 @@ class TestUserAPI(APIBaseTest):
             properties={
                 "updated_attrs": [
                     "anonymize_data",
-                    "email_opt_in",
                     "events_column_config",
                     "first_name",
                     "has_seen_product_intro_for",
