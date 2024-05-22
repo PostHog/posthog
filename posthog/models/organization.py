@@ -271,11 +271,6 @@ class OrganizationMembership(UUIDModel):
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
             ),
-            models.UniqueConstraint(
-                fields=["organization_id"],
-                condition=models.Q(level=15),
-                name="only_one_owner_per_organization",
-            ),
         ]
 
     def __str__(self):
