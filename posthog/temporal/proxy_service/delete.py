@@ -65,10 +65,10 @@ async def delete_hosted_proxy(inputs: DeleteHostedProxyInputs):
         inputs.domain,
     )
 
-    client = get_grpc_client()
+    client = await get_grpc_client()
 
     try:
-        await client.Create(
+        await client.Delete(
             DeleteRequest(
                 uuid=str(inputs.proxy_record_id),
                 domain=inputs.domain,
