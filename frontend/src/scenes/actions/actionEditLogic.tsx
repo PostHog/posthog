@@ -121,7 +121,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
-                    (merge ? { ...values.action, ...action } : action) as ActionEditType,
+                    (merge ? { ...values.action, ...action } : action) as ActionType,
             },
         ],
     })),
