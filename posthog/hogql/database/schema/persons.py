@@ -16,7 +16,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
+from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion, PersonsJoinMode
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -46,16 +46,28 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
         from posthog.hogql.parser import parse_select
         from posthog.hogql import ast
 
-        query = parse_select(
-            """
-            SELECT id FROM raw_persons WHERE (id, version) IN (
-               SELECT id, max(version) as version
-               FROM raw_persons
-               GROUP BY id
-               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
+        if modifiers.personsJoinMode == PersonsJoinMode.left:
+            query = parse_select(
+                """
+                SELECT id FROM raw_persons WHERE (id, version) IN (
+                   SELECT id, max(version) as version
+                   FROM raw_persons
+                   GROUP BY id
+                )
+                """
             )
-            """
-        )
+        else:
+            query = parse_select(
+                """
+                SELECT id FROM raw_persons WHERE (id, version) IN (
+                   SELECT id, max(version) as version
+                   FROM raw_persons
+                   GROUP BY id
+                   HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
+                )
+                """
+            )
+
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
         for field_name, field_chain in requested_fields.items():
@@ -75,7 +87,7 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
             select_fields=requested_fields,
             group_fields=["id"],
             argmax_field="version",
-            deleted_field="is_deleted",
+            deleted_field="is_deleted" if modifiers.personsJoinMode != PersonsJoinMode.left else None,
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         return select
@@ -93,7 +105,10 @@ def join_with_persons_table(
     if not requested_fields:
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
-    join_expr.join_type = "INNER JOIN"
+    if context.modifiers.personsJoinMode == PersonsJoinMode.left:
+        join_expr.join_type = "LEFT JOIN"
+    else:
+        join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(

@@ -197,6 +197,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner_excluding_deleted' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {

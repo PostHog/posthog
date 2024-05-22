@@ -4144,6 +4144,10 @@
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
+                "personsJoinMode": {
+                    "enum": ["inner_excluding_deleted", "left"],
+                    "type": "string"
+                },
                 "personsOnEventsMode": {
                     "enum": [
                         "disabled",
