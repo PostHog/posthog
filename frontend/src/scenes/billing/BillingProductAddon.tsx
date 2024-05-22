@@ -3,13 +3,14 @@ import { LemonButton, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posth
 import { useActions, useValues } from 'kea'
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType } from '~/types'
+import { BillingProductV2AddonType, BillingV2PlanType } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { ConfirmUpgradeModal } from './ConfirmUpgradeModal'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -22,6 +23,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
         billingProductLogic({ product: addon })
     )
+
+    const [confirmUpgradePlan, setConfirmUpgradePlan] = useState<BillingV2PlanType>()
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -127,14 +130,18 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                     type="primary"
                                     icon={<IconPlus />}
                                     size="small"
-                                    to={`/api/billing-v2/activation?products=${addon.type}:${
-                                        currentAndUpgradePlans?.upgradePlan?.plan_key
-                                    }${redirectPath && `&redirect_path=${redirectPath}`}`}
                                     disableClientSideRouting
                                     disabledReason={billingError && billingError.message}
                                     loading={billingProductLoading === addon.type}
                                     onClick={() => {
                                         setBillingProductLoading(addon.type)
+                                        if (currentAndUpgradePlans?.upgradePlan?.flat_rate) {
+                                            setConfirmUpgradePlan(currentAndUpgradePlans?.upgradePlan)
+                                        } else {
+                                            window.location.href = `/api/billing-v2/activation?products=${addon.type}:${
+                                                currentAndUpgradePlans?.upgradePlan?.plan_key
+                                            }${redirectPath && `&redirect_path=${redirectPath}`}`
+                                        }
                                     }}
                                 >
                                     Add
@@ -175,6 +182,19 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         ? currentAndUpgradePlans?.currentPlan?.plan_key
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
+            />
+            <ConfirmUpgradeModal
+                isOpen={!!confirmUpgradePlan}
+                onSave={() => {
+                    window.location.href = `/api/billing-v2/activation?products=${addon.type}:${
+                        confirmUpgradePlan?.plan_key
+                    }${redirectPath && `&redirect_path=${redirectPath}`}`
+                }}
+                onClose={() => {
+                    setConfirmUpgradePlan(undefined)
+                    setBillingProductLoading(null)
+                }}
+                upgradePlan={confirmUpgradePlan}
             />
             {surveyID && <UnsubscribeSurveyModal product={addon} />}
         </div>
