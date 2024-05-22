@@ -9,7 +9,7 @@ import type { clientAuthorizationSceneLogicType } from './clientAuthorizationSce
 export type AuthenticationFlowInformation = {
     name?: string
     code?: string
-    return_url?: string
+    redirect_url?: string
     verification?: string
 }
 
@@ -38,15 +38,15 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                 loadAuthenticationFlow: async () => {
                     const code = router.values.searchParams['code']
                     const clientId = router.values.searchParams['client_id']
-                    const returnUrl = router.values.searchParams['return_url']
+                    const redirectUrl = router.values.searchParams['redirect_url']
 
                     if (!clientId) {
                         throw new Error('Missing client_id')
                     }
 
-                    // TODO: Validate returnUrl is in list of approved if toolbar
+                    // TODO: Validate redirectUrl is in list of approved if toolbar
                     const res = await api.get<AuthenticationFlowResponse>(
-                        '/api/authentication?' +
+                        '/api/client_authorization?' +
                             toParams({
                                 code,
                             })
@@ -56,7 +56,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                         name: clientId === 'toolbar' ? 'PostHog Toolbar' : clientId,
                         code,
                         verification: res.verification,
-                        return_url: returnUrl,
+                        redirect_url: redirectUrl,
                     }
                 },
 
@@ -64,17 +64,17 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
                     if (!values.authentication) {
                         return null
                     }
-                    const { return_url, verification, code } = values.authentication
+                    const { redirect_url, verification, code } = values.authentication
 
-                    // TODO: Validate returnUrl is in list of approved if toolbar
+                    // TODO: Validate redirectUrl is in list of approved if toolbar
 
-                    await api.create('/api/authentication/confirm', {
+                    await api.create('/api/client_authorization/confirm', {
                         code,
                         verification,
                     })
 
-                    if (return_url) {
-                        window.location.href = return_url
+                    if (redirect_url) {
+                        window.location.href = redirect_url
                     }
 
                     return values.authentication
@@ -87,7 +87,7 @@ export const clientAuthorizationSceneLogic = kea<clientAuthorizationSceneLogicTy
         domain: [
             (s) => [s.authentication],
             (authentication): string | null => {
-                return authentication?.return_url ? new URL(authentication.return_url).host : null
+                return authentication?.redirect_url ? new URL(authentication.redirect_url).host : null
             },
         ],
     }),

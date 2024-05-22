@@ -1,4 +1,5 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { combineUrl, encodeParams } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -8,7 +9,7 @@ import { ToolbarProps } from '~/types'
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import { LOCALSTORAGE_KEY } from './utils'
 
-export type ToolbarAuthenticationState = Pick<ToolbarProps, 'authorizationCode' | 'accessToken'>
+export type ToolbarAuthorizationState = Pick<ToolbarProps, 'authorizationCode' | 'accessToken'>
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     path(['toolbar', 'toolbarConfigLogic']),
@@ -22,7 +23,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
-        setAuthenticationState: (state: ToolbarAuthenticationState) => ({ state }),
+        authorize: true,
+        checkAuthorization: true,
     }),
 
     reducers(({ props }) => ({
@@ -35,13 +37,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
-
-        authentication: [
-            null as ToolbarAuthenticationState | null,
-            {
-                setAuthenticationState: (_, { state }) => state,
-            },
-        ],
     })),
 
     selectors({
@@ -59,21 +54,76 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
+    loaders(({ values, actions, props }) => ({
+        authorization: [
+            {
+                authorizationCode: props.authorizationCode || null,
+                accessToken: props.accessToken || null,
+            } as ToolbarAuthorizationState,
+            {
+                authorize: async () => {
+                    // TODO: Error handling
+                    const res = await toolbarFetch(`/api/client_authorization/start`, 'POST')
+
+                    if (res.status !== 200) {
+                        lemonToast.error('Failed to authorize:', await res.json())
+                        throw new Error('Failed to authorize')
+                    }
+
+                    const payload = await res.json()
+
+                    console.log('PAYLOAD', payload)
+                    return {
+                        authorizationCode: payload.code,
+                    }
+                },
+                checkAuthorization: async () => {
+                    const { authorizationCode } = values.authorization
+
+                    if (!authorizationCode) {
+                        return {}
+                    }
+                    const res = await toolbarFetch(`/api/client_authorization/check?code=${authorizationCode}`)
+                    if (res.status !== 200) {
+                        throw new Error('Something went wrong. Please re-authenticate')
+                    }
+                    const payload = await res.json()
+                    lemonToast.success('PostHog Toolbar authorized!')
+
+                    return {
+                        accessToken: payload.access_token,
+                    }
+                },
+            },
+        ],
+    })),
+
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            actions.authorize()
+            // toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
+            // const encodedUrl = encodeURIComponent(window.location.href)
+            // // TODO: Error handling
+            // const authorizationCode = await toolbarFetch(`/api/client_authorization/start`, 'POST')
+            //     .then((response) => response.json())
+            //     .then((data) => data.code)
+            // actions.setAuthenticationState({ authorizationCode })
+            // actions.persistConfig()
+            // window.location.href = `${values.apiURL}/client_authorization/?code=${authorizationCode}&redirect_url=${encodedUrl}&client_id=toolbar`
+        },
+
+        authorizeSuccess: async () => {
+            // TRICKY: Need to do on the next tick to ensure the loader values are ready
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
-
-            // TODO: Error handling
-            const authorizationCode = await toolbarFetch(`/api/client_authorization/start`, 'POST')
-                .then((response) => response.json())
-                .then((data) => data.code)
-
-            console.log(authorizationCode)
-
-            // actions.persistConfig()
-            // window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
+            actions.persistConfig()
+            window.location.href = `${values.apiURL}/client_authorization/?code=${values.authorization.authorizationCode}&redirect_url=${encodedUrl}&client_id=toolbar`
         },
+
+        checkAuthorizationSuccess: () => {
+            actions.persistConfig()
+        },
+
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
@@ -96,13 +146,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
                 featureFlags: undefined,
+                accessToken: values.authorization?.accessToken ?? undefined,
+                authorizationCode: values.authorization?.authorizationCode ?? undefined,
             }
+
+            console.log('PERSISTING CONFIG', toolbarParams)
 
             localStorage.setItem(LOCALSTORAGE_KEY, JSON.stringify(toolbarParams))
         },
     })),
 
-    afterMount(({ props, values }) => {
+    afterMount(({ props, values, actions }) => {
         if (props.instrument) {
             const distinctId = props.distinctId
 
@@ -111,6 +165,10 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             if (distinctId) {
                 toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
             }
+        }
+
+        if (values.authorization.authorizationCode) {
+            actions.checkAuthorization()
         }
         toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
