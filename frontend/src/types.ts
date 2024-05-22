@@ -34,7 +34,7 @@ import { QueryContext } from '~/queries/types'
 
 import type {
     DashboardFilter,
-    DatabaseSchemaQueryResponseField,
+    DatabaseSchemaField,
     HogQLQuery,
     HogQLQueryModifiers,
     InsightVizNode,
@@ -3599,7 +3599,6 @@ export interface DataWarehouseTable {
     format: string
     url_pattern: string
     credential: DataWarehouseCredential
-    columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
     external_schema?: SimpleExternalDataSourceSchema
 }
@@ -3611,7 +3610,7 @@ export interface DataWarehouseSavedQuery {
     id: string
     name: string
     query: HogQLQuery
-    columns: DatabaseSchemaQueryResponseField[]
+    columns: DatabaseSchemaField[]
 }
 
 export interface DataWarehouseViewLink {
@@ -3663,7 +3662,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 export interface SimpleDataWarehouseTable {
     id: string
     name: string
-    columns: DatabaseSchemaQueryResponseField[]
+    columns: DatabaseSchemaField[]
     row_count: number
 }
 

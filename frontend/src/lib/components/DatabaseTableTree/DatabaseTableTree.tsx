@@ -1,4 +1,4 @@
-import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
+import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
 
@@ -7,8 +7,8 @@ export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
     className?: string
     items: TreeItem[]
     depth?: number
-    onSelectRow?: (row: DataWarehouseTableType) => void
-    selectedRow?: DataWarehouseTableType | null
+    onSelectRow?: (row: DatabaseSchemaTable) => void
+    selectedRow?: DatabaseSchemaTable | null
 }
 
 export type TreeItem = TreeItemFolder | TreeItemLeaf | TreeTableItemLeaf
@@ -21,7 +21,7 @@ export interface TreeItemFolder {
 }
 
 export interface TreeTableItemLeaf {
-    table: DataWarehouseTableType
+    table: DatabaseSchemaTable
     icon?: React.ReactNode
 }
 
