@@ -302,7 +302,7 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 None,
                 user_submitted_dismissed_filter,
                 instance.name,
-                bool(instance.start_date),
+                bool(instance.start_date) and not end_date,
                 flag_name_suffix="-custom",
             )
             instance.internal_targeting_flag_id = new_flag.id
