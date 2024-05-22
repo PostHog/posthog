@@ -34,7 +34,7 @@ export function TreeRow({ item, selected }: TreeRowProps): JSX.Element {
 export interface TreeTableRowProps {
     item: TreeTableItemLeaf
     depth: number
-    onClick?: (row: DataWarehouseTableType) => void
+    onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
 }
 

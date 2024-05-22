@@ -1,3 +1,4 @@
+import dataclasses
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypeAlias, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import ConfigDict, BaseModel
@@ -383,7 +384,8 @@ def create_hogql_database(
     return database
 
 
-class SerializedField(BaseModel):
+@dataclasses.dataclass
+class SerializedField:
     key: str
     name: str
     type: DatabaseSerializedFieldType
