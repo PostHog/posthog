@@ -96,8 +96,12 @@ function Pager(): JSX.Element {
     )
 }
 
-function WaterfallMeta(): JSX.Element {
+function WaterfallMeta(): JSX.Element | null {
     const { currentPage, sessionPerson, sizeBreakdown } = useValues(networkViewLogic)
+
+    if (!currentPage[0]) {
+        return null
+    }
 
     return (
         <>
@@ -105,7 +109,7 @@ function WaterfallMeta(): JSX.Element {
                 <div className="flex flex-row flex-nowrap items-center justify-between space-x-2">
                     {/*we shouldn't need to check for currentPage[0] with the elvis operator here,
                     but React is so eager to just call functions willy-nilly*/}
-                    <h2 className="m-0 truncate">{currentPage[0]?.name}</h2>
+                    <h2 className="m-0 truncate">{currentPage[0].name}</h2>
                     <div>
                         <PersonDisplay person={sessionPerson} withIcon={true} noEllipsis={true} />
                     </div>
