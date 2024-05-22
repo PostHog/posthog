@@ -321,7 +321,6 @@
   FROM events
   WHERE (team_id = 2
          AND $group_0 = 'foo')
->>>>>>> parent of b28e44cca4 (fix: Fix deletion job by using join tables (#21323))
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person
