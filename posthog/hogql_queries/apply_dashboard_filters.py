@@ -7,11 +7,12 @@ WRAPPER_NODE_KINDS = [NodeKind.DataTableNode, NodeKind.DataVisualizationNode, No
 
 
 # Apply the filters from the django-style Dashboard object
-def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
-    kind = query.get("kind", None)
+def apply_dashboard_filters_to_dict(query: dict, filters: dict, team: Team) -> dict:
+    if not filters:
+        return query
 
-    if kind in WRAPPER_NODE_KINDS:
-        source = apply_dashboard_filters(query["source"], filters, team)
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        source = apply_dashboard_filters_to_dict(query["source"], filters, team)
         return {**query, "source": source}
 
     try:
@@ -19,10 +20,5 @@ def apply_dashboard_filters(query: dict, filters: dict, team: Team) -> dict:
     except ValueError:
         capture_exception()
         return query
-    try:
-        query_runner.apply_dashboard_filters(DashboardFilter(**filters))
-        return query_runner.query.model_dump()
-    except NotImplementedError:
-        # TODO when we implement apply_dashboard_filters on more query runners, we can remove the try/catch
-        capture_exception()
-        return query
+    query_runner.apply_dashboard_filters(DashboardFilter(**filters))
+    return query_runner.query.model_dump()

@@ -58,7 +58,8 @@ def join_with_person_distinct_id_overrides_table(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=[from_table, "distinct_id"]),
             right=ast.Field(chain=[to_table, "distinct_id"]),
-        )
+        ),
+        constraint_type="ON",
     )
     return join_expr
 

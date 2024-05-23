@@ -61,7 +61,8 @@ def join_with_group_n_table(group_index: int):
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Field(chain=[from_table, f"$group_{group_index}"]),
                 right=ast.Field(chain=[to_table, "key"]),
-            )
+            ),
+            constraint_type="ON",
         )
 
         return join_expr

@@ -5,11 +5,12 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.api.services.query import process_query
+from posthog.api.services.query import process_query_dict
 from posthog.hogql.query import LimitContext
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.schema import (
+    CachedEventsQueryResponse,
     EventPropertyFilter,
     EventsQuery,
     HogQLPropertyFilter,
@@ -604,14 +605,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "HogQLQuery",
                     "query": f"select event from events where distinct_id='{random_uuid}'",
                 },
             )
-            self.assertEqual(len(response.get("results", [])), 10)
+        assert isinstance(response, CachedHogQLQueryResponse)
+        self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -628,7 +630,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "HogQLQuery",
@@ -636,7 +638,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
                 limit_context=LimitContext.EXPORT,  # This is the only difference
             )
-            self.assertEqual(len(response.get("results", [])), 15)
+        assert isinstance(response, CachedHogQLQueryResponse)
+        self.assertEqual(len(response.results), 15)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -653,7 +656,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "EventsQuery",
@@ -662,7 +665,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        self.assertEqual(len(response.get("results", [])), 10)
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
@@ -679,7 +683,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "EventsQuery",
@@ -689,13 +693,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 limit_context=LimitContext.EXPORT,
             )
 
-        self.assertEqual(len(response.get("results", [])), 15)
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(len(response.results), 15)
 
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "EventsQuery",
@@ -712,7 +717,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ],
                 },
             )
-        self.assertEqual(response.get("columns"), ["event"])
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(response.columns, ["event"])
 
     def test_invalid_query_kind(self):
         api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
@@ -843,6 +849,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "start_time": "2020-01-10T12:14:00Z",
                     "task_id": mock.ANY,
                     "team_id": mock.ANY,
+                    "query_progress": None,
                 },
             )
 
@@ -859,7 +866,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            response = process_query(
+            response = process_query_dict(
                 team=self.team,
                 query_json={
                     "kind": "HogQLQuery",
@@ -868,7 +875,48 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-        self.assertEqual(response.get("results", [])[0][0], 20)
+        assert isinstance(response, CachedHogQLQueryResponse)
+        self.assertEqual(response.results[0][0], 20)
+
+    def test_dashboard_filters_applied(self):
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        with freeze_time("2020-01-07 12:00:00"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        with freeze_time("2020-01-10 15:00:00"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=random_uuid,
+                properties={"key": "test_val1"},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 19:00:00"):
+            response_without_dashboard_filters = process_query_dict(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": "select count() from events where {filters}",
+                },
+            )
+            response_with_dashboard_filters = process_query_dict(
+                team=self.team,
+                query_json={
+                    "kind": "HogQLQuery",
+                    "query": "select count() from events where {filters}",
+                },
+                dashboard_filters_json={"date_from": "2020-01-09", "date_to": "2020-01-11"},
+            )
+
+        assert isinstance(response_without_dashboard_filters, CachedHogQLQueryResponse)
+        self.assertEqual(response_without_dashboard_filters.results, [(2,)])
+        assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
+        self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
 
 class TestQueryRetrieve(APIBaseTest):
@@ -965,4 +1013,4 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 204)
-        self.redis_client_mock.delete.assert_called_once()
+        self.assertEqual(self.redis_client_mock.delete.call_count, 2)

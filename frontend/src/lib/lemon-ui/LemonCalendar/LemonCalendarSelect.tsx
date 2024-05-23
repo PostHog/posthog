@@ -1,4 +1,5 @@
 import { IconX } from '@posthog/icons'
+import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
@@ -182,7 +183,12 @@ export function LemonCalendarSelect({
                 }}
                 granularity={granularity}
             />
-            <div className="flex space-x-2 justify-between items-center border-t p-2 pt-4">
+            <div
+                className={clsx(
+                    'flex space-x-2 items-center border-t p-2 pt-4',
+                    showTimeToggle ? 'justify-between' : 'justify-end'
+                )}
+            >
                 {showTimeToggle && (
                     <LemonSwitch
                         label="Include time?"
@@ -191,17 +197,19 @@ export function LemonCalendarSelect({
                         bordered
                     />
                 )}
-                <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    disabled={!selectValue}
-                    onClick={() => selectValue && onChange && onChange(selectValue)}
-                    data-attr="lemon-calendar-select-apply"
-                >
-                    Apply
-                </LemonButton>
+                <div className="flex space-x-2">
+                    <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabled={!selectValue}
+                        onClick={() => selectValue && onChange && onChange(selectValue)}
+                        data-attr="lemon-calendar-select-apply"
+                    >
+                        Apply
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )
