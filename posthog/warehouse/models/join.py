@@ -1,10 +1,11 @@
-from typing import Any, Optional
+from typing import Optional
 from warnings import warn
 
 from django.db import models
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.models.team import Team
@@ -44,9 +45,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
     ):
         def _join_function(
-            from_table: str,
-            to_table: str,
-            requested_fields: dict[str, Any],
+            join_to_add: LazyJoinToAdd,
             context: HogQLContext,
             node: SelectQuery,
         ):
@@ -55,28 +54,29 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
             from posthog.hogql import ast
 
-            if not requested_fields:
-                raise ResolutionError(f"No fields requested from {to_table}")
+            if not join_to_add.fields_accessed:
+                raise ResolutionError(f"No fields requested from {join_to_add.to_table}")
 
             left = parse_expr(_source_table_key)
             if not isinstance(left, ast.Field):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            left.chain = [from_table, *left.chain]
+            left.chain = [join_to_add.from_table, *left.chain]
 
             right = parse_expr(_joining_table_key)
             if not isinstance(right, ast.Field):
                 raise ResolutionError("Data Warehouse Join HogQL expression should be a Field node")
-            right.chain = [to_table, *right.chain]
+            right.chain = [join_to_add.to_table, *right.chain]
 
             join_expr = ast.JoinExpr(
                 table=ast.SelectQuery(
                     select=[
-                        ast.Alias(alias=alias, expr=ast.Field(chain=chain)) for alias, chain in requested_fields.items()
+                        ast.Alias(alias=alias, expr=ast.Field(chain=chain))
+                        for alias, chain in join_to_add.fields_accessed.items()
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=[self.joining_table_name])),
                 ),
                 join_type="LEFT JOIN",
-                alias=to_table,
+                alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
