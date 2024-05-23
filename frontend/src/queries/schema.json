@@ -1397,8 +1397,6 @@
             },
             "required": [
                 "cache_key",
-                "dateFrom",
-                "dateTo",
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
@@ -1920,7 +1918,7 @@
                                     "type": "array"
                                 }
                             },
-                            "required": ["dateFrom", "dateTo", "results"],
+                            "required": ["results"],
                             "type": "object"
                         },
                         {
@@ -5915,7 +5913,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -6242,7 +6240,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["dateFrom", "dateTo", "results"],
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -7940,7 +7938,7 @@
                     "type": "array"
                 }
             },
-            "required": ["dateFrom", "dateTo", "results"],
+            "required": ["results"],
             "type": "object"
         },
         "WebStatsBreakdown": {
