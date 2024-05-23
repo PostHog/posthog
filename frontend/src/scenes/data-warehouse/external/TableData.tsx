@@ -84,7 +84,7 @@ export function TableData(): JSX.Element {
     return table ? (
         <div className="border rounded p-3 bg-bg-light">
             <div className="flex flex-row justify-between items-center gap-2">
-                <h2 className="text-wrap break-all leading-4">
+                <h2 className="flex-1 text-wrap break-all leading-4">
                     <IconDatabase /> {table.name}
                 </h2>
                 {isEditingSavedQuery && (

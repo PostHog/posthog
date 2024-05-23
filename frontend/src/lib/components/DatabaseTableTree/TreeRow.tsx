@@ -94,7 +94,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            marginLeft: `${depth}rem`,
+                            marginLeft: `${depth * 2}rem`,
                         }}
                     >
                         {item.isLoading ? (

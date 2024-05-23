@@ -13,11 +13,11 @@ import { TableData } from './TableData'
 export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap overflow-hidden">
                 <div className="flex-1 max-h-screen min-w-80">
                     <DatabaseTableTreeWithItems />
                 </div>
-                <div className="flex-3">
+                <div className="flex-3 min-w-80 overflow-hidden">
                     <TableData />
                 </div>
             </div>
