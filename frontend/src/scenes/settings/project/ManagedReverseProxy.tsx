@@ -106,7 +106,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <LemonButton onClick={showForm} type="secondary" icon={<IconPlus />}>
-                            Add domain
+                            New managed proxy
                         </LemonButton>
                     )
                 ) : (
