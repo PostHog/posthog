@@ -1,6 +1,7 @@
 import datetime
 
 import orjson as json
+import math
 from functools import partial
 from typing import TYPE_CHECKING, Optional
 import uuid
@@ -13,6 +14,7 @@ from rest_framework.exceptions import NotFound
 from django.db import transaction
 
 from posthog import celery, redis
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
@@ -50,15 +52,11 @@ class QueryStatusManager:
 
     @property
     def results_key(self) -> str:
-        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.query_id}:{self.team_id}"
-
-    @property
-    def old_results_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}"
 
     @property
     def clickhouse_query_status_key(self) -> str:
-        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.query_id}:{self.team_id}:status"
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
 
     def store_query_status(self, query_status: QueryStatus):
         value = SafeJSONRenderer().render(query_status.model_dump(exclude={"clickhouse_query_progress"}))
@@ -68,25 +66,11 @@ class QueryStatusManager:
         value = json.dumps(query_statuses)
         self.redis_client.set(self.clickhouse_query_status_key, value, ex=self.STATUS_TTL_SECONDS)
 
-    def _old_get_results(self):
+    def _get_results(self):
         try:
             byte_results = self.redis_client.get(self.results_key)
         except Exception as e:
             raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
-
-        return byte_results
-
-    # It is safe to remove this code about 10 minutes after this deploy goes out and revert to the method above
-    def _get_results(self):
-        try:
-            byte_results = self.redis_client.get(self.results_key)
-            if byte_results is None:
-                raise Exception()
-        except Exception:
-            try:
-                byte_results = self.redis_client.get(self.old_results_key)
-            except Exception as e:
-                raise QueryRetrievalError(f"Error retrieving query {self.query_id} for team {self.team_id}") from e
 
         return byte_results
 
@@ -111,8 +95,40 @@ class QueryStatusManager:
         query_status = QueryStatus(**json.loads(byte_results))
 
         if show_progress and not query_status.complete:
+            CLICKHOUSE_SQL = """
+            SELECT
+                query_id,
+                initial_query_id,
+                read_rows,
+                read_bytes,
+                total_rows_approx,
+                elapsed,
+                ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds
+            FROM clusterAllReplicas(posthog, system.processes)
+            WHERE query_id like %(query_id)s
+            """
+
+            clickhouse_query_progress_dict = self._get_clickhouse_query_status()
             try:
-                clickhouse_query_progress_dict = self._get_clickhouse_query_status()
+                results, types = sync_execute(
+                    CLICKHOUSE_SQL, {"query_id": f"%{self.query_id}%"}, with_column_types=True
+                )
+
+                noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
+
+                new_clickhouse_query_progress = {
+                    result[0]: {
+                        "bytes_read": noNaNInt(result[3]),
+                        "rows_read": noNaNInt(result[2]),
+                        "estimated_rows_total": noNaNInt(result[4]),
+                        "time_elapsed": noNaNInt(result[5]),
+                        "active_cpu_time": noNaNInt(result[6]),
+                    }
+                    for result in results
+                }
+                clickhouse_query_progress_dict.update(new_clickhouse_query_progress)
+                self.store_clickhouse_query_status(clickhouse_query_progress_dict)
+
                 query_progress = {
                     "bytes_read": 0,
                     "rows_read": 0,
@@ -127,6 +143,7 @@ class QueryStatusManager:
                     query_progress["time_elapsed"] += single_query_progress["time_elapsed"]
                     query_progress["active_cpu_time"] += single_query_progress["active_cpu_time"]
                 query_status.query_progress = ClickhouseQueryStatus(**query_progress)
+
             except Exception as e:
                 logger.error("Clickhouse Status Check Failed", e)
                 pass
@@ -253,28 +270,30 @@ def enqueue_process_query_task(
     query_status = QueryStatus(id=query_id, team_id=team.id, start_time=datetime.datetime.now(datetime.timezone.utc))
     manager.store_query_status(query_status)
 
-    try:
-        cached_response = process_query_dict(
-            team=team,
-            query_json=query_json,
-            limit_context=LimitContext.QUERY_ASYNC,
-            execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-        )
-        if not isinstance(cached_response, CacheMissResponse):
-            if isinstance(cached_response, BaseModel):
-                cached_response = cached_response.model_dump(by_alias=True)
-            # We got a response with results, rather than a `CacheMissResponse`
-            query_status.complete = True
-            query_status.error = False
-            query_status.results = cached_response
-            query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
-            query_status.expiration_time = query_status.end_time + datetime.timedelta(
-                seconds=manager.STATUS_TTL_SECONDS
+    # Skip cache if refresh requested
+    if not refresh_requested:
+        try:
+            cached_response = process_query_dict(
+                team=team,
+                query_json=query_json,
+                limit_context=LimitContext.QUERY_ASYNC,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
             )
-            manager.store_query_status(query_status)
-            return query_status
-    except:
-        sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
+            if not isinstance(cached_response, CacheMissResponse):
+                if isinstance(cached_response, BaseModel):
+                    cached_response = cached_response.model_dump(by_alias=True)
+                # We got a response with results, rather than a `CacheMissResponse`
+                query_status.complete = True
+                query_status.error = False
+                query_status.results = cached_response
+                query_status.end_time = datetime.datetime.now(datetime.timezone.utc)
+                query_status.expiration_time = query_status.end_time + datetime.timedelta(
+                    seconds=manager.STATUS_TTL_SECONDS
+                )
+                manager.store_query_status(query_status)
+                return query_status
+        except:
+            sentry_sdk.capture_exception()  # Carry on async, if we couldn't get to cache
 
     if _test_only_bypass_celery:
         process_query_task(

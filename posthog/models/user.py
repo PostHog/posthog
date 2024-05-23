@@ -248,6 +248,8 @@ class User(AbstractUser, UUIDClassicModel):
             self.save()
         if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
             self.update_billing_customer_email(organization)
+        if level >= OrganizationMembership.Level.ADMIN:
+            self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
         return membership
 
@@ -271,6 +273,7 @@ class User(AbstractUser, UUIDClassicModel):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
+        self.update_billing_admin_emails(organization)
         self.update_billing_distinct_ids(organization)
 
     def update_billing_distinct_ids(self, organization: Organization) -> None:
@@ -284,6 +287,12 @@ class User(AbstractUser, UUIDClassicModel):
 
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
+
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_admin_emails(organization)
 
     def get_analytics_metadata(self):
         team_member_count_all: int = (
