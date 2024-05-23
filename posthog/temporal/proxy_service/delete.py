@@ -56,7 +56,7 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
 
 
 @activity.defn
-async def delete_hosted_proxy(inputs: DeleteManagedProxyInputs):
+async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
     """Activity that calls the proxy provisioner to delete the resources for a Hosted Proxy."""
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
@@ -84,7 +84,7 @@ async def delete_hosted_proxy(inputs: DeleteManagedProxyInputs):
 
 @workflow.defn(name="delete-proxy")
 class DeleteManagedProxyWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to delete a Hosted Reverse Proxy."""
+    """A Temporal Workflow to delete a Managed reverse Proxy."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> DeleteManagedProxyInputs:
@@ -94,12 +94,12 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteManagedProxyInputs) -> None:
-        """Workflow implementation to delete a Hosted Reverse Proxy."""
+        """Workflow implementation to delete a Managed reverse Proxy."""
 
         try:
             # Call proxy provisioner to delete the HTTProxy and Certificate resources
             await temporalio.workflow.execute_activity(
-                delete_hosted_proxy,
+                delete_managed_proxy,
                 inputs,
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 start_to_close_timeout=dt.timedelta(minutes=1),

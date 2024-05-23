@@ -74,7 +74,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
 
 
 @activity.defn
-async def create_hosted_proxy(inputs: CreateManagedProxyInputs):
+async def create_managed_proxy(inputs: CreateManagedProxyInputs):
     """Activity that calls the proxy provisioner to create the resources for
     a Hosted Proxy. It also waits for provisioning to be complete and updates
     the Proxy Record's state as it goes.
@@ -139,7 +139,7 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 
 @workflow.defn(name="create-proxy")
 class CreateManagedProxyWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to create a Hosted Reverse Proxy."""
+    """A Temporal Workflow to create a Managed reverse Proxy."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CreateManagedProxyInputs:
@@ -149,7 +149,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CreateManagedProxyInputs) -> None:
-        """Workflow implementation to create a Hosted Reverse Proxy."""
+        """Workflow implementation to create a Managed reverse Proxy."""
 
         try:
             # Wait for DNS record to be created.
@@ -187,7 +187,7 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
 
             # Call proxy provisioner to create the HTTProxy and Certificate resources
             await temporalio.workflow.execute_activity(
-                create_hosted_proxy,
+                create_managed_proxy,
                 inputs,
                 schedule_to_close_timeout=dt.timedelta(minutes=5),
                 start_to_close_timeout=dt.timedelta(minutes=1),
