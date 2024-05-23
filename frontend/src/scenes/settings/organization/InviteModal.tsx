@@ -113,17 +113,19 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                     />
                 )}
             </div>
-            <div className="flex-1 flex gap-1 items-center justify-between">
-                <LemonSelect
-                    fullWidth
-                    data-attr="invite-row-org-member-level"
-                    options={allowedLevelsOptions}
-                    value={invitesToSend[index].level || allowedLevels[0]}
-                    onChange={(v) => {
-                        updateInviteAtIndex({ level: v }, index)
-                    }}
-                />
-            </div>
+            {allowedLevelsOptions.length > 1 && (
+                <div className="flex-1 flex gap-1 items-center justify-between">
+                    <LemonSelect
+                        fullWidth
+                        data-attr="invite-row-org-member-level"
+                        options={allowedLevelsOptions}
+                        value={invitesToSend[index].level || allowedLevels[0]}
+                        onChange={(v) => {
+                            updateInviteAtIndex({ level: v }, index)
+                        }}
+                    />
+                </div>
+            )}
 
             {isDeletable && (
                 <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
@@ -141,6 +143,19 @@ export function InviteTeamMatesComponent(): JSX.Element {
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
 
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = myMembershipLevel
+        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
+        : [OrganizationMembershipLevel.Member]
+
+    const allowedLevelsOptions = allowedLevels.map((level) => ({
+        value: level,
+        label: OrganizationMembershipLevel[level],
+    }))
+
     return (
         <>
             {preflight?.licensed_users_available === 0 && (
@@ -153,7 +168,7 @@ export function InviteTeamMatesComponent(): JSX.Element {
                 <div className="flex gap-2">
                     <b className="flex-2">Email address</b>
                     <b className="flex-1">{preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}</b>
-                    <b className="flex-1">Level</b>
+                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Level</b>}
                 </div>
 
                 {invitesReversed.map((invite: OrganizationInviteType) => {
