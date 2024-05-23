@@ -15,13 +15,14 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.query import INCREASED_MAX_EXECUTION_TIME
+
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1933,4 +1934,4 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
