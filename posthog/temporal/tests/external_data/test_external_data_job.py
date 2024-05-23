@@ -43,8 +43,10 @@ import functools
 from django.conf import settings
 import asyncio
 import psycopg
+from posthog.temporal.tests.utils.s3 import read_parquet_from_s3
 
 from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+from posthog.warehouse.models.external_table_definitions import get_imported_fields_for_table
 
 BUCKET_NAME = "test-external-data-jobs"
 SESSION = aioboto3.Session()
@@ -260,7 +262,7 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
+async def test_run_stripe_job_t(activity_environment, team, minio_client, **kwargs):
     async def setup_job_1():
         new_source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
@@ -362,12 +364,38 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
         job_1_customer_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
         )
+
         assert len(job_1_customer_objects["Contents"]) == 1
+        s3_data = await read_parquet_from_s3(
+            BUCKET_NAME,
+            job_1_customer_objects["Contents"][0]["Key"],
+            {},
+            settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        )
+        customer_fields = get_imported_fields_for_table("stripe_customer")
+        all_keys = list(s3_data[0].keys())
+
+        assert len(s3_data) == 1
+        assert all(field in all_keys for field in customer_fields)
 
         job_2_charge_objects = await minio_client.list_objects_v2(
             Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/charge/"
         )
         assert len(job_2_charge_objects["Contents"]) == 1
+
+        s3_data = await read_parquet_from_s3(
+            BUCKET_NAME,
+            job_2_charge_objects["Contents"][0]["Key"],
+            {},
+            settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        )
+        customer_fields = get_imported_fields_for_table("stripe_charge")
+        all_keys = list(s3_data[0].keys())
+
+        assert len(s3_data) == 1
+        assert all(field in all_keys for field in customer_fields)
 
 
 @pytest.mark.django_db(transaction=True)
