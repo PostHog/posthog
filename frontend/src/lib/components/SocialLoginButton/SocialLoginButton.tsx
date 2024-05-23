@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -109,12 +109,12 @@ export function SocialLoginButtons({
     )
 }
 
-interface SSOEnforcedLoginButtonProps {
+interface SSOEnforcedLoginButtonProps extends Partial<LemonButtonWithoutSideActionProps> {
     provider: SSOProvider
     email: string
 }
 
-export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButtonProps): JSX.Element {
+export function SSOEnforcedLoginButton({ provider, email, ...props }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
         <SocialLoginLink provider={provider} extraQueryParams={{ email }}>
             <LemonButton
@@ -126,6 +126,7 @@ export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButt
                 center
                 icon={<SocialLoginIcon provider={provider} />}
                 size="large"
+                {...props}
             >
                 Log in with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>

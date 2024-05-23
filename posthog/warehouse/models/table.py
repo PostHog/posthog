@@ -189,7 +189,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if column_type.startswith("Array("):
                 column_type = remove_named_tuples(column_type)
 
-            column_type = re.sub(r"\(.+?\)", "", column_type)
+            column_type = re.sub(r"\(.+?\)+", "", column_type)
 
             return column_type
 

@@ -20,6 +20,7 @@ import {
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { importAppsLogic } from './importAppsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import type { pipelinePluginConfigurationLogicType } from './pipelinePluginConfigurationLogicType'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 
@@ -69,7 +70,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
             ['nextAvailableOrder'],
             featureFlagLogic,
             ['featureFlags'],
-            pipelineDestinationsLogic,
+            pipelineAccessLogic,
             ['canEnableNewDestinations'],
         ],
     })),
