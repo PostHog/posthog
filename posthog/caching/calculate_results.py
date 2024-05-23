@@ -125,6 +125,7 @@ def calculate_for_query_based_insight(
 ) -> "InsightResult":
     from posthog.api.services.query import process_query_dict, ExecutionMode
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
+    from posthog.caching.insight_cache import update_cached_state
 
     tag_queries(team_id=insight.team_id, insight_id=insight.pk)
     if dashboard:
@@ -145,6 +146,12 @@ def calculate_for_query_based_insight(
     if isinstance(response, BaseModel):
         response = response.model_dump()
 
+    update_cached_state(  # Updating the relevant InsightCachingState
+        insight.team_id,
+        response.get("cache_key"),
+        response.get("last_refresh"),
+        result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+    )
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
