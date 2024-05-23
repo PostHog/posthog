@@ -1,5 +1,6 @@
 import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -134,5 +135,9 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         return items
     }
 
-    return <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+    return (
+        <div className={clsx(`bg-bg-light space-y-px rounded border p-2 overflow-y-auto flex-1 min-w-80`)}>
+            <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+        </div>
+    )
 }

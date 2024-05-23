@@ -88,7 +88,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
-                        style={{ marginLeft: `14px`, padding: 0 }}
+                        className="ml-4"
                     />
                 ) : (
                     <div

@@ -157,7 +157,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
+                className={clsx(
+                    'flex flex-col rounded space-y-2 w-full overflow-hidden',
+                    !props.embedded && 'p-2 border'
+                )}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
