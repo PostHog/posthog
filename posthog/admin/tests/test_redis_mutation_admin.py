@@ -222,7 +222,7 @@ def test_creation_of_expire_redis_mutation(client: Client, superuser, redis):
     mutation = RedisMutation.objects.filter(redis_key=key).first()
     assert mutation is not None
     assert mutation.command == RedisMutation.MutationCommand.EXPIRE
-    assert int(mutation.value) == 10
+    assert int(mutation.value) == 10  # type: ignore
     assert mutation.approval_threshold == 1
     assert mutation.redis_key == key
     assert mutation.redis_type == RedisMutation.RedisType.STRING

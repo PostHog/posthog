@@ -126,7 +126,7 @@ class RedisMutationAdmin(admin.ModelAdmin):
 
     actions = ["approve", "apply", "discard"]
 
-    @admin.display(description="Approvals")  # type: ignore
+    @admin.display(description="Approvals")
     def approvals(self, obj):
         """Full view of approvals for this particular 'RedisMutation'."""
         return f"{obj.approvals} / {obj.approval_threshold}: {obj.approved_by}"
@@ -143,7 +143,7 @@ class RedisMutationAdmin(admin.ModelAdmin):
         """Only allow soft-deletes via discard."""
         return False
 
-    @admin.action(description="Approve Redis mutation")  # type: ignore
+    @admin.action(description="Approve Redis mutation")
     def approve(self, request: HttpRequest, queryset):
         """Action to approve the selected 'RedisMutation'.
 
@@ -225,7 +225,7 @@ class RedisMutationAdmin(admin.ModelAdmin):
             messages.WARNING,
         )
 
-    @admin.action(description="Discard Redis mutation")  # type: ignore
+    @admin.action(description="Discard Redis mutation")
     def discard(self, request: HttpRequest, queryset):
         """Action to discard the selected 'RedisMutation'.
 
@@ -262,7 +262,7 @@ class RedisMutationAdmin(admin.ModelAdmin):
             action="discarded", request=request, successes=discarded, failures=failures, user=str(user)
         )
 
-    @admin.action(description="Apply Redis mutation")  # type: ignore
+    @admin.action(description="Apply Redis mutation")
     def apply(self, request: HttpRequest, queryset):
         user = str(request.user)
 

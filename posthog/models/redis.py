@@ -38,8 +38,8 @@ class MutationFailedToSaveError(Exception):
 class NotSupportedCommandError(Exception):
     """Exception raised when attempting to apply an unsupported command to a Redis key of a given type."""
 
-    def __init__(self, redis_key: str, redis_type: str, command: str):
-        super().__init__(f"Command {command} is not supported on key {redis_key} of type {redis_type}.")
+    def __init__(self, redis_key: str, redis_type: str | None, command: str):
+        super().__init__(f"Command '{command.upper()}' is not supported on key '{redis_key}' of type '{redis_type}'.")
 
 
 class RedisMutation(models.Model):
@@ -173,9 +173,16 @@ class RedisMutation(models.Model):
             raise MutationFailedToSaveError from e
 
     def run_mutation_command(self):
-        """Run this mutation on Redis."""
+        """Run this mutation on Redis.
+
+        Any new supported commands must be added here with their own unique implementation.
+        """
         match self.command:
             case self.MutationCommand.SET:
+                if self.value is None:
+                    # This should be validated by the form, but in case anything passes, we check again.
+                    raise TypeError("Provided value for SET call cannot be 'None'")
+
                 # We do not need to check here whether current type is 'string' as SET will overwrite
                 # whatever value the key holds, regardless of its current type.
                 # TODO: A warning could be issued if an overwrite to a non-string type happens.
@@ -187,6 +194,10 @@ class RedisMutation(models.Model):
                 redis_client.append(self.redis_key, self.value, **self.parameters)
 
             case self.MutationCommand.SADD:
+                if self.value is None:
+                    # This should be validated by the form, but in case anything passes, we check again.
+                    raise TypeError("Provided value for SET call cannot be 'None'")
+
                 # TODO: Support multiple members with one SADD, maybe by splitting comma/space?
                 redis_client = get_client()
                 redis_client.sadd(self.redis_key, self.value)
@@ -197,7 +208,9 @@ class RedisMutation(models.Model):
 
             case self.MutationCommand.EXPIRE:
                 redis_client = get_client()
-                seconds = int(self.value)  # This has been validated to be castable to int.
+                # This has been validated to be castable to int.
+                # But if the user bypassed the validation, the error should be descriptive.
+                seconds = int(self.value)  # type: ignore
                 redis_client.expire(self.redis_key, time=seconds)
 
             case _:
