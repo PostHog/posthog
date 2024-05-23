@@ -1015,9 +1015,9 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
-    compare: Optional[bool] = None
+    compare: Optional[bool] = False
     decimalPlaces: Optional[float] = None
-    display: Optional[ChartDisplayType] = None
+    display: Optional[ChartDisplayType] = "ActionsLineGraph"
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[list[float]] = None
     showLabelsOnSeries: Optional[bool] = None
@@ -1244,7 +1244,7 @@ class BreakdownFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[int] = None
     breakdown_limit: Optional[int] = None
     breakdown_normalize_url: Optional[bool] = None
-    breakdown_type: Optional[BreakdownType] = None
+    breakdown_type: Optional[BreakdownType] = "event"
     breakdowns: Optional[list[Breakdown]] = None
 
 
@@ -3484,7 +3484,7 @@ class TrendsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     interval: Optional[IntervalType] = Field(
-        default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+        default="day", description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -3516,7 +3516,10 @@ class TrendsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
-    trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+    trendsFilter: Optional[TrendsFilter] = Field(
+        default_factory=lambda: TrendsFilter.model_validate({"display": "ActionsLineGraph"}),
+        description="Properties specific to the trends insight",
+    )
 
 
 class FilterType(BaseModel):

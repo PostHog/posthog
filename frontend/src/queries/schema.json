@@ -448,7 +448,8 @@
                         {
                             "type": "null"
                         }
-                    ]
+                    ],
+                    "default": "event"
                 },
                 "breakdowns": {
                     "items": {
@@ -7635,13 +7636,15 @@
                     "type": "number"
                 },
                 "compare": {
+                    "default": false,
                     "type": "boolean"
                 },
                 "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "default": "ActionsLineGraph"
                 },
                 "formula": {
                     "type": "string"
@@ -7746,6 +7749,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
+                    "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
                 },
                 "kind": {
@@ -7786,6 +7790,9 @@
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
+                    "default": {
+                        "display": "ActionsLineGraph"
+                    },
                     "description": "Properties specific to the trends insight"
                 }
             },

@@ -649,8 +649,10 @@ export type TrendsFilterLegacy = Omit<
 
 export type TrendsFilter = {
     smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    /** @default false */
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
+    /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -669,11 +671,17 @@ export type CachedTrendsQueryResponse = TrendsQueryResponse & CachedQueryRespons
 
 export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     kind: NodeKind.TrendsQuery
-    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @default day
+     */
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the trends insight */
+    /**
+     * Properties specific to the trends insight
+     * @default {"display": "ActionsLineGraph"}
+     */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
@@ -1435,6 +1443,7 @@ export interface DateRange {
 
 export interface BreakdownFilter {
     // TODO: unclutter
+    /** @default event */
     breakdown_type?: BreakdownType | null
     breakdown_limit?: integer
     breakdown?: BreakdownKeyType
