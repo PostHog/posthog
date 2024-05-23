@@ -88,6 +88,10 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
+    # When someone uses an API key, always put their query to the offline cluster
+    if workload == Workload.DEFAULT and get_query_tag_value("access_method") == "personal_api_key":
+        workload = Workload.OFFLINE
+
     with get_pool(workload, team_id, readonly).get_client() as client:
         start_time = perf_counter()
 

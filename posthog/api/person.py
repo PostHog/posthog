@@ -1,5 +1,5 @@
 import json
-import posthoganalytics
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.person.missing_person import MissingPerson
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
@@ -59,7 +59,6 @@ from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import (
     ActorBaseQuery,
     get_people,
-    serialize_people,
 )
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -292,56 +291,20 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif not filter.limit:
             filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        if posthoganalytics.feature_enabled(
-            "load-person-fields-from-clickhouse",
-            request.user.distinct_id,
-            person_properties={"email": request.user.email},
-        ):
-            person_query = PersonQuery(
-                filter,
-                team.pk,
-                extra_fields=[
-                    "created_at",
-                    "properties",
-                    "is_identified",
-                ],
-                include_distinct_ids=True,
-            )
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-            actors = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            persons = []
-            for p in actors:
-                person = Person(
-                    uuid=p[0],
-                    created_at=p[1],
-                    is_identified=p[2],
-                    properties=json.loads(p[3]),
-                )
-                person._distinct_ids = p[4]
-                persons.append(person)
+        person_query = PersonQuery(filter, team.pk)
+        paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
 
-            serialized_actors = serialize_people(team, data=persons)
-            _should_paginate = len(serialized_actors) >= filter.limit
-        else:
-            person_query = PersonQuery(filter, team.pk)
-            paginated_query, paginated_params = person_query.get_query(paginate=True, filter_future_persons=True)
-
-            raw_paginated_result = insight_sync_execute(
-                paginated_query,
-                {**paginated_params, **filter.hogql_context.values},
-                filter=filter,
-                query_type="person_list",
-                team_id=team.pk,
-            )
-            actor_ids = [row[0] for row in raw_paginated_result]
-            _, serialized_actors = get_people(team, actor_ids)
-            _should_paginate = len(actor_ids) >= filter.limit
+        raw_paginated_result = insight_sync_execute(
+            paginated_query,
+            {**paginated_params, **filter.hogql_context.values},
+            filter=filter,
+            query_type="person_list",
+            team_id=team.pk,
+            workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
+        )
+        actor_ids = [row[0] for row in raw_paginated_result]
+        _, serialized_actors = get_people(team, actor_ids)
+        _should_paginate = len(actor_ids) >= filter.limit
 
         # If the undocumented include_total param is set to true, we'll return the total count of people
         # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
