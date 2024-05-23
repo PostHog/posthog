@@ -625,10 +625,10 @@ HOGQL_FIELD_DLT_TYPE_MAP = {
 
 def get_dlt_mapping_for_external_table(table):
     return {
-        field_name.removeprefix("__"): {
+        [field.name]: {
             "data_type": HOGQL_FIELD_DLT_TYPE_MAP[type(field)],
             "nullable": True,
         }
-        for field_name, field in external_tables[table].items()
+        for field in external_tables[table].values()
         if type(field) != ast.ExpressionField
     }
