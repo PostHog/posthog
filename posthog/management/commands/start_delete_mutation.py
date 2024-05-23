@@ -3,7 +3,7 @@ import logging
 import structlog
 from django.core.management.base import BaseCommand
 
-from posthog.tasks.tasks import clickhouse_clear_removed_data
+from posthog.tasks.tasks import clickhouse_clear_removed_data, clear_clickhouse_deleted_person
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -23,3 +23,7 @@ def run():
     logger.info("Starting deletion of data for teams")
     clickhouse_clear_removed_data()
     logger.info("Finished deletion of data for teams")
+
+    logger.info("Starting deletion of data for persons")
+    clear_clickhouse_deleted_person()
+    logger.info("Finished deletion of data for persons")
