@@ -4134,7 +4134,7 @@ class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fixedProperties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+    fixedProperties: Optional[list[Union[CohortPropertyFilter, PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
         default=None,
         description="Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py.",
     )
@@ -4145,7 +4145,7 @@ class ActorsQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
-    properties: Optional[list[Union[PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
+    properties: Optional[list[Union[CohortPropertyFilter, PersonPropertyFilter, HogQLPropertyFilter]]] = Field(
         default=None,
         description="Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
     )

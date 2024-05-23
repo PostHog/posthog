@@ -6,6 +6,7 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
+    CohortPropertyFilter,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -991,9 +992,9 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py. */
-    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    properties?: (CohortPropertyFilter | PersonPropertyFilter | HogQLPropertyFilter)[]
     /** Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py. */
-    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    fixedProperties?: (CohortPropertyFilter | PersonPropertyFilter | HogQLPropertyFilter)[]
     orderBy?: string[]
     limit?: integer
     offset?: integer

@@ -59,6 +59,9 @@
                     "items": {
                         "anyOf": [
                             {
+                                "$ref": "#/definitions/CohortPropertyFilter"
+                            },
+                            {
                                 "$ref": "#/definitions/PersonPropertyFilter"
                             },
                             {
@@ -92,6 +95,9 @@
                     "description": "Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py.",
                     "items": {
                         "anyOf": [
+                            {
+                                "$ref": "#/definitions/CohortPropertyFilter"
+                            },
                             {
                                 "$ref": "#/definitions/PersonPropertyFilter"
                             },
