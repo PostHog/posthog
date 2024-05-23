@@ -1,6 +1,7 @@
 {% load i18n %}
 <!-- In case there are no apps, we also don't want to appear -->
-{% if app_list %} {% load admin_urls %}
+{% if app_list %}
+{% load admin_urls %}
 <div class="app-redis module">
     <table>
         <caption>
@@ -23,9 +24,7 @@
                 <a href="{% url 'admin:posthog_redismutation_add' %}" class="addlink">{% translate 'Add' %}</a>
             </td>
             <td>
-                <a href="{% url 'admin:posthog_redismutation_changelist' %}" class="changelink"
-                    >{% translate 'Change' %}</a
-                >
+                <a href="{% url 'admin:posthog_redismutation_changelist' %}" class="changelink">{% translate 'Change' %}</a>
             </td>
         </tr>
     </table>
