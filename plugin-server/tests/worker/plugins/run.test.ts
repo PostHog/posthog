@@ -260,6 +260,7 @@ describe('runComposeWebhook', () => {
     beforeEach(() => {
         composeWebhook = jest.fn()
         mockPluginConfig = {
+            id: 123,
             plugin_id: 100,
             team_id: 2,
             enabled: false,
@@ -409,5 +410,20 @@ describe('runComposeWebhook', () => {
         await runComposeWebhook(mockHub as Hub, createEvent())
 
         expect(composeWebhook).toHaveBeenCalledTimes(0)
+        expect(mockHub.appMetrics?.queueError).toHaveBeenCalledTimes(1)
+        expect(mockHub.appMetrics?.queueError).toHaveBeenLastCalledWith(
+            {
+                category: 'composeWebhook',
+                failures: 1,
+                pluginConfigId: 123,
+                teamId: 2,
+            },
+            {
+                error: 'Error occurred when processing filters: TypeError: filters.events is not iterable',
+                event: expect.objectContaining({
+                    event: '$autocapture',
+                }),
+            }
+        )
     })
 })
