@@ -1555,6 +1555,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(results["last_refresh"], "2012-01-15T04:01:34Z")  # Using cached result
             self.assertTrue(results["is_cached"])
 
+        with freeze_time("2012-01-15T05:17:39.000Z"):
+            # Now with refresh requested - cache should be ignored
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/", {"query": query_dict, "async": True, "refresh": True}
+            ).json()
+            self.assertNotIn("code", response)
+            self.assertTrue(response.get("query_async"))
+            self.assertFalse(response.get("complete"))  # Just checking that recalculation was initiated
+
     def test_dashboard_filters_applied_to_sql_data_table_node(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard(
             {"name": "the dashboard", "filters": {"date_from": "-180d"}}
