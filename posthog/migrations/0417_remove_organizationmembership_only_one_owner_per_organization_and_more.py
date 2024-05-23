@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunSQL(
-            "update posthog_organizationinvite set level = 1",
+            "update posthog_organizationinvite set level = 1 -- existing-table-constraint-ignore",
             reverse_sql="update posthog_organizationinvite set level = NULL",
         ),
         migrations.AlterField(
