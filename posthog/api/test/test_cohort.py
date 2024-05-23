@@ -355,8 +355,6 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    # TODO: Remove this when load-person-field-from-clickhouse feature flag is removed
-    @patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
     def test_filter_by_cohort_prop_from_clickhouse(self, patch_feature_enabled):
         for i in range(5):
             _create_person(
