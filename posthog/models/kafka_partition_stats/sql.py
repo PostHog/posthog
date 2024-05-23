@@ -38,33 +38,6 @@ class PartitionStatsKafkaTable:
         """
 
 
-CREATE_PARTITION_STATISTICS_MV = (
-    lambda monitored_topic: f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-TO `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics
-AS SELECT
-    toStartOfMinute(_timestamp) AS `timestamp`,
-    `_topic`,
-    `_partition`,
-    `token` AS `api_key`,
-    JSONExtractString(data, 'event') AS `event`,
-    `distinct_id`,
-    countState(1) AS `messages`,
-    sumState(length(data)) AS `data_size`
-FROM {CLICKHOUSE_DATABASE}.kafka_{monitored_topic}_partition_statistics
-GROUP BY
-    `timestamp`,
-    `_topic`,
-    `_partition`,
-    `api_key`,
-    `event`,
-    `distinct_id`
-"""
-)
-
-# V2
-
-
 class PartitionStatsV2Table:
     table_name: str = "events_plugin_ingestion_partition_statistics_v2"
 
