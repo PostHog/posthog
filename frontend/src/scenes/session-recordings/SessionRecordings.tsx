@@ -188,8 +188,6 @@ function MainPanel(): JSX.Element {
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist updateSearchParams />
                 </div>
-            ) : tab === ReplayTabs.NetworkView ? (
-                <SessionRecordingsPlaylist updateSearchParams currentTab={ReplayTabs.NetworkView} />
             ) : tab === ReplayTabs.Playlists ? (
                 <SavedSessionRecordingPlaylists tab={ReplayTabs.Playlists} />
             ) : tab === ReplayTabs.Errors ? (

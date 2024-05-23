@@ -628,7 +628,6 @@ export enum ReplayTabs {
     Recent = 'recent',
     Playlists = 'playlists',
     Errors = 'errors',
-    NetworkView = 'network_view',
 }
 
 export enum ExperimentsTabs {

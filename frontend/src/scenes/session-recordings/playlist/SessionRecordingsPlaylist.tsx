@@ -19,7 +19,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useEffect, useRef } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingType } from '~/types'
@@ -391,7 +390,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                             onDoubleClick={() => toggleRecordingsListCollapsed()}
                         />
                     </div>
-                    <div className="SessionRecordingsPlaylist__player">
+                    <div className="SessionRecordingsPlaylist__player bg-white">
                         {!activeSessionRecordingId ? (
                             <div className="mt-20">
                                 <EmptyMessage
@@ -401,8 +400,6 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                                     buttonTo="https://posthog.com/docs/user-guides/recordings"
                                 />
                             </div>
-                        ) : props.currentTab === ReplayTabs.NetworkView ? (
-                            <NetworkView sessionRecordingId={activeSessionRecordingId} />
                         ) : (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
