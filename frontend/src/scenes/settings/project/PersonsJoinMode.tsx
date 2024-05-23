@@ -14,7 +14,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
         value: 'inner',
         label: (
             <>
-                <div>Does an inner join, and excludes soft-deleted users</div>
+                <div>Does an inner join</div>
                 <div className="text-muted">
                     This is the default. You want this one unless you know what you are doing.
                 </div>

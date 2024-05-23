@@ -56,7 +56,6 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
             )
             """
         )
-
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
         for field_name, field_chain in requested_fields.items():
