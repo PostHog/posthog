@@ -424,7 +424,7 @@ describe('plugins', () => {
         expect(processError).toHaveBeenCalledWith(
             hub,
             pluginConfigs.get(39)!,
-            `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId}). Tried: index.js`
+            `Could not load source code for plugin test-maxmind-plugin ID 60 (organization ID ${commonOrganizationId} - tag 0.0.2). Tried: index.js`
         )
         expect(await pluginConfigs.get(39)!.vm!.getScheduledTasks()).toEqual({})
     })
