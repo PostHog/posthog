@@ -178,15 +178,11 @@ export function PipelinePluginConfiguration({
 
                         {actionMatchingEnabled ? (
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField
-                                    name="match_action"
-                                    label="Filter by action"
-                                    info="Create or select an action to filter events by. Only events that match this action will be processed."
-                                >
+                                <LemonField name="match_action" label="Filter by action">
                                     <LemonSelectAction allowClear disabled={loading} />
                                 </LemonField>
 
-                                <LemonField name="filters" label="Filter by events">
+                                <LemonField name="filters">
                                     {({ value, onChange }) => (
                                         <ActionFilter
                                             bordered
@@ -222,6 +218,11 @@ export function PipelinePluginConfiguration({
                                         />
                                     )}
                                 </LemonField>
+
+                                <p className="italic text-muted-alt">
+                                    This destination will only be for events matching the configured action{' '}
+                                    <b>or any</b> of the configured event filters.
+                                </p>
                             </div>
                         ) : null}
                     </div>
