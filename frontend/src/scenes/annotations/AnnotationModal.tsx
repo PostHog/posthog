@@ -101,7 +101,7 @@ export function AnnotationModal({
                         }
                         className="flex-1"
                     >
-                        <LemonCalendarSelectInput showTime />
+                        <LemonCalendarSelectInput granularity="minute" />
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
                         <LemonSelect

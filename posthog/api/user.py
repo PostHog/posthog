@@ -96,7 +96,6 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "email",
             "pending_email",
-            "email_opt_in",
             "is_email_verified",
             "notification_settings",
             "anonymize_data",

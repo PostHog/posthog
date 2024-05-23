@@ -11,7 +11,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.views import APIView
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import SharingAccessTokenAuthentication, SessionAuthentication
 
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
@@ -328,7 +328,11 @@ class APIScopePermission(BasePermission):
         # Helps devs remember to add it.
         self.get_scope_object(request, view)
 
-        scopes, _, _ = self._get_scopes(request, view)
+        try:
+            scopes, _, _ = self._get_scopes(request, view)
+        except NotImplementedError:
+            return True
+
         # API Scopes permissioning only applies if scopes are present in some form, otherwise nothing is applied
         if not scopes:
             return True

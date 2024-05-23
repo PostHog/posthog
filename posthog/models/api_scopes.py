@@ -21,6 +21,7 @@ APIScopeObject = Literal[
     "export",
     "feature_flag",
     "group",
+    "heatmaps",
     "insight",
     "query",  # Covers query and events endpoints
     "notebook",

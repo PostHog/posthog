@@ -61,6 +61,7 @@ def confirm_client_auth_flow(code: str, verification: str, user: User) -> str:
         {"id": user.id},
         DEFAULT_CLIENT_AUTHENTICATION_TIME,
         PosthogJwtAudience.CLIENT,
+        scopes=["*"],  # TODO: Change this?
     )
 
     cache.set(f"client-authorization/tokens/{code}", access_token, timeout=60)

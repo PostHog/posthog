@@ -193,7 +193,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, audience=audience)
                         user = User.objects.get(pk=info["id"])
-                        self.scopes = info.get("scope", "").split(",")
+                        # TODO: Should we deny tokens without a scope?
+                        self.scopes = info.get("scope", "").split(",") if info.get("scope") else []
                         self.scoped_teams = [info["team_id"]] if info.get("team_id") else []
                         self.scoped_organizations = [info["organization_id"]] if info.get("organization_id") else []
 

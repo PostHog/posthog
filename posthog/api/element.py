@@ -33,7 +33,7 @@ class ElementSerializer(serializers.ModelSerializer):
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "heatmaps"
     filter_rewrite_rules = {"team_id": "group__team_id"}
 
     queryset = Element.objects.all()

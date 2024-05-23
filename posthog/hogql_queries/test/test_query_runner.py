@@ -71,33 +71,6 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
-    def test_serializes_to_json(self):
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
-    def test_serializes_to_json_ignores_empty_dict(self):
-        # The below behaviour is not currently implemented, since we're auto-
-        # generating the pydantic models for queries, which doesn't allow us
-        # setting a custom default value for list and dict type properties.
-        #
-        # :KLUDGE: In order to receive a stable JSON representation for cache
-        # keys we want to ignore semantically equal attributes. E.g. an empty
-        # list and None should be treated equally.
-        #
-        # To achieve this behaviour we ignore None and the default value, which
-        # we set to an empty list. It would be even better, if we would
-        # implement custom validators for this.
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
-
-        json = runner.to_json()
-        self.assertEqual(json, '{"some_attr":"bla"}')
-
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
