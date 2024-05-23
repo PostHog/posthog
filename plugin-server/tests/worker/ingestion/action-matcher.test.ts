@@ -1335,7 +1335,7 @@ describe('ActionMatcher', () => {
     })
 })
 
-describe.only('ActionMatcher.checkFilters', () => {
+describe('ActionMatcher.checkFilters', () => {
     const actionMatcher = new ActionMatcher({} as any, {} as any)
 
     const createFilters = (
