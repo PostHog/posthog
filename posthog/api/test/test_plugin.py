@@ -1019,19 +1019,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_config = PluginConfig.objects.first()
         self.assertIsNotNone(plugin_config.web_token)  # type: ignore
 
-        # If we're trying to create another plugin config for the same plugin, just return the original
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": plugin_id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"bar": "moop"}),
-            },
-            format="multipart",
-        )
-        self.assertEqual(response.json()["id"], plugin_config_id)
-
         response = self.client.patch(
             f"/api/plugin_config/{plugin_config_id}",
             {"enabled": False, "order": 1, "config": json.dumps({"bar": "soup"})},
@@ -1059,9 +1046,44 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "match_action": None,
             },
         )
-        self.client.delete(f"/api/plugin_config/{plugin_config_id}")
+
+        # If we're trying to create another plugin config for the same plugin, we get a new one
+        response = self.client.post(
+            "/api/plugin_config/",
+            {
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": json.dumps({"bar": "second"}),
+                "name": "name in ui",
+                "description": "description in ui",
+            },
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        plugin_config_id2 = response.json()["id"]
+        self.assertNotEqual(plugin_config_id, plugin_config_id2)
         self.assertEqual(Plugin.objects.count(), 1)
-        self.assertEqual(PluginConfig.objects.count(), 1)
+        self.assertEqual(PluginConfig.objects.count(), 2)
+        self.assertEqual(
+            response.json(),
+            {
+                "id": plugin_config_id2,
+                "plugin": plugin_id,
+                "enabled": True,
+                "order": 0,
+                "config": {"bar": "second"},
+                "error": None,
+                "team_id": self.team.pk,
+                "plugin_info": mock.ANY,  # Not testing plugin serialization in this endpoint
+                "delivery_rate_24h": None,
+                "created_at": mock.ANY,
+                "updated_at": mock.ANY,
+                "name": "name in ui",
+                "description": "description in ui",
+                "deleted": False,
+            },
+        )
 
     def test_create_plugin_config_auth(self, mock_get, mock_reload):
         response = self.client.post(
