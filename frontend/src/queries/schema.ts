@@ -1,4 +1,5 @@
 import {
+    AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
     Breakdown,
@@ -196,6 +197,7 @@ export interface HogQLQueryModifiers {
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     s3TableUseInvalidColumns?: boolean
+    personsJoinMode?: 'inner' | 'left'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -937,8 +939,11 @@ export type ClickhouseQueryStatus = {
 
 export type QueryStatus = {
     id: string
-    /**  @default true */
-    query_async: boolean
+    /**
+     * ONLY async queries use QueryStatus.
+     * @default true
+     */
+    query_async: true
     team_id: integer
     /**  @default false */
     error: boolean
@@ -986,8 +991,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    properties?: AnyPropertyFilter[]
-    fixedProperties?: AnyPropertyFilter[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?: AnyPersonScopeFilter[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
@@ -1049,6 +1056,8 @@ export interface SamplingRate {
 
 export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase<WebOverviewItem[]> {
     samplingRate?: SamplingRate
+    dateFrom?: string
+    dateTo?: string
 }
 export type CachedWebOverviewQueryResponse = WebOverviewQueryResponse & CachedQueryResponseMixin
 
@@ -1290,15 +1299,65 @@ export interface TimeToSeeDataSessionsQuery extends DataNode<TimeToSeeDataSessio
     teamId?: integer
 }
 
-export interface DatabaseSchemaQueryResponseField {
-    key: string
+export interface DatabaseSchemaSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    incremental: boolean
+    status: string
+    last_synced_at?: string
+}
+
+export interface DatabaseSchemaSource {
+    id: string
+    status: string
+    source_type: string
+    prefix: string
+    last_synced_at?: string
+}
+
+export interface DatabaseSchemaField {
+    name: string
+    hogql_value: string
     type: DatabaseSerializedFieldType
     schema_valid: boolean
     table?: string
     fields?: string[]
-    chain?: string[]
+    chain?: (string | integer)[]
 }
-export type DatabaseSchemaQueryResponse = Record<string, DatabaseSchemaQueryResponseField[]>
+
+export interface DatabaseSchemaTableCommon {
+    type: 'posthog' | 'data_warehouse' | 'view'
+    id: string
+    name: string
+    fields: Record<string, DatabaseSchemaField>
+}
+
+export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
+    type: 'view'
+    query: HogQLQuery
+}
+
+export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
+    type: 'posthog'
+}
+
+export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
+    type: 'data_warehouse'
+    format: string
+    url_pattern: string
+    schema?: DatabaseSchemaSchema
+    source?: DatabaseSchemaSource
+}
+
+export type DatabaseSchemaTable =
+    | DatabaseSchemaPostHogTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+
+export interface DatabaseSchemaQueryResponse {
+    tables: Record<string, DatabaseSchemaTable>
+}
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
     kind: NodeKind.DatabaseSchemaQuery

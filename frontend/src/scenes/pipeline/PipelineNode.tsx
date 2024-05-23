@@ -46,14 +46,10 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
 
-    const { currentTab, node } = useValues(pipelineNodeLogic)
+    const { currentTab } = useValues(pipelineNodeLogic)
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
-    }
-
-    if (node.name === 'new') {
-        return <PipelineNodeConfiguration />
     }
 
     const tabToContent: Record<PipelineNodeTab, JSX.Element> = {

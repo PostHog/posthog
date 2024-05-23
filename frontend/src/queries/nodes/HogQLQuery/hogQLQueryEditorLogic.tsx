@@ -12,7 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 // esbuild doesn't support manual chunks as of 2023, so we can't just put Monaco in its own chunk, which would prevent
 // re-importing. As for @monaco-editor/react, it does some lazy loading and doesn't have this problem.
 import type { editor, MarkerSeverity } from 'monaco-editor'
-import { dataWarehouseSavedQueriesLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseSavedQueriesLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { query } from '~/queries/query'
@@ -45,7 +45,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         }
     }),
     connect({
-        actions: [dataWarehouseSavedQueriesLogic, ['createDataWarehouseSavedQuery']],
+        actions: [dataWarehouseViewsLogic, ['createDataWarehouseSavedQuery']],
     }),
     actions({
         saveQuery: true,
@@ -189,7 +189,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                 kind: NodeKind.HogQLQuery,
                 query: values.queryInput,
             }
-            await dataWarehouseSavedQueriesLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
+            await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query })
         },
     })),
 ])

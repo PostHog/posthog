@@ -34,6 +34,7 @@ class AvailableFeature(str, Enum):
     SURVEYS_TEXT_HTML = "surveys_text_html"
     SURVEYS_MULTIPLE_QUESTIONS = "surveys_multiple_questions"
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
+    MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -308,5 +309,6 @@ class FlagRequestType(str, Enum):
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]

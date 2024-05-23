@@ -220,7 +220,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         hog_ql_filtering: values.useHogQLFiltering,
                     }
 
-                    if (values.artificialLag) {
+                    if (values.artificialLag && !params.date_to) {
                         // values.artificalLag is a number of seconds to delay the recordings by
                         // convert it to an absolute UTC timestamp as the relative date parsing in the backend
                         // can't cope with seconds as a relative date

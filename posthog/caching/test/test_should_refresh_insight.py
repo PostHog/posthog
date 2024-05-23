@@ -122,8 +122,8 @@ class TestShouldRefreshInsight(ClickhouseTestMixin, BaseTest):
     def test_dashboard_filters_should_override_insight_filters_when_deciding_on_refresh_time(self):
         insight, _, dashboard_tile = _create_insight(
             self.team,
-            {"events": [{"id": "$pageview"}], "interval": "month"},
-            {"interval": "hour"},
+            {"events": [{"id": "$pageview"}], "date_from": "-30d"},
+            {"date_from": "-3d"},
         )
 
         should_refresh_now, refresh_frequency = should_refresh_insight(

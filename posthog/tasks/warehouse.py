@@ -12,7 +12,7 @@ from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 
-MONTHLY_LIMIT = 100_000_000
+MONTHLY_LIMIT = 200_000_000
 
 
 def check_synced_row_limits() -> None:

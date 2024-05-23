@@ -44,7 +44,6 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
-    TimeSensitiveActionPermission,
     get_organization_from_view,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
@@ -338,8 +337,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return team
 
-    def _clear_team_insight_cache(self, team: Team) -> None:
-        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+    def _clear_team_insight_caching_states(self, team: Team) -> None:
+        # TODO: Remove this method:
+        # 1. It only clear the cache for saved insights, queries not linked to one are being ignored here
+        # 2. We should anyway 100% be relying on cache keys being different for materially different queries, instead of
+        #    on remembering to call this method when project settings change. We probably already are in the clear here!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
@@ -349,7 +351,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if ("timezone" in validated_data and validated_data["timezone"] != instance.timezone) or (
             "modifiers" in validated_data and validated_data["modifiers"] != instance.modifiers
         ):
-            self._clear_team_insight_cache(instance)
+            self._clear_team_insight_caching_states(instance)
 
         if (
             "session_replay_config" in validated_data
@@ -429,7 +431,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             IsAuthenticated,
             APIScopePermission,
             PremiumMultiProjectPermissions,
-            TimeSensitiveActionPermission,
             *self.permission_classes,
         ]
 

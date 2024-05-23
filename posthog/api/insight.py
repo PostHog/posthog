@@ -48,9 +48,7 @@ from posthog.constants import (
 )
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
 from posthog.decorators import cached_by_filters
-from posthog.helpers.multi_property_breakdown import (
-    protect_old_clients_from_multi_property_default,
-)
+from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
@@ -83,15 +81,11 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from prometheus_client import Counter
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
@@ -212,9 +206,6 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             representation["query"] = instance.query or instance.query_from_filters
         else:
             filters = instance.dashboard_filters()
-
-            if not filters.get("date_from") and not instance.query:
-                filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
             representation["filters"] = filters
 
         return representation
@@ -335,7 +326,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
-                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
@@ -519,11 +509,11 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
         ):
-            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters
+            from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters_to_dict
 
             query = instance.query or instance.query_from_filters
             if dashboard:
-                query = apply_dashboard_filters(query, dashboard.filters, instance.team)
+                query = apply_dashboard_filters_to_dict(query, dashboard.filters, instance.team)
             representation["filters"] = {}
             representation["query"] = query
         else:
