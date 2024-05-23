@@ -1,4 +1,5 @@
 import { IconX } from '@posthog/icons'
+import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
@@ -8,6 +9,7 @@ import {
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
 
 function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
@@ -57,6 +59,8 @@ export interface LemonCalendarSelectProps {
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
+    showTimeToggle?: boolean
+    onToggleTime?: (value: boolean) => void
 }
 
 export function LemonCalendarSelect({
@@ -66,6 +70,8 @@ export function LemonCalendarSelect({
     onClose,
     granularity = 'day',
     selectionPeriod,
+    showTimeToggle,
+    onToggleTime,
 }: LemonCalendarSelectProps): JSX.Element {
     const calendarRef = useRef<HTMLDivElement | null>(null)
     const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf(granularity) : null)
@@ -177,18 +183,33 @@ export function LemonCalendarSelect({
                 }}
                 granularity={granularity}
             />
-            <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
-                <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    disabled={!selectValue}
-                    onClick={() => selectValue && onChange && onChange(selectValue)}
-                    data-attr="lemon-calendar-select-apply"
-                >
-                    Apply
-                </LemonButton>
+            <div
+                className={clsx(
+                    'flex space-x-2 items-center border-t p-2 pt-4',
+                    showTimeToggle ? 'justify-between' : 'justify-end'
+                )}
+            >
+                {showTimeToggle && (
+                    <LemonSwitch
+                        label="Include time?"
+                        checked={granularity != 'day'}
+                        onChange={onToggleTime}
+                        bordered
+                    />
+                )}
+                <div className="flex space-x-2">
+                    <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabled={!selectValue}
+                        onClick={() => selectValue && onChange && onChange(selectValue)}
+                        data-attr="lemon-calendar-select-apply"
+                    >
+                        Apply
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )
