@@ -128,9 +128,10 @@ async def validate_schema_and_update_table(
     incremental = _schema_name in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
 
     table_name = f"{job.pipeline.prefix or ''}{job.pipeline.source_type}_{_schema_name}".lower()
-    new_url_pattern = job.url_pattern_by_schema(camel_to_snake_case(_schema_name))
+    snake_case_schema_name = camel_to_snake_case(_schema_name)
+    new_url_pattern = job.url_pattern_by_schema(snake_case_schema_name)
 
-    row_count = table_row_counts.get(_schema_name.lower(), 0)
+    row_count = table_row_counts.get(snake_case_schema_name.lower(), 0)
 
     # Check
     try:
