@@ -319,4 +319,21 @@ describe('runComposeWebhook', () => {
 
         expect(composeWebhook).toHaveBeenCalledTimes(1)
     })
+
+    it('filters out if has filters that does not match event', async () => {
+        mockPluginConfig.filters = {
+            events: [
+                {
+                    type: 'events',
+                    name: '$autocapture',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(1)
+    })
 })
