@@ -409,7 +409,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                           FROM person
@@ -556,7 +556,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                           FROM person
@@ -703,7 +703,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                           FROM person
@@ -850,7 +850,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                           FROM person
@@ -1159,7 +1159,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                           FROM person
@@ -1306,7 +1306,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                           FROM person
@@ -1453,7 +1453,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                           FROM person
@@ -1600,7 +1600,7 @@
                           WHERE equals(person_distinct_id2.team_id, 2)
                           GROUP BY person_distinct_id2.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-                       INNER JOIN
+                       LEFT JOIN
                          (SELECT person.id AS id,
                                  nullIf(nullIf(person.`pmat_$browser`, ''), 'null') AS `properties___$browser`
                           FROM person
