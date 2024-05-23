@@ -14,4 +14,5 @@ PERSISTED_FEATURE_FLAGS = [
     "hogql-insights-preview",
     "persons-hogql-query",
     "datanode-concurrency-limit",
+    "session-table-property-filters",
 ]
