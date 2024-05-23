@@ -613,3 +613,22 @@ external_tables: dict[str, dict[str, FieldOrTable]] = {
         "only_private_comments": BooleanDatabaseField(name="only_private_comments"),
     },
 }
+
+HOGQL_FIELD_DLT_TYPE_MAP = {
+    StringDatabaseField: "text",
+    IntegerDatabaseField: "bigint",
+    BooleanDatabaseField: "bool",
+    DateTimeDatabaseField: "timestamp",
+    StringJSONDatabaseField: "complex",
+}
+
+
+def get_dlt_mapping_for_external_table(table):
+    return {
+        field_name.removeprefix("__"): {
+            "data_type": HOGQL_FIELD_DLT_TYPE_MAP[type(field)],
+            "nullable": True,
+        }
+        for field_name, field in external_tables[table].items()
+        if type(field) != ast.ExpressionField
+    }

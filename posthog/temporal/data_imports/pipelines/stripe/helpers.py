@@ -14,6 +14,8 @@ from posthog.temporal.data_imports.pipelines.helpers import check_limit
 from posthog.temporal.data_imports.pipelines.stripe.settings import INCREMENTAL_ENDPOINTS
 from posthog.warehouse.models import ExternalDataJob
 
+from posthog.warehouse.models.external_table_definitions import get_dlt_mapping_for_external_table
+
 stripe.api_version = "2022-11-15"
 
 
@@ -162,9 +164,7 @@ def stripe_source(
             stripe_pagination,
             name=endpoint,
             write_disposition="append",
-            columns={
-                "description": {"data_type": "text", "nullable": True},
-            },
+            columns=get_dlt_mapping_for_external_table(f"stripe_{endpoint}".lower()),
         )(
             api_key=api_key,
             account_id=account_id,
