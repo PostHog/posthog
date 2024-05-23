@@ -86,7 +86,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
             )
             if isinstance(result, BaseModel):
-                result = result.model_dump()
+                result = result.model_dump(by_alias=True)
             return Response(result)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0415_pluginconfig_match_action"),
+        ("posthog", "0416_survey_internal_targeting_flag"),
     ]
 
     operations = [

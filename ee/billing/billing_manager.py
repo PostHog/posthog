@@ -17,7 +17,7 @@ from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization
-from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization import OrganizationMembership, OrganizationMembershipLevel, OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
 
@@ -223,6 +223,17 @@ class BillingManager:
         except Exception as e:
             capture_exception(e)
 
+    def update_billing_admin_emails(self, organization: Organization) -> None:
+        try:
+            admin_emails = list(
+                organization.members.filter(
+                    organization_membership__level__gte=OrganizationMembershipLevel.ADMIN
+                ).values_list("email", flat=True)
+            )
+            self.update_billing(organization, {"org_admin_emails": admin_emails})
+        except Exception as e:
+            capture_exception(e)
+
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
@@ -343,6 +354,11 @@ class BillingManager:
             if set_org_usage_summary(organization, new_usage=usage_info):
                 org_modified = True
                 sync_org_quota_limits(organization)
+
+        available_features = data.get("available_features", None)
+        if available_features and available_features != organization.available_features:
+            organization.available_features = data["available_features"]
+            org_modified = True
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
