@@ -1,3 +1,4 @@
+from posthog.hogql.base import Expr
 from posthog.hogql.database.models import (
     StringDatabaseField,
     IntegerDatabaseField,
@@ -74,7 +75,7 @@ class RawCohortPeople(Table):
 class CohortPeople(LazyTable):
     fields: dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], context, node):
         return select_from_cohort_people_table(requested_fields, context.team_id)
 
     def to_printed_clickhouse(self, context):

@@ -31,6 +31,7 @@ class JoinToAdd:
 class TableToAdd:
     fields_accessed: dict[str, list[str | int]]
     lazy_table: LazyTable
+    limiting_filters: list[ast.Expr] = []
 
 
 @dataclasses.dataclass
@@ -320,7 +321,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
-            subquery = table_to_add.lazy_table.lazy_select(table_to_add.fields_accessed, self.context, node=node)
+            subquery = table_to_add.lazy_table.lazy_select(
+                table_to_add.fields_accessed, table_to_add.limiting_filters, self.context, node=node
+            )
             subquery = cast(ast.SelectQuery, clone_expr(subquery, clear_locations=True))
             subquery = cast(ast.SelectQuery, resolve_types(subquery, self.context, self.dialect, [node.type]))
             old_table_type = select_type.tables[table_name]

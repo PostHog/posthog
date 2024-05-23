@@ -1,4 +1,5 @@
 from posthog.hogql import ast
+from posthog.hogql.base import Expr
 from posthog.hogql.database.models import (
     Table,
     IntegerDatabaseField,
@@ -32,7 +33,9 @@ class LogEntriesTable(Table):
 class ReplayConsoleLogsLogEntriesTable(LazyTable):
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+    def lazy_select(
+        self, requested_fields: dict[str, list[str | int]], limiting_filters: list[ast.Expr], context, node
+    ):
         fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(
@@ -55,7 +58,7 @@ class ReplayConsoleLogsLogEntriesTable(LazyTable):
 class BatchExportLogEntriesTable(LazyTable):
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], context, node):
         fields: list[ast.Expr] = [ast.Field(chain=["log_entries", *chain]) for name, chain in requested_fields.items()]
 
         return ast.SelectQuery(

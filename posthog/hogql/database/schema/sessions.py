@@ -247,7 +247,13 @@ def select_from_sessions_table(
 class SessionsTable(LazyTable):
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node: ast.SelectQuery):
+    def lazy_select(
+        self,
+        requested_fields: dict[str, list[str | int]],
+        limiting_filters: list[ast.Expr],
+        context,
+        node: ast.SelectQuery,
+    ):
         return select_from_sessions_table(requested_fields, node, context)
 
     def to_printed_clickhouse(self, context):

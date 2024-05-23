@@ -1,4 +1,4 @@
-from posthog.hogql.ast import SelectQuery
+from posthog.hogql.ast import SelectQuery, Expr
 
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -32,7 +32,9 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_persons_table(requested_fields: dict[str, list[str | int]], modifiers: HogQLQueryModifiers):
+def select_from_persons_table(
+    requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], modifiers: HogQLQueryModifiers
+):
     version = modifiers.personsArgMaxVersion
     if version == PersonsArgMaxVersion.auto:
         version = PersonsArgMaxVersion.v1
@@ -85,6 +87,7 @@ def join_with_persons_table(
     from_table: str,
     to_table: str,
     requested_fields: dict[str, list[str | int]],
+    limiting_filters: list[Expr],
     context: HogQLContext,
     node: SelectQuery,
 ):
@@ -92,7 +95,7 @@ def join_with_persons_table(
 
     if not requested_fields:
         raise ResolutionError("No fields requested from persons table")
-    join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, context.modifiers))
+    join_expr = ast.JoinExpr(table=select_from_persons_table(requested_fields, limiting_filters, context.modifiers))
     join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
@@ -123,8 +126,8 @@ class RawPersonsTable(Table):
 class PersonsTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSONS_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
-        return select_from_persons_table(requested_fields, context.modifiers)
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], context, node):
+        return select_from_persons_table(requested_fields, limiting_filters, context.modifiers)
 
     def to_printed_clickhouse(self, context):
         return "person"

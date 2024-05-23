@@ -1,5 +1,6 @@
 from typing import Any
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -75,7 +76,9 @@ class RawPersonOverridesTable(Table):
 class PersonOverridesTable(Table):
     fields: dict[str, FieldOrTable] = PERSON_OVERRIDES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], modifiers: HogQLQueryModifiers):
+    def lazy_select(
+        self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], modifiers: HogQLQueryModifiers
+    ):
         return select_from_person_overrides_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

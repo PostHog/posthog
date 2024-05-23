@@ -1,5 +1,6 @@
 from typing import Any
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -83,7 +84,7 @@ class RawGroupsTable(Table):
 class GroupsTable(LazyTable):
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], context, node):
         return select_from_groups_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

@@ -133,7 +133,11 @@ class LazyTable(Table):
     model_config = ConfigDict(extra="forbid")
 
     def lazy_select(
-        self, requested_fields: dict[str, list[str | int]], context: "HogQLContext", node: "SelectQuery"
+        self,
+        requested_fields: dict[str, list[str | int]],
+        limiting_filters: list[Expr],
+        context: "HogQLContext",
+        node: "SelectQuery",
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 

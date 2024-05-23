@@ -1,4 +1,5 @@
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -81,7 +82,13 @@ class RawPersonDistinctIdOverridesTable(Table):
 class PersonDistinctIdOverridesTable(LazyTable):
     fields: dict[str, FieldOrTable] = PERSON_DISTINCT_ID_OVERRIDES_FIELDS
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context: HogQLContext, node: SelectQuery):
+    def lazy_select(
+        self,
+        requested_fields: dict[str, list[str | int]],
+        limiting_filters: list[Expr],
+        context: HogQLContext,
+        node: SelectQuery,
+    ):
         return select_from_person_distinct_id_overrides_table(requested_fields)
 
     def to_printed_clickhouse(self, context):

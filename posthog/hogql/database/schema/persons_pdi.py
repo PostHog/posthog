@@ -1,4 +1,5 @@
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
@@ -62,7 +63,7 @@ class PersonsPDITable(LazyTable):
         "person_id": StringDatabaseField(name="person_id"),
     }
 
-    def lazy_select(self, requested_fields: dict[str, list[str | int]], context, node):
+    def lazy_select(self, requested_fields: dict[str, list[str | int]], limiting_filters: list[Expr], context, node):
         return persons_pdi_select(requested_fields)
 
     def to_printed_clickhouse(self, context):
