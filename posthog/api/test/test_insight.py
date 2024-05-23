@@ -1022,6 +1022,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=False)  # synchronously_update_cache is a legacy-only code path
     @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
     def test_insight_refreshing_legacy(self, spy_update_insight_cache) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})

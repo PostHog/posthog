@@ -326,7 +326,6 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
-                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)
