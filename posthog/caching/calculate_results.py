@@ -31,7 +31,7 @@ from posthog.models import (
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.insight import generate_insight_cache_key
+from posthog.models.insight import generate_insight_filters_hash
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -69,7 +69,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                 return query_runner.get_cache_key()
 
             if insight.filters:
-                return generate_insight_cache_key(insight, dashboard)
+                return generate_insight_filters_hash(insight, dashboard)
 
     return None
 
@@ -174,7 +174,7 @@ def calculate_for_filter_based_insight(
     insight: Insight, dashboard: Optional[Dashboard]
 ) -> tuple[str, str, list | dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=insight.team)
-    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_key = generate_insight_filters_hash(insight, dashboard)
     cache_type = get_cache_type(filter)
 
     tag_queries(

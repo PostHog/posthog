@@ -206,7 +206,7 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
+def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
         candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
