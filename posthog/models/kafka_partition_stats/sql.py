@@ -39,10 +39,6 @@ class PartitionStatsKafkaTable:
         """
 
 
-EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
-    "events_plugin_ingestion_partition_statistics"
-)
-
 EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
     lambda: f"""
 CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
@@ -55,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_parti
     `messages` AggregateFunction(count, UInt64),
     `data_size` AggregateFunction(sum, UInt64)
 )
-ENGINE = {EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE()}
+ENGINE = {AggregatingMergeTree("events_plugin_ingestion_partition_statistics")}
 ORDER BY (`_topic`, `_partition`, `timestamp`, `api_key`, `distinct_id`)
 """
 )
