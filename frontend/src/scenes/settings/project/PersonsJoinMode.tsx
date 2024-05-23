@@ -9,9 +9,9 @@ import { HogQLQueryModifiers } from '~/queries/schema'
 
 type PersonsJoinMode = NonNullable<HogQLQueryModifiers['personsJoinMode']>
 
-const personsJoinOpttions: LemonRadioOption<PersonsJoinMode>[] = [
+const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
     {
-        value: 'inner_excluding_deleted',
+        value: 'inner',
         label: (
             <>
                 <div>Does an inner join, and excludes soft-deleted users</div>
@@ -38,9 +38,7 @@ export function PersonsJoinMode(): JSX.Element {
     const { reportPersonsJoinModeUpdated } = useActions(eventUsageLogic)
 
     const savedPersonsJoinMode =
-        currentTeam?.modifiers?.personsJoinMode ??
-        currentTeam?.default_modifiers?.personsJoinMode ??
-        'inner_excluding_deleted'
+        currentTeam?.modifiers?.personsJoinMode ?? currentTeam?.default_modifiers?.personsJoinMode ?? 'inner'
     const [personsJoinMode, setPersonsJoinMode] = useState<PersonsJoinMode>(savedPersonsJoinMode)
 
     const handleChange = (mode: PersonsJoinMode): void => {
@@ -53,7 +51,7 @@ export function PersonsJoinMode(): JSX.Element {
             <p>
                 Choose how persons are joined to events. Do not change this setting unless you know what you are doing.
             </p>
-            <LemonRadio value={personsJoinMode} onChange={setPersonsJoinMode} options={personsJoinOpttions} />
+            <LemonRadio value={personsJoinMode} onChange={setPersonsJoinMode} options={personsJoinOptions} />
             <div className="mt-4">
                 <LemonButton
                     type="primary"
