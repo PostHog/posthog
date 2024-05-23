@@ -71,6 +71,7 @@ class PosthogHandler(logging.Handler):
                 "$msg": message,
                 "$msg:template": message_template,
                 "$msg:parameters": message_parameters,
+                "$process_person_profile": False,
                 **self._default_properties,
                 **record_properties,
             },
