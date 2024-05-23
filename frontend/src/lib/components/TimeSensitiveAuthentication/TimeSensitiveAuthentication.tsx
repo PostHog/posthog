@@ -81,15 +81,13 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
             {!ssoEnforcement ? (
                 <div className="space-y-2">
-                    {user?.has_social_auth ? (
-                        <SocialLoginButtons
-                            className="mt-4"
-                            caption={user.has_password ? 'Or re-authenticate with' : undefined}
-                            redirectQueryParams={{
-                                next: window.location.pathname,
-                            }}
-                        />
-                    ) : null}
+                    <SocialLoginButtons
+                        className="mt-4"
+                        caption={showPassword ? 'Or re-authenticate with' : undefined}
+                        redirectQueryParams={{
+                            next: window.location.pathname,
+                        }}
+                    />
                     {precheckResponse?.saml_available ? (
                         <SSOEnforcedLoginButton provider="saml" email={user!.email} size="medium" />
                     ) : null}
