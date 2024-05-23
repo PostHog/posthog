@@ -148,16 +148,19 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     })
 
     return (
-        <div className="space-y-2 flex flex-row">
+        <div className="flex items-start gap-2">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
+                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
                     <DatabaseTableTreeWithItems inline />
                 </div>
             </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
+                className={clsx(
+                    'flex flex-col rounded space-y-2 w-full overflow-hidden',
+                    !props.embedded && 'p-2 border'
+                )}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
