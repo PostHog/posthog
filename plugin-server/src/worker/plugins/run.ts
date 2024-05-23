@@ -444,19 +444,23 @@ async function filterPluginMethodsForActionMatches<T>(
 
     await Promise.all(
         pluginMethods.map(async ([pluginConfig, method]) => {
+            const matches: boolean[] = []
+
             if (pluginConfig.match_action_id) {
                 const matchedAction = await getActionMatchingPluginConfigs(hub, pluginConfig, event)
-                if (!matchedAction) {
-                    return
-                }
+                matches.push(!!matchedAction)
             }
 
             if (pluginConfig.filters) {
                 const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters.events)
-                if (!matchedFilters) {
-                    return
-                }
+                matches.push(matchedFilters)
             }
+
+            // If we have any matches then we should return if all are false
+            if (matches.length && !matches.includes(true)) {
+                return
+            }
+
             filteredList.push([pluginConfig, method])
         })
     )

@@ -336,4 +336,68 @@ describe('runComposeWebhook', () => {
 
         expect(composeWebhook).toHaveBeenCalledTimes(1)
     })
+
+    it('filters in if match action _or_ filters match', async () => {
+        mockPluginConfig.filters = {
+            events: [
+                {
+                    type: 'events',
+                    name: '$not-autcapture',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+
+        mockPluginConfig.match_action_id = 1
+
+        mockActionManager.getTeamActions.mockImplementation(() => ({
+            1: {
+                steps: [
+                    {
+                        event: '$autocapture',
+                    },
+                ],
+            },
+        }))
+
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(1)
+    })
+
+    it('filters out if neither action _or_ filters match', async () => {
+        mockPluginConfig.filters = {
+            events: [
+                {
+                    type: 'events',
+                    name: '$not-autcapture',
+                    order: 0,
+                    properties: [],
+                },
+                {
+                    type: 'events',
+                    name: '$also-not-autcapture',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+
+        mockPluginConfig.match_action_id = 1
+
+        mockActionManager.getTeamActions.mockImplementation(() => ({
+            1: {
+                steps: [
+                    {
+                        event: '$still-not-autocapture',
+                    },
+                ],
+            },
+        }))
+
+        await runComposeWebhook(mockHub as Hub, createEvent())
+
+        expect(composeWebhook).toHaveBeenCalledTimes(0)
+    })
 })
