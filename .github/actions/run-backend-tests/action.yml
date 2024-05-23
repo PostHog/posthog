@@ -12,7 +12,7 @@ inputs:
         description: ClickHouse server image tag, e.g. clickhouse/clickhouse-server:latest
     segment:
         required: true
-        description: Either 'Core' or 'Temporal'
+        description: Either 'Core' or 'Temporal' segment
     concurrency:
         required: true
         description: Count of concurrency groups
@@ -143,9 +143,9 @@ runs:
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
         # Tests
-        - name: Run core tests
+        - name: Run Core tests
           id: run-core-tests
-          if: ${{ inputs.segment != 'Temporal' }}
+          if: ${{ inputs.segment == 'Core' }}
           env:
               PERSON_ON_EVENTS_V2_ENABLED: ${{ inputs.person-on-events }}
               GROUPS_ON_EVENTS_ENABLED: ${{ inputs.person-on-events }}

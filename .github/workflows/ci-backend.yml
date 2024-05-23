@@ -254,7 +254,7 @@ jobs:
             matrix:
                 python-version: ['3.10.10']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:23.12.5.81-alpine']
-                segment: ['Core', 'Legacy insights backend']
+                segment: ['Core']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
                 concurrency: [10]

@@ -339,8 +339,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return team
 
     def _clear_team_insight_caching_states(self, team: Team) -> None:
-        # TODO: Remove this method - we should 100% rely on cache keys being different for materially different queries,
-        # not on remembering to call this method when project settings change. We probably already are in the clear
+        # TODO: Remove this method:
+        # 1. It only clear the cache for saved insights, queries not linked to one are being ignored here
+        # 2. We should anyway 100% be relying on cache keys being different for materially different queries, instead of
+        #    on remembering to call this method when project settings change. We probably already are in the clear here!
         hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
 
