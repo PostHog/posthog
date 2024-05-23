@@ -180,16 +180,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const viewOptions: LemonSegmentedButtonOption<PlaybackViewType>[] = [{ value: 'playback', label: 'Playback' }]
     if (!noInspector) {
         viewOptions.push({ value: 'inspector', label: 'Inspector' })
+        viewOptions.push({
+            value: 'waterfall',
+            label: (
+                <div className="space-x-1">
+                    <span>Waterfall</span>
+                    <LemonTag type="success">New</LemonTag>
+                </div>
+            ),
+        })
     }
-    viewOptions.push({
-        value: 'waterfall',
-        label: (
-            <div className="space-x-1">
-                <span>Waterfall</span>
-                <LemonTag type="success">New</LemonTag>
-            </div>
-        ),
-    })
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>

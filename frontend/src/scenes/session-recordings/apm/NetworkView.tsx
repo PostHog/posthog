@@ -1,7 +1,8 @@
 import './NetworkView.scss'
 
-import { LemonTable } from '@posthog/lemon-ui'
+import { LemonTable, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -70,21 +71,20 @@ function Pager(): JSX.Element {
     const { prevPage, nextPage } = useActions(networkViewLogic)
 
     return (
-        <div className="w-full flex flex-row">
+        <div className="flex space-x-2">
             <LemonButton
-                onClick={() => prevPage()}
-                className="mr-2"
+                onClick={prevPage}
                 icon={<IconChevronLeft />}
                 disabledReason={page === 0 ? "You're on the first page" : null}
                 type="secondary"
                 noPadding={true}
                 size="xsmall"
             />
-            <div className="flex-grow text-center">
-                viewing page {page + 1} of {pageCount} in this session
+            <div className="text-center whitespace-nowrap font-medium">
+                {page + 1} of {pageCount}
             </div>
             <LemonButton
-                onClick={() => nextPage()}
+                onClick={nextPage}
                 icon={<IconChevronRight />}
                 disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
                 type="secondary"
@@ -102,21 +102,35 @@ function WaterfallMeta(): JSX.Element | null {
         return null
     }
 
+    const pageUrl = currentPage[0].name
+
     return (
         <>
-            <div>
-                <div className="flex flex-row flex-nowrap items-center justify-between space-x-2">
-                    {/*we shouldn't need to check for currentPage[0] with the elvis operator here,
-                    but React is so eager to just call functions willy-nilly*/}
-                    <h2 className="m-0 truncate">{currentPage[0].name}</h2>
-                </div>
+            <div className="flex space-x-12 px-4 justify-between">
+                <span className="flex items-center gap-1 truncate">
+                    <Link to={pageUrl} target="_blank" className="truncate">
+                        {pageUrl}
+                    </Link>
+                    {pageUrl && (
+                        <span className="flex items-center">
+                            <CopyToClipboardInline
+                                description={pageUrl}
+                                explicitValue={pageUrl}
+                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                selectable={true}
+                            />
+                        </span>
+                    )}
+                </span>
+
+                <Pager />
             </div>
             <LemonDivider />
-            <Pager />
-            <LemonDivider />
-            <h3 className="mb-0">Page score</h3>
-            <PerformanceCardRow item={currentPage[0]} />
-            <AssetProportions data={sizeBreakdown} />
+            <div className="px-4">
+                <h3 className="mb-0">Page score</h3>
+                <PerformanceCardRow item={currentPage[0]} />
+                <AssetProportions data={sizeBreakdown} />
+            </div>
         </>
     )
 }
@@ -135,10 +149,10 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="NetworkView overflow-auto px-4 py-2">
+            <div className="NetworkView overflow-auto py-2">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="space-y-1">
+                <div className="space-y-1 px-4">
                     <LemonTable
                         className="NetworkView__table"
                         size="small"
