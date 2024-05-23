@@ -450,6 +450,13 @@ async function filterPluginMethodsForActionMatches<T>(
                     return
                 }
             }
+
+            if (pluginConfig.filters) {
+                const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters.events)
+                if (!matchedFilters) {
+                    return
+                }
+            }
             filteredList.push([pluginConfig, method])
         })
     )
