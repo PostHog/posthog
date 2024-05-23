@@ -199,7 +199,7 @@ def execute_process_query(
             else ExecutionMode.RECENT_CACHE_CALCULATE_IF_STALE,
         )
         if isinstance(results, BaseModel):
-            results = results.model_dump()
+            results = results.model_dump(by_alias=True)
         logger.info("Got results for team %s query %s", team_id, query_id)
         query_status.complete = True
         query_status.error = False
@@ -279,7 +279,7 @@ def enqueue_process_query_task(
         )
         if not isinstance(cached_response, CacheMissResponse):
             if isinstance(cached_response, BaseModel):
-                cached_response = cached_response.model_dump()
+                cached_response = cached_response.model_dump(by_alias=True)
             # We got a response with results, rather than a `CacheMissResponse`
             query_status.complete = True
             query_status.error = False

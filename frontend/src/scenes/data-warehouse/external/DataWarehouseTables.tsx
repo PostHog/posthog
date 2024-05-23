@@ -29,15 +29,8 @@ interface DatabaseTableTreeProps {
 }
 
 export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
-    const {
-        externalTablesBySourceType,
-        dataWarehouseLoading,
-        posthogTables,
-        databaseLoading,
-        savedQueriesFormatted,
-        selectedRow,
-        dataWarehouseSavedQueriesLoading,
-    } = useValues(dataWarehouseSceneLogic)
+    const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow } =
+        useValues(dataWarehouseSceneLogic)
     const { selectRow } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -46,12 +39,12 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             const items: TreeItem[] = [
                 {
                     name: 'External',
-                    items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                    items: Object.keys(dataWarehouseTablesBySourceType).map((source_type) => ({
                         name: source_type,
-                        items: externalTablesBySourceType[source_type].map((table) => ({
+                        items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                             name: table.name,
-                            items: table.columns.map((column) => ({
-                                name: column.key,
+                            items: Object.values(table.fields).map((column) => ({
+                                name: column.name,
                                 type: column.type,
                                 icon: <IconDatabase />,
                             })),
@@ -62,14 +55,14 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                             No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
                         </span>
                     ),
-                    isLoading: dataWarehouseLoading,
+                    isLoading: databaseLoading,
                 },
                 {
                     name: 'PostHog',
                     items: posthogTables.map((table) => ({
                         name: table.name,
-                        items: table.columns.map((column) => ({
-                            name: column.key,
+                        items: Object.values(table.fields).map((column) => ({
+                            name: column.name,
                             type: column.type,
                             icon: <IconDatabase />,
                         })),
@@ -81,16 +74,16 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
             if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
                 items.push({
                     name: 'Views',
-                    items: savedQueriesFormatted.map((table) => ({
+                    items: views.map((table) => ({
                         name: table.name,
-                        items: table.columns.map((column) => ({
-                            name: column.key,
+                        items: Object.values(table).map((column) => ({
+                            name: column.name,
                             type: column.type,
                             icon: <IconDatabase />,
                         })),
                     })),
                     emptyLabel: <span className="text-muted">No views found</span>,
-                    isLoading: dataWarehouseSavedQueriesLoading,
+                    isLoading: databaseLoading,
                 })
             }
 
@@ -100,9 +93,9 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         const items: TreeItem[] = [
             {
                 name: 'External',
-                items: Object.keys(externalTablesBySourceType).map((source_type) => ({
+                items: Object.keys(dataWarehouseTablesBySourceType).map((source_type) => ({
                     name: source_type,
-                    items: externalTablesBySourceType[source_type].map((table) => ({
+                    items: dataWarehouseTablesBySourceType[source_type].map((table) => ({
                         table: table,
                         icon: <IconDatabase />,
                     })),
@@ -112,7 +105,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         No tables found. <Link to={urls.dataWarehouseTable()}>Link source</Link>
                     </span>
                 ),
-                isLoading: dataWarehouseLoading,
+                isLoading: databaseLoading,
             },
             {
                 name: 'PostHog',
@@ -127,12 +120,12 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE]) {
             items.push({
                 name: 'Views',
-                items: savedQueriesFormatted.map((table) => ({
+                items: views.map((table) => ({
                     table: table,
                     icon: <IconBrackets />,
                 })),
                 emptyLabel: <span className="text-muted">No views found</span>,
-                isLoading: dataWarehouseSavedQueriesLoading,
+                isLoading: databaseLoading,
             })
         }
 
