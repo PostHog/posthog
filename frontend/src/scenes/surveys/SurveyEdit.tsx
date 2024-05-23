@@ -486,7 +486,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                 placeholder="ex: .className or #id"
                                                             />
                                                         </LemonField.Pure>
-                                                        <LemonField.Pure label="Survey wait period">
+                                                        <LemonField.Pure
+                                                            label="Survey wait period"
+                                                            info="Note that this condition will only apply to one browser for a given non-anonymous user.  If the user switches browsers or uses an incognito session, they could see this survey again."
+                                                        >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
