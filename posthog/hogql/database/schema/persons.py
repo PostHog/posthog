@@ -46,23 +46,16 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
         from posthog.hogql.parser import parse_select
         from posthog.hogql import ast
 
-        if modifiers.personsJoinMode == PersonsJoinMode.left:
-            query = parse_select(
-                """
-                SELECT DISTINCT id FROM raw_persons
-                """
+        query = parse_select(
+            """
+            SELECT id FROM raw_persons WHERE (id, version) IN (
+               SELECT id, max(version) as version
+               FROM raw_persons
+               GROUP BY id
+               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
             )
-        else:
-            query = parse_select(
-                """
-                SELECT id FROM raw_persons WHERE (id, version) IN (
-                   SELECT id, max(version) as version
-                   FROM raw_persons
-                   GROUP BY id
-                   HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
-                )
-                """
-            )
+            """
+        )
 
         query.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
 
@@ -83,7 +76,7 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
             select_fields=requested_fields,
             group_fields=["id"],
             argmax_field="version",
-            deleted_field="is_deleted" if modifiers.personsJoinMode != PersonsJoinMode.left else None,
+            deleted_field="is_deleted",
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         return select
