@@ -124,6 +124,9 @@ export const organizationLogic = kea<organizationLogicType>([
         if (contextualOrganization) {
             // If app context is available (it should be practically always) we can immediately know currentOrganization
             actions.loadCurrentOrganizationSuccess(contextualOrganization)
+        } else {
+            // Otherwise, we need to load it
+            actions.loadCurrentOrganization()
         }
     }),
 ])
