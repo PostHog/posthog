@@ -195,6 +195,11 @@ async def validate_schema_and_update_table(
                 f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                 exc_info=err,
             )
+        else:
+            logger.exception(
+                f"Data Warehouse: Unknown ServerException {job.pk}",
+                exc_info=err,
+            )
     except Exception as e:
         # TODO: handle other exceptions here
         logger.exception(
