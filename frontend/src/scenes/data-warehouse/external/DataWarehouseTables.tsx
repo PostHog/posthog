@@ -13,11 +13,13 @@ import { TableData } from './TableData'
 export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
-            <div className="grid md:grid-cols-3">
-                <div className="sm:col-span-3 md:col-span-1 max-h-160">
+            <div className="flex gap-2 flex-wrap">
+                <div className="flex-1 max-h-screen min-w-80">
                     <DatabaseTableTreeWithItems />
                 </div>
-                <TableData />
+                <div className="flex-3">
+                    <TableData />
+                </div>
             </div>
             <ViewLinkModal />
         </>

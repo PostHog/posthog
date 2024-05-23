@@ -1,3 +1,5 @@
+import clsx from 'clsx'
+
 import { DatabaseSchemaTable } from '~/queries/schema'
 
 import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
@@ -41,7 +43,11 @@ export function DatabaseTableTree({
 }: TreeProps): JSX.Element {
     return (
         <ul
-            className={`bg-bg-light ${depth == 1 ? 'p-4 overflow-y-scroll h-full w-full' : ''} rounded-lg ${className}`}
+            className={clsx(
+                `bg-bg-light space-y-px rounded`,
+                depth == 1 ? 'border p-2 overflow-y-auto flex-1' : '',
+                className
+            )}
             {...props}
         >
             {items.map((item, index) => {

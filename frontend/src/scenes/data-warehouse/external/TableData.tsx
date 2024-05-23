@@ -1,3 +1,4 @@
+import { IconDatabase } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
@@ -81,9 +82,11 @@ export function TableData(): JSX.Element {
     }
 
     return table ? (
-        <div className="px-4 py-3 col-span-2">
+        <div className="border rounded p-3 bg-bg-light">
             <div className="flex flex-row justify-between items-center gap-2">
-                <h3 className="text-wrap break-all leading-4">{table.name}</h3>
+                <h2 className="text-wrap break-all leading-4">
+                    <IconDatabase /> {table.name}
+                </h2>
                 {isEditingSavedQuery && (
                     <div className="flex flex-row gap-2 justify-between">
                         <LemonButton type="secondary" onClick={() => setIsEditingSavedQuery(false)}>
@@ -117,7 +120,7 @@ export function TableData(): JSX.Element {
                     <div className="flex flex-row gap-2 justify-between">
                         {deleteButton(table)}
                         <LemonButton
-                            type="primary"
+                            type="secondary"
                             onClick={() => {
                                 selectSourceTable(table.name)
                                 toggleJoinTableModal()
