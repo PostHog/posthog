@@ -83,6 +83,9 @@ const config = {
                 248: '62rem',
                 300: '75rem',
             },
+            rotate: {
+                270: '270deg',
+            },
             minWidth: {
                 '1/3': '33.333333%',
             },
