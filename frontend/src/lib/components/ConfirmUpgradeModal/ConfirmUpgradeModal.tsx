@@ -1,12 +1,31 @@
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { confirmUpgradeModalLogic } from './confirmUpgradeModalLogic'
 
 export function ConfirmUpgradeModal(): JSX.Element {
     const { upgradePlan } = useValues(confirmUpgradeModalLogic)
+    const { daysRemaining, daysTotal, billing } = useValues(billingLogic)
     const { hideConfirmUpgradeModal, confirm, cancel } = useActions(confirmUpgradeModalLogic)
+
+    const prorationAmount = useMemo(
+        () =>
+            upgradePlan?.unit_amount_usd
+                ? (parseInt(upgradePlan?.unit_amount_usd) * ((daysRemaining || 1) / (daysTotal || 1))).toFixed(2)
+                : 0,
+        [upgradePlan, daysRemaining, daysTotal]
+    )
+
+    const isProrated = useMemo(
+        () =>
+            billing?.has_active_subscription && upgradePlan?.unit_amount_usd
+                ? prorationAmount !== parseInt(upgradePlan?.unit_amount_usd || '')
+                : false,
+        [billing?.has_active_subscription, prorationAmount]
+    )
 
     return (
         <LemonModal
@@ -27,8 +46,10 @@ export function ConfirmUpgradeModal(): JSX.Element {
             <div className="max-w-120">
                 <p>
                     Woo! You're gonna love the {upgradePlan?.name}. We're just confirming that this is a $
-                    {Number(upgradePlan?.unit_amount_usd)}/{upgradePlan?.unit} subscription and the first payment will
-                    be charged immediately.
+                    {Number(upgradePlan?.unit_amount_usd)} / {upgradePlan?.unit} subscription.{' '}
+                    {isProrated
+                        ? `The first payment will be prorated to $${prorationAmount} and it will be charged immediately.`
+                        : 'The first payment will be charged immediately.'}
                 </p>
                 {upgradePlan && upgradePlan?.features?.length > 1 && (
                     <div>
