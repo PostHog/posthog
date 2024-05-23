@@ -49,11 +49,7 @@ def select_from_persons_table(requested_fields: dict[str, list[str | int]], modi
         if modifiers.personsJoinMode == PersonsJoinMode.left:
             query = parse_select(
                 """
-                SELECT id FROM raw_persons WHERE (id, version) IN (
-                   SELECT id, max(version) as version
-                   FROM raw_persons
-                   GROUP BY id
-                )
+                SELECT DISTINCT id FROM raw_persons
                 """
             )
         else:
