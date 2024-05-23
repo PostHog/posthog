@@ -14,7 +14,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -25,6 +24,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -147,7 +147,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -158,6 +157,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -356,7 +356,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -368,6 +367,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -506,7 +506,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -518,6 +517,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -532,7 +532,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -544,6 +543,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -900,7 +900,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -912,6 +911,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -926,7 +926,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -938,6 +937,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -1506,7 +1506,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -1517,6 +1516,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -1927,7 +1927,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -1938,6 +1937,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -2170,7 +2170,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -2182,6 +2181,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -3175,7 +3175,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -3186,6 +3185,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -3356,7 +3356,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -3368,6 +3367,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -3382,7 +3382,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -3394,6 +3393,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -3966,7 +3966,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -3977,6 +3976,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -4175,7 +4175,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -4187,6 +4186,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -4231,7 +4231,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -4242,6 +4241,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -4357,7 +4357,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -4369,6 +4368,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -4383,7 +4383,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -4395,6 +4394,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -4719,7 +4719,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -4731,6 +4730,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -4745,7 +4745,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -4757,6 +4756,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -7292,7 +7292,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -7304,6 +7303,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -7318,7 +7318,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -7330,6 +7329,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -7731,7 +7731,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -7742,6 +7741,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -10519,7 +10519,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -10530,6 +10529,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -11296,7 +11296,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -11307,6 +11306,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12128,7 +12128,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -12139,6 +12138,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12372,7 +12372,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -12383,6 +12382,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -12763,7 +12763,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -12775,6 +12774,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
@@ -12913,7 +12913,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -12925,6 +12924,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -12939,7 +12939,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -12951,6 +12950,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13091,7 +13091,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -13103,6 +13102,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -13117,7 +13117,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -13129,6 +13128,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13210,7 +13210,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -13221,6 +13220,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -13391,7 +13391,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -13403,6 +13402,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -13417,7 +13417,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -13429,6 +13428,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13478,7 +13478,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -13489,6 +13488,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -13869,7 +13869,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -13881,6 +13880,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in",
          T6."id",
          T6."password",
@@ -13895,7 +13895,6 @@
          T6."current_team_id",
          T6."email",
          T6."pending_email",
-         T6."temporary_token",
          T6."distinct_id",
          T6."is_email_verified",
          T6."requested_password_reset_at",
@@ -13907,6 +13906,7 @@
          T6."toolbar_mode",
          T6."hedgehog_config",
          T6."events_column_config",
+         T6."temporary_token",
          T6."email_opt_in",
          "posthog_text"."id",
          "posthog_text"."body",
@@ -13956,7 +13956,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
@@ -13967,6 +13966,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -14199,7 +14199,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
@@ -14211,6 +14210,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."events_column_config",
+         "posthog_user"."temporary_token",
          "posthog_user"."email_opt_in"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
