@@ -23,6 +23,7 @@ interface LemonInputPropsBase
         | 'autoCapitalize'
         | 'spellCheck'
         | 'inputMode'
+        | 'pattern'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
@@ -55,6 +56,8 @@ export interface LemonInputPropsText extends LemonInputPropsBase {
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
+    min?: string
+    max?: string
 }
 
 export interface LemonInputPropsNumber
