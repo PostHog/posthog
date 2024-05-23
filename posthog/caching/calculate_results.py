@@ -146,19 +146,23 @@ def calculate_for_query_based_insight(
     if isinstance(response, BaseModel):
         response = response.model_dump()
 
-    update_cached_state(  # Updating the relevant InsightCachingState
-        insight.team_id,
-        response.get("cache_key"),
-        response.get("last_refresh"),
-        result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
-    )
+    cache_key = response.get("cache_key")
+    last_refresh = response.get("last_refresh")
+    if isinstance(cache_key, str) and isinstance(last_refresh, str):
+        update_cached_state(  # Updating the relevant InsightCachingState
+            insight.team_id,
+            cache_key,
+            last_refresh,
+            result=None,  # Not caching the result here, since in HogQL this is the query runner's responsibility
+        )
+
     return InsightResult(
         # Translating `QueryResponse` to legacy insights shape
         # The response may not be conformant with that, hence these are all `.get()`s
         result=response.get("results"),
         columns=response.get("columns"),
-        last_refresh=response.get("last_refresh"),
-        cache_key=response.get("cache_key"),
+        last_refresh=last_refresh,
+        cache_key=cache_key,
         is_cached=response.get("is_cached", False),
         timezone=response.get("timezone"),
         next_allowed_client_refresh=response.get("next_allowed_client_refresh"),
