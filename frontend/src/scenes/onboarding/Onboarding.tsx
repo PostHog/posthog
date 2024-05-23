@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { AndroidInstructions } from 'scenes/onboarding/sdks/session-replay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,8 +32,15 @@ export const scene: SceneExport = {
  * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { currentOnboardingStep, shouldShowBillingStep, shouldShowReverseProxyStep, product, includeIntro } =
-        useValues(onboardingLogic)
+    const {
+        productKey,
+        currentOnboardingStep,
+        shouldShowBillingStep,
+        shouldShowReverseProxyStep,
+        product,
+        includeIntro,
+    } = useValues(onboardingLogic)
+    const { billing } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
@@ -67,8 +75,11 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...steps, ReverseProxyStep]
         }
         if (shouldShowBillingStep) {
-            const BillingStep = <OnboardingBillingStep product={product} stepKey={OnboardingStepKey.PLANS} />
-            steps = [...steps, BillingStep]
+            const billingProduct = billing?.products.find((p) => p.type === productKey)
+            if (billingProduct) {
+                const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+                steps = [...steps, BillingStep]
+            }
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
         steps = [...steps, inviteTeammatesStep]
@@ -236,12 +247,12 @@ export const onboardingViews = {
 }
 
 export function Onboarding(): JSX.Element | null {
-    const { product } = useValues(onboardingLogic)
+    const { product, productKey } = useValues(onboardingLogic)
 
-    if (!product) {
+    if (!product || !productKey) {
         return <></>
     }
-    const OnboardingView = onboardingViews[product.type]
+    const OnboardingView = onboardingViews[productKey]
 
     return <OnboardingView />
 }

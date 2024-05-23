@@ -6,6 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { ProductPricingModal } from 'scenes/billing/ProductPricingModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -183,7 +184,8 @@ const PricingSection = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 }
 
 export function OnboardingProductIntroduction({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element | null {
-    const { product } = useValues(onboardingLogic)
+    const { productKey } = useValues(onboardingLogic)
+    const { billing } = useValues(billingLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const websiteSlug: Partial<Record<ProductKey, string>> = {
         [ProductKey.SESSION_REPLAY]: 'session-replay',
@@ -192,6 +194,7 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
         [ProductKey.EXPERIMENTS]: 'experimentation',
         [ProductKey.PRODUCT_ANALYTICS]: 'product-analytics',
     }
+    const product = billing?.products.find((product) => product.type === productKey)
 
     return (
         <OnboardingStep title="Product Intro" stepKey={stepKey} continueOverride={<></>} hideHeader>
@@ -237,8 +240,8 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
                             </ul>
 
                             <ul className="list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4">
-                                {product.features
-                                    .filter((feature) => feature.type == 'secondary')
+                                {product?.features
+                                    ?.filter((feature) => feature.type == 'secondary')
                                     .map((subfeature, i) => {
                                         return (
                                             <React.Fragment key={`${product.type}-subfeature-${i}`}>

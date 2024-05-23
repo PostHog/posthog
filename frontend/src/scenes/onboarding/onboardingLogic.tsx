@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableOnboardingProducts, BillingProductV2Type, Breadcrumb, ProductKey } from '~/types'
+import { AvailableOnboardingProducts, BillingProductV2Type, Breadcrumb, OnboardingProduct, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -108,7 +108,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess']],
     }),
     actions({
-        setProduct: (product: BillingProductV2Type | null) => ({ product }),
+        setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
         completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
@@ -128,7 +128,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         product: [
-            null as BillingProductV2Type | null,
+            null as OnboardingProduct | null,
             {
                 setProduct: (_, { product }) => product,
             },
@@ -214,9 +214,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev],
-            (product: BillingProductV2Type | null, subscribedDuringOnboarding: boolean, isCloudOrDev) => {
-                if (!isCloudOrDev) {
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing],
+            (
+                product: BillingProductV2Type | null,
+                subscribedDuringOnboarding: boolean,
+                isCloudOrDev: boolean,
+                billing
+            ) => {
+                if (!isCloudOrDev || !billing?.products) {
                     return false
                 }
                 const hasAllAddons = product?.addons?.every((addon) => addon.subscribed)
@@ -249,11 +254,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadBillingSuccess: () => {
-            if (window.location.pathname.includes('/onboarding')) {
-                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
-            }
-        },
+        // loadBillingSuccess: () => {
+        //     if (window.location.pathname.includes('/onboarding')) {
+        //         actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+        //     }
+        // },
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
@@ -283,9 +288,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 window.location.href = urls.default()
                 return
             }
-            if (values.billing?.products?.length) {
-                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
-            }
+            actions.setProduct(availableOnboardingProducts[productKey])
         },
         setSubscribedDuringOnboarding: ({ subscribedDuringOnboarding }) => {
             if (subscribedDuringOnboarding) {
