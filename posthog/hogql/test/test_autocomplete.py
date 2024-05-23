@@ -241,3 +241,18 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
 
         for suggestion in results.suggestions:
             assert suggestion.label != "event"
+
+    def test_autocomplete_special_characters(self):
+        database = create_hogql_database(team_id=self.team.pk, team_arg=self.team)
+        database.events.fields["event-name"] = StringDatabaseField(name="event-name")
+
+        query = "select  from events"
+        results = self._query_response(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "event-name", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "event-name"
+        assert suggestion.insertText == "`event-name`"

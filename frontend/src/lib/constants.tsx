@@ -135,8 +135,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 // By default all flags are boolean but you can add `multivariate` to the comment to have it created as multivariate with "test" and "control" values
 
 export const FEATURE_FLAGS = {
-    // Cloud-only
-    CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     // Experiments / beta features
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
@@ -213,6 +211,7 @@ export const FEATURE_FLAGS = {
     PROXY_AS_A_SERVICE: 'proxy-as-a-service', // owner: #team-infrastructure
     ENABLE_SESSION_REPLAY_PA_ONBOARDING: 'enable-session-replay-pa-onboarding', // owner: #team-growth
     SESSION_REPLAY_NETWORK_VIEW: 'session-replay-network-view', // owner: #team-replay
+    SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: @robbie-c
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

@@ -192,6 +192,8 @@ CROSS JOIN sessions_query
             ],
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
+            dateTo=self.query_date_range.date_to_str,
+            dateFrom=self.query_date_range.date_from_str,
         )
 
     @cached_property

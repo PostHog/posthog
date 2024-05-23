@@ -13,7 +13,6 @@ from posthog.hogql.database.models import (
 )
 
 from posthog.warehouse.models import (
-    get_latest_run_if_exists,
     get_or_create_datawarehouse_credential,
     DataWarehouseTable,
     DataWarehouseCredential,
@@ -115,7 +114,6 @@ async def validate_schema_and_update_table(
     logger = await bind_temporal_worker_logger(team_id=team_id)
 
     job: ExternalDataJob = await get_external_data_job(job_id=run_id)
-    last_successful_job: ExternalDataJob | None = await get_latest_run_if_exists(team_id, job.pipeline_id)
 
     credential: DataWarehouseCredential = await get_or_create_datawarehouse_credential(
         team_id=team_id,
@@ -197,6 +195,11 @@ async def validate_schema_and_update_table(
                 f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                 exc_info=err,
             )
+        else:
+            logger.exception(
+                f"Data Warehouse: Unknown ServerException {job.pk}",
+                exc_info=err,
+            )
     except Exception as e:
         # TODO: handle other exceptions here
         logger.exception(
@@ -204,14 +207,15 @@ async def validate_schema_and_update_table(
             exc_info=e,
         )
 
-    if (
-        last_successful_job
-        and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
-    ):
-        try:
-            last_successful_job.delete_data_in_bucket()
-        except Exception as e:
-            logger.exception(
-                f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
-                exc_info=e,
-            )
+    # TODO: figure out data deletes - currently borked right now
+    # if (
+    #     last_successful_job
+    #     and _schema_name not in PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING[job.pipeline.source_type]
+    # ):
+    #     try:
+    #         last_successful_job.delete_data_in_bucket()
+    #     except Exception as e:
+    #         logger.exception(
+    #             f"Data Warehouse: Could not delete deprecated data source {last_successful_job.pk}",
+    #             exc_info=e,
+    #         )

@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
 )
 from posthog.hogql.errors import ResolutionError
+from posthog.schema import PersonsJoinMode
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to
@@ -40,7 +41,10 @@ def persons_pdi_join(
     if not requested_fields:
         raise ResolutionError("No fields requested from person_distinct_ids")
     join_expr = ast.JoinExpr(table=persons_pdi_select(requested_fields))
-    join_expr.join_type = "INNER JOIN"
+    if context.modifiers.personsJoinMode == PersonsJoinMode.left:
+        join_expr.join_type = "LEFT JOIN"
+    else:
+        join_expr.join_type = "INNER JOIN"
     join_expr.alias = to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
