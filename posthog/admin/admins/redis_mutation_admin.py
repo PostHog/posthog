@@ -17,6 +17,10 @@ class RedisMutationForm(forms.ModelForm):
         self.fields["value"].widget = forms.Textarea(attrs={"rows": 10, "cols": 50})
 
     def clean(self):
+        """Execute validation of the cleaned data after passing additional required values.
+
+        These additional values are not part of the form, so we set them here.
+        """
         super().clean()
 
         self.cleaned_data["status"] = "created"
@@ -76,7 +80,13 @@ class RedisMutationForm(forms.ModelForm):
                 raise ValidationError(f"Command '{command}' is not supported")
 
     def try_get_redis_type(self, redis_key: str | None) -> str | None:
-        """Attempt to obtain the type of given 'redis_key'."""
+        """Attempt to obtain the type of given 'redis_key'.
+
+        If missing, Redis will return "none" (a string) as the type; in turn, we return `None`.
+
+        raises:
+            ValidationError: If `redis_key` is `None`. This should already be enforced by the form.
+        """
 
         if redis_key is None:
             raise ValidationError(f"redis_key is a required field")
