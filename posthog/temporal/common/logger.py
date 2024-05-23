@@ -39,7 +39,7 @@ async def bind_temporal_org_worker_logger(
     logger = structlog.get_logger()
     temporal_context = get_temporal_context()
 
-    return logger.new(organization_id=organization_id, destination=destination, **temporal_context)
+    return logger.new(organization_id=str(organization_id), destination=destination, **temporal_context)
 
 
 def configure_logger(
