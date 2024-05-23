@@ -38,7 +38,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
             {
                 loadPluginConfigs: async () => {
                     const res = await api.get<PluginConfigWithPluginInfoNew[]>(
-                        `api/organizations/@current/plugins/exports_unsubscribe_configs` // TODO: fix that endpoint
+                        `api/organizations/@current/plugins/exports_unsubscribe_configs`
                     )
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
