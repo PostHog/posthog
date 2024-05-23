@@ -27,10 +27,9 @@ export function ConfirmUpgradeModal(): JSX.Element {
             <div className="max-w-120">
                 <p>
                     Woo! You're gonna love the {upgradePlan?.name}. We're just confirming that this is a $
-                    {Number(upgradePlan?.unit_amount_usd)}/month subscription and the first payment will be charged
-                    immediately.
+                    {Number(upgradePlan?.unit_amount_usd)}/{upgradePlan?.unit} subscription and the first payment will
+                    be charged immediately.
                 </p>
-
                 {upgradePlan && upgradePlan?.features?.length > 1 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Here are the features included:</p>
