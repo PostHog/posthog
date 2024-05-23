@@ -13,6 +13,7 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
+    PluginConfigFilter,
     PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
@@ -161,6 +162,24 @@ export class ActionMatcher {
         return matches
     }
 
+    public checkFilters(event: PostIngestionEvent, filters: PluginConfigFilter[]): boolean {
+        // NOTE: We should likely convert this to use HogVM or some other generic matching action
+
+        for (const filter of filters) {
+            if (!filter.name || filter.name === event.event) {
+                // Matches the event name or null (all events)
+
+                if (!filter.properties.length) {
+                    return true
+                }
+
+                return filter.properties.every((x) => this.checkEventAgainstFilterSync(event, x))
+            }
+        }
+
+        return false
+    }
+
     public getActionById(teamId: number, actionId: number): Action | undefined {
         return this.actionManager.getTeamActions(teamId)[actionId]
     }
@@ -298,7 +317,7 @@ export class ActionMatcher {
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilter(event, filter))) {
+                if (!(await this.checkEventAgainstFilterAsync(event, filter))) {
                     return false
                 }
             }
@@ -309,7 +328,7 @@ export class ActionMatcher {
     /**
      * Sublevel 3 of action matching.
      */
-    private async checkEventAgainstFilter(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
+    private checkEventAgainstFilterSync(event: PostIngestionEvent, filter: PropertyFilter): boolean {
         switch (filter.type) {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
@@ -317,6 +336,22 @@ export class ActionMatcher {
                 return this.checkEventAgainstPersonFilter(event, filter)
             case 'element':
                 return this.checkEventAgainstElementFilter(event, filter)
+            default:
+                return false
+        }
+    }
+
+    /**
+     * Sublevel 3 of action matching.
+     */
+    private async checkEventAgainstFilterAsync(event: PostIngestionEvent, filter: PropertyFilter): Promise<boolean> {
+        const match = this.checkEventAgainstFilterSync(event, filter)
+
+        if (match) {
+            return match
+        }
+
+        switch (filter.type) {
             case 'cohort':
                 return await this.checkEventAgainstCohortFilter(event, filter)
             default:

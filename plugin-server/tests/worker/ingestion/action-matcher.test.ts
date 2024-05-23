@@ -8,6 +8,8 @@ import {
     Hub,
     ISOTimestamp,
     Person,
+    PluginConfigFilter,
+    PluginConfigFilters,
     PostIngestionEvent,
     PropertyOperator,
     RawAction,
@@ -22,6 +24,25 @@ import { commonUserId } from '../../helpers/plugins'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
+
+/** Return a test event created on a common base using provided property overrides. */
+function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
+    const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
+    return {
+        eventUuid: 'uuid1',
+        distinctId: 'my_id',
+        ip: '127.0.0.1',
+        teamId: 2,
+        timestamp: new Date().toISOString() as ISOTimestamp,
+        event: '$pageview',
+        properties: { $current_url: url },
+        elementsList: [],
+        person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
+        person_created_at: DateTime.fromSeconds(18000000).toISO() as ISOTimestamp,
+        person_properties: {},
+        ...overrides,
+    }
+}
 
 describe('ActionMatcher', () => {
     let hub: Hub
@@ -85,25 +106,6 @@ describe('ActionMatcher', () => {
             ...action,
             steps: action.steps_json ?? [],
             hooks: [],
-        }
-    }
-
-    /** Return a test event created on a common base using provided property overrides. */
-    function createTestEvent(overrides: Partial<PostIngestionEvent> = {}): PostIngestionEvent {
-        const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
-        return {
-            eventUuid: 'uuid1',
-            distinctId: 'my_id',
-            ip: '127.0.0.1',
-            teamId: 2,
-            timestamp: new Date().toISOString() as ISOTimestamp,
-            event: '$pageview',
-            properties: { $current_url: url },
-            elementsList: [],
-            person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4C8',
-            person_created_at: DateTime.fromSeconds(18000000).toISO() as ISOTimestamp,
-            person_properties: {},
-            ...overrides,
         }
     }
 
@@ -1330,6 +1332,109 @@ describe('ActionMatcher', () => {
             await hub.db.addPersonToCohort(cohort2.id, person.id, null)
             expect(await actionMatcher.doesPersonBelongToCohort(cohort2.id, person.uuid, person.team_id)).toEqual(true)
         })
+    })
+})
+
+describe.only('ActionMatcher.checkFilters', () => {
+    const actionMatcher = new ActionMatcher({} as any, {} as any)
+
+    const createFilters = (
+        partials: { name: PluginConfigFilter['name']; properties?: PluginConfigFilter['properties'] }[]
+    ): PluginConfigFilters => {
+        return {
+            events: partials.map((x) => ({
+                type: 'events',
+                name: x.name,
+                order: 0,
+                properties: x.properties ?? [],
+            })),
+        }
+    }
+
+    const testCases: [
+        Partial<PostIngestionEvent>,
+        { name: PluginConfigFilter['name']; properties?: PluginConfigFilter['properties'] }[],
+        boolean
+    ][] = [
+        [{ event: '$pageview' }, [{ name: null }], true],
+        [{ event: '$pageview' }, [{ name: '$pageview' }], true],
+        [{ event: '$not-pageview' }, [{ name: '$pageview' }], false],
+        [{ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }, [{ name: '$pageview' }], true],
+        [
+            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
+            [
+                {
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: 'event',
+                            value: ['https://posthog.com'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            ],
+            true,
+        ],
+        [
+            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
+            [
+                {
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: 'event',
+                            value: ['posthog.com'],
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                },
+            ],
+            true,
+        ],
+        [
+            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
+            [
+                {
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: 'event',
+                            value: ['not-posthog.com'],
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                },
+            ],
+            false,
+        ],
+        [
+            { event: '$pageview', properties: { $current_url: 'https://posthog.com' } },
+            [
+                {
+                    name: '$pageview',
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: 'event',
+                            value: ['not-posthog.com', 'posthog.com'],
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                },
+            ],
+            true,
+        ],
+    ]
+
+    it.each(testCases)('should correctly match filters %o %o', (partialEvent, partialFilters, expectation) => {
+        const event = createTestEvent(partialEvent)
+        const filters = createFilters(partialFilters)
+
+        expect(actionMatcher.checkFilters(event, filters.events)).toEqual(expectation)
     })
 })
 

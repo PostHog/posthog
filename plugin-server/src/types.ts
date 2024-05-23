@@ -427,6 +427,7 @@ export interface PluginConfig {
     // undefined for old plugins with multiple or deprecated methods
     method?: PluginMethod
     match_action_id?: number
+    filters?: PluginConfigFilters
 }
 
 export interface PluginJsonConfig {
@@ -944,6 +945,18 @@ export interface ActionStep {
     url_matching: StringMatching | null
     event: string | null
     properties: PropertyFilter[] | null
+}
+
+// Mostly the same as the "filter" type
+export interface PluginConfigFilter {
+    type: 'events' // Currently only events type is supported
+    name: string | null
+    order: number
+    properties: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+}
+
+export interface PluginConfigFilters {
+    events: PluginConfigFilter[]
 }
 
 /** Raw Action row from database. */
