@@ -316,10 +316,12 @@ class WhereClauseExtractor(CloningVisitor):
         return self.visit(node.expr)
 
 
-@dataclass
 class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
     limits = "session_min"
     capture_timestamp_comparisons = True
+
+    def __init__(self, context: HogQLContext):
+        super().__init__(context)
 
 
 def is_time_or_interval_constant(expr: ast.Expr) -> bool:
