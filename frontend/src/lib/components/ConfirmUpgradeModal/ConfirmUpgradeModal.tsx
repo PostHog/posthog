@@ -31,6 +31,7 @@ export function ConfirmUpgradeModal(): JSX.Element {
         <LemonModal
             onClose={hideConfirmUpgradeModal}
             isOpen={!!upgradePlan}
+            closable={false}
             title={`Ready to subscribe to the ${upgradePlan?.name}?`}
             footer={
                 <>

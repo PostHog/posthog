@@ -9,7 +9,7 @@ export const confirmUpgradeModalLogic = kea<confirmUpgradeModalLogicType>([
     actions({
         showConfirmUpgradeModal: (
             upgradePlan: BillingV2PlanType,
-            confirmCallback: (upgradePlan: BillingV2PlanType) => void,
+            confirmCallback: () => void,
             cancelCallback: () => void
         ) => ({
             upgradePlan,
@@ -29,7 +29,7 @@ export const confirmUpgradeModalLogic = kea<confirmUpgradeModalLogicType>([
             },
         ],
         confirmCallback: [
-            null as ((upgradePlan: BillingV2PlanType) => void) | null,
+            null as (() => void) | null,
             {
                 showConfirmUpgradeModal: (_, { confirmCallback }) => confirmCallback,
                 hideConfirmUpgradeModal: () => null,
@@ -46,8 +46,8 @@ export const confirmUpgradeModalLogic = kea<confirmUpgradeModalLogicType>([
     listeners(({ actions, values }) => ({
         confirm: async (_, breakpoint) => {
             await breakpoint(100)
-            if (values.confirmCallback && values.upgradePlan) {
-                values.confirmCallback(values.upgradePlan)
+            if (values.confirmCallback) {
+                values.confirmCallback()
             }
             actions.hideConfirmUpgradeModal()
         },
