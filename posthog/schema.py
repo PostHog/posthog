@@ -3578,7 +3578,7 @@ class FunnelsQuery(BaseModel):
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
         default_factory=lambda: FunnelsFilter.model_validate({"exclusions": []}),
-        description="Properties specific to the funnels insight :TRICKY: an empty dict as default does not work",
+        description="Properties specific to the funnels insight\n\n:TRICKY: The default is not an empty dict as datamodel-code-generator does not generate a model with factory then & thus empty filters do not get ignored during serialization.",
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
