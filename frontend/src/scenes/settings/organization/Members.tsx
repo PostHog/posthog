@@ -75,7 +75,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                             )} an owner of ${user.organization?.name}.`,
                                             primaryButton: {
                                                 status: 'danger',
-                                                children: `Make ${fullName(member.user)} owner`,
+                                                children: `Make ${fullName(member.user)} an owner`,
                                                 onClick: () => changeMemberAccessLevel(member, listLevel),
                                             },
                                             secondaryButton: {
