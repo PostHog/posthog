@@ -35,6 +35,7 @@ function getConfigurationFromPluginConfig(pluginConfig: PluginConfigWithPluginIn
     return {
         ...pluginConfig.config,
         match_action: pluginConfig.match_action,
+        filters: pluginConfig.filters,
         enabled: pluginConfig.enabled,
         order: pluginConfig.order,
         name: pluginConfig.name ? pluginConfig.name : pluginConfig.plugin_info.name,
@@ -106,7 +107,7 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                         lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
                         return values.pluginConfig
                     }
-                    const { enabled, order, name, description, match_action, ...config } = formdata
+                    const { enabled, order, name, description, match_action, filters, ...config } = formdata
 
                     const formData = getPluginConfigFormData(
                         values.plugin.config_schema,
@@ -116,9 +117,11 @@ export const pipelinePluginConfigurationLogic = kea<pipelinePluginConfigurationL
                     formData.append('enabled', enabled)
                     formData.append('name', name)
                     formData.append('description', description)
+                    formData.append('filters', JSON.stringify(filters) ?? null)
                     if (match_action) {
                         formData.append('match_action', match_action ?? null)
                     }
+
                     // if enabling a transformation we need to set the order to be last
                     // if already enabled we don't want to change the order
                     // it doesn't matter for other stages so we can use any value

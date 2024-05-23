@@ -1830,6 +1830,7 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
     config: Record<string, any>
     match_action?: ActionType['id']
+    filters?: Pick<FilterType, 'events'>
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend

@@ -585,6 +585,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "description",
             "deleted",
             "match_action",
+            "filters",
         ]
         read_only_fields = [
             "id",

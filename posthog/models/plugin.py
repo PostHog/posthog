@@ -263,6 +263,9 @@ class PluginConfig(models.Model):
         null=True,
     )
 
+    # If set we will filter the plugin triggers for this event
+    filters: models.JSONField = models.JSONField(null=True, blank=True)
+
 
 class PluginAttachment(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)

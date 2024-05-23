@@ -5,13 +5,16 @@ import { Form } from 'kea-forms'
 import { LemonSelectAction } from 'lib/components/ActionSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getConfigSchemaArray, isValidField } from 'scenes/pipeline/configUtils'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 
-import { PipelineStage } from '~/types'
+import { EntityTypes, PipelineStage } from '~/types'
 
 import { pipelinePluginConfigurationLogic } from './pipelinePluginConfigurationLogic'
 import { RenderApp } from './utils'
@@ -174,13 +177,50 @@ export function PipelinePluginConfiguration({
                         </div>
 
                         {actionMatchingEnabled ? (
-                            <div className="border bg-bg-light rounded p-3">
+                            <div className="border bg-bg-light rounded p-3 space-y-2">
                                 <LemonField
                                     name="match_action"
-                                    label="Filter events by action"
+                                    label="Filter by action"
                                     info="Create or select an action to filter events by. Only events that match this action will be processed."
                                 >
                                     <LemonSelectAction allowClear disabled={loading} />
+                                </LemonField>
+
+                                <LemonField name="filters" label="Filter by events">
+                                    {({ value, onChange }) => (
+                                        <ActionFilter
+                                            bordered
+                                            filters={value ?? {}}
+                                            setFilters={(payload) => {
+                                                onChange(
+                                                    payload.events?.length
+                                                        ? {
+                                                              events: payload.events,
+                                                          }
+                                                        : null
+                                                )
+                                            }}
+                                            typeKey="plugin-filters"
+                                            mathAvailability={MathAvailability.None}
+                                            hideRename
+                                            hideDuplicate
+                                            showNestedArrow={false}
+                                            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                            propertiesTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                                TaxonomicFilterGroupType.Elements,
+                                                TaxonomicFilterGroupType.PersonProperties,
+                                            ]}
+                                            propertyFiltersPopover
+                                            addFilterDefaultOptions={{
+                                                id: '$pageview',
+                                                name: '$pageview',
+                                                type: EntityTypes.EVENTS,
+                                            }}
+                                            buttonCopy="Add event filter"
+                                        />
+                                    )}
                                 </LemonField>
                             </div>
                         ) : null}
