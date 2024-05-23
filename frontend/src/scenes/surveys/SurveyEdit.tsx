@@ -510,11 +510,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                         }
                                                                     }}
                                                                 />
-                                                                Do not display this survey to users who have already
-                                                                seen a survey in the last
+                                                                Don't show to users who saw a survey within the last
                                                                 <LemonInput
                                                                     type="number"
-                                                                    size="small"
+                                                                    size="xsmall"
                                                                     min={0}
                                                                     value={value?.seenSurveyWaitPeriodInDays || NaN}
                                                                     onChange={(val) => {
@@ -530,7 +529,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                             })
                                                                         }
                                                                     }}
-                                                                    className="w-16"
+                                                                    className="w-12"
                                                                 />{' '}
                                                                 days.
                                                             </div>
