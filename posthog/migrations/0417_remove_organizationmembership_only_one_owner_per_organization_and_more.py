@@ -28,8 +28,12 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.RunSQL(
-            "update posthog_organizationinvite set level = 1 -- existing-table-constraint-ignore",
+            "update posthog_organizationinvite set level = 1",
             reverse_sql="update posthog_organizationinvite set level = NULL",
+        ),
+        migrations.RunSQL(
+            "ALTER TABLE posthog_organizationinvite ALTER COLUMN level SET NOT NULL -- existing-table-constraint-ignore",
+            reverse_sql="ALTER TABLE posthog_organizationinvite ALTER COLUMN level DROP NOT NULL",
         ),
         migrations.AlterField(
             model_name="organizationinvite",
