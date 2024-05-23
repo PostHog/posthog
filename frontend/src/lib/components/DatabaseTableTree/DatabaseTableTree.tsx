@@ -45,7 +45,7 @@ export function DatabaseTableTree({
         <ul
             className={clsx(
                 `bg-bg-light space-y-px rounded`,
-                depth == 1 ? 'border p-2 overflow-y-auto flex-1' : '',
+                depth == 1 ? 'border p-2 overflow-y-auto flex-1 min-w-80' : '',
                 className
             )}
             {...props}
