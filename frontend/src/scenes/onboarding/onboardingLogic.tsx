@@ -116,6 +116,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
+        setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: true,
         goToPreviousStep: true,
         resetStepKey: true,
@@ -155,6 +156,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             true,
             {
                 setIncludeIntro: (_, { includeIntro }) => includeIntro,
+            },
+        ],
+        waitForBilling: [
+            false,
+            {
+                setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
             },
         ],
     })),
@@ -386,6 +393,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             actions.setAllOnboardingSteps([])
 
             if (step) {
+                // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue
+                const stepsToWaitForBilling = [OnboardingStepKey.PLANS, OnboardingStepKey.PRODUCT_INTRO]
+                if (stepsToWaitForBilling.includes(step as OnboardingStepKey)) {
+                    actions.setWaitForBilling(true)
+                }
                 actions.setStepKey(step)
             } else {
                 actions.resetStepKey()

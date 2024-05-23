@@ -39,17 +39,18 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         shouldShowReverseProxyStep,
         product,
         includeIntro,
+        waitForBilling,
     } = useValues(onboardingLogic)
-    const { billing } = useValues(billingLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
         createAllSteps()
-    }, [children])
+    }, [children, billingLoading])
 
     useEffect(() => {
-        if (!allSteps.length) {
+        if (!allSteps.length || (billingLoading && waitForBilling)) {
             return
         }
         setAllOnboardingSteps(allSteps)
@@ -66,7 +67,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         } else {
             steps = [children as JSX.Element]
         }
-        if (includeIntro) {
+        const billingProduct = billing?.products.find((p) => p.type === productKey)
+        if (includeIntro && billingProduct) {
             const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
             steps = [IntroStep, ...steps]
         }
@@ -74,12 +76,9 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
             steps = [...steps, ReverseProxyStep]
         }
-        if (shouldShowBillingStep) {
-            const billingProduct = billing?.products.find((p) => p.type === productKey)
-            if (billingProduct) {
-                const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
-                steps = [...steps, BillingStep]
-            }
+        if (shouldShowBillingStep && billingProduct) {
+            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
         steps = [...steps, inviteTeammatesStep]
