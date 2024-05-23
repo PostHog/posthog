@@ -703,20 +703,28 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default [] */
     exclusions?: FunnelExclusion[]
+    /** @default vertical */
     layout?: FunnelsFilterLegacy['layout']
     /** @asType integer */
     binCount?: FunnelsFilterLegacy['bin_count']
+    /** @default first_touch */
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
     funnelToStep?: integer
     funnelFromStep?: integer
+    /** @default ordered */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
+    /** @default steps */
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
+    /** @default 14 */
     funnelWindowInterval?: integer
+    /** @default day */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']
     hidden_legend_breakdowns?: FunnelsFilterLegacy['hidden_legend_breakdowns']
+    /** @default total */
     funnelStepReference?: FunnelsFilterLegacy['funnel_step_reference']
 }
 
@@ -726,7 +734,13 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the funnels insight */
+    /** Properties specific to the funnels insight
+     *
+     * :TRICKY: The default is not an empty dict as datamodel-code-generator
+     * does not generate a model with factory then & thus empty filters do not
+     * get ignored during serialization.
+     * @default {"exclusions":[]}
+     * */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter

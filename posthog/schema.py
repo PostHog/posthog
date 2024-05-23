@@ -3334,19 +3334,19 @@ class FunnelsFilter(BaseModel):
         extra="forbid",
     )
     binCount: Optional[int] = None
-    breakdownAttributionType: Optional[BreakdownAttributionType] = None
+    breakdownAttributionType: Optional[BreakdownAttributionType] = "first_touch"
     breakdownAttributionValue: Optional[int] = None
-    exclusions: Optional[list[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = None
+    exclusions: Optional[list[Union[FunnelExclusionEventsNode, FunnelExclusionActionsNode]]] = []
     funnelAggregateByHogQL: Optional[str] = None
     funnelFromStep: Optional[int] = None
-    funnelOrderType: Optional[StepOrderValue] = None
-    funnelStepReference: Optional[FunnelStepReference] = None
+    funnelOrderType: Optional[StepOrderValue] = "ordered"
+    funnelStepReference: Optional[FunnelStepReference] = "total"
     funnelToStep: Optional[int] = None
-    funnelVizType: Optional[FunnelVizType] = None
-    funnelWindowInterval: Optional[int] = None
-    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = None
+    funnelVizType: Optional[FunnelVizType] = "steps"
+    funnelWindowInterval: Optional[int] = 14
+    funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = "day"
     hidden_legend_breakdowns: Optional[list[str]] = None
-    layout: Optional[FunnelLayout] = None
+    layout: Optional[FunnelLayout] = "vertical"
 
 
 class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
@@ -3577,7 +3577,8 @@ class FunnelsQuery(BaseModel):
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
     funnelsFilter: Optional[FunnelsFilter] = Field(
-        default=None, description="Properties specific to the funnels insight"
+        default_factory=lambda: FunnelsFilter.model_validate({"exclusions": []}),
+        description="Properties specific to the funnels insight :TRICKY: an empty dict as default does not work",
     )
     interval: Optional[IntervalType] = Field(
         default=None, description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
