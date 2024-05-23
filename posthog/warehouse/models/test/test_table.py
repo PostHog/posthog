@@ -195,7 +195,7 @@ class TestTable(BaseTest):
         )
 
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp-dash"]
-        assert table.hogql_definition().structure == "id String"
+        assert table.hogql_definition().structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
 
     def test_hogql_definition_tuple_patch(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -220,5 +220,5 @@ class TestTable(BaseTest):
         )
         self.assertEqual(
             table.hogql_definition().structure,
-            "id String, timestamp DateTime64(3, 'UTC'), mrr Int64, complex_field Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), tuple_field Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), offset UInt32",
+            "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Int64, `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32",
         )
