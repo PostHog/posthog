@@ -2,6 +2,7 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -15,11 +16,17 @@ import type { inviteLogicType } from './inviteLogicType'
 export interface InviteRowState {
     target_email: string
     first_name: string
+    level: OrganizationMembershipLevel
     isValid: boolean
     message?: string
 }
 
-const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
+const EMPTY_INVITE: InviteRowState = {
+    target_email: '',
+    first_name: '',
+    level: OrganizationMembershipLevel.Member,
+    isValid: true,
+}
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
@@ -45,7 +52,7 @@ export const inviteLogic = kea<inviteLogicType>([
                         return { invites: [] }
                     }
 
-                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'message'>[] =
+                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'level' | 'message'>[] =
                         values.invitesToSend.filter((invite) => invite.target_email)
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,

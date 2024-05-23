@@ -286,10 +286,7 @@ class OrganizationMembership(UUIDModel):
                 raise exceptions.PermissionDenied("You can't change your own access level.")
             if new_level == OrganizationMembership.Level.OWNER:
                 if self.level != OrganizationMembership.Level.OWNER:
-                    raise exceptions.PermissionDenied(
-                        "You can only pass on organization ownership if you're its owner."
-                    )
-                self.level = OrganizationMembership.Level.ADMIN
+                    raise exceptions.PermissionDenied("You can only make another member owner if you're its owner.")
                 self.save()
             elif new_level > self.level:
                 raise exceptions.PermissionDenied(
@@ -326,6 +323,9 @@ class OrganizationInvite(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
+    level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=OrganizationMembership.Level.MEMBER, choices=OrganizationMembership.Level.choices
+    )
 
     def validate(
         self,
@@ -371,7 +371,7 @@ class OrganizationInvite(UUIDModel):
     def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
-        user.join(organization=self.organization)
+        user.join(organization=self.organization, level=self.level)
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 

@@ -1,14 +1,17 @@
 import './InviteModal.scss'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEmail, pluralize } from 'lib/utils'
+import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,10 +46,22 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = myMembershipLevel
+        ? organizationMembershipLevelIntegers.filter((listLevel) => listLevel <= myMembershipLevel)
+        : [OrganizationMembershipLevel.Member]
+
+    const allowedLevelsOptions = allowedLevels.map((level) => ({
+        label: OrganizationMembershipLevel[level],
+        value: level,
+    }))
 
     return (
         <div className="flex gap-2">
-            <div className="flex-1">
+            <div className="flex-2">
                 <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
@@ -97,10 +112,22 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                         }}
                     />
                 )}
-                {isDeletable && (
-                    <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
-                )}
             </div>
+            <div className="flex-1 flex gap-1 items-center justify-between">
+                <LemonSelect
+                    fullWidth
+                    data-attr="invite-row-org-member-level"
+                    options={allowedLevelsOptions}
+                    value={invitesToSend[index].level || allowedLevels[0]}
+                    onChange={(v) => {
+                        updateInviteAtIndex({ level: v }, index)
+                    }}
+                />
+            </div>
+
+            {isDeletable && (
+                <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+            )}
         </div>
     )
 }
@@ -124,8 +151,9 @@ export function InviteTeamMatesComponent(): JSX.Element {
             )}
             <div className="space-y-2">
                 <div className="flex gap-2">
-                    <b className="flex-1">Email address</b>
+                    <b className="flex-2">Email address</b>
                     <b className="flex-1">{preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}</b>
+                    <b className="flex-1">Level</b>
                 </div>
 
                 {invitesReversed.map((invite: OrganizationInviteType) => {
