@@ -178,11 +178,11 @@ export function PipelinePluginConfiguration({
 
                         {actionMatchingEnabled ? (
                             <div className="border bg-bg-light rounded p-3 space-y-2">
-                                <LemonField name="match_action" label="Filter by action">
+                                <LemonField name="match_action" label="Action filters">
                                     <LemonSelectAction allowClear disabled={loading} />
                                 </LemonField>
 
-                                <LemonField name="filters">
+                                <LemonField name="filters" label="Event filters">
                                     {({ value, onChange }) => (
                                         <ActionFilter
                                             bordered
