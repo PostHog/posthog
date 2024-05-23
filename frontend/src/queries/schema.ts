@@ -624,7 +624,7 @@ interface InsightVizNodeViewProps {
 
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase<any>> extends Node<R> {
-    /** Date range for the query */
+    /** Date range for the query @default {"date_from": "-7d"}*/
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
     filterTestAccounts?: boolean
@@ -1423,9 +1423,13 @@ export type HogQLExpression = string
 // Various utility types below
 
 export interface DateRange {
+    /** @default -7d */
     date_from?: string | null
     date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    /** Whether the date_from and date_to should be used verbatim. Disables
+     * rounding to the start and end of period.
+     * @default false
+     * */
     explicitDate?: boolean | null
 }
 

@@ -275,10 +275,10 @@ class DateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: Optional[str] = None
+    date_from: Optional[str] = "-7d"
     date_to: Optional[str] = None
     explicitDate: Optional[bool] = Field(
-        default=None,
+        default=False,
         description="Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
     )
 
@@ -3387,7 +3387,9 @@ class RetentionQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3425,7 +3427,9 @@ class StickinessQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3473,7 +3477,9 @@ class TrendsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3572,7 +3578,9 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3620,7 +3628,9 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3658,7 +3668,9 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3696,7 +3708,9 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3734,7 +3748,9 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3772,7 +3788,9 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3810,7 +3828,9 @@ class LifecycleQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )
@@ -3979,7 +3999,9 @@ class PathsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
+    dateRange: Optional[DateRange] = Field(
+        default_factory=lambda: DateRange.model_validate({"date_from": "-7d"}), description="Date range for the query"
+    )
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
     )

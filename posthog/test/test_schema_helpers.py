@@ -13,15 +13,32 @@ from posthog.schema import (
     FunnelLayout,
     StepOrderValue,
     BreakdownAttributionType,
+    TrendsQuery,
 )
 from posthog.schema_helpers import to_json
 
 
+base_trends: dict[str, Any] = {"series": []}
 base_funnel: dict[str, Any] = {"series": []}
 
 
 class TestSchemaHelpers(TestCase):
     maxDiff = None
+
+    @parameterized.expand(
+        [
+            ({}, {"date_from": "-7d", "explicitDate": False}, 0),
+        ]
+    )
+    def test_date_range(self, f1, f2, num_keys):
+        q1 = TrendsQuery(**base_funnel, dateRange=f1)
+        q2 = TrendsQuery(**base_funnel, dateRange=f2)
+
+        self.assertEqual(to_json(q1), to_json(q2))
+        if num_keys == 0:
+            self.assertEqual("dateRange" in json.loads(to_json(q1)), False)
+        else:
+            self.assertEqual(num_keys, len(json.loads(to_json(q1))["dateRange"].keys()))
 
     @parameterized.expand(
         [
@@ -96,7 +113,7 @@ class TestSchemaHelpers(TestCase):
             ({"layout": FunnelLayout.horizontal}, {"layout": FunnelLayout.horizontal}, 1),
         ]
     )
-    def test_clean_query_funnel_filter(self, f1, f2, num_keys):
+    def test_funnels_filter(self, f1, f2, num_keys):
         q1 = FunnelsQuery(**base_funnel, funnelsFilter=f1)
         q2 = FunnelsQuery(**base_funnel, funnelsFilter=f2)
 

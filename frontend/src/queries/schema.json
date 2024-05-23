@@ -2536,12 +2536,14 @@
             "additionalProperties": false,
             "properties": {
                 "date_from": {
+                    "default": "-7d",
                     "type": ["string", "null"]
                 },
                 "date_to": {
                     "type": ["string", "null"]
                 },
                 "explicitDate": {
+                    "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
                     "type": ["boolean", "null"]
                 }
@@ -3741,6 +3743,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4606,6 +4611,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4654,6 +4662,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4702,6 +4713,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4750,6 +4764,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4798,6 +4815,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -4886,6 +4906,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -5198,6 +5221,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -6890,6 +6916,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7286,6 +7315,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
@@ -7703,6 +7735,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
+                    "default": {
+                        "date_from": "-7d"
+                    },
                     "description": "Date range for the query"
                 },
                 "filterTestAccounts": {
