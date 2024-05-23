@@ -253,6 +253,8 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(optimizeJoinedFilters=OptimizeJoinedFilters.false),
         )
         # "ilike" shows up once in the response
+        assert response is not None
+        assert response.clickhouse is not None
         assert response.clickhouse.count("ilike") == 1
 
         # with optimizations
@@ -262,4 +264,6 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(optimizeJoinedFilters=OptimizeJoinedFilters.true),
         )
         # "ilike" shows up twice in the response
+        assert response is not None
+        assert response.clickhouse is not None
         assert response.clickhouse.count("ilike") == 2
