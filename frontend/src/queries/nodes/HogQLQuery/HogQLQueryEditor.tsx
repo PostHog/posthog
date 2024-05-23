@@ -148,10 +148,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     })
 
     return (
-        <div className="flex gap-2">
+        <div className="flex items-start gap-2">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex max-sm:hidden min-w-96" style={{ height: panelHeight }}>
+                <div className="flex max-sm:hidden" style={{ maxHeight: panelHeight }}>
                     <DatabaseTableTreeWithItems inline />
                 </div>
             </FlaggedFeature>

@@ -1,10 +1,11 @@
-import { IconBrackets, IconDatabase } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconBrackets, IconChevronDown, IconDatabase } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ViewLinkModal } from '../ViewLinkModal'
@@ -14,10 +15,8 @@ import { TableData } from './TableData'
 export const DataWarehouseTables = (): JSX.Element => {
     return (
         <>
-            <div className="flex gap-2 flex-wrap overflow-hidden">
-                <div className="flex-1 max-h-screen">
-                    <DatabaseTableTreeWithItems />
-                </div>
+            <div className="flex flex-wrap items-start gap-2 overflow-hidden">
+                <DatabaseTableTreeWithItems />
                 <div className="flex-3 min-w-80 overflow-hidden">
                     <TableData />
                 </div>
@@ -36,6 +35,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         useValues(dataWarehouseSceneLogic)
     const { selectRow } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const [collapsed, setCollapsed] = useState(false)
 
     const treeItems = (): TreeItem[] => {
         if (inline) {
@@ -136,8 +136,27 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     }
 
     return (
-        <div className={clsx(`bg-bg-light space-y-px rounded border p-2 overflow-y-auto flex-1 min-w-80`)}>
-            <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+        <div
+            className={clsx(
+                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto max-h-screen`,
+                !collapsed ? 'min-w-80 flex-1' : 'flex-0'
+            )}
+        >
+            {collapsed ? (
+                <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
+            ) : (
+                <>
+                    <LemonButton
+                        size="xsmall"
+                        onClick={() => setCollapsed(true)}
+                        fullWidth
+                        sideIcon={<IconChevronDown className="rotate-90 text-xl" />}
+                    >
+                        <span className="uppercase text-muted-alt tracking-wider">Schemas</span>
+                    </LemonButton>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>
+            )}
         </div>
     )
 }
