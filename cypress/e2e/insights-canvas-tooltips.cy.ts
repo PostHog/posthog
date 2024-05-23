@@ -14,9 +14,9 @@ describe('Insights', () => {
         cy.get('.LineGraph').should('exist')
         cy.get('.LineGraph canvas').trigger('mousemove')
         cy.get('.InsightTooltip .LemonTable').should('exist')
-        cy.get(
-            '.InsightTooltip .LemonTable .LemonTable__content .LemonTable__boundary .LemonTable__header-content >div>span'
-        ).should('not.be.empty')
+        cy.get('.InsightTooltip .LemonTable .LemonTable__content .LemonTable__boundary .LemonTable__header-content')
+            .invoke('text')
+            .should('match', /^.+/i)
     })
 
     it('Funnel historical graph tooltip it not empty', () => {
@@ -29,9 +29,9 @@ describe('Insights', () => {
         cy.get('.LineGraph').should('exist')
         cy.get('.LineGraph canvas').trigger('mousemove')
         cy.get('.InsightTooltip .LemonTable').should('exist')
-        cy.get(
-            '.InsightTooltip .LemonTable .LemonTable__content .LemonTable__boundary .LemonTable__header-content >div>span'
-        ).should('not.be.empty')
+        cy.get('.InsightTooltip .LemonTable .LemonTable__content .LemonTable__boundary')
+            .invoke('text')
+            .should('match', /^.+/i)
     })
 
     it('Stickiness graph tooltip it not empty', () => {
@@ -42,7 +42,7 @@ describe('Insights', () => {
         cy.get('.LineGraph canvas').trigger('mousemove')
         cy.get('.InsightTooltip .LemonTable').should('exist')
         cy.get('.InsightTooltip .LemonTable .LemonTable__content .LemonTable__boundary .LemonTable__header-content')
-            .contains(/^\d+\s+days?(.*)$/i)
-            .should('exist')
+            .invoke('text')
+            .should('match', /^\d+\s+days?(.*)$/i)
     })
 })
