@@ -210,10 +210,10 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             OrganizationMembership.objects.filter(
                 organization=self.organization, level=OrganizationMembership.Level.OWNER
             ).count(),
-            1,
+            2,
         )
 
-    def test_pass_ownership_only_if_owner(self):
+    def test_add_owner_only_if_owner(self):
         user = User.objects.create_user("test@x.com", None, "X")
         membership: OrganizationMembership = OrganizationMembership.objects.create(
             user=user, organization=self.organization
