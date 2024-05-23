@@ -452,8 +452,26 @@ async function filterPluginMethodsForActionMatches<T>(
             }
 
             if (pluginConfig.filters) {
-                const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters.events)
-                matches.push(matchedFilters)
+                try {
+                    const matchedFilters = hub.actionMatcher.checkFilters(event, pluginConfig.filters.events)
+                    matches.push(matchedFilters)
+                } catch (error) {
+                    // We consider an exception to be bad enough to drop the event (we should also log it as a processing error)
+
+                    await hub.appMetrics.queueError(
+                        {
+                            teamId: event.teamId,
+                            pluginConfigId: pluginConfig.id,
+                            category: 'composeWebhook',
+                            failures: 1,
+                        },
+                        {
+                            error: `Error occurred when processing filters: ${error}`,
+                            event,
+                        }
+                    )
+                    return
+                }
             }
 
             // If we have any matches then we should return if all are false
