@@ -772,6 +772,13 @@ export type AnyPropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 
+/** Any filter type supported by `property_to_expr(scope="person", ...)`. */
+export type AnyPersonScopeFilter =
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | HogQLPropertyFilter
+    | EmptyPropertyFilter
+
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
 export type SessionRecordingId = SessionRecordingType['id']

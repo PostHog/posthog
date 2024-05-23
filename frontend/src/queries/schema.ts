@@ -1,4 +1,5 @@
 import {
+    AnyPersonScopeFilter,
     AnyPropertyFilter,
     BaseMathType,
     Breakdown,
@@ -13,7 +14,6 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
-    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntervalType,
@@ -990,10 +990,10 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
-    /** Currently only person filters supported (including via HogQL). see `filter_conditions()` in actor_strategies.py. */
-    properties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
-    /** Currently only person filters supported (including via HogQL), See `filter_conditions()` in actor_strategies.py. */
-    fixedProperties?: (PersonPropertyFilter | HogQLPropertyFilter)[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    properties?: AnyPersonScopeFilter[]
+    /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+    fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
     limit?: integer
     offset?: integer
