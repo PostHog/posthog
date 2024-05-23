@@ -42,6 +42,7 @@ export const inviteLogic = kea<inviteLogicType>([
         updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
         resetInviteRows: true,
+        setIsInviteConfirmed: (inviteConfirmed: boolean) => ({ inviteConfirmed }),
     }),
     loaders(({ values }) => ({
         invitedTeamMembersInternal: [
@@ -115,13 +116,30 @@ export const inviteLogic = kea<inviteLogicType>([
                 updateMessage: (_, { message }) => message,
             },
         ],
+        isInviteConfirmed: [
+            false,
+            {
+                setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
+            },
+        ],
     })),
     selectors({
-        canSubmit: [
+        inviteContainsOwnerLevel: [
             (selectors) => [selectors.invitesToSend],
-            (invites: InviteRowState[]) =>
-                invites.filter(({ target_email }) => !!target_email).length > 0 &&
-                invites.filter(({ isValid }) => !isValid).length == 0,
+            (invites: InviteRowState[]) => {
+                return invites.filter(({ level }) => level === OrganizationMembershipLevel.Owner).length > 0
+            },
+        ],
+        canSubmit: [
+            (selectors) => [selectors.invitesToSend, selectors.inviteContainsOwnerLevel, selectors.isInviteConfirmed],
+            (invites: InviteRowState[], inviteContainsOwnerLevel: boolean, isInviteConfirmed: boolean) => {
+                const ownerLevelConfirmed = inviteContainsOwnerLevel ? isInviteConfirmed : true
+                return (
+                    invites.filter(({ target_email }) => !!target_email).length > 0 &&
+                    invites.filter(({ isValid }) => !isValid).length == 0 &&
+                    ownerLevelConfirmed
+                )
+            },
         ],
     }),
     listeners(({ values, actions }) => ({

@@ -55,8 +55,8 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
         : [OrganizationMembershipLevel.Member]
 
     const allowedLevelsOptions = allowedLevels.map((level) => ({
-        label: OrganizationMembershipLevel[level],
         value: level,
+        label: OrganizationMembershipLevel[level],
     }))
 
     return (
@@ -134,8 +134,8 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
 
 export function InviteTeamMatesComponent(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, invites } = useValues(inviteLogic)
-    const { appendInviteRow, deleteInvite, updateMessage } = useActions(inviteLogic)
+    const { invitesToSend, invites, inviteContainsOwnerLevel } = useValues(inviteLogic)
+    const { appendInviteRow, deleteInvite, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
 
     const invitesReversed = invites.slice().reverse()
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
@@ -236,6 +236,24 @@ export function InviteTeamMatesComponent(): JSX.Element {
                         data-attr="invite-optional-message"
                         placeholder="Tell your teammates why you're inviting them to PostHog"
                         onChange={(e) => updateMessage(e)}
+                    />
+                </div>
+            )}
+
+            {inviteContainsOwnerLevel && (
+                <div className="mt-4">
+                    <b>Confirm owner-level invites</b>
+
+                    <div className="mb-2">
+                        At least one invite is for an owner level member. Please type <strong>send invites</strong> to
+                        confirm that you wish to send these invites.
+                    </div>
+                    <LemonInput
+                        type="text"
+                        placeholder="send invites"
+                        onChange={(value) => {
+                            setIsInviteConfirmed(value.toLowerCase() === 'send invites')
+                        }}
                     />
                 </div>
             )}
