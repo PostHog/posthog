@@ -519,6 +519,9 @@ def serialize_database(
     return tables
 
 
+HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+
+
 def serialize_fields(
     field_input, context: HogQLContext, db_columns: Optional[DataWarehouseTableColumns] = None
 ) -> list[DatabaseSchemaField]:
@@ -539,6 +542,11 @@ def serialize_fields(
             # We redefine fields on some sourced tables, causing the "hogql" and "clickhouse" field names to be intentionally out of sync
             schema_valid = True
 
+        if any(n in field_key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED):
+            hogql_value = f"`{field_key}`"
+        else:
+            hogql_value = str(field_key)
+
         if field_key == "team_id":
             pass
         elif isinstance(field, DatabaseField):
@@ -548,55 +556,82 @@ def serialize_fields(
             if isinstance(field, IntegerDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.integer, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.integer,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, FloatDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.float, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.float,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, StringDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.string, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.string,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, DateTimeDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.datetime, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.datetime,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, DateDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.date, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.date,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, BooleanDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.boolean, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.boolean,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, StringJSONDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.json, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.json,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, StringArrayDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.array, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.array,
+                        schema_valid=schema_valid,
                     )
                 )
             elif isinstance(field, ExpressionField):
                 field_output.append(
                     DatabaseSchemaField(
-                        name=field_key, type=DatabaseSerializedFieldType.expression, schema_valid=schema_valid
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.expression,
+                        schema_valid=schema_valid,
                     )
                 )
         elif isinstance(field, LazyJoin):
@@ -604,6 +639,7 @@ def serialize_fields(
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
+                    hogql_value=hogql_value,
                     type=DatabaseSerializedFieldType.view if is_view else DatabaseSerializedFieldType.lazy_table,
                     schema_valid=schema_valid,
                     table=field.resolve_table(context).to_printed_hogql(),
@@ -614,6 +650,7 @@ def serialize_fields(
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
+                    hogql_value=hogql_value,
                     type=DatabaseSerializedFieldType.virtual_table,
                     schema_valid=schema_valid,
                     table=field.to_printed_hogql(),
@@ -624,6 +661,7 @@ def serialize_fields(
             field_output.append(
                 DatabaseSchemaField(
                     name=field_key,
+                    hogql_value=hogql_value,
                     type=DatabaseSerializedFieldType.field_traverser,
                     schema_valid=schema_valid,
                     chain=field.chain,

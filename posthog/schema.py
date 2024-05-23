@@ -1726,6 +1726,7 @@ class DatabaseSchemaField(BaseModel):
     )
     chain: Optional[list[Union[str, int]]] = None
     fields: Optional[list[str]] = None
+    hogql_value: str
     name: str
     schema_valid: bool
     table: Optional[str] = None

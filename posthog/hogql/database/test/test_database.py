@@ -110,6 +110,31 @@ class TestDatabase(BaseTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_serialize_database_warehouse_table_s3_with_hyphens(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+            },
+        )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+
+        field = table.fields.get("id-hype")
+        assert field is not None
+        assert field.name == "id-hype"
+        assert field.hogql_value == "`id-hype`"
+
     def test_serialize_database_warehouse_table_source(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -163,6 +188,7 @@ class TestDatabase(BaseTest):
         field = table.fields.get("id")
         assert field is not None
         assert field.name == "id"
+        assert field.hogql_value == "id"
         assert field.type == "string"
         assert field.schema_valid is True
 
