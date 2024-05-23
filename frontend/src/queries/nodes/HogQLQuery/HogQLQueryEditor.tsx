@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -111,6 +112,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const artificialHogHeight = featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] ? 40 : 0
     const [panelHeight, setPanelHeight] = useState<number>(TABLE_PANEL_HEIGHT + artificialHogHeight)
+    const [panelHidden, setPanelHidden] = useState(false)
 
     const [key] = useState(() => uniqueNode++)
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -151,13 +153,25 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2 flex flex-row">
             <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex pt-2 max-sm:hidden min-w-96 mr-2" style={{ height: panelHeight }}>
-                    <DatabaseTableTreeWithItems inline />
+                <div
+                    className={clsx('flex flex-col space-y-2 pt-2 max-sm:hidden mr-2 min-w-84')}
+                    style={{ height: panelHeight }}
+                >
+                    <div className="flex flex-row justify-between items-center">
+                        <span className={clsx('card-secondary', panelHidden ? 'hidden' : '')}>Schemas</span>
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={() => setPanelHidden(!panelHidden)}
+                            icon={panelHidden ? <IconChevronRight /> : <IconChevronLeft />}
+                        />
+                    </div>
+                    <DatabaseTableTreeWithItems className={clsx(panelHidden ? 'hidden' : '')} inline />
                 </div>
             </FlaggedFeature>
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
+                className={clsx('flex flex-col rounded space-y-2 w-full mr-1', !props.embedded && 'p-2 border')}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">

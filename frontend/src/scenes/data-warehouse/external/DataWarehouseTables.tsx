@@ -26,9 +26,10 @@ export const DataWarehouseTables = (): JSX.Element => {
 
 interface DatabaseTableTreeProps {
     inline?: boolean
+    className?: string
 }
 
-export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
+export const DatabaseTableTreeWithItems = ({ inline, className }: DatabaseTableTreeProps): JSX.Element => {
     const { dataWarehouseTablesBySourceType, posthogTables, databaseLoading, views, selectedRow } =
         useValues(dataWarehouseSceneLogic)
     const { selectRow } = useActions(dataWarehouseSceneLogic)
@@ -132,5 +133,12 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
         return items
     }
 
-    return <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+    return (
+        <DatabaseTableTree
+            className={className}
+            onSelectRow={selectRow}
+            items={treeItems()}
+            selectedRow={selectedRow}
+        />
+    )
 }
