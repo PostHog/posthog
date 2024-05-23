@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from posthog.clickhouse.kafka_engine import kafka_engine
-from posthog.clickhouse.table_engines import AggregatingMergeTree, ReplacingMergeTree
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
+from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 
@@ -39,23 +38,6 @@ class PartitionStatsKafkaTable:
         """
 
 
-EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
-    `timestamp` DateTime64,
-    `_topic` String,
-    `_partition` String,
-    `api_key` String,
-    `event` String,
-    `distinct_id` String,
-    `messages` AggregateFunction(count, UInt64),
-    `data_size` AggregateFunction(sum, UInt64)
-)
-ENGINE = {AggregatingMergeTree("events_plugin_ingestion_partition_statistics")}
-ORDER BY (`_topic`, `_partition`, `timestamp`, `api_key`, `distinct_id`)
-"""
-)
-
 CREATE_PARTITION_STATISTICS_MV = (
     lambda monitored_topic: f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.{monitored_topic}_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
@@ -79,8 +61,6 @@ GROUP BY
     `distinct_id`
 """
 )
-
-CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = CREATE_PARTITION_STATISTICS_MV(KAFKA_EVENTS_PLUGIN_INGESTION)
 
 # V2
 
