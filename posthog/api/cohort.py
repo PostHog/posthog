@@ -385,7 +385,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     actor["email"] = actor["properties"]["email"]  # type: ignore
                     del actor["properties"]["email"]
             serialized_actors = [
-                {
+                {  # type: ignore
                     k: v
                     for k, v in sorted(
                         actor.items(),
@@ -393,7 +393,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     )
                     if k not in DELETE_KEYS
                 }
-                for actor in serialized_actors  # type: ignore
+                for actor in serialized_actors
             ]
 
         # TEMPORARY: Work out usage patterns of this endpoint
